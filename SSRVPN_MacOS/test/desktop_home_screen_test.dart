@@ -93,6 +93,62 @@ void main() {
 
   tearDown(SubscriptionService.resetInstanceForTesting);
 
+  testWidgets('exit IP retries a transient failure without reconnecting',
+      (tester) async {
+    final fixture = (await tester
+        .runAsync(() => _HomeFixture.create(withNodes: true, running: true)))!;
+    addTearDown(fixture.dispose);
+    fixture.clash.publicIpFailures = 1;
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(fixture.clash.publicIpCalls, 1);
+    expect(find.text('获取失败'), findsNothing);
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump();
+    expect(fixture.clash.publicIpCalls, 2);
+    expect(find.textContaining('203.0.113.7'), findsWidgets);
+    expect(fixture.clash.startCalls, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('exit IP retry is cancelled on disconnect', (tester) async {
+    final fixture = (await tester
+        .runAsync(() => _HomeFixture.create(withNodes: true, running: true)))!;
+    addTearDown(fixture.dispose);
+    fixture.clash.publicIpFailures = 99;
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(fixture.clash.publicIpCalls, 1);
+    fixture.clash.publishRunning(false);
+    await tester.pump(const Duration(seconds: 3));
+    expect(fixture.clash.publicIpCalls, 1);
+    expect(find.text('IP 暂未查到，点击重试'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('exit IP stops retrying after two failed attempts',
+      (tester) async {
+    final fixture = (await tester
+        .runAsync(() => _HomeFixture.create(withNodes: true, running: true)))!;
+    addTearDown(fixture.dispose);
+    fixture.clash.publicIpFailures = 99;
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump();
+    expect(fixture.clash.publicIpCalls, 2);
+    expect(find.text('IP 暂未查到，点击重试'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 10));
+    expect(fixture.clash.publicIpCalls, 2);
+    expect(fixture.clash.isRunning, isTrue);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('unrelated subscription changes keep the active node connected',
       (tester) async {
     final fixture = (await tester
@@ -2235,8 +2291,15 @@ class _FakeClashService extends ClashService {
     return null;
   }
 
+  int publicIpCalls = 0;
+  int publicIpFailures = 0;
+
   @override
   Future<PublicIpInfo> fetchCurrentPublicIpInfo() async {
+    publicIpCalls++;
+    if (publicIpCalls <= publicIpFailures) {
+      throw const SocketException('Synthetic temporary failure');
+    }
     return const PublicIpInfo(ip: '203.0.113.7', countryCode: 'JP');
   }
 }

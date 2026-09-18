@@ -190,12 +190,31 @@ begin
   Result := IsLowerHexString(VariantNonce, 32);
 end;
 
+function WinSetEnvironmentVariable(Name, Value: String): Boolean;
+  external 'SetEnvironmentVariableW@kernel32.dll stdcall';
+
+function InitializePowerShellEnvironment(): Boolean;
+begin
+  { Scope is this installer and its children only. Do not inherit PowerShell 7
+    or caller-specific module paths into our fixed Windows PowerShell 5.1. }
+  Result := WinSetEnvironmentVariable('PSModulePath',
+    ExpandConstant('{sys}\WindowsPowerShell\v1.0\Modules'));
+  if not Result then
+  begin
+    Log('SSRVPN could not initialize the Windows PowerShell module path.');
+    MsgBox('无法准备安装所需的 Windows 组件，尚未修改程序文件。请重试。',
+      mbError, MB_OK);
+  end;
+end;
+
 function InitializeSetup(): Boolean;
 var
   HandoffEvent: THandle;
   RequestPath: String;
   Token: AnsiString;
 begin
+  Result := InitializePowerShellEnvironment();
+  if not Result then exit;
   VerifiedUpdateActualInstallerName :=
     ExtractFileName(ExpandConstant('{srcexe}'));
   VerifiedUpdateMarkerPath :=
@@ -826,6 +845,8 @@ function InitializeUninstall(): Boolean;
 var
   StopResult: Integer;
 begin
+  Result := InitializePowerShellEnvironment();
+  if not Result then exit;
   if not HoldInstallGateHandles then
   begin
     MsgBox('无法建立 SSRVPN 卸载期进程保护，卸载尚未删除程序文件。' + #13#10 +

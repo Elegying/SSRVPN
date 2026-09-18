@@ -1,10 +1,16 @@
 # SSRVPN 项目健康与发布状态
 
-最近更新：2026-09-17
+最近更新：2026-09-18
 
-当前应用版本：`v5.0.11`
+当前应用版本：`v5.0.12`
 
 最新正式版本：[GitHub Releases 当前正式版](https://github.com/Elegying/SSRVPN/releases/latest)
+
+## v5.0.12 双栈启动与验收修复
+
+本版修复桌面端首次 IP 查询、TUN 提交顺序及物理出口地址族选择；账号统计失败保留占位并记录脱敏原因，Windows 安装器隔离继承的 PowerShell 模块路径。公开状态仍以 Releases 为准。
+Windows 用户报告覆盖首次查询、两次重连、TUN/系统代理切换、断开恢复及抖音 IPv6 DIRECT；IPv4-only 物理网络、抖音 UDP/QUIC 和真实代理 IPv6 出口没有新增实机通过证据。
+详见 [Windows 用户验收](uat/SSRVPN_Windows_双栈启动用户验收_20260918.md)。
 
 ## v5.0.11 发布流程优化
 

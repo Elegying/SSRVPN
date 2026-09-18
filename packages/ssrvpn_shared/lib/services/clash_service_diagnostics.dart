@@ -299,7 +299,8 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
         id: 'ipv6_targets',
         title: 'IPv6 目标访问',
         status: AppDiagnosticStatus.warning,
-        summary: '最近一分钟曾有 IPv6 目标连接失败，当前网络或节点可能无法到达该地址；可换节点重试，这不代表其他网站无法使用。',
+        summary:
+            '最近一分钟曾有 IPv6 目标连接失败；直连目标请检查本机 IPv6 网络，代理目标可尝试其他节点。这不代表其他网站无法使用。',
       ));
     }
 

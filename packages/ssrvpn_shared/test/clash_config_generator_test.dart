@@ -183,7 +183,7 @@ proxies:
       final rules = (parsed['rules'] as YamlList).cast<String>();
       expect(parsed['ipv6'], isTrue);
       expect(dns['ipv6'], isTrue);
-      expect(dns.containsKey('fake-ip-range6'), isFalse);
+      expect(dns['fake-ip-range6'], AppConstants.fakeIpRange6);
       expect(rules, isNot(contains('IP-CIDR6,::/0,REJECT,no-resolve')));
       expect(rules.last, 'MATCH,PROXY');
       expect(rules, isNot(contains('MATCH,DIRECT')));
@@ -492,7 +492,7 @@ proxies:
       },
     );
 
-    test('generic TUN captures IPv6 only to reject it without bypass', () {
+    test('generic TUN captures IPv6 for domain recovery and normal rules', () {
       const yaml = '''
 proxies:
   - name: Test Node
@@ -517,7 +517,7 @@ proxies:
 
       expect(tun['inet6-address'], isNotEmpty);
       expect(dns['ipv6'], isTrue);
-      expect(dns.containsKey('fake-ip-range6'), isFalse);
+      expect(dns['fake-ip-range6'], AppConstants.fakeIpRange6);
       expect(excludedRoutes, isNot(anyElement(contains(':'))));
       expect(rules, isNot(contains('IP-CIDR6,::/0,REJECT,no-resolve')));
       expect((parsed['proxies'] as YamlList).single['server'], '2001:db8::10');
@@ -939,6 +939,7 @@ proxies:
         [
           'https://1.1.1.1/dns-query#PROXY',
           'https://8.8.8.8/dns-query#PROXY',
+          'https://[2606:4700:4700::1111]/dns-query#PROXY',
         ],
       );
       expect(
@@ -953,6 +954,7 @@ proxies:
         [
           'https://1.1.1.1/dns-query#PROXY',
           'https://8.8.8.8/dns-query#PROXY',
+          'https://[2606:4700:4700::1111]/dns-query#PROXY',
         ],
       );
       expect(

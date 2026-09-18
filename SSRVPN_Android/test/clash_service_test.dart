@@ -1203,7 +1203,7 @@ void main() {
       expect(parsed['ipv6'], isTrue);
       expect(parsed['tcp-concurrent'], isTrue);
       expect(parsed['dns']['ipv6'], isTrue);
-      expect(parsed['dns'].containsKey('fake-ip-range6'), isFalse);
+      expect(parsed['dns']['fake-ip-range6'], 'fdfe:dcba:9877::/64');
       expect(parsed['tun']['inet6-address'], isNotEmpty);
       expect(
         (parsed['rules'] as YamlList),

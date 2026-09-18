@@ -64,3 +64,29 @@ internal fun MihomoApiReadiness.startupFailure(): MihomoApiStartupFailure = when
     )
     MihomoApiReadiness.READY -> error("Ready API does not have a startup failure")
 }
+
+/** Prepares services without a VPN lease; the caller retains capture ownership. */
+internal fun prepareMihomoForVpn(
+    apiPort: Int, apiSecret: String, deadlineNanos: Long,
+    prepareBridge: () -> String?, ensureCurrent: () -> Unit, selectNode: () -> Unit,
+    waiter: MihomoApiWaiter = MihomoApiWaiter(MihomoApiHealthProbe::preparationReadiness)
+): MihomoApiStartupFailure? {
+    ensureCurrent()
+    val error = prepareBridge()
+    ensureCurrent()
+    if (error == null || error.isNotEmpty()) return MihomoApiStartupFailure(
+        "连接服务准备失败，请重新连接",
+        if (error == null) NativeCoreStartFailureCategory.TIMEOUT else NativeCoreStartFailureCategory.COMPONENT)
+    val ready = waiter.waitUntilReady(apiPort, apiSecret, deadlineNanos,
+        VpnStartBudget.API_POLL_MS, ensureCurrent)
+    if (ready != MihomoApiReadiness.READY) return ready.startupFailure()
+    ensureCurrent()
+    selectNode()
+    ensureCurrent()
+    requireVpnStartupBudget(deadlineNanos)
+    return null
+}
+
+internal fun requireVpnStartupBudget(deadlineNanos: Long) {
+    if (System.nanoTime() >= deadlineNanos) throw java.util.concurrent.TimeoutException("VPN startup deadline")
+}

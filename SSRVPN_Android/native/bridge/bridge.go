@@ -32,6 +32,8 @@ import (
 var (
 	coreMu               sync.Mutex
 	running              bool
+	preparedTun          *LC.Tun
+	preparedConfigPath   string
 	protectRead          *os.File
 	protectWrite         *os.File
 	protectSessionMu     sync.Mutex
@@ -221,12 +223,27 @@ func Start(configPath string, tunFd int64) (result string) {
 			log.Errorln("Bridge: recovered from panic: %v", recovered)
 		}
 		if result != "" && !running {
+			preparedTun, preparedConfigPath = nil, ""
 			releaseProtectLocked()
 		}
 	}()
 
 	if running {
-		return "already running"
+		if tunFd <= 0 || preparedTun == nil || preparedConfigPath != configPath {
+			return "already running"
+		}
+		if !protectReadyForStart(tunFd) {
+			return "protect monitor is unavailable"
+		}
+		tunConfig := *preparedTun
+		preparedTun, preparedConfigPath = nil, ""
+		tunConfig.Enable = true
+		tunConfig.FileDescriptor = int(tunFd)
+		listener.ReCreateTun(tunConfig, tunnel.Tunnel)
+		if !listener.GetTunConf().Enable {
+			return "tun commit failed"
+		}
+		return ""
 	}
 
 	log.Infoln("Bridge: reading config %s", configPath)
@@ -250,7 +267,7 @@ func Start(configPath string, tunFd int64) (result string) {
 		log.Infoln("Bridge: set external-controller to 127.0.0.1:9090")
 	}
 
-	if tunFd > 0 {
+	if tunFd != 0 {
 		cfg.General.Tun.Enable = true
 		cfg.General.Tun.Stack = C.TunGvisor
 		cfg.General.Tun.FileDescriptor = int(tunFd)
@@ -273,6 +290,14 @@ func Start(configPath string, tunFd int64) (result string) {
 		log.Infoln("Bridge: protect hook installed (sync)")
 	}
 
+	// -1 prepares the same core without creating a TUN. Kotlin commits a
+	// positive descriptor only after API, providers and node selection are ready.
+	if tunFd == -1 {
+		tunConfig := cfg.General.Tun
+		preparedTun, preparedConfigPath = &tunConfig, configPath
+		cfg.General.Tun.Enable = false
+		cfg.General.Tun.FileDescriptor = 0
+	}
 	statistic.BeginProxyTrafficSession()
 	hub.ApplyConfig(cfg)
 	running = true
@@ -291,6 +316,7 @@ func Stop() {
 	defer coreMu.Unlock()
 
 	releaseProtectLocked()
+	preparedTun, preparedConfigPath = nil, ""
 	if running {
 		listener.ReCreateMixed(0, nil)
 		listener.ReCreateSocks(0, nil)

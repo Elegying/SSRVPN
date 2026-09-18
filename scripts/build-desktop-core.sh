@@ -32,7 +32,7 @@ git -C "$BUILD_ROOT/core" checkout --quiet "$SOURCE_COMMIT"
 python3 "$ROOT/scripts/core-traffic-source.py" apply "$PLATFORM" "$BUILD_ROOT/core"
 cd "$BUILD_ROOT/core"
 "$GO_BIN" test -p 2 -tags=with_gvisor ./tunnel/statistic ./adapter/outbound ./hub/route
-"$GO_BIN" test -p 2 -tags=with_gvisor -run TestSSRVPN ./component/resolver ./config ./tunnel
+"$GO_BIN" test -p 2 -tags=with_gvisor -run TestSSRVPN ./component/resolver ./dns ./config ./tunnel ./hub/executor
 TARGET_OS=darwin
 TARGET_ARCH=arm64
 if [[ "$PLATFORM" == windows ]]; then

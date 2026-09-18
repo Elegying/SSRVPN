@@ -242,6 +242,8 @@ class HomeScreenState extends State<HomeScreen>
       backgroundColor: Colors.transparent,
       body: SsrvpnHomeOverview(
         bottomContent: SsrvpnHomeStatistics(
+          onDiagnostic: (message) =>
+              context.read<ClashService>().log(message, event: 'account_usage'),
           node: displayNode,
           revision: _nodes,
           active: widget.active,

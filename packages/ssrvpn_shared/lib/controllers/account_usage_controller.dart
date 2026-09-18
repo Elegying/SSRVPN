@@ -11,13 +11,16 @@ class AccountUsageController extends ChangeNotifier {
       {AccountUsageProviders? providers,
       Future<AccountUsage> Function(UsageIdentity)? fetch,
       Duration Function()? elapsed,
-      DateTime Function()? wallNow})
+      DateTime Function()? wallNow,
+      this.onDiagnostic})
       : _providers = providers ?? AccountUsageProviders.configured,
         _fetch = fetch ?? const AccountUsageClient().fetch {
     final clock = Stopwatch()..start();
     _now = elapsed ?? (() => clock.elapsed);
     _wallNow = wallNow ?? DateTime.now;
   }
+  final void Function(String)? onDiagnostic;
+  UsageQueryFailure? _failure;
   final AccountUsageProviders _providers;
   final Future<AccountUsage> Function(UsageIdentity) _fetch;
   late final Duration Function() _now;
@@ -35,6 +38,10 @@ class AccountUsageController extends ChangeNotifier {
 
   AccountUsage? get value => _now() < _expires ? _value : null;
 
+  String? get statusMessage => _identity == null || value != null
+      ? null
+      : _failure?.userMessage ?? '正在查询账号统计';
+
   void update(
       {required ProxyNode? node,
       required Object? revision,
@@ -47,6 +54,7 @@ class AccountUsageController extends ChangeNotifier {
       _identity = next;
       _revision = revision;
       _lastServerTime = null;
+      _failure = null;
       _failures = 0;
       _retryAt = Duration.zero;
       _clear();
@@ -118,6 +126,8 @@ class AccountUsageController extends ChangeNotifier {
           (_lastServerTime != null && result.serverTime <= _lastServerTime!)) {
         throw const UsageQueryFailure();
       }
+      if (_failure != null) onDiagnostic?.call('账号统计已恢复');
+      _failure = null;
       _lastServerTime = result.serverTime;
       _value = result;
       _expires = _now() + lifetime;
@@ -127,6 +137,12 @@ class AccountUsageController extends ChangeNotifier {
       notifyListeners();
     } catch (error) {
       if (_disposed || epoch != _epoch) return;
+      final failure =
+          error is UsageQueryFailure ? error : const UsageQueryFailure();
+      if (_failure?.kind != failure.kind) {
+        onDiagnostic?.call(failure.userMessage);
+      }
+      _failure = failure;
       _clear();
       _failures = (_failures + 1).clamp(1, 5);
       delay = Duration(seconds: 15 * (1 << (_failures - 1)));

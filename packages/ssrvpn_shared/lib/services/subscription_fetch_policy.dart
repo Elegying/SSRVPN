@@ -282,7 +282,7 @@ class SubscriptionFetchPolicy {
     return _isUnspecified(address) ||
         address.isLinkLocal ||
         address.isMulticast ||
-        _isFakeIp(address);
+        isFakeIp(address);
   }
 
   static bool _isPublicDomainAddress(InternetAddress address) {
@@ -368,8 +368,16 @@ class SubscriptionFetchPolicy {
     return address.rawAddress.every((byte) => byte == 0);
   }
 
-  static bool _isFakeIp(InternetAddress address) {
+  static final _fakeIpv6Prefix =
+      InternetAddress(AppConstants.fakeIpV6Address).rawAddress;
+
+  /// Identifies synthetic destinations, never an exemption from address checks.
+  /// Only our exact IPv6 pool is recognized; other ULA answers remain rejected.
+  static bool isFakeIp(InternetAddress address) {
     final bytes = address.rawAddress;
+    if (address.type == InternetAddressType.IPv6) {
+      return _hasIpv6Prefix(bytes, _fakeIpv6Prefix, 64);
+    }
     return address.type == InternetAddressType.IPv4 &&
         bytes.length == 4 &&
         bytes[0] == 198 &&

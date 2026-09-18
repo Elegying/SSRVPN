@@ -4,8 +4,28 @@ import 'dart:io';
 import '../models/account_usage.dart';
 import 'account_usage_provider.dart';
 
+enum UsageFailureKind {
+  timeout,
+  network,
+  certificate,
+  rejected,
+  invalidResponse,
+  unavailable
+}
+
 class UsageQueryFailure implements Exception {
-  const UsageQueryFailure([this.retryAfter]);
+  const UsageQueryFailure([this.retryAfter])
+      : kind = UsageFailureKind.unavailable;
+  const UsageQueryFailure.reason(this.kind, {this.retryAfter});
+  final UsageFailureKind kind;
+  String get userMessage => switch (kind) {
+        UsageFailureKind.timeout => '统计服务响应较慢，将自动重试',
+        UsageFailureKind.network => '暂时连不上统计服务，将自动重试',
+        UsageFailureKind.certificate => '无法确认统计服务身份，请稍后重试',
+        UsageFailureKind.rejected => '统计服务暂未提供数据，将自动重试',
+        UsageFailureKind.invalidResponse => '统计数据暂不可用，将自动重试',
+        UsageFailureKind.unavailable => '账号统计暂未更新，将自动重试',
+      };
   final Duration? retryAfter;
 }
 
@@ -32,6 +52,14 @@ class AccountUsageClient {
       return await _read(client, identity).timeout(timeout);
     } on UsageQueryFailure {
       rethrow;
+    } on TimeoutException {
+      throw const UsageQueryFailure.reason(UsageFailureKind.timeout);
+    } on TlsException {
+      throw const UsageQueryFailure.reason(UsageFailureKind.certificate);
+    } on SocketException {
+      throw const UsageQueryFailure.reason(UsageFailureKind.network);
+    } on FormatException {
+      throw const UsageQueryFailure.reason(UsageFailureKind.invalidResponse);
     } catch (_) {
       throw const UsageQueryFailure();
     } finally {
@@ -49,7 +77,8 @@ class AccountUsageClient {
     request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache, no-store');
     final response = await request.close();
     if (response.statusCode != 200) {
-      throw UsageQueryFailure(_retryAfter(response));
+      throw UsageQueryFailure.reason(UsageFailureKind.rejected,
+          retryAfter: _retryAfter(response));
     }
     // Do not consume a cache replay or unbounded response. TLS validation stays default.
     final age = response.headers.value('age');

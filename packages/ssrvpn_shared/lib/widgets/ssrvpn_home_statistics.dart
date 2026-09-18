@@ -15,7 +15,9 @@ class SsrvpnHomeStatistics extends StatefulWidget {
       required this.revision,
       required this.readSample,
       this.controller,
+      this.onDiagnostic,
       this.localProxyPort});
+  final void Function(String)? onDiagnostic;
   final bool active, connected;
   final ProxyNode? node;
   final Object? revision;
@@ -34,6 +36,7 @@ class _StatisticsState extends State<SsrvpnHomeStatistics>
     super.initState();
     _account = widget.controller ??
         AccountUsageController(
+            onDiagnostic: (message) => widget.onDiagnostic?.call(message),
             fetch: AccountUsageClient(
                 localProxyPort: () => widget.localProxyPort?.call()).fetch);
     WidgetsBinding.instance.addObserver(this);
@@ -75,6 +78,7 @@ class _StatisticsState extends State<SsrvpnHomeStatistics>
             active: widget.active,
             connected: widget.connected,
             readSample: widget.readSample,
-            accountUsage: _account.value),
+            accountUsage: _account.value,
+            accountStatus: _account.statusMessage),
       );
 }

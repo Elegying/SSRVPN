@@ -6,6 +6,8 @@ final Object _dataPlaneObservationEpochZoneKey = Object();
 /// process, service and runtime-configuration lifecycle.
 mixin _ClashDataPlaneSupport {
   int _dataPlaneObservationEpoch = 0;
+  final Stopwatch _dataPlaneObservationClock = Stopwatch()..start();
+  Duration _dataPlaneObservationNotBefore = Duration.zero;
   int? _activeDataPlaneObservationEpoch;
   int? _coalescedDataPlaneObservationEpoch;
   String? _dataPlaneConnectivityWarning;
@@ -26,7 +28,8 @@ mixin _ClashDataPlaneSupport {
   String userConnectivityProxyConfig() =>
       settings.enableTun ? 'DIRECT' : _localHttpProxyConfig();
   @protected
-  Duration get dataPlaneObservationTimeout => const Duration(seconds: 30);
+  // Two rounds of three bounded requests, including startup delay and gaps.
+  Duration get dataPlaneObservationTimeout => const Duration(seconds: 60);
 
   @protected
   Future<http.StreamedResponse> startUserConnectivityRequest(
@@ -103,6 +106,7 @@ mixin _ClashDataPlaneSupport {
   }
 
   void _resetDataPlaneObservationSession() {
+    _dataPlaneObservationNotBefore = Duration.zero;
     _dataPlaneObservationEpoch++;
     _coalescedDataPlaneObservationEpoch = null;
     onDataPlaneObservationSessionReset();
@@ -111,9 +115,19 @@ mixin _ClashDataPlaneSupport {
   }
 
   @protected
-  void scheduleDataPlaneObservation({bool rerunIfActive = false}) {
+  void scheduleDataPlaneObservation({
+    bool rerunIfActive = false,
+    Duration delay = Duration.zero,
+  }) {
     final observationEpoch = _dataPlaneObservationEpoch;
     if (!isRunning) return;
+    // Confirming the preferred node changes the route epoch during startup.
+    // Keep the startup deadline across that change and periodic health ticks.
+    final requestedStart = _dataPlaneObservationClock.elapsed + delay;
+    if (delay > Duration.zero &&
+        requestedStart > _dataPlaneObservationNotBefore) {
+      _dataPlaneObservationNotBefore = requestedStart;
+    }
     if (_activeDataPlaneObservationEpoch == observationEpoch) {
       if (rerunIfActive) {
         _coalescedDataPlaneObservationEpoch = observationEpoch;
@@ -122,7 +136,13 @@ mixin _ClashDataPlaneSupport {
     }
     _activeDataPlaneObservationEpoch = observationEpoch;
     final observation = runZoned<Future<void>>(
-      () => Future<void>.sync(observeDataPlaneHealth),
+      () async {
+        final remaining =
+            _dataPlaneObservationNotBefore - _dataPlaneObservationClock.elapsed;
+        if (remaining > Duration.zero) await Future<void>.delayed(remaining);
+        if (!isRunning || !isDataPlaneObservationCurrent) return;
+        await observeDataPlaneHealth();
+      },
       zoneValues: {_dataPlaneObservationEpochZoneKey: observationEpoch},
     );
     void finishObservation() {
@@ -181,7 +201,7 @@ mixin _ClashDataPlaneSupport {
     } else {
       sendStatus = (uri) => _sendUserConnectivityStatus(client!, uri);
     }
-    final attempts = maxAttempts.clamp(1, 5).toInt();
+    final attempts = maxAttempts.clamp(1, 6).toInt();
     final endpointValues = settings.enableTun
         ? AppConstants.tunConnectivityTestUrls
         : AppConstants.systemProxyConnectivityTestUrls;
@@ -203,6 +223,8 @@ mixin _ClashDataPlaneSupport {
           lastStatusCode = statusCode;
           log(
             '外部网络验证 $attempt/$attempts 未通过：HTTP $statusCode；'
+            '轮次=${(attempt - 1) ~/ endpoints.length + 1}；'
+            '站点=${endpoints[(attempt - 1) % endpoints.length].host}；'
             '路径=${settings.enableTun ? 'TUN' : '本地代理'}，保留当前连接',
             event: 'data_plane_probe',
           );
@@ -212,6 +234,8 @@ mixin _ClashDataPlaneSupport {
           log(
             '外部网络验证 $attempt/$attempts 未通过：'
             'cause=${_safeRuntimeLogErrorCode(error)}；'
+            '轮次=${(attempt - 1) ~/ endpoints.length + 1}；'
+            '站点=${endpoints[(attempt - 1) % endpoints.length].host}；'
             '路径=${settings.enableTun ? 'TUN' : '本地代理'}，保留当前连接',
             event: 'data_plane_probe',
           );
@@ -305,8 +329,18 @@ mixin _ClashDataPlaneSupport {
         ..connectionTimeout = const Duration(seconds: 5)
         ..findProxy = (_) => _localHttpProxyConfig(),
     );
+    final elapsed = Stopwatch()..start();
     try {
-      return await PublicIpInfoService(client: client).fetch();
+      final info = await PublicIpInfoService(client: client).fetch();
+      log('公网 IP 查询已完成，耗时 ${elapsed.elapsedMilliseconds}ms',
+          event: 'public_ip');
+      return info;
+    } catch (error) {
+      log(
+          '公网 IP 查询暂未完成：cause=${_safeRuntimeLogErrorCode(error)}；'
+          '耗时 ${elapsed.elapsedMilliseconds}ms；不改变当前连接',
+          event: 'public_ip');
+      rethrow;
     } finally {
       client.close();
     }

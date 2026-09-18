@@ -5,12 +5,15 @@ extension _DesktopHomePublicIpActions on _HomeScreenState {
     _publicIpTimer?.cancel();
     if (!_isConnected || _isConnecting || !mounted || _disposed) return;
     final generation = ++_publicIpGeneration;
-    _publicIpTimer = Timer(const Duration(seconds: 2), () {
+    _publicIpTimer = Timer(Duration.zero, () {
       unawaited(_refreshPublicIpInfo(generation: generation));
     });
   }
 
-  Future<void> _refreshPublicIpInfo({int? generation}) async {
+  Future<void> _refreshPublicIpInfo({
+    int? generation,
+    bool retried = false,
+  }) async {
     if (!_isConnected || _isConnecting || !mounted || _disposed) return;
     final effectiveGeneration = generation ?? ++_publicIpGeneration;
     _publicIpTimer?.cancel();
@@ -35,8 +38,19 @@ extension _DesktopHomePublicIpActions on _HomeScreenState {
       if (!mounted || _disposed || effectiveGeneration != _publicIpGeneration) {
         return;
       }
+      if (!_isConnected || _isConnecting) return;
+      if (!retried) {
+        // One bounded retry for startup/transient request failures. A new
+        // session, node selection or manual refresh invalidates this timer.
+        _publicIpTimer = Timer(const Duration(seconds: 2), () {
+          if (effectiveGeneration != _publicIpGeneration) return;
+          unawaited(_refreshPublicIpInfo(
+              generation: effectiveGeneration, retried: true));
+        });
+        return;
+      }
       setState(() {
-        _publicIpError = '获取失败';
+        _publicIpError = 'IP 暂未查到，点击重试';
         _isRefreshingPublicIp = false;
       });
     }

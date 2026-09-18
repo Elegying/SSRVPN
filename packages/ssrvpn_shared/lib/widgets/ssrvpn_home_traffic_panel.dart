@@ -17,9 +17,11 @@ class SsrvpnHomeTrafficPanel extends StatefulWidget {
     required this.connected,
     required this.readSample,
     this.accountUsage,
+    this.accountStatus,
   });
 
   final AccountUsage? accountUsage;
+  final String? accountStatus;
   final bool active;
   final bool connected;
   final Future<VpnTrafficSample?> Function() readSample;
@@ -167,7 +169,18 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
             '已连接设备：$count，上限 $limit。在线客户端实例 ${account.onlineDevices} 个，上限 ${account.deviceLimit} 个，非物理设备去重数'
       ));
     }
-    return LayoutBuilder(
+    if (account == null && widget.accountStatus != null) {
+      for (final label in ['已用流量', '已连接设备']) {
+        metrics.add((
+          label: label,
+          number: '—',
+          unit: '暂未更新',
+          color: SsrvpnUiTokens.textPrimary,
+          semantics: '$label：${widget.accountStatus}'
+        ));
+      }
+    }
+    final panel = LayoutBuilder(
         key: const Key('home-traffic-panel'),
         builder: (context, constraints) {
           final width = math.min(
@@ -293,6 +306,7 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
                   child: Column(
                       mainAxisSize: MainAxisSize.min, children: children)));
         });
+    return Tooltip(message: widget.accountStatus ?? '', child: panel);
   }
 
   String _devices(int count, {bool compact = false}) {

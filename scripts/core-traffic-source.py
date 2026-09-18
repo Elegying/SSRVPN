@@ -11,8 +11,16 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE = ROOT / 'native/proxy_traffic'
 RUNTIME_FILES = ('sources.json', 'proxy_traffic.go', 'route.go',
-                 'android.patch', 'macos.patch', 'windows.patch', 'target_address.go')
+                 'android.patch', 'macos.patch', 'windows.patch', 'target_address.go',
+                 'dns_resolution.go', 'direct_fallback.go', 'tun_startup.go')
 COPIES = {
+    'tun_startup.go': 'hub/executor/ssrvpn_tun_startup.go',
+    'tun_startup_test.go': 'hub/executor/ssrvpn_tun_startup_test.go',
+    'direct_fallback.go': 'adapter/outbound/ssrvpn_direct_fallback.go',
+    'direct_fallback_test.go': 'adapter/outbound/ssrvpn_direct_fallback_test.go',
+    'config_matrix_test.go': 'config/ssrvpn_config_matrix_test.go',
+    'dns_resolution.go': 'dns/ssrvpn_resolution.go',
+    'dns_resolution_test.go': 'dns/ssrvpn_resolution_test.go',
     'ipv6_capture_test.go': 'config/ssrvpn_ipv6_capture_test.go',
     'target_address.go': 'tunnel/ssrvpn_target_address.go',
     'target_address_test.go': 'tunnel/ssrvpn_target_address_test.go',

@@ -301,7 +301,7 @@ index 2fbb1cf9..f336d04e 100644
  	}
  
 diff --git a/tunnel/tunnel.go b/tunnel/tunnel.go
-index 470f7299..d14c14c2 100644
+index 470f7299..add1972c 100644
 --- a/tunnel/tunnel.go
 +++ b/tunnel/tunnel.go
 @@ -416,6 +416,7 @@ func processUDP(queue chan C.PacketAdapter) {
@@ -348,7 +348,7 @@ index 470f7299..d14c14c2 100644
  
  	ctx, cancel := context.WithTimeout(context.Background(), C.DefaultTCPTimeout)
  	defer cancel()
-+	candidates := ssrvpnProxyTargetCandidates(ctx, dialMetadata, proxy)
++	candidates := ssrvpnProxyTargetCandidates(ctx, metadata, proxy)
 +	attempt := 0
  	remoteConn, err := retry(ctx, func(ctx context.Context) (remoteConn C.Conn, err error) {
 +		dialMetadata = ssrvpnTargetAt(candidates, attempt)
@@ -356,7 +356,16 @@ index 470f7299..d14c14c2 100644
  		remoteConn, err = proxy.DialContext(ctx, dialMetadata)
  		if err != nil {
  			return
-@@ -606,11 +617,12 @@ func handleTCPConn(connCtx C.ConnContext) {
+@@ -593,7 +604,7 @@ func handleTCPConn(connCtx C.ConnContext) {
+ 			peekMutex.Lock()
+ 			defer peekMutex.Unlock()
+ 			peekBytes, _ = conn.Peek(conn.Buffered())
+-			_, err = remoteConn.Write(peekBytes)
++			err = ssrvpnWriteInitialPayload(remoteConn, peekBytes)
+ 			if err != nil {
+ 				return
+ 			}
+@@ -606,11 +617,13 @@ func handleTCPConn(connCtx C.ConnContext) {
  		logMetadataErr(metadata, rule, proxy, err)
  	})
  	if err != nil {
@@ -366,7 +375,126 @@ index 470f7299..d14c14c2 100644
  	logMetadata(metadata, rule, remoteConn)
  
 -	remoteConn = statistic.NewTCPTracker(remoteConn, statistic.DefaultManager, metadata, rule, int64(peekLen), 0, true)
++	remoteConn = ssrvpnObserveWorkingFamily(remoteConn, metadata, dialMetadata, proxy)
 +	remoteConn = statistic.NewTCPTracker(remoteConn, statistic.DefaultManager, metadata, rule, int64(peekLen), 0, true, proxySession)
  	defer func(remoteConn C.Conn) {
  		_ = remoteConn.Close()
  	}(remoteConn)
+@@ -696,6 +709,10 @@ func getRules(metadata *C.Metadata) []C.Rule {
+ }
+ 
+ func shouldStopRetry(err error) bool {
++	var payloadWrite *ssrvpnPayloadWriteError
++	if errors.As(err, &payloadWrite) {
++		return true
++	}
+ 	if errors.Is(err, resolver.ErrIPNotFound) {
+ 		return true
+ 	}
+diff --git a/dns/resolver.go b/dns/resolver.go
+index 73a22997..d2482af2 100644
+--- a/dns/resolver.go
++++ b/dns/resolver.go
+@@ -74,36 +74,7 @@ func (r *Resolver) LookupIPPrimaryIPv4(ctx context.Context, host string) (ips []
+ }
+ 
+ func (r *Resolver) LookupIP(ctx context.Context, host string) (ips []netip.Addr, err error) {
+-	ch := make(chan []netip.Addr, 1)
+-	go func() {
+-		defer close(ch)
+-		ip, err := r.lookupIP(ctx, host, D.TypeAAAA)
+-		if err != nil {
+-			return
+-		}
+-
+-		ch <- ip
+-	}()
+-
+-	ips, err = r.lookupIP(ctx, host, D.TypeA)
+-	var waitIPv6 *time.Timer
+-	if r != nil && r.ipv6Timeout > 0 {
+-		waitIPv6 = time.NewTimer(r.ipv6Timeout)
+-	} else {
+-		waitIPv6 = time.NewTimer(100 * time.Millisecond)
+-	}
+-	defer waitIPv6.Stop()
+-	select {
+-	case ipv6s, open := <-ch:
+-		if !open && err != nil {
+-			return nil, resolver.ErrIPNotFound
+-		}
+-		ips = append(ips, ipv6s...)
+-	case <-waitIPv6.C:
+-		// wait ipv6 result
+-	}
+-
+-	return ips, nil
++	return r.ssrvpnLookupIP(ctx, host)
+ }
+ 
+ // LookupIPv4 request with TypeA
+diff --git a/adapter/outbound/direct.go b/adapter/outbound/direct.go
+index 5741bf3f..65f82bc0 100644
+--- a/adapter/outbound/direct.go
++++ b/adapter/outbound/direct.go
+@@ -3,6 +3,7 @@ package outbound
+ import (
+ 	"context"
+ 	"fmt"
++	"net/netip"
+ 
+ 	"github.com/metacubex/mihomo/component/dialer"
+ 	"github.com/metacubex/mihomo/component/loopback"
+@@ -28,6 +29,14 @@ func (d *Direct) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn,
+ 	opts := d.DialOptions()
+-	opts = append(opts, dialer.WithResolver(resolver.DirectHostResolver))
++	opts = append(opts, dialer.WithResolver(d.ssrvpnDirectResolver()))
+ 	c, err := dialer.DialContext(ctx, "tcp", metadata.RemoteAddress(), opts...)
++	if target := ssrvpnDirectFamilyFallback(ctx, metadata, err, func(ctx context.Context, host string) ([]netip.Addr, error) {
++		return resolver.LookupIPWithResolver(ctx, host, resolver.DirectHostResolver)
++	}); target != nil {
++		if checkErr := d.loopBack.CheckConn(target); checkErr != nil {
++			return nil, checkErr
++		}
++		c, err = dialer.DialContext(ctx, "tcp", target.RemoteAddress(), opts...)
++	}
+ 	if err != nil {
+ 		return nil, err
+ 	}
+@@ -57,7 +66,7 @@ func (d *Direct) ResolveUDP(ctx context.Context, metadata *C.Metadata) error {
+ 	if (!metadata.Resolved() || resolver.DirectHostResolver != resolver.DefaultResolver) && metadata.Host != "" {
+-		ip, err := resolveIPWithResolver(ctx, metadata.Host, d.prefer, resolver.DirectHostResolver)
++		ip, err := resolveIPWithResolver(ctx, metadata.Host, d.prefer, d.ssrvpnDirectResolver())
+ 		if err != nil {
+ 			return fmt.Errorf("can't resolve ip: %w", err)
+ 		}
+ 		metadata.DstIP = ip
+ 	}
+diff --git a/hub/executor/executor.go b/hub/executor/executor.go
+index 8e0d09e6..d578eba6 100644
+--- a/hub/executor/executor.go
++++ b/hub/executor/executor.go
+@@ -105,7 +105,6 @@ func ApplyConfig(cfg *config.Config, force bool) {
+ 	updateNTP(cfg.NTP)
+ 	updateDNS(cfg.DNS, cfg.General.IPv6)
+ 	updateListeners(cfg.General, cfg.Listeners, force)
+-	updateTun(cfg.General) // tun should not care "force"
+ 	updateIPTables(cfg)
+ 	updateTunnels(cfg.Tunnels)
+ 
+@@ -115,6 +114,15 @@ func ApplyConfig(cfg *config.Config, force bool) {
+ 	loadProvider(cfg.Providers)
+ 	updateProfile(cfg)
+ 	loadProvider(cfg.RuleProviders)
++	// Commit capture only after core and rule preparation has finished.
++	if !cfg.General.Tun.Enable || ssrvpnTunRulesReady(cfg.RuleProviders) {
++		updateTun(cfg.General)
++		if cfg.General.Tun.Enable && listener.GetTunConf().Enable {
++			log.Infoln("SSRVPN_TUN_COMMITTED")
++		}
++	} else {
++		log.Errorln("SSRVPN: TUN capture withheld because routing rules are not ready")
++	}
+ 	runtime.GC()
+ 	tunnel.OnRunning()
+ 	updateUpdater(cfg)

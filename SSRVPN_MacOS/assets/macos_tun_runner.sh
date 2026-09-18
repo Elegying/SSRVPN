@@ -183,20 +183,24 @@ active_network_device() {
   local device
   device=$(/sbin/route -n get default 2>/dev/null | \
     /usr/bin/awk '/^[[:space:]]*interface:/{print $2; exit}')
+  if [[ ! $device =~ ^[A-Za-z0-9._-]+$ || $device == utun* ]]; then
+    device=$(/sbin/route -n get -inet6 default 2>/dev/null | \
+      /usr/bin/awk '/^[[:space:]]*interface:/{print $2; exit}')
+  fi
   [[ $device =~ ^[A-Za-z0-9._-]+$ && $device != utun* ]] || return 1
   /usr/bin/printf '%s\n' "$device"
 }
 
 # Once Mihomo installs its default route, `route get default` points at utun.
 # `scutil --nwi` still lists the effective physical path after the transient
-# tunnel interfaces. The first reachable IPv4 interface that is not utun is
-# therefore the service whose DNS must remain under this transaction.
+# tunnel interfaces. Accept either address family, keeping IPv4 ordering when
+# both exist. An IPv6-only physical network must not look like a network loss.
 active_physical_network_device() {
   local device
   device=$(/usr/sbin/scutil --nwi 2>/dev/null | /usr/bin/awk '
-    /^IPv4 network interface information/ { in_ipv4 = 1; next }
-    /^IPv6 network interface information/ { exit }
-    in_ipv4 && $2 == ":" && $3 == "flags" && \
+    /^IPv[46] network interface information/ { in_network = 1; next }
+    /^Network interfaces:/ { in_network = 0 }
+    in_network && $2 == ":" && $3 == "flags" && \
       $1 ~ /^[A-Za-z0-9._-]+$/ && $1 !~ /^utun/ {
       print $1
       exit
@@ -378,6 +382,10 @@ dns_snapshot_matches() {
   ((dns_original_server_count > 0)) || return 1
   expected=$(/usr/bin/printf '%s\n' "${dns_original_servers[@]}")
   [[ $current == "$expected" ]]
+}
+
+tun_capture_committed() {
+  /usr/bin/grep -Eq '(^|[[:space:]])level=info msg=(SSRVPN_TUN_COMMITTED|"SSRVPN_TUN_COMMITTED")([[:space:]]|$)' "$runtime_dir/mihomo.log"
 }
 
 capture_tun_dns_state() {
@@ -828,7 +836,8 @@ report_core_failure() {
   fi
 }
 
-for _ in {1..10}; do
+capture_ready=false
+for _ in {1..200}; do
   if ! /bin/kill -0 "$child_pid" 2>/dev/null; then
     report_core_failure
     exit 1
@@ -837,8 +846,16 @@ for _ in {1..10}; do
     remove_status_on_exit=true
     exit 0
   fi
+  if tun_capture_committed; then
+    capture_ready=true
+    break
+  fi
   /bin/sleep 0.2
 done
+if [[ $capture_ready != true ]]; then
+  write_status "error:timeout"
+  exit 1
+fi
 if ! active_physical_network_unchanged; then
   write_status "error:network-change"
   exit 1

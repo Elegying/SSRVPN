@@ -295,7 +295,7 @@ void main() {
       expect(tunConfig, isNot(contains('  route-exclude-address:')));
       expect(tunConfig, isNot(contains('  route-address-set:')));
       expect(tunConfig, contains('ipv6: true'));
-      expect(tunConfig, isNot(contains('fake-ip-range6:')));
+      expect(tunConfig, contains('fake-ip-range6: fdfe:dcba:9877::/64'));
       expect(
         tunConfig,
         isNot(contains('"IP-CIDR6,::/0,REJECT,no-resolve"')),
@@ -1519,7 +1519,7 @@ void main() {
       expect(service.connectivityProbes, 0);
       await service.runDataPlaneObservation();
       expect(service.connectivityProbes, 1);
-      expect(service.lastMaxAttempts, 2);
+      expect(service.lastMaxAttempts, 6);
     });
 
     test('a failed TUN data path remains connected between probes', () async {
@@ -2027,12 +2027,14 @@ void main() {
 
       expect(await service.start(), isTrue);
       expect(service.isRunning, isTrue);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(service.connectivityWarning, isNull);
       await (() async {
         while (service.connectivityWarning == null) {
           await Future<void>.delayed(const Duration(milliseconds: 10));
         }
       })()
-          .timeout(const Duration(seconds: 1));
+          .timeout(const Duration(seconds: 7));
       expect(service.connectivityWarning, contains('连续 3 次网络验证失败'));
       expect(service.lastStartError, isNull);
       expect(tunSession.stopCalls, 0);

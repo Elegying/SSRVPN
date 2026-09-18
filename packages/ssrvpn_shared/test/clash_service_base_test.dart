@@ -905,6 +905,59 @@ void main() {
       },
     );
 
+    for (final successAt in [3, 4, 6, 0]) {
+      test(
+          'desktop two rounds stop at success $successAt without early warning',
+          () async {
+        final service = _TestClashService()
+          ..updateSettings(AppSettings(enableTun: true))
+          ..setRunning(true);
+        addTearDown(service.dispose);
+        final hosts = <String>[];
+        final warning = await service.verifyUserConnectivity(
+          maxAttempts: 6,
+          retryDelay: Duration.zero,
+          request: (uri) async {
+            expect(service.connectivityWarning, isNull,
+                reason: 'a partial round must not publish an advisory');
+            hosts.add(uri.host);
+            if (hosts.length == successAt) return http.Response('', 204);
+            throw TimeoutException('synthetic endpoint timeout');
+          },
+        );
+        expect(hosts.length, successAt == 0 ? 6 : successAt);
+        const expected = [
+          'www.youtube.com',
+          'cp.cloudflare.com',
+          'www.gstatic.com'
+        ];
+        for (var i = 0; i < hosts.length; i++) {
+          expect(hosts[i], expected[i % 3]);
+        }
+        expect(warning == null, successAt != 0);
+        expect(service.connectivityWarning, warning);
+        expect(service.isRunning, isTrue);
+      });
+    }
+
+    test('obsolete connection cannot begin the second round', () async {
+      final service = _TestClashService()..setRunning(true);
+      addTearDown(service.dispose);
+      var requests = 0;
+      final warning = await service.verifyUserConnectivity(
+        maxAttempts: 6,
+        retryDelay: Duration.zero,
+        shouldContinue: () => requests < 3,
+        request: (_) async {
+          requests++;
+          return http.Response('', 503);
+        },
+      );
+      expect(requests, 3);
+      expect(warning, isNull);
+      expect(service.connectivityWarning, isNull);
+    });
+
     test('TUN retries rotate independent connectivity endpoints', () async {
       final requestedUris = <Uri>[];
       final service = _TestClashService()
@@ -1292,6 +1345,53 @@ void main() {
       },
     );
 
+    for (final mode in [ProxyMode.rule, ProxyMode.global]) {
+      test('confirming the selected node preserves live requests in $mode',
+          () async {
+        final api = await _ProxyApiServer.start(proxyNow: 'Node A');
+        addTearDown(api.close);
+        final service = _ApiClashService()
+          ..initHttpClient()
+          ..updateSettings(AppSettings(apiPort: api.port, proxyMode: mode));
+        addTearDown(service.dispose);
+        expect(await service.switchSelectedProxy('Node A'), isTrue);
+        expect(api.putTargets, isEmpty);
+        expect(api.closeConnectionCalls, 0);
+      });
+    }
+
+    test('matching PROXY does not hide a different GLOBAL selection', () async {
+      final api =
+          await _ProxyApiServer.start(proxyNow: 'Node A', globalNow: 'Node B');
+      addTearDown(api.close);
+      final service = _ApiClashService()
+        ..initHttpClient()
+        ..updateSettings(
+            AppSettings(apiPort: api.port, proxyMode: ProxyMode.global));
+      addTearDown(service.dispose);
+      expect(await service.switchSelectedProxy('Node A'), isTrue);
+      expect(await service.currentSelectedProxyName(), 'Node A');
+      expect(api.closeConnectionCalls, 1);
+    });
+
+    test('selection cancelled during the no-op check never mutates the core',
+        () async {
+      final api = await _ProxyApiServer.start(proxyNow: 'Node A');
+      addTearDown(api.close);
+      final service = _ApiClashService()
+        ..initHttpClient()
+        ..updateSettings(AppSettings(apiPort: api.port));
+      addTearDown(service.dispose);
+      var checks = 0;
+      expect(
+          await service.switchSelectedProxy('Node B',
+              isSwitchContextCurrent: () => ++checks == 1),
+          isFalse);
+      expect(api.proxyNow, 'Node A');
+      expect(api.putTargets, isEmpty);
+      expect(api.closeConnectionCalls, 0);
+    });
+
     test('closes existing connections only after a confirmed switch', () async {
       final api = await _ProxyApiServer.start(proxyNow: 'Node A');
       addTearDown(api.close);
@@ -1388,7 +1488,8 @@ void main() {
         expect(await oldSwitch, isTrue);
         expect(api.proxyNow, 'Node B');
         expect(api.putTargets, ['PROXY:Node B']);
-        expect(guardCalls, 2);
+        // Before reading, after reading, and after the suspended PUT.
+        expect(guardCalls, 3);
         expect(api.closeConnectionCalls, 0);
         expect(statusNotifications, 2); // Busy/idle only; no stale route event.
         expect(
@@ -2595,6 +2696,45 @@ proxies:
 
     service.stopStatusMonitor();
     service.secondHealth.complete(true);
+  });
+
+  test('startup observation waits five seconds and does not duplicate probes',
+      () async {
+    final service = _DelayedObservationClashService()..setRunning(true);
+    addTearDown(service.dispose);
+    service.scheduleStartup();
+    service.scheduleNow();
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(service.observationCalls, 0);
+    await service.started.future.timeout(const Duration(seconds: 6));
+    expect(service.observationCalls, 1);
+    expect(service.connectivityWarning, isNull);
+  });
+
+  test('startup node confirmation preserves the observation grace period',
+      () async {
+    final service = _DelayedObservationClashService()..setRunning(true);
+    addTearDown(service.dispose);
+    final elapsed = Stopwatch()..start();
+    service.scheduleStartup();
+    service.confirmRoute();
+    service.scheduleNow();
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(service.observationCalls, 0);
+    await service.started.future.timeout(const Duration(seconds: 6));
+    expect(elapsed.elapsedMilliseconds, greaterThanOrEqualTo(4900));
+    expect(service.observationCalls, 1);
+  });
+
+  test('disconnect invalidates a delayed startup observation', () async {
+    final service = _DelayedObservationClashService()..setRunning(true);
+    addTearDown(service.dispose);
+    service.scheduleStartup();
+    service.setRunning(false);
+    service.setRunning(true);
+    await Future<void>.delayed(const Duration(milliseconds: 5100));
+    expect(service.observationCalls, 0);
+    expect(service.connectivityWarning, isNull);
   });
 
   test('data-plane observation timeout becomes an advisory warning', () async {
@@ -3987,5 +4127,22 @@ class _QueuedHealthRecoveryClashService extends ClashServiceBase
   Future<void> onStopRequired() async {
     stopCalls++;
     setRunning(false);
+  }
+}
+
+class _DelayedObservationClashService extends _TestClashService {
+  final started = Completer<void>();
+  int observationCalls = 0;
+
+  void confirmRoute() => onDataPlaneRouteChanged();
+
+  void scheduleStartup() =>
+      scheduleDataPlaneObservation(delay: const Duration(seconds: 5));
+  void scheduleNow() => scheduleDataPlaneObservation();
+
+  @override
+  Future<void> observeDataPlaneHealth() async {
+    observationCalls++;
+    if (!started.isCompleted) started.complete();
   }
 }

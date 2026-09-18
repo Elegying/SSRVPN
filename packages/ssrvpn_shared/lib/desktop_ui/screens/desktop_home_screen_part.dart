@@ -681,12 +681,12 @@ class _HomeScreenState extends State<HomeScreen> {
         : _isConnected
             ? _DesktopConnectionAction.disconnect
             : _DesktopConnectionAction.connect;
-
     return Scaffold(
       resizeToAvoidBottomInset: false,
       backgroundColor: Colors.transparent,
       body: SsrvpnHomeOverview(
         bottomContent: SsrvpnHomeStatistics(
+          onDiagnostic: (s) => core.log(s, event: 'account_usage'),
           localProxyPort: () => core.isRunning && !core.settings.enableTun
               ? core.runtimeProxyPort
               : null,
@@ -694,7 +694,7 @@ class _HomeScreenState extends State<HomeScreen> {
           revision: _nodes,
           active: widget.active,
           connected: _isConnected,
-          readSample: context.read<ClashService>().readTrafficSample,
+          readSample: core.readTrafficSample,
         ),
         isConnected: _isConnected,
         isConnecting: isConnectionTransition,

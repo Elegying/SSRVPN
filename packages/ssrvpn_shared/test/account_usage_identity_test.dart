@@ -98,7 +98,8 @@ void main() {
     'authentication',
     'rate limited'
   ]) {
-    testWidgets('$name hides a complete success immediately, then recovers',
+    testWidgets(
+        '$name clears stale numbers but keeps placeholders, then recovers',
         (tester) async {
       final origin = tester.binding.clock.now();
       var next = Completer<AccountUsage>();
@@ -109,8 +110,9 @@ void main() {
       addTearDown(controller.dispose);
       await tester.pumpWidget(host(controller, usageNode()));
       await tester.pump(const Duration(milliseconds: 1));
-      expect(cardCount(),
-          3); // First pending request must have no skeleton/placeholder.
+      expect(cardCount(), 5);
+      expect(controller.value, isNull);
+      expect(find.text('暂未更新'), findsNWidgets(2));
       next.complete(AccountUsage.parse(usageJson()));
       await tester.pump(const Duration(milliseconds: 1));
       expect(cardCount(), 5);
@@ -144,10 +146,11 @@ void main() {
       if (name == 'timeout') failure = TimeoutException('synthetic timeout');
       next.completeError(failure);
       await tester.pump(const Duration(milliseconds: 1));
-      expect(cardCount(), 3);
-      expect(find.text('已用流量'), findsNothing);
-      expect(find.text('已连接设备'), findsNothing);
-      expect(find.text('暂不可用'), findsNothing);
+      expect(cardCount(), 5);
+      expect(controller.value, isNull);
+      expect(find.text('已用流量'), findsOneWidget);
+      expect(find.text('已连接设备'), findsOneWidget);
+      expect(find.text('暂未更新'), findsNWidgets(2));
       next = Completer<AccountUsage>();
       await tester.pump(const Duration(seconds: 15));
       next.complete(
@@ -191,12 +194,14 @@ void main() {
     await tester.pumpWidget(host(controller, a));
     await tester.pump(const Duration(milliseconds: 1));
     await tester.pumpWidget(host(controller, b));
-    expect(cardCount(), 3);
+    expect(cardCount(), 5);
+    expect(controller.value, isNull);
     expect(pending, hasLength(1));
     pending.first.complete(AccountUsage.parse(usageJson(used: 1234)));
     await tester.pump(const Duration(milliseconds: 1));
     await tester.pump(const Duration(milliseconds: 1));
-    expect(cardCount(), 3);
+    expect(cardCount(), 5);
+    expect(controller.value, isNull);
     expect(pending, hasLength(2));
     expect(keys[0], isNot(keys[1]));
     pending.last.complete(AccountUsage.parse(usageJson(used: 8888)));
@@ -204,7 +209,8 @@ void main() {
     expect(cardCount(), 5);
     expect(controller.value?.usedBytes, 8888);
     await tester.pumpWidget(host(controller, b, revision: Object()));
-    expect(cardCount(), 3);
+    expect(cardCount(), 5);
+    expect(controller.value, isNull);
     await tester.pump(const Duration(milliseconds: 1));
     expect(pending, hasLength(3));
     await tester.pumpWidget(host(controller, null));
@@ -242,7 +248,9 @@ void main() {
     expect(pending, hasLength(2));
     pending.last.completeError(const UsageQueryFailure());
     await tester.pump(const Duration(milliseconds: 1));
-    expect(cardCount(), 3);
+    expect(cardCount(), 5);
+    expect(controller.value, isNull);
+    expect(find.text('暂未更新'), findsNWidgets(2));
     await tester.pump(const Duration(seconds: 30));
     pending.last.complete(AccountUsage.parse(usageJson(time: 1030)));
     await tester.pump(const Duration(milliseconds: 1));
