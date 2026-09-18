@@ -466,7 +466,27 @@ class SsrvpnVpnService : VpnService() {
     ) {
         try {
             ensureStartCurrent(startToken)
-            Log.d(TAG, "Establishing VPN...")
+            val startupDeadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(
+                VpnStartBudget.BRIDGE_MS + VpnStartBudget.API_HEALTH_MS)
+            // Prepare without capture; establish the VPN only at final commit.
+            val protectReadFd = bridge.Bridge.initProtect()
+            protectMonitor = VpnProtectMonitor.start(
+                protectReadFd,
+                protectSocket = { socketFd -> protect(socketFd) },
+                reportResult = { protected -> bridge.Bridge.setProtectResult(protected) }
+            )
+            if (!VpnRuntimeHealth.hasProtectMonitor(protectMonitor?.thread)) {
+                return rejectCoreStart(requestId, "VPN 网络保护服务启动失败，请重新连接",
+                    recoveryAttempt, NativeCoreStartFailureCategory.TUN)
+            }
+            VpnPackageLookup.start(this)
+
+            val preparationFailure = prepareMihomoForVpn(apiPort, apiSecret, startupDeadlineNanos,
+                prepareBridge = { startBridgeWithTimeout(configDir, configPath, null, startupDeadlineNanos) },
+                ensureCurrent = { ensureStartCurrent(startToken) },
+                selectNode = { applyProxySelection(apiPort, apiSecret, selectedNodeName) })
+            if (preparationFailure != null) return rejectCoreStart(requestId, preparationFailure.message,
+                recoveryAttempt, preparationFailure.category)
             val builder = Builder()
             builder.setSession("SSRVPN")
             // IPv4 公网路由保留局域网直连；IPv6 全量进入 VPN，避免泄漏。
@@ -483,6 +503,8 @@ class SsrvpnVpnService : VpnService() {
             )
             Log.i(TAG, "Bypassing ${bypassedDomesticApps.size} installed domestic apps")
 
+            ensureStartCurrent(startToken)
+            requireVpnStartupBudget(startupDeadlineNanos)
             runtimeDiagnostics.beginTunLease()
             vpnFd = builder.establish()
             if (vpnFd == null) {
@@ -496,36 +518,14 @@ class SsrvpnVpnService : VpnService() {
             }
 
             ensureStartCurrent(startToken)
-            Log.d(TAG, "Initializing protect pipe...")
-            val protectReadFd = bridge.Bridge.initProtect()
-            Log.d(TAG, "Protect pipe fd=$protectReadFd")
-            protectMonitor = VpnProtectMonitor.start(
-                protectReadFd,
-                protectSocket = { socketFd -> protect(socketFd) },
-                reportResult = { protected -> bridge.Bridge.setProtectResult(protected) }
-            )
-            if (!VpnRuntimeHealth.hasProtectMonitor(protectMonitor?.thread)) {
-                return rejectCoreStart(
-                    requestId,
-                    "VPN 网络保护服务启动失败，请重新连接",
-                    recoveryAttempt,
-                    NativeCoreStartFailureCategory.TUN
-                )
-            }
-            Log.d(TAG, "Protect monitor started")
-            VpnPackageLookup.start(this)
-
-            ensureStartCurrent(startToken)
             val descriptor = checkNotNull(vpnFd)
             val bridgeDescriptor = ParcelFileDescriptor.dup(descriptor.fileDescriptor)
             val tunFdOwner = DetachedTunFdOwner.detach(bridgeDescriptor)
             val tunFd = tunFdOwner.descriptorNumber
             runtimeDiagnostics.claimTunDescriptor(tunFd)
-            Log.d(TAG, "VPN established! fd=$tunFd")
             try {
                 ensureStartCurrent(startToken)
-                Log.d(TAG, "Initializing Mihomo...")
-                val startErr = startBridgeWithTimeout(configDir, configPath, tunFdOwner)
+                val startErr = startBridgeWithTimeout(configDir, configPath, tunFdOwner, startupDeadlineNanos)
                 if (startErr == null) {
                     Log.e(TAG, "Mihomo start timed out")
                     return rejectCoreStart(requestId, "VPN 核心启动超时，请重新连接", recoveryAttempt,
@@ -542,10 +542,8 @@ class SsrvpnVpnService : VpnService() {
                     )
                 }
                 ensureStartCurrent(startToken)
-                Log.d(TAG, "Mihomo started with TUN fd=$tunFd")
-                Log.d(TAG, "Waiting for API on port $apiPort...")
-                val healthDeadlineNanos =
-                    System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(VpnStartBudget.API_HEALTH_MS)
+                Log.d(TAG, "TUN committed; confirming API on port $apiPort...")
+                val healthDeadlineNanos = startupDeadlineNanos
                 val readiness = mihomoApiWaiter.waitUntilReady(
                     apiPort,
                     apiSecret,
@@ -566,9 +564,6 @@ class SsrvpnVpnService : VpnService() {
                 }
 
                 if (healthy) {
-                    ensureStartCurrent(startToken)
-                    Log.d(TAG, "Core started!")
-                    applyProxySelection(apiPort, apiSecret, selectedNodeName)
                     ensureStartCurrent(startToken)
                     val published = startGeneration.runIfCurrent(startToken) {
                         NativeConnectionSession.publishRunning(configPath)
@@ -641,8 +636,10 @@ class SsrvpnVpnService : VpnService() {
     }
 
     private fun startBridgeWithTimeout(
-        configDir: String, configPath: String, tunFdOwner: DetachedTunFdOwner
+        configDir: String, configPath: String, tunFdOwner: DetachedTunFdOwner?,
+        deadlineNanos: Long
     ): String? {
+        if (System.nanoTime() >= deadlineNanos) return null
         if (!bridgeStartInProgress.compareAndSet(false, true)) {
             Log.w(TAG, "Bridge.start already in progress")
             return "核心正在启动，请稍后重试"
@@ -651,8 +648,11 @@ class SsrvpnVpnService : VpnService() {
         var error: Throwable? = null
         val bridgeThread = Thread({
             try {
-                result = tunFdOwner.startWithBridge(
-                    { bridge.Bridge.init(configDir, "config.yaml") },
+                result = if (tunFdOwner == null) {
+                    bridge.Bridge.init(configDir, "config.yaml")
+                    bridge.Bridge.start(configPath, -1L)
+                } else tunFdOwner.startWithBridge(
+                    { /* The prepared core already owns its immutable home path. */ },
                     { bridgeFdTerminationRequired.set(true) }
                 ) { tunFd -> bridge.Bridge.start(configPath, tunFd) }
                 Log.d(TAG, "Bridge.start returned")
@@ -666,7 +666,8 @@ class SsrvpnVpnService : VpnService() {
             start()
         }
         try {
-            bridgeThread.join(VpnStartBudget.BRIDGE_MS)
+            bridgeThread.join(minOf(VpnStartBudget.BRIDGE_MS,
+                TimeUnit.NANOSECONDS.toMillis(deadlineNanos - System.nanoTime()).coerceAtLeast(1L)))
             if (bridgeThread.isAlive) {
                 Log.e(TAG, "Bridge.start timed out after ${VpnStartBudget.BRIDGE_MS}ms")
                 return null

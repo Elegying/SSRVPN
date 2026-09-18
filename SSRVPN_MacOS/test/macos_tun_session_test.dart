@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_macos/services/macos_tun_session.dart';
 
@@ -84,7 +85,9 @@ rule-providers:
     expect(
       arguments!.last,
       contains(
-        'f80c2953b61250ac2540ccac0536e3d72dbe556d02e4ac2159e8d505552a0b40',
+        sha256
+            .convert(File('assets/macos_tun_runner.sh').readAsBytesSync())
+            .toString(),
       ),
     );
     expect(arguments!.last, isNot(contains('/usr/bin/nohup')));
@@ -640,7 +643,9 @@ rule-providers:
     expect(
       arguments!.last,
       contains(
-        'f80c2953b61250ac2540ccac0536e3d72dbe556d02e4ac2159e8d505552a0b40',
+        sha256
+            .convert(File('assets/macos_tun_runner.sh').readAsBytesSync())
+            .toString(),
       ),
     );
     expect(await request.exists(), isFalse);

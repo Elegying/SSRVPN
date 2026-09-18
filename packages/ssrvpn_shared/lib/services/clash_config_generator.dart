@@ -171,6 +171,7 @@ class ClashConfigGenerator {
       result.writeln('  enhanced-mode: fake-ip');
       result.writeln('  respect-rules: true');
       result.writeln('  fake-ip-range: ${AppConstants.fakeIpRange}');
+      result.writeln('  fake-ip-range6: ${AppConstants.fakeIpRange6}');
       result.writeln('  default-nameserver:');
       for (final ns in AppConstants.defaultNameservers) {
         result.writeln('    - $ns');

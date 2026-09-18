@@ -11,6 +11,30 @@ import org.junit.Test
 
 class MihomoApiHealthProbeTest {
     @Test
+    fun `preparation verifies rules while TUN is disabled`() {
+        ScriptedHttpServer(responses = listOf(
+            httpResponse("{\"meta\":true,\"version\":\"v1.19.27\"}"),
+            httpResponse("{\"tun\":{\"enable\":false}}"),
+            httpResponse(ruleProvidersJson())
+        )).use { server ->
+            assertEquals(MihomoApiReadiness.READY,
+                MihomoApiHealthProbe.preparationReadiness(server.port, "secret", deadlineAfter(1_000)))
+        }
+    }
+
+    @Test
+    fun `preparation rejects capture already enabled`() {
+        ScriptedHttpServer(responses = listOf(
+            httpResponse("{\"meta\":true,\"version\":\"v1.19.27\"}"),
+            httpResponse("{\"tun\":{\"enable\":true}}")
+        )).use { server ->
+            assertEquals(MihomoApiReadiness.TUN_DISABLED,
+                MihomoApiHealthProbe.preparationReadiness(server.port, "secret", deadlineAfter(1_000)))
+        }
+    }
+
+
+    @Test
     fun `API readiness requires every rule provider to finish loading`() {
         assertTrue(MihomoApiHealthProbe.ruleProvidersReady(ruleProvidersJson()))
         assertEquals(false, MihomoApiHealthProbe.ruleProvidersReady(ruleProvidersJson().replace("\"ruleCount\":1", "\"ruleCount\":0")))

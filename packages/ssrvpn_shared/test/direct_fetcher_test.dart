@@ -62,6 +62,17 @@ void main() {
     expect(DirectFetcher.isFakeIp(InternetAddress('198.19.255.255')), isTrue);
     expect(DirectFetcher.isFakeIp(InternetAddress('198.20.0.1')), isFalse);
     expect(DirectFetcher.isFakeIp(InternetAddress('8.8.8.8')), isFalse);
+    expect(
+        DirectFetcher.isFakeIp(InternetAddress('fdfe:dcba:9877::1')), isTrue);
+    expect(
+        DirectFetcher.isFakeIp(
+            InternetAddress('fdfe:dcba:9877:0:ffff:ffff:ffff:ffff')),
+        isTrue);
+    expect(DirectFetcher.isFakeIp(InternetAddress('fdfe:dcba:9877:1::1')),
+        isFalse);
+    expect(
+        DirectFetcher.isFakeIp(InternetAddress('fdfe:dcba:9876::1')), isFalse);
+    expect(DirectFetcher.isFakeIp(InternetAddress('fc00::1')), isFalse);
   });
 
   test('balancedAddresses keeps both address families within the cap', () {

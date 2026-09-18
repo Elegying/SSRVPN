@@ -537,11 +537,13 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             "_tunInterfacesBeforeStart = const <WindowsTunInterfaceIdentity>{};",
             baseline_to_arm,
         )
+        polling = lifecycle[lifecycle.index("final healthy = await waitForWindowsCoreReady("):lifecycle.index("if (healthy) {", lifecycle.index("final healthy = await waitForWindowsCoreReady("))]
+        self.assertNotIn("_persistTunInterfaceIdentities", polling)
         persist_index = lifecycle.index("!await _persistTunInterfaceIdentities()")
         commit_running = lifecycle.index("setRunning(true)", persist_index)
         self.assertLess(spawn, persist_index)
         self.assertLess(persist_index, commit_running)
-        identity_fallback = lifecycle[persist_index:commit_running]
+        identity_fallback = lifecycle[persist_index:lifecycle.index("if (settings.enableTun || preserveSystemProxyRecovery)", persist_index)]
         self.assertNotIn("return false", identity_fallback)
         self.assertIn("仅记录诊断告警", identity_fallback)
 

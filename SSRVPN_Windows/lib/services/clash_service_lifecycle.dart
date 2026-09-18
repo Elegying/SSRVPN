@@ -954,29 +954,25 @@ try {
 
       // 网卡创建重试后仍需加载规则；保留完整就绪检查和取消检查。
       reportProgress('正在等待连接服务和分流规则就绪…');
-      var tunIdentityPersisted = !startedWithTun;
+      final readinessWatch = Stopwatch()..start();
       final healthy = await waitForWindowsCoreReady(
         timeout: Duration(seconds: startedWithTun ? 45 : 15),
         ensureCurrent: () => _ensureStartCurrent(startToken),
         hasExited: () => startupExitCode != null,
         probe: () async {
-          if (!tunIdentityPersisted) {
-            tunIdentityPersisted = await _persistTunInterfaceIdentities();
-            _ensureStartCurrent(startToken);
-          }
           final ready = await healthCheck();
           _ensureStartCurrent(startToken);
           return ready;
         },
       );
 
+      log('连接服务与分流规则检查完成，耗时 ${readinessWatch.elapsedMilliseconds}ms');
       if (healthy) {
         return _completeHealthyStart(
           startToken: startToken,
           startedProcess: startedProcess,
           readStartupExitCode: () => startupExitCode,
           startedWithTun: startedWithTun,
-          tunIdentityPersisted: tunIdentityPersisted,
           preserveSystemProxyRecovery: preserveSystemProxyRecovery,
           startupWatch: startupWatch,
         );
@@ -1018,13 +1014,29 @@ try {
     required Process startedProcess,
     required int? Function() readStartupExitCode,
     required bool startedWithTun,
-    required bool tunIdentityPersisted,
     required bool preserveSystemProxyRecovery,
     required Stopwatch startupWatch,
   }) {
     return WindowsStartTransaction().run(
       configurePlatformNetworking: () async {
         _ensureStartCurrent(startToken);
+        if (startedWithTun) {
+          createConnectionProgressReporter()('连接服务已就绪，正在保存网络恢复信息…');
+        }
+        final identityWatch = Stopwatch()..start();
+        // Capture once after readiness, not through a new PowerShell process
+        // on every poll. The baseline recovery marker is already armed.
+        if (startedWithTun && !await _persistTunInterfaceIdentities()) {
+          _ensureStartCurrent(startToken);
+          log(
+            '⚠️ TUN 已启动，但 Windows 未暴露可持久化的网卡身份；'
+            '已保留启动前基线，本项仅记录诊断告警',
+          );
+        }
+        _ensureStartCurrent(startToken);
+        if (startedWithTun) {
+          log('网络恢复信息检查完成，耗时 ${identityWatch.elapsedMilliseconds}ms');
+        }
         if (settings.enableTun || preserveSystemProxyRecovery) return true;
         createConnectionProgressReporter()('正在设置系统代理…');
         final proxyWatch = Stopwatch()..start();
@@ -1063,15 +1075,6 @@ try {
         return canCommitRunning;
       },
       commit: () async {
-        if (startedWithTun &&
-            !tunIdentityPersisted &&
-            !await _persistTunInterfaceIdentities()) {
-          _ensureStartCurrent(startToken);
-          log(
-            '⚠️ TUN 已启动，但 Windows 未暴露可持久化的网卡身份；'
-            '已保留启动前基线，本项仅记录诊断告警',
-          );
-        }
         _proxyRecoveryListenerActive = preserveSystemProxyRecovery;
         if (startedWithTun) resetTunDataPlaneObservationSession();
         setRunning(true);

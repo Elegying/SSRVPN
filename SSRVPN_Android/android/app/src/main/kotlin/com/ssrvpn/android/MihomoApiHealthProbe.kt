@@ -40,7 +40,13 @@ internal object MihomoApiHealthProbe {
     fun isHealthy(port: Int, apiSecret: String, deadlineNanos: Long): Boolean =
         runtimeReadiness(port, apiSecret, deadlineNanos) == MihomoApiReadiness.READY
 
-    fun readiness(port: Int, apiSecret: String, deadlineNanos: Long): MihomoApiReadiness {
+    fun preparationReadiness(port: Int, apiSecret: String, deadlineNanos: Long): MihomoApiReadiness =
+        readiness(port, apiSecret, deadlineNanos, false)
+
+    fun readiness(port: Int, apiSecret: String, deadlineNanos: Long): MihomoApiReadiness =
+        readiness(port, apiSecret, deadlineNanos, true)
+
+    private fun readiness(port: Int, apiSecret: String, deadlineNanos: Long, expectedTun: Boolean): MihomoApiReadiness {
         val versionState = versionReadiness(port, apiSecret, deadlineNanos)
         if (versionState != MihomoApiReadiness.READY) return versionState
 
@@ -63,8 +69,8 @@ internal object MihomoApiHealthProbe {
             return MihomoApiReadiness.PENDING
         }
         return when (configJson.directNestedBoolean("tun", "enable")) {
-            true -> rulesReadiness(port, apiSecret, deadlineNanos)
-            false -> MihomoApiReadiness.TUN_DISABLED
+            expectedTun -> rulesReadiness(port, apiSecret, deadlineNanos)
+            !expectedTun -> MihomoApiReadiness.TUN_DISABLED
             else -> MihomoApiReadiness.PENDING
         }
     }

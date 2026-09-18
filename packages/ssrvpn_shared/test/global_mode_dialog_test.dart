@@ -44,7 +44,10 @@ void main() {
         expect(changes, 0);
         expect(find.byType(SsrvpnModalGlassPanel), findsOneWidget);
         expect(find.text('确定').hitTestable(), findsOneWidget);
-        expect(find.textContaining('注意⚠️：全局模式会代理设备所有流量'), findsOneWidget);
+        expect(find.textContaining('进入客户端的流量默认通过当前节点访问'), findsOneWidget);
+        expect(find.textContaining('安卓国内应用绕过名单'), findsOneWidget);
+        expect(find.textContaining('系统代理模式仅影响'), findsOneWidget);
+        expect(find.textContaining('代理设备所有流量'), findsNothing);
         expect(tester.takeException(), isNull);
         await tester.tap(find.text('确定'));
         await tester.pumpAndSettle();

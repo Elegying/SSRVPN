@@ -62,6 +62,7 @@ MOCK_NETWORK_SERVICE=Wi-Fi
 MOCK_NETWORK_SERVICE_LIST=Wi-Fi
 MOCK_NETWORK_SERVICE_LIST_FAILURE=false
 MOCK_ACTIVE_NETWORK_DEVICE=en0
+MOCK_IPV6_ONLY=false
 MOCK_SCUTIL_CALLS=0
 MOCK_SCUTIL_FAILURE=false
 MOCK_CHILD_PID=31337
@@ -74,12 +75,24 @@ MOCK_STATUS_HISTORY=
 # Bash functions with the same names inject deterministic platform boundaries
 # while file type and journal contents still use real temporary files.
 /sbin/route() {
+  if [[ $MOCK_IPV6_ONLY == true && $* != *-inet6* ]]; then
+    return 1
+  fi
   printf '   route to: default\ninterface: en0\n'
 }
 
 /usr/sbin/scutil() {
   [[ ${1:-} == --nwi && $MOCK_SCUTIL_FAILURE == false ]] || return 1
   MOCK_SCUTIL_CALLS=$((MOCK_SCUTIL_CALLS + 1))
+  if [[ $MOCK_IPV6_ONLY == true ]]; then
+    printf '%s\n' \
+      'IPv4 network interface information' \
+      '   utun9 : flags : 0x7 (IPv4,IPv6,DNS)' \
+      'IPv6 network interface information' \
+      '   utun9 : flags : 0x7 (IPv4,IPv6,DNS)' \
+      "   $MOCK_ACTIVE_NETWORK_DEVICE : flags : 0x6 (IPv6,DNS)"
+    return 0
+  fi
   printf '%s\n' \
     'Network information' \
     '' \
@@ -255,6 +268,7 @@ setup_case() {
   MOCK_NETWORK_SERVICE_LIST=Wi-Fi
   MOCK_NETWORK_SERVICE_LIST_FAILURE=false
   MOCK_ACTIVE_NETWORK_DEVICE=en0
+  MOCK_IPV6_ONLY=false
   MOCK_SCUTIL_CALLS=0
   MOCK_SCUTIL_FAILURE=false
   runtime_health_failure_count=0
@@ -314,6 +328,23 @@ assert_file_absent() {
   local path=$1 message=$2
   if [[ -e $path || -L $path ]]; then
     echo "assertion failed: $message ($path still exists)" >&2
+    return 1
+  fi
+}
+
+test_ipv6_only_dns_transaction() {
+  setup_case ipv6-only
+  MOCK_IPV6_ONLY=true
+  MOCK_DNS_CURRENT='2001:db8::53'
+  capture_tun_dns_state || return 1
+  assert_equal en0 "$dns_device" 'IPv6 default route must identify physical service' || return 1
+  configure_tun_dns || return 1
+  active_physical_network_unchanged || return 1
+  restore_persisted_tun_dns || return 1
+  assert_equal '2001:db8::53' "$MOCK_DNS_CURRENT" 'IPv6 DNS must restore exactly' || return 1
+  MOCK_ACTIVE_NETWORK_DEVICE=en1
+  if active_physical_network_unchanged; then
+    echo 'assertion failed: IPv6 network change must retain ownership protection' >&2
     return 1
   fi
 }
@@ -793,6 +824,22 @@ test_recovery_only_entrypoint_validates_marker_and_journal() {
   grep -Fq -- '--request-token' "$RUNNER" || return 1
 }
 
+test_tun_commit_marker() {
+  setup_case tun-commit
+  mkdir -p "$runtime_dir"
+  printf 'level=info msg="Start initial provider ssrvpn-geosite-cn"\n' > "$runtime_dir/mihomo.log"
+  if tun_capture_committed; then return 1; fi
+  printf 'level=error msg="SSRVPN_TUN_COMMITTED"\n' >> "$runtime_dir/mihomo.log"
+  if tun_capture_committed; then return 1; fi
+  printf 'level=info msg=SSRVPN_TUN_COMMITTED_FAILED\n' >> "$runtime_dir/mihomo.log"
+  if tun_capture_committed; then return 1; fi
+  # logrus does not quote a message containing only safe characters.
+  printf 'time="2026-09-18T12:00:00Z" level=info msg=SSRVPN_TUN_COMMITTED\n' > "$runtime_dir/mihomo.log"
+  tun_capture_committed || return 1
+  printf 'time="2026-09-18T12:00:00Z" level=info msg="SSRVPN_TUN_COMMITTED"\n' > "$runtime_dir/mihomo.log"
+  tun_capture_committed
+}
+
 test_malformed_journal_fails_closed() {
   setup_case malformed
   printf 'schema=2\nservice=Wi-Fi\n' > "$dns_state_path"
@@ -895,6 +942,7 @@ test_stale_lock_creation_race_preserves_both_owners() {
 failures=0
 tests=0
 for entry in \
+  'IPv6-only DNS capture and restore:test_ipv6_only_dns_transaction' \
   'automatic DNS capture and restore:test_automatic_dns_capture_and_restore' \
   'routable DNS hijack target:test_tun_dns_uses_routable_hijack_target' \
   'legacy loopback DNS recovery:test_legacy_loopback_dns_is_recovered' \
@@ -915,6 +963,7 @@ for entry in \
   'runtime unknown observations:test_runtime_unknown_network_observations_preserve_the_session' \
   'runtime physical network change:test_runtime_dns_ownership_fails_when_active_physical_device_changes' \
   'recovery-only ownership validation:test_recovery_only_entrypoint_validates_marker_and_journal' \
+  'TUN commit precedes DNS mutation:test_tun_commit_marker' \
   'malformed journal fail-closed:test_malformed_journal_fails_closed' \
   'symlink journal fail-closed:test_symlink_journal_fails_closed' \
   'wrong permission journal fail-closed:test_wrong_permission_journal_fails_closed' \

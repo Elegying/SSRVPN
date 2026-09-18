@@ -34,12 +34,9 @@ class DirectFetcher {
   static const _requestTimeout = Duration(seconds: 60);
   static const _maxHeaderBytes = 64 * 1024;
 
-  /// 判断 IP 是否落在 Clash fake-ip 常用网段 198.18.0.0/15
-  static bool isFakeIp(InternetAddress addr) {
-    if (addr.type != InternetAddressType.IPv4) return false;
-    final b = addr.rawAddress;
-    return b[0] == 198 && (b[1] == 18 || b[1] == 19);
-  }
+  /// Recognize IPv4 Fake-IP and SSRVPN's exact IPv6 pool before secure fallback.
+  static bool isFakeIp(InternetAddress addr) =>
+      SubscriptionFetchPolicy.isFakeIp(addr);
 
   /// Caps DNS candidates while alternating address families so a long A or
   /// AAAA list cannot starve the other family.

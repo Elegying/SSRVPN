@@ -148,7 +148,11 @@ if grep -Fq "syncSettings" "$STARTUP_ORCHESTRATOR"; then
   exit 1
 fi
 
-require_text "bridgeThread.join(VpnStartBudget.BRIDGE_MS)"
+require_text "bridgeThread.join(minOf(VpnStartBudget.BRIDGE_MS,"
+require_text "TimeUnit.NANOSECONDS.toMillis(deadlineNanos - System.nanoTime()).coerceAtLeast(1L)"
+require_text "startBridgeWithTimeout(configDir, configPath, null, startupDeadlineNanos)"
+require_text "prepareMihomoForVpn(apiPort, apiSecret, startupDeadlineNanos,"
+require_text "requireVpnStartupBudget(startupDeadlineNanos)"
 require_text "SystemClock.elapsedRealtime() + VpnStartBudget.CANCEL_GRACE_MS"
 require_text "serviceStartInProgress.compareAndSet(false, true)"
 require_text "processTerminationPending.get()"
@@ -671,10 +675,13 @@ establish = start_core.index("vpnFd = builder.establish()")
 protect_init = start_core.index("bridge.Bridge.initProtect()")
 protect_monitor = start_core.index("VpnProtectMonitor.start(")
 detach = start_core.index("DetachedTunFdOwner.detach(bridgeDescriptor)")
-if not establish < protect_init < protect_monitor < detach:
-    raise SystemExit(
-        "Android protect pipe must start only after VPN establish and before fd detach"
-    )
+prepare = start_core.index("startBridgeWithTimeout(configDir, configPath, null, startupDeadlineNanos)")
+ready = start_core.index("prepareMihomoForVpn(apiPort, apiSecret, startupDeadlineNanos,")
+select = start_core.index("applyProxySelection(apiPort, apiSecret, selectedNodeName)")
+# Android's documented order protects the tunnel socket before establish().
+# Prepared rule/API checks must also complete before system capture begins.
+if not protect_init < protect_monitor < ready < prepare < select < establish < detach:
+    raise SystemExit("Android VPN capture must follow protected core/rule preparation")
 bridge_start = source.index("private fun startBridgeWithTimeout(")
 bridge_stop = source.index("private fun monitorCoreRunning(", bridge_start)
 start = source[bridge_start:bridge_stop]
@@ -902,7 +909,7 @@ start_core = service[
 ]
 detach = start_core.index("DetachedTunFdOwner.detach(bridgeDescriptor)")
 claim = start_core.index("runtimeDiagnostics.claimTunDescriptor(tunFd)")
-bridge_start = start_core.index("startBridgeWithTimeout(configDir, configPath, tunFdOwner)")
+bridge_start = start_core.index("startBridgeWithTimeout(configDir, configPath, tunFdOwner, startupDeadlineNanos)")
 if not detach < claim < bridge_start:
     raise SystemExit(
         "Android TUN ownership must be claimed before Bridge start can be cancelled"

@@ -3,7 +3,7 @@ Source commit: 7031b7569831677a8d89ad8a8a3347db116ba1a8
 Source tree: 023ddee8f965c54a263a16df68580585aa12c0f8
 Source corroboration: gunzi-666/Clash.Meta has the same commit and tree
 Bridge source: SSRVPN_Android/native/bridge/bridge.go
-Bridge SHA256: 2042b01acbdd25bfade905cdfcb949ab779fd430d4dc86d45658446ad20c8621
+Bridge SHA256: 28efb399f083359ed991755ef895dd5b8e679646664022e52b84c8f7de4378dd
 Build recipe: scripts/build-android-core.sh
 Go version: go1.25.11
 Go mobile version: v0.0.0-20260602190626-68735029466e
@@ -18,7 +18,7 @@ Android API: 24
 NDK version: 28.2.13676358 (r28c)
 Mirror repo: Elegying/SSRVPN
 Mirror release tag: core-assets-v1
-Mirror asset name: libgojni-7267825f5c0840cb5d9f1922277b9a903439eadf9157d1750b7f02150ec7dad2.so
-Mirror URL: https://github.com/Elegying/SSRVPN/releases/download/core-assets-v1/libgojni-7267825f5c0840cb5d9f1922277b9a903439eadf9157d1750b7f02150ec7dad2.so
-Library SHA256: 7267825f5c0840cb5d9f1922277b9a903439eadf9157d1750b7f02150ec7dad2
-Traffic extension SHA256: 95c9472f4f4909c4726bb8453882330464f02645e44d4201bc5d5754720b35a9
+Mirror asset name: libgojni-8ae9511b0886009b6912f2fcd507dac55dce57bb94880368162569e8bf4ded1d.so
+Mirror URL: https://github.com/Elegying/SSRVPN/releases/download/core-assets-v1/libgojni-8ae9511b0886009b6912f2fcd507dac55dce57bb94880368162569e8bf4ded1d.so
+Library SHA256: 8ae9511b0886009b6912f2fcd507dac55dce57bb94880368162569e8bf4ded1d
+Traffic extension SHA256: aa95f21795c80ad6ed000118037ce36bca985b804e3d3889c854257b880d0522

@@ -21,6 +21,8 @@ void main() {
       ['198.18.0.55'],
       ['198.19.0.61'],
       ['198.18.0.55', '8.8.8.8'],
+      ['fdfe:dcba:9877::55'],
+      ['198.18.0.55', 'fdfe:dcba:9877::55'],
     ]) {
       var calls = 0;
       final result = await DirectFetcher.resolveSystemAddresses(uri,
@@ -38,6 +40,8 @@ void main() {
     for (final values in [
       ['192.168.1.1'],
       ['198.18.0.55', '127.0.0.1'],
+      ['fdfe:dcba:9877::55', 'fc00::1'],
+      ['fdfe:dcba:9876::1'],
     ]) {
       await expectLater(
           DirectFetcher.resolveSystemAddresses(uri,
@@ -51,6 +55,7 @@ void main() {
     for (final values in [
       ['192.168.1.1'],
       ['198.18.0.61'],
+      ['fdfe:dcba:9877::61'],
       ['::ffff:127.0.0.1'],
       ['1.1.1.1', '10.0.0.1'],
     ]) {
@@ -109,9 +114,11 @@ void main() {
     }
   });
   test('literal Fake-IP remains forbidden and is never sent to DoH', () async {
-    await expectLater(
-        DirectFetcher.resolveSystemAddresses(Uri.parse('https://198.18.0.55/'),
-            dohLookup: (_) => throw StateError('must not run')),
-        throwsA(isA<SubscriptionAddressException>()));
+    for (final host in ['198.18.0.55', '[fdfe:dcba:9877::55]']) {
+      await expectLater(
+          DirectFetcher.resolveSystemAddresses(Uri.parse('https://$host/'),
+              dohLookup: (_) => throw StateError('must not run')),
+          throwsA(isA<SubscriptionAddressException>()));
+    }
   });
 }

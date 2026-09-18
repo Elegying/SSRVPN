@@ -518,6 +518,25 @@ void main() {
       });
     }
 
+    test('direct IPv6 binding failure points to local networking, not node',
+        () {
+      const core = '[mihomo] time="2026-09-18T14:46:15+08:00" '
+          'level=warning msg="[TCP] dial DIRECT (match RuleSet/domestic) '
+          '[fdfe:dcba:9876::1]:1234 --> [2001:db8::1]:443 error: '
+          'dial tcp [2001:db8::1]:443: bind6: An invalid argument was supplied."';
+      final entry = readableDiagnosticLogs(
+        '[2026-09-18T06:46:15Z] [INFO] [runtime] $core',
+      ).single;
+      expect(entry.message, contains('本机的 IPv6 出口'));
+      expect(entry.message, contains('换代理节点不能解决'));
+      expect(entry.technicalDetail, contains('bind6:'));
+      final proxy = readableDiagnosticLogs(
+        '[2026-09-18T06:46:15Z] [INFO] [runtime] '
+        '${core.replaceFirst('dial DIRECT ', 'dial PROXY ')}',
+      ).single;
+      expect(proxy.message, isNot(contains('这次直连请求')));
+    });
+
     test('IPv6 observation is readable without asserting node capability', () {
       final entry = readableDiagnosticLogs(
         '[2026-09-17T06:00:23Z] [INFO] [runtime] '

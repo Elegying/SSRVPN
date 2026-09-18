@@ -714,7 +714,14 @@ String? _plainRuntimeSummary(String? event, String text) {
   if (event == 'runtime' &&
       RegExp(r'^\[mihomo\] time="[^"]+" level=warning msg="\[SSRVPN_IPV6_TARGET_FAILED\] ')
           .hasMatch(text)) {
-    return '这次未能访问 IPv6 目标，当前网络或节点可能无法到达该地址；可换节点重试，其他连接保持不变。';
+    return '这次未能访问 IPv6 目标，可能是本地网络或节点无法到达；直连目标请检查本机 IPv6 网络，代理目标可换节点重试，其他连接保持不变。';
+  }
+
+  if (event == 'runtime' &&
+      RegExp(r'^\[mihomo\] time="[^"]+" level=(warning|error) msg="\[TCP\] dial DIRECT ')
+          .hasMatch(text) &&
+      text.contains('bind6:')) {
+    return '这次直连请求无法使用本机的 IPv6 出口；请检查正在联网的网卡是否启用 IPv6，换代理节点不能解决这类直连错误。';
   }
 
   // This exact core error identifies a failed TCP connection to the proxy

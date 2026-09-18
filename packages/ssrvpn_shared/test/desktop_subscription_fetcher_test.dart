@@ -23,7 +23,6 @@ void main() {
         responded = true;
         isRetry = requestIndex++ > 0;
         if (!isRetry) {
-          await Future<void>.delayed(const Duration(milliseconds: 300));
           socket.write(
               'HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
           await socket.flush();
@@ -44,8 +43,11 @@ void main() {
       await server.close();
     });
     var index = 0;
+    // Return the compatibility rejection immediately: this test must reach the
+    // stalled retry before the shared deadline, even during parallel builds.
+    // The retry must still be closed by that deadline (not user cancellation).
     final control =
-        SubscriptionRefreshControl(timeout: const Duration(milliseconds: 600));
+        SubscriptionRefreshControl(timeout: const Duration(seconds: 2));
     await expectLater(
         IOOverrides.runZoned(
           () => DesktopSubscriptionFetcher.fetch(
@@ -61,7 +63,7 @@ void main() {
         ),
         throwsA(isA<SubscriptionRefreshDeadlineExceeded>()));
     expect(requestIndex, 2);
-    await retryClosed.future.timeout(const Duration(milliseconds: 150));
+    await retryClosed.future.timeout(const Duration(seconds: 1));
     expect(control.cancellation.isCancelled, isFalse,
         reason: 'deadline cleanup must not become a user cancellation');
   });

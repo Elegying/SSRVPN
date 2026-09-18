@@ -405,3 +405,27 @@ func TestPackageLookupRoundTripAndUnavailableFallback(t *testing.T) {
 		t.Fatal("lookup stalled routing")
 	}
 }
+
+func TestPrepareDoesNotCaptureAndStopDiscardsCommit(t *testing.T) {
+	Stop()
+	path := t.TempDir() + "/prepare.json"
+	if err := os.WriteFile(path, []byte(`{"mixed-port":0,"external-controller":"127.0.0.1:0","ipv6":true,"tun":{"enable":true,"stack":"gvisor"},"rules":["MATCH,DIRECT"]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if result := Start(path, -1); result != "" {
+		t.Fatal(result)
+	}
+	if !running || preparedTun == nil || listener.GetTunConf().Enable {
+		t.Fatal("preparation captured network or lost its commit")
+	}
+	if result := Start(path+".other", 999999); result != "already running" {
+		t.Fatal("another config could commit prepared session", result)
+	}
+	if listener.GetTunConf().Enable {
+		t.Fatal("mismatched commit enabled TUN")
+	}
+	Stop()
+	if running || preparedTun != nil || preparedConfigPath != "" || listener.GetTunConf().Enable {
+		t.Fatal("stop retained prepared capture")
+	}
+}

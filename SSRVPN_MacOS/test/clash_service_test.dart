@@ -295,7 +295,7 @@ void main() {
       expect(tunConfig, isNot(contains('  route-exclude-address:')));
       expect(tunConfig, isNot(contains('  route-address-set:')));
       expect(tunConfig, contains('ipv6: true'));
-      expect(tunConfig, isNot(contains('fake-ip-range6:')));
+      expect(tunConfig, contains('fake-ip-range6: fdfe:dcba:9877::/64'));
       expect(
         tunConfig,
         isNot(contains('"IP-CIDR6,::/0,REJECT,no-resolve"')),

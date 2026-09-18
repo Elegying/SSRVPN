@@ -133,7 +133,7 @@ proxies:
       );
       expect(enabled['ipv6'], isTrue);
       expect(enabled['dns']['ipv6'], isTrue);
-      expect(enabled['dns'].containsKey('fake-ip-range6'), isFalse);
+      expect(enabled['dns']['fake-ip-range6'], 'fdfe:dcba:9877::/64');
       expect(enabled['tun']['inet6-address'], isNotEmpty);
       expect(
         (enabled['tun']['route-exclude-address'] as YamlList).cast<String>(),

@@ -50,7 +50,11 @@ class AppConstants {
   static const String defaultTunStack = 'gvisor';
 
   // ── DNS 配置 ──
-  static const List<String> defaultNameservers = ['223.5.5.5', '119.29.29.29'];
+  static const List<String> defaultNameservers = [
+    '223.5.5.5',
+    '119.29.29.29',
+    '2400:3200::1',
+  ];
 
   /// Domestic resolvers are limited to proxy-server bootstrap and explicit
   /// CN policy. They are never the general resolver for international names.
@@ -64,6 +68,7 @@ class AppConstants {
   static const List<String> trustedProxyNameservers = [
     'https://1.1.1.1/dns-query#PROXY',
     'https://8.8.8.8/dns-query#PROXY',
+    'https://[2606:4700:4700::1111]/dns-query#PROXY',
   ];
 
   /// International domains that must be resolved and routed through PROXY
@@ -116,6 +121,10 @@ class AppConstants {
 
   // ── Fake IP 配置 ──
   static const String fakeIpRange = '198.18.0.1/16';
+  // Synthetic targets only: recovered to their domain before routing. Keep the
+  // pool separate from the TUN interface subnet and never treat it as public.
+  static const String fakeIpV6Address = 'fdfe:dcba:9877::';
+  static const String fakeIpRange6 = '$fakeIpV6Address/64';
   // TUN captures IPv6 so it follows the same direct/proxy rules as IPv4.
   static const String tunInet6Address = 'fdfe:dcba:9876::1/126';
   static const List<String> fakeIpFilter = [
