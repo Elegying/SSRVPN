@@ -9,6 +9,31 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'account_usage_test.dart' show usageJson, usageNode;
 
 void main() {
+  for (final width in [320.0, 380.0, 800.0]) {
+    testWidgets('failed account query keeps both cards at width $width',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: Center(
+                  child: SizedBox(
+        width: width,
+        height: 120,
+        child: SsrvpnHomeTrafficPanel(
+            active: false,
+            connected: false,
+            readSample: () async => null,
+            accountStatus: '统计服务响应较慢，将自动重试'),
+      )))));
+      expect(
+          find.byKey(const ValueKey('home-traffic-card-已用流量')), findsOneWidget);
+      expect(find.byKey(const ValueKey('home-traffic-card-已连接设备')),
+          findsOneWidget);
+      expect(find.text('暂未更新'), findsNWidgets(2));
+      expect(find.byTooltip('统计服务响应较慢，将自动重试'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   final reports = <Map<String, dynamic>>[];
   const screenshotDirectory = String.fromEnvironment('SSRVPN_LAYOUT_OUTPUT');
   const iconPath = String.fromEnvironment('SSRVPN_LAYOUT_ICONS');

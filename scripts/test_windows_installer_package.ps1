@@ -547,8 +547,18 @@ function Invoke-SmokeProcess {
   Write-Host "$Phase started. Log: $LogPath"
   # Start-Process -Wait follows the whole descendant tree on Windows, so wait
   # only for the installer process.
-  $process = Start-Process -FilePath $FilePath -PassThru `
-    -ArgumentList $ArgumentList
+  # Reproduce shells that pass a PowerShell 7/custom module path to the
+  # installer. Only this child inherits it; never change machine/user settings.
+  $originalModulePath = $env:PSModulePath
+  try {
+    if ([IO.Path]::GetFileName($FilePath) -ne 'powershell.exe') {
+      $env:PSModulePath = Join-Path $env:TEMP 'ssrvpn-no-inherited-modules'
+    }
+    $process = Start-Process -FilePath $FilePath -PassThru `
+      -ArgumentList $ArgumentList
+  } finally {
+    $env:PSModulePath = $originalModulePath
+  }
   try {
     if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
       $taskkill = Join-Path $env:SystemRoot 'System32\taskkill.exe'

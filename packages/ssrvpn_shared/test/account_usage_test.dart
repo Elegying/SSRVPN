@@ -51,6 +51,37 @@ ProxyNode usageNode(
     });
 
 void main() {
+  testWidgets(
+      'query failures keep placeholders, retry safely and log transitions only',
+      (tester) async {
+    final logs = <String>[];
+    var fail = true;
+    final controller = AccountUsageController(
+        providers: usageProviders(),
+        onDiagnostic: logs.add,
+        fetch: (_) async {
+          if (fail)
+            throw const UsageQueryFailure.reason(UsageFailureKind.timeout);
+          return AccountUsage.parse(usageJson());
+        });
+    addTearDown(controller.dispose);
+    final revision = Object();
+    controller.update(node: usageNode(), revision: revision, active: true);
+    expect(controller.statusMessage, '正在查询账号统计');
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(controller.value, isNull);
+    expect(controller.statusMessage, '统计服务响应较慢，将自动重试');
+    await tester.pump(const Duration(seconds: 15));
+    expect(logs, ['统计服务响应较慢，将自动重试']);
+    fail = false;
+    await tester.pump(const Duration(seconds: 30));
+    expect(controller.value, isNotNull);
+    expect(controller.statusMessage, isNull);
+    expect(logs.last, '账号统计已恢复');
+    controller.update(node: null, revision: revision, active: false);
+    expect(controller.statusMessage, isNull);
+  });
+
   test('strict complete contract, valid zero and untruncated over-limit usage',
       () {
     expect(AccountUsage.parse(usageJson()).onlineDevices, 0);
@@ -312,7 +343,8 @@ void main() {
     expect(controller.value, isNull);
     controller.update(node: null, revision: null, active: false);
   });
-  testWidgets('only three or five cards, independent of local disconnect',
+  testWidgets(
+      'trusted account cards remain during loading and failure, independent of VPN',
       (tester) async {
     final origin = tester.binding.clock.now();
     var pending = Completer<AccountUsage>();
@@ -343,7 +375,9 @@ void main() {
         .length;
     await tester.pumpWidget(host(true));
     await tester.pump(const Duration(milliseconds: 1));
-    expect(cards(), 3);
+    expect(cards(), 5);
+    expect(controller.value, isNull);
+    expect(find.text('暂未更新'), findsNWidgets(2));
     pending.complete(AccountUsage.parse(usageJson()));
     await tester.pump(const Duration(milliseconds: 1));
     expect(cards(), 5);
@@ -354,7 +388,9 @@ void main() {
     await tester.pump(const Duration(seconds: 10));
     pending.completeError(const UsageQueryFailure());
     await tester.pump(const Duration(milliseconds: 1));
-    expect(cards(), 3);
+    expect(cards(), 5);
+    expect(controller.value, isNull);
+    expect(find.text('暂未更新'), findsNWidgets(2));
     expect(find.text('暂不可用'), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });

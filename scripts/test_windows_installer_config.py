@@ -7,6 +7,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WindowsInstallerConfigTest(unittest.TestCase):
+    def test_installer_scopes_ps51_module_path_to_its_own_process(self):
+        script = (ROOT / "SSRVPN_Windows/installer/SSRVPN.iss").read_text()
+        self.assertIn("SetEnvironmentVariableW@kernel32.dll", script)
+        self.assertEqual(script.count("Result := InitializePowerShellEnvironment();"), 2)
+        self.assertIn("{sys}\\WindowsPowerShell\\v1.0\\Modules", script)
+        self.assertNotIn("setx", script.lower())
+
+
     def test_microsoft_runtime_packaging_is_redist_only_and_provenanced(
         self,
     ) -> None:

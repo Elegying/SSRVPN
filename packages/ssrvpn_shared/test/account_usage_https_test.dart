@@ -126,8 +126,10 @@ void main() {
   });
   test('node insecure flag does not disable HTTPS certificate verification',
       () async {
-    await expectLater(const AccountUsageClient().fetch(identity),
-        throwsA(isA<UsageQueryFailure>()));
+    await expectLater(
+        const AccountUsageClient().fetch(identity),
+        throwsA(isA<UsageQueryFailure>().having(
+            (e) => e.kind, 'safe cause', UsageFailureKind.certificate)));
     expect(observed, isEmpty);
   });
   test('redirect never forwards a credential to another origin', () async {
@@ -214,7 +216,8 @@ void main() {
     };
     await expectLater(
         client(timeout: const Duration(milliseconds: 100)).fetch(identity),
-        throwsA(isA<UsageQueryFailure>()));
+        throwsA(isA<UsageQueryFailure>()
+            .having((e) => e.kind, 'safe cause', UsageFailureKind.timeout)));
     respond = (r) async {
       r.response.write(jsonEncode(usageJson()));
       await r.response.close();
