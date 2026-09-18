@@ -70,9 +70,9 @@ class MacosTunSession {
   static const _runnerSha256 =
       '9c09d33f7a3e353863949f7f7c923c300624ec5b914a5cb81830398e4a9cadb5';
   static const _coreArchiveSha256 =
-      '9cf5ea6a97f1af81d76c0d6946ab69119a91e763f9a7e71c2a78f7c872c42e7e';
+      '7418adb74d7743b36f6714a2623995f9ad067d7d829914f21df0762841b5fdaf';
   static const _coreManifestSha256 =
-      '60de87a337b0fea3e6de6cf117261460c444a80e5087d3a8d05ab04693ebdc86';
+      '1ca34347d227fb2b20aa04e29e59720126b4360bce3855b4481affe3a5aed647';
   static const _privilegedLauncherScript = r'''
 set -euo pipefail
 runner_source=$1

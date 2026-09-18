@@ -122,7 +122,20 @@ func ssrvpnProxyTargetCandidates(ctx context.Context, metadata *C.Metadata, prox
 		next := proxy.Unwrap(metadata, false)
 		if next == nil {
 			switch proxy.Type() {
-			case C.Direct, C.Reject, C.RejectDrop, C.Compatible, C.Pass, C.PassRule, C.Dns:
+			case C.Direct:
+				// Restore only a DNS-cache mapping, after the route is selected.
+				// Pure would otherwise pin the mapped AAAA and hide the domain
+				// from native TCP Happy Eyeballs and DIRECT UDP's A selection.
+				// Clearing DstIP also survives the UDP caller's second Pure().
+				if metadata.DNSMode == C.DNSMapping && metadata.Host != "" && metadata.DstIP.Is6() {
+					if node, _ := resolver.DefaultHosts.Search(metadata.Host, false); node == nil {
+						target := metadata.Clone()
+						target.DstIP = netip.Addr{}
+						return []*C.Metadata{target}
+					}
+				}
+				fallthrough
+			case C.Reject, C.RejectDrop, C.Compatible, C.Pass, C.PassRule, C.Dns:
 				target := metadata.Pure()
 				if metadata.DNSMode == C.DNSMapping && metadata.Host != "" && target.SniffHost == "" {
 					target = target.Clone()

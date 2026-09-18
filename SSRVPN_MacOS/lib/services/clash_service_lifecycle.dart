@@ -462,7 +462,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   Future<bool> _probeTunDataPath(int probeGeneration) async {
     final tunMode = settings.enableTun;
     final warning = await verifyUserConnectivity(
-      maxAttempts: 2,
+      maxAttempts: 6,
       retryDelay: const Duration(seconds: 1),
       shouldContinue: () =>
           probeGeneration == _tunDataPathProbeGeneration &&
@@ -979,7 +979,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         notifyStatusChanged();
         startStatusMonitor();
         _scheduleNativeCoreStatusWatch(startedProcess);
-        scheduleDataPlaneObservation();
+        scheduleDataPlaneObservation(delay: const Duration(seconds: 5));
       },
       rollback: _cleanupFailedStart,
       onException: (stage, error) {
@@ -1305,7 +1305,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
           );
           notifyStatusChanged();
           startStatusMonitor();
-          scheduleDataPlaneObservation();
+          scheduleDataPlaneObservation(delay: const Duration(seconds: 5));
           return true;
         }
         await Future<void>.delayed(const Duration(milliseconds: 250));

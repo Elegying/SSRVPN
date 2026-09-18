@@ -16,3 +16,23 @@ func ssrvpnTunRulesReady(providers map[string]P.RuleProvider) bool {
 	}
 	return true
 }
+
+// Inline providers already contain their proxies; Initial only starts health
+// checks. In TUN mode defer those checks until physical-interface detection and
+// route commit are ready, so reusable transports are not opened unbound first.
+// File/HTTP providers keep their preparation order: rules may need their nodes.
+func ssrvpnStartupProviders(providers map[string]P.ProxyProvider, tun bool) (prepare, deferred map[string]P.ProxyProvider) {
+	if !tun {
+		return providers, nil
+	}
+	prepare = make(map[string]P.ProxyProvider)
+	deferred = make(map[string]P.ProxyProvider)
+	for name, provider := range providers {
+		if provider.VehicleType() == P.Compatible {
+			deferred[name] = provider
+		} else {
+			prepare[name] = provider
+		}
+	}
+	return
+}

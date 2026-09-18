@@ -447,7 +447,8 @@ index 5741bf3f..7414e01e 100644
  	"github.com/metacubex/mihomo/component/loopback"
 @@ -28,6 +29,14 @@ func (d *Direct) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn,
  	opts := d.DialOptions()
- 	opts = append(opts, dialer.WithResolver(resolver.DirectHostResolver))
+-	opts = append(opts, dialer.WithResolver(resolver.DirectHostResolver))
++	opts = append(opts, dialer.WithResolver(d.ssrvpnDirectResolver()))
  	c, err := dialer.DialContext(ctx, "tcp", metadata.RemoteAddress(), opts...)
 +	if target := ssrvpnDirectFamilyFallback(ctx, metadata, err, func(ctx context.Context, host string) ([]netip.Addr, error) {
 +		return resolver.LookupIPWithResolver(ctx, host, resolver.DirectHostResolver)
@@ -460,11 +461,19 @@ index 5741bf3f..7414e01e 100644
  	if err != nil {
  		return nil, err
  	}
+@@ -57,7 +66,7 @@ func (d *Direct) ResolveUDP(ctx context.Context, metadata *C.Metadata) error {
+ 	if (!metadata.Resolved() || resolver.DirectHostResolver != resolver.DefaultResolver) && metadata.Host != "" {
+-		ip, err := resolveIPWithResolver(ctx, metadata.Host, d.prefer, resolver.DirectHostResolver)
++		ip, err := resolveIPWithResolver(ctx, metadata.Host, d.prefer, d.ssrvpnDirectResolver())
+ 		if err != nil {
+ 			return fmt.Errorf("can't resolve ip: %w", err)
+ 		}
+ 		metadata.DstIP = ip
+ 	}
 diff --git a/hub/executor/executor.go b/hub/executor/executor.go
-index 8e0d09e6..d578eba6 100644
 --- a/hub/executor/executor.go
 +++ b/hub/executor/executor.go
-@@ -105,7 +105,6 @@ func ApplyConfig(cfg *config.Config, force bool) {
+@@ -105,18 +105,28 @@
  	updateNTP(cfg.NTP)
  	updateDNS(cfg.DNS, cfg.General.IPv6)
  	updateListeners(cfg.General, cfg.Listeners, force)
@@ -472,8 +481,12 @@ index 8e0d09e6..d578eba6 100644
  	updateIPTables(cfg)
  	updateTunnels(cfg.Tunnels)
  
-@@ -115,6 +114,15 @@ func ApplyConfig(cfg *config.Config, force bool) {
- 	loadProvider(cfg.Providers)
+ 	tunnel.OnInnerLoading()
+ 
+ 	initInnerTcp()
+-	loadProvider(cfg.Providers)
++	providers, deferredProviders := ssrvpnStartupProviders(cfg.Providers, cfg.General.Tun.Enable)
++	loadProvider(providers)
  	updateProfile(cfg)
  	loadProvider(cfg.RuleProviders)
 +	// Commit capture only after core and rule preparation has finished.
@@ -487,4 +500,7 @@ index 8e0d09e6..d578eba6 100644
 +	}
  	runtime.GC()
  	tunnel.OnRunning()
++	loadProvider(deferredProviders)
  	updateUpdater(cfg)
+ 
+ 	resolver.ResetConnection()

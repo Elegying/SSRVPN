@@ -39,6 +39,11 @@ class DNS(socketserver.BaseRequestHandler):
         if (host == 'v4-slow-aaaa.fixture' and kind == 28) or (host == 'v6-slow-a.fixture' and kind == 1):
             return  # Simulate one DNS family timing out, not an empty answer.
         answer = b''
+        if host == 'direct-mapped.fixture':
+            address = socket.inet_pton(socket.AF_INET if kind == 1 else socket.AF_INET6,
+                                      '127.0.0.1' if kind == 1 else '2001:db8::22') if kind in (1, 28) else b''
+            if address:
+                answer = b'\xc0\x0c' + struct.pack('!HHIH', kind, 1, 30, len(address)) + address
         if host == 'leak.fixture':
             address = socket.inet_pton(socket.AF_INET if kind == 1 else socket.AF_INET6,
                                       '127.0.0.1' if kind == 1 else '::1') if kind in (1, 28) else b''
@@ -133,7 +138,13 @@ class SocksAssociation(socketserver.StreamRequestHandler):
         self.rfile.read(1)  # Association lifetime is bound to the TCP socket.
 
 
-def check_udp(mixed):
+class DirectUDPEcho(socketserver.BaseRequestHandler):
+    def handle(self):
+        payload, transport = self.request
+        transport.sendto(payload, self.client_address)
+
+
+def check_udp(mixed, direct_port):
     with socket.create_connection(('127.0.0.1', mixed), timeout=5) as control:
         control.sendall(b'\x05\x01\x00')
         stream = control.makefile('rb')
@@ -153,6 +164,19 @@ def check_udp(mixed):
                 client.sendto(packet, ('127.0.0.1', port))
                 reply, _ = client.recvfrom(4096)
                 assert reply.endswith(b'dual-stack-udp') and UDPRelay.targets == [expected], UDPRelay.targets
+        # Use a fresh source socket: native UDP associations keep the selected outbound.
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as direct_client:
+            direct_client.settimeout(5)
+            # A real mapped AAAA enters the SOCKS/TUN-shared UDP pipeline.
+            # The reply must retain the original IPv6 identity after a DIRECT
+            # IPv4 socket carried the datagram; no custom NAT implementation.
+            UDPRelay.targets.clear()
+            original = socket.inet_pton(socket.AF_INET6, '2001:db8::22')
+            header = b'\x00\x00\x00\x04' + original + struct.pack('!H', direct_port)
+            direct_client.sendto(header + b'mapped-direct-udp', ('127.0.0.1', port))
+            reply, _ = direct_client.recvfrom(4096)
+            assert reply == header + b'mapped-direct-udp', 'DIRECT UDP reply mapping lost'
+            assert not UDPRelay.targets, 'DIRECT packet entered a proxy'
         stream.close()
 
 
@@ -198,15 +222,17 @@ def main():
         target6 = traffic.serve(stack, IPv6HTTP(('::1', 0), traffic.Target))
         canary = traffic.serve(stack, traffic.ThreadingHTTPServer(('127.0.0.1', 0), LeakCanary))
         canary6 = traffic.serve(stack, IPv6HTTP(('::1', 0), LeakCanary))
+        direct_udp = traffic.serve(stack, socketserver.ThreadingUDPServer(('127.0.0.1', 0), DirectUDPEcho))
         mixed, api, core_dns = traffic.free_port(), traffic.free_port(), traffic.free_port()
         config = {
             'mixed-port': mixed, 'external-controller': f'127.0.0.1:{api}',
             'secret': 'loopback-traffic-test', 'ipv6': True, 'mode': 'rule',
             'dns': {'enable': True, 'ipv6': True, 'listen': f'127.0.0.1:{core_dns}', 'enhanced-mode': 'fake-ip',
                     'fake-ip-range': '198.18.0.1/16', 'fake-ip-range6': 'fdfe:dcba:9877::/64',
+                    'fake-ip-filter': ['direct-mapped.fixture'],
                     'nameserver': [f'127.0.0.1:{dns}']},
             'proxies': [{'name': 'fixture', 'type': 'http', 'server': '127.0.0.1', 'port': proxy}, {'name': 'udp-fixture', 'type': 'socks5', 'server': '127.0.0.1', 'port': socks_proxy, 'udp': True}],
-            'rules': ['DOMAIN,leak.fixture,fixture', f'AND,((IP-CIDR6,::1/128),(DST-PORT,{canary6})),fixture',
+            'rules': ['DOMAIN,direct-mapped.fixture,DIRECT', 'DOMAIN,leak.fixture,fixture', f'AND,((IP-CIDR6,::1/128),(DST-PORT,{canary6})),fixture',
                       'NETWORK,udp,udp-fixture', 'IP-CIDR6,::1/128,DIRECT,no-resolve',
                       'IP-CIDR,127.0.0.0/8,DIRECT,no-resolve', 'MATCH,fixture'],
         }
@@ -279,7 +305,10 @@ def main():
                         connection.close()
                 assert 'dual.fixture' in names
 
-                check_udp(mixed)
+                mapped = fake_dns_address(core_dns, 'direct-mapped.fixture', 28)
+                assert mapped == '2001:db8::22', mapped
+                assert traffic.request(mixed, f'http://[{mapped}]:{target}/mapped-direct', False)[0] == 200
+                check_udp(mixed, direct_udp)
                 Proxy.targets.clear()
                 Proxy.fail_ipv4 = True
                 assert traffic.request(mixed, f'http://dual.fixture:{target}/fallback-v6', False)[0] == 200

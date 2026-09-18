@@ -378,6 +378,7 @@ class _AdvisoryTunDataPlaneClashService extends ClashService {
     Future<http.Response> Function(Uri uri)? request,
     bool Function()? shouldContinue,
   }) async {
+    expect(maxAttempts, 6, reason: 'three endpoints in two rounds');
     probeCalls++;
     shouldContinueResult = shouldContinue?.call();
     return nextWarning;

@@ -431,14 +431,12 @@ abstract class ClashServiceBase
     }
   }
 
-  /// 获取当前配置
   @override
   Future<Map<String, dynamic>?> getConfigs() =>
       _readControllerObject('/configs');
 
   /// 切换选中的代理节点（同时处理 PROXY 和 GLOBAL 组）
-  /// The optional guard is checked before each mutation and after asynchronous
-  /// confirmation so a stale same-port session cannot cause later side effects.
+  /// Guard each mutation/confirmation against a stale same-port session.
   Future<bool> switchSelectedProxy(
     String nodeName, {
     SwitchContextGuard? isSwitchContextCurrent,
@@ -470,6 +468,20 @@ abstract class ClashServiceBase
     SwitchContextGuard? isSwitchContextCurrent,
   }) async {
     if (!await _isSwitchContextCurrent(isSwitchContextCurrent)) return false;
+    final proxyAlreadySelected =
+        await _currentProxyGroupSelection('PROXY') == nodeName;
+    if (!await _isSwitchContextCurrent(isSwitchContextCurrent)) return false;
+    if (proxyAlreadySelected) {
+      final effectiveNode = await currentSelectedProxyName();
+      if (!await _isSwitchContextCurrent(isSwitchContextCurrent)) return false;
+      if (effectiveNode == nodeName) {
+        // Keep in-flight DNS/exit-IP requests when startup already selected it.
+        if (_desktopConnectionRecoveryPlan != null) {
+          _desktopRecoveryPreferredNodeName = nodeName;
+        }
+        return true;
+      }
+    }
     final proxyOk = await _switchAndConfirmProxyGroup('PROXY', nodeName);
     if (!proxyOk) return false;
     if (!await _isSwitchContextCurrent(isSwitchContextCurrent)) return true;
@@ -515,9 +527,7 @@ abstract class ClashServiceBase
   Future<bool> _isSwitchContextCurrent(SwitchContextGuard? guard) async =>
       guard == null || await guard();
 
-  /// Returns the node that Mihomo is actually routing through right now.
-  ///
-  /// In global mode GLOBAL may point at PROXY; then use PROXY.now.
+  /// Returns the effective node, resolving GLOBAL -> PROXY when applicable.
   @override
   Future<String?> currentSelectedProxyName() async {
     final generation = _trafficSessionGeneration;

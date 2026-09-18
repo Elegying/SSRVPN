@@ -243,3 +243,45 @@ func TestSSRVPNIPv6ObservationRequiresAnActualAttempt(t *testing.T) {
 		t.Fatal("attempted IPv6 failure was not recorded")
 	}
 }
+
+// A real AAAA restored by the DNS mapping cache must not become a permanently
+// pinned DIRECT destination. UDP has no connect error on which to retry.
+func TestSSRVPNDirectMappedIPv6RetainsDomainForNativeDualStack(t *testing.T) {
+	previous := resolver.DisableIPv6
+	resolver.DisableIPv6 = false
+	defer func() { resolver.DisableIPv6 = previous }()
+	for _, network := range []C.NetWork{C.TCP, C.UDP} {
+		original := &C.Metadata{Host: "mapped.synthetic.invalid", DstIP: netip.MustParseAddr("2001:db8::1"), DNSMode: C.DNSMapping, NetWork: network, DstPort: 443}
+		direct := ssrvpnFixtureProxy{kind: C.Direct}
+		for _, selected := range []C.Proxy{direct, ssrvpnFixtureProxy{next: direct}} {
+			targets := ssrvpnProxyTargetCandidates(context.Background(), original, selected)
+			target := targets[0].Pure() // The UDP caller applies Pure again.
+			if len(targets) != 1 || target.Host != original.Host || target.DstIP.IsValid() {
+				t.Fatalf("native DIRECT family selection bypassed: host=%q ip=%v", target.Host, target.DstIP)
+			}
+			if original.Host == "" || !original.DstIP.Is6() {
+				t.Fatal("routing metadata mutated")
+			}
+		}
+	}
+}
+
+func TestSSRVPNDirectDomainRecoveryKeepsExplicitDestinations(t *testing.T) {
+	previous := resolver.DisableIPv6
+	resolver.DisableIPv6 = false
+	defer func() { resolver.DisableIPv6 = previous }()
+	for _, m := range []*C.Metadata{
+		{DstIP: netip.MustParseAddr("2001:db8::1")},
+		{DstIP: netip.MustParseAddr("2001:db8::1"), SniffHost: "untrusted.synthetic.invalid"},
+		{Host: "hosts.synthetic.invalid", DstIP: netip.MustParseAddr("2001:db8::1"), DNSMode: C.DNSHosts},
+		{Host: "dns.synthetic.invalid", DstIP: netip.MustParseAddr("2001:db8::1"), DNSMode: C.DNSMapping, Type: C.INNER},
+		{Host: "mapped-v4.synthetic.invalid", DstIP: netip.MustParseAddr("192.0.2.1"), DNSMode: C.DNSMapping},
+	} {
+		for _, kind := range []C.AdapterType{C.Direct, C.Reject} {
+			target := ssrvpnProxyTargetCandidates(context.Background(), m, ssrvpnFixtureProxy{kind: kind})[0]
+			if target.DstIP != m.DstIP {
+				t.Fatal("explicit destination changed")
+			}
+		}
+	}
+}

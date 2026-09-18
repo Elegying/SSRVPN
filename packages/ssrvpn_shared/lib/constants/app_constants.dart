@@ -32,8 +32,8 @@ class AppConstants {
     fallbackConnectivityTestUrl,
     tunConnectivityTestUrl,
   ];
-  // Desktop probes are bounded to two attempts. Keep different operators in
-  // the first two slots so a Google-only outage also reaches the fallback.
+  // Desktop probes try these three endpoints for at most two rounds.
+  // Any success stops the observation; only six failures publish a warning.
   static const List<String> tunConnectivityTestUrls = [
     tunConnectivityTestUrl,
     fallbackConnectivityTestUrl,

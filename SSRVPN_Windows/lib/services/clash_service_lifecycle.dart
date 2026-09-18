@@ -191,7 +191,7 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
     if (generation == null) return;
     _lastTunDataPlaneObservationAt = now;
     final warning = await verifyUserConnectivity(
-      maxAttempts: 2,
+      maxAttempts: 6,
       retryDelay: const Duration(seconds: 1),
       shouldContinue: () =>
           isRunning &&
@@ -1082,7 +1082,7 @@ try {
         log('✅ Mihomo API 就绪，耗时 ${startupWatch.elapsedMilliseconds}ms');
         notifyStatusChanged();
         startStatusMonitor();
-        scheduleDataPlaneObservation();
+        scheduleDataPlaneObservation(delay: const Duration(seconds: 5));
       },
       rollback: _cleanupFailedStart,
       isCancellation: (error) => error is _DesktopStartCancelled,

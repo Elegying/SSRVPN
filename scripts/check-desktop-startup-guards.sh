@@ -430,11 +430,12 @@ for path in paths:
     lifecycle = path.read_text(encoding="utf-8")
     for token in (
         "Future<void> observeDataPlaneHealth() async",
-        "scheduleDataPlaneObservation();",
+        "scheduleDataPlaneObservation(delay: const Duration(seconds: 5));",
+        "maxAttempts: 6",
     ):
         if token not in lifecycle:
             raise SystemExit(f"{path}: missing service-owned data-plane guard {token}")
-if "if (startedWithTun) scheduleDataPlaneObservation();" in windows_source:
+if "if (startedWithTun) scheduleDataPlaneObservation(" in windows_source:
     raise SystemExit(
         "Windows system-proxy startup does not schedule a data-plane observation"
     )

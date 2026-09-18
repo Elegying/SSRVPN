@@ -79,6 +79,21 @@ class CoreTrafficReadinessTests(unittest.TestCase):
 
 
 class CoreTrafficSourceTests(unittest.TestCase):
+    def test_desktop_inline_checks_start_after_tun_commit_and_running(self):
+        # The behavioural partition test lives in executor. Also protect its
+        # integration point: an early Initial opens reusable, unbound sockets.
+        for platform in ('macos', 'windows'):
+            with self.subTest(platform=platform):
+                source = (module.BUNDLE / (platform + '.patch')).read_text()
+                executor = source.split('+++ b/hub/executor/executor.go', 1)[1]
+                prepare = executor.index('ssrvpnStartupProviders(cfg.Providers, cfg.General.Tun.Enable)')
+                commit = executor.index('+\t\tupdateTun(cfg.General)')
+                running = executor.index('\ttunnel.OnRunning()')
+                checks = executor.index('+\tloadProvider(deferredProviders)')
+                self.assertLess(prepare, commit)
+                self.assertLess(commit, running)
+                self.assertLess(running, checks)
+
     def test_toolchain_download_rejects_changed_and_oversized_archives(self):
         payload = b'pinned toolchain archive'
         record = {'size': len(payload), 'sha256': hashlib.sha256(payload).hexdigest()}
