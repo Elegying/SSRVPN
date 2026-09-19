@@ -8,7 +8,56 @@ import 'package:ssrvpn_shared/widgets/ssrvpn_app_surface.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_glass.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_dialog.dart';
 
+class _TransientDisplayView extends TestFlutterView {
+  _TransientDisplayView(TestFlutterView view)
+      : super(
+            view: view,
+            platformDispatcher: view.platformDispatcher,
+            display: view.display);
+
+  bool displayAvailable = false;
+
+  @override
+  TestDisplay get display {
+    if (!displayAvailable) {
+      // Match FlutterView.display's release-mode null assertion.
+      TestDisplay? missing;
+      return missing!;
+    }
+    return super.display;
+  }
+}
+
 void main() {
+  testWidgets('missing display keeps glass mounted and recovers on metrics',
+      (tester) async {
+    final view = _TransientDisplayView(tester.view);
+    tester.view.display.refreshRate = 120;
+    addTearDown(tester.view.display.resetRefreshRate);
+    await tester.pumpWidget(
+        View(
+            view: view,
+            child: wrapSsrvpnLiquidGlass(const MaterialApp(home: Text('主界面')))),
+        wrapWithView: false);
+    expect(tester.takeException(), isNull);
+    expect(find.text('主界面'), findsOneWidget);
+    final scope = tester.widget<liquid.GlassAdaptiveScope>(
+        find.byType(liquid.GlassAdaptiveScope));
+    expect(scope.targetFrameMs, 16);
+    expect(scope.minQuality, liquid.GlassQuality.premium);
+    view.displayAvailable = true;
+    tester.binding.handleMetricsChanged();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(
+        tester
+            .widget<liquid.GlassAdaptiveScope>(
+                find.byType(liquid.GlassAdaptiveScope))
+            .targetFrameMs,
+        8);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('missing refresh method stops polling across lifecycle changes',
       (tester) async {
     const channel = MethodChannel('com.ssrvpn/display');

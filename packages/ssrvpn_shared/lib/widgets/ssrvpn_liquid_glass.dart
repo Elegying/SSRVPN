@@ -277,10 +277,23 @@ class _AdaptiveGlassHostState extends State<_AdaptiveGlassHost>
     super.dispose();
   }
 
+  double _flutterRefreshRate(BuildContext context) {
+    try {
+      return View.maybeOf(context)?.display.refreshRate ?? 60;
+    } on TypeError {
+      // FlutterView.display asserts non-null internally. Windows can briefly
+      // have no matching display; this optional hint must not break the UI.
+      return 60;
+    } on AssertionError {
+      // The same missing-display condition asserts first in debug builds.
+      return 60;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     _diagnostics.refreshRate =
-        _nativeRefreshRate ?? View.maybeOf(context)?.display.refreshRate ?? 60;
+        _nativeRefreshRate ?? _flutterRefreshRate(context);
     _diagnostics.targetFps = _lowPerformance ? 60 : null;
     final budget =
         ssrvpnFrameBudget(_lowPerformance ? 60 : _diagnostics.refreshRate);
