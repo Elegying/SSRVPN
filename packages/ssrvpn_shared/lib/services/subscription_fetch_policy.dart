@@ -67,6 +67,7 @@ class SubscriptionFetchPolicy {
   static const v2rayNUserAgent = 'v2rayN/7.24.8 ${AppConstants.appUserAgent}';
   static const shadowrocketUserAgent =
       'Shadowrocket/2.2.91 ${AppConstants.appUserAgent}';
+
   /// 与 [clientIdentities] 同源派生，避免新增标识时只改一处。
   static List<String> get userAgents => clientIdentities
       .map((identity) => identity.userAgent)
