@@ -214,9 +214,11 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
         : proxyRecoveryListenerActive
             ? '本地保护监听'
             : '系统代理';
-    setConnectivityWarning('连接与 $routeMode 仍在运行；外部网络观察暂未通过，仅供参考：$warning');
+    // One short line on the home surface; the route mode and the full reason
+    // stay in the log, which the same control already links to.
+    setConnectivityWarning(warning);
     log(
-      '外部网络观察未通过: $warning；未断开连接，未切换节点',
+      '外部网络观察未通过: $warning；未断开连接，未切换节点；通道=$routeMode',
       level: RuntimeLogLevel.warning,
       event: 'data_plane_probe',
     );

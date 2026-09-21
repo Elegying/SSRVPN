@@ -297,6 +297,11 @@ class ClashConfigGenerator {
     }
     result.writeln("    url: ${_quote(healthCheckUrl)}");
     result.writeln('    interval: ${AppConstants.latencyTestInterval}');
+    // Without a tolerance the group re-picks on tiny latency differences and
+    // resets live connections. Lazy testing leaves idle members alone instead
+    // of probing every node forever.
+    result.writeln('    tolerance: 50');
+    result.writeln('    lazy: true');
     if (includeFallbackGroup) {
       result.writeln('  - name: 故障转移');
       result.writeln('    type: fallback');
@@ -306,6 +311,8 @@ class ClashConfigGenerator {
       }
       result.writeln("    url: ${_quote(healthCheckUrl)}");
       result.writeln('    interval: ${AppConstants.latencyTestInterval}');
+      result.writeln('    tolerance: 50');
+      result.writeln('    lazy: true');
     }
     for (final groupName in normalizedExtraGroupNames) {
       result.writeln('  - name: ${_quote(groupName)}');

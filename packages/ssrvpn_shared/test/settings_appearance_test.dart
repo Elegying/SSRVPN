@@ -55,7 +55,8 @@ void main() {
                     onAppearanceChanged: (
                         {glassEffectLevel,
                         backgroundStyle,
-                        customBackgroundPath}) async {
+                        customBackgroundPath,
+                        dynamicBackground}) async {
                       saves++;
                     },
                     onPortChanged: (_) async {},
@@ -118,7 +119,8 @@ void main() {
                     onAppearanceChanged: (
                         {glassEffectLevel,
                         backgroundStyle,
-                        customBackgroundPath}) async {
+                        customBackgroundPath,
+                        dynamicBackground}) async {
                       saves++;
                       if (outcome == 'save failure') {
                         throw const FileSystemException('disk full');
@@ -185,6 +187,26 @@ void main() {
         {'glassEffectLevel': 'future', 'backgroundStyle': 'future'});
     expect(legacy.glassEffectLevel, isNull);
     expect(legacy.backgroundStyle, BackgroundStyle.flowing);
+    expect(legacy.dynamicBackground, isFalse);
+  });
+
+  test('a still wallpaper is the shipped default for every platform', () {
+    expect(AppSettings().dynamicBackground, isFalse);
+    expect(AppSettings().backgroundStyle, BackgroundStyle.flowing);
+    expect(AppSettings.fromJson({'dynamicBackground': true}).dynamicBackground,
+        isTrue);
+    expect(
+        AppSettings.fromJson({'dynamicBackground': 'true'}).dynamicBackground,
+        isTrue);
+    expect(
+        AppSettings.fromJson({'dynamicBackground': 'nonsense'})
+            .dynamicBackground,
+        isFalse);
+    final drifting = AppSettings(dynamicBackground: true);
+    expect(AppSettings.fromJson(drifting.toJson()), drifting);
+    expect(drifting.copyWith(proxyPort: 8000).dynamicBackground, isTrue);
+    expect(
+        drifting.copyWith(dynamicBackground: false).dynamicBackground, isFalse);
   });
 
   test(
@@ -281,7 +303,8 @@ void main() {
                         onAppearanceChanged: (
                             {glassEffectLevel,
                             backgroundStyle,
-                            customBackgroundPath}) async {},
+                            customBackgroundPath,
+                            dynamicBackground}) async {},
                         onPortChanged: (_) async {
                           calls++;
                           throw const FileSystemException('disk full');
@@ -331,6 +354,97 @@ void main() {
     await tester.tap(find.text('检查更新'));
     await tester.pump();
     expect(foundUpdate?.version, '9.0.0');
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+      'dynamic wallpaper switch reports the choice and locks itself elsewhere',
+      (tester) async {
+    var settings = AppSettings();
+    late StateSetter update;
+    bool? reported;
+    final core = _Core();
+    addTearDown(core.dispose);
+    await tester.pumpWidget(MaterialApp(
+        theme: ThemeData.dark(),
+        home: SsrvpnAppearanceScope(
+            settings: settings,
+            child: StatefulBuilder(builder: (context, setState) {
+              update = setState;
+              return Scaffold(
+                  body: SsrvpnSettingsPage(
+                      settings: settings,
+                      core: core,
+                      dataDirectory: '/tmp',
+                      onAppearanceChanged: (
+                          {glassEffectLevel,
+                          backgroundStyle,
+                          customBackgroundPath,
+                          dynamicBackground}) async {
+                        reported = dynamicBackground;
+                        update(() => settings = settings.copyWith(
+                            dynamicBackground: dynamicBackground));
+                      },
+                      onPortChanged: (_) async {},
+                      checkForUpdate: () async => null,
+                      onUpdateFound: (_) {}));
+            }))));
+    SwitchListTile tile() =>
+        tester.widget<SwitchListTile>(find.byType(SwitchListTile));
+    await tester.scrollUntilVisible(find.text('动态背景'), 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(find.text('动态背景'));
+    expect(tile().value, isFalse);
+    expect(tile().onChanged, isNotNull);
+    await tester.tap(find.byType(SwitchListTile));
+    await tester.pump();
+    expect(reported, isTrue);
+    expect(tile().value, isTrue);
+    update(() =>
+        settings = settings.copyWith(backgroundStyle: BackgroundStyle.gray));
+    await tester.pump();
+    expect(tile().onChanged, isNull, reason: '纯色背景没有可以移动的壁纸');
+    expect(tile().value, isFalse, reason: '纯色背景不能显示为已开启却点不动');
+    expect(find.text('仅「壁纸」背景支持动态效果'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+      'system reduce-motion disables the switch and explains why instead of '
+      'silently overriding it', (tester) async {
+    final settings = AppSettings(
+        dynamicBackground: true, backgroundStyle: BackgroundStyle.flowing);
+    final core = _Core();
+    addTearDown(core.dispose);
+    await tester.pumpWidget(MaterialApp(
+        theme: ThemeData.dark(),
+        home: SsrvpnAppearanceScope(
+            settings: settings,
+            child: MediaQuery(
+                data: const MediaQueryData(disableAnimations: true),
+                child: Scaffold(
+                    body: SsrvpnSettingsPage(
+                        settings: settings,
+                        core: core,
+                        dataDirectory: '/tmp',
+                        onAppearanceChanged: (
+                            {glassEffectLevel,
+                            backgroundStyle,
+                            customBackgroundPath,
+                            dynamicBackground}) async {},
+                        onPortChanged: (_) async {},
+                        checkForUpdate: () async => null,
+                        onUpdateFound: (_) {}))))));
+    SwitchListTile tile() =>
+        tester.widget<SwitchListTile>(find.byType(SwitchListTile));
+    await tester.scrollUntilVisible(find.text('动态背景'), 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(find.text('动态背景'));
+    expect(tile().onChanged, isNull, reason: '系统禁止动效时开关必须禁用，不能看起来可用');
+    expect(tile().value, isFalse, reason: '壁纸实际不会移动，开关就不应显示为已开启');
+    expect(find.text('系统已开启「减少动态效果」，壁纸将保持静止'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });

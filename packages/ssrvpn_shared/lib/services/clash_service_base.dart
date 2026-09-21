@@ -92,8 +92,13 @@ abstract class ClashServiceBase
 
   String? _connectionProgress;
   final Set<void Function()> _connectionProgressListeners = {};
+  bool _autoRecoveryInProgress = false;
 
   Timer? _statusTimer;
+  // Android defers control-plane monitoring to its native service, so the
+  // periodic monitor above never runs there. This independent low-frequency
+  // timer keeps the data plane observed on that platform too.
+  Timer? _dataPlaneWatchTimer;
   Timer? _ruleProviderRefreshTimer;
 
   /// Subclasses can use this to make direct HTTP calls to the Clash API.
@@ -109,13 +114,31 @@ abstract class ClashServiceBase
       AppConstants.ruleProviderStartupRefreshDelay;
 
   @protected
-  Duration get statusMonitorInterval => const Duration(seconds: 5);
+  Duration get statusMonitorInterval => const Duration(seconds: 3);
 
   @protected
   int get maxConsecutiveHealthCheckFailures => 3;
 
+  /// Recovery requires both repeated failures and elapsed time, and the two
+  /// conditions must overlap instead of stacking.
+  ///
+  /// The failure threshold on its own already spans
+  /// `maxConsecutiveHealthCheckFailures - 1` poll intervals (~6s at the 3s
+  /// poll). The grace therefore has to stay strictly *inside* that span: tying
+  /// it to the same two intervals makes both conditions land on the exact same
+  /// millisecond, and a few milliseconds of timer jitter is then enough to
+  /// withhold the trip and burn a whole extra poll cycle — a measured 9s
+  /// window silently drifting to 12s. One interval keeps a comfortable margin,
+  /// so the third consecutive failure always recovers at about 9s.
   @protected
-  Duration get healthFailureGrace => statusMonitorInterval * 6;
+  Duration get healthFailureGrace => statusMonitorInterval;
+
+  /// Low-frequency data-plane observation used only where the periodic
+  /// control-plane monitor is disabled (Android, where the native service owns
+  /// it). Long enough to stay free, short enough that a node which stopped
+  /// forwarding is reported within about a minute instead of never.
+  @protected
+  Duration get dataPlaneWatchInterval => const Duration(seconds: 60);
 
   @protected
   bool get enablePeriodicHealthMonitor => true;

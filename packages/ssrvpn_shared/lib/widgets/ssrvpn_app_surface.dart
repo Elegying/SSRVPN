@@ -67,6 +67,8 @@ class SsrvpnAppBackdrop extends StatelessWidget {
   Widget build(BuildContext context) {
     final appearance = SsrvpnAppearance.maybeOf(context);
     final background = appearance?.background ?? BackgroundStyle.flowing;
+    // An absent scope keeps the shipped default: a still wallpaper.
+    final drift = appearance?.dynamicBackground ?? false;
     final color = ssrvpnBackgroundColor(background);
     final shade = Colors.black
         .withValues(alpha: MediaQuery.highContrastOf(context) ? .65 : .28);
@@ -81,23 +83,24 @@ class SsrvpnAppBackdrop extends StatelessWidget {
               : background == BackgroundStyle.custom
                   ? SsrvpnCustomBackground(path: appearance?.imagePath ?? '')
                   : SsrvpnDriftingBackground(
+                      drift: drift,
                       child: Image.asset(
-                      'assets/backgrounds/network-glass-deep.png',
-                      package: 'ssrvpn_shared',
-                      fit: BoxFit.cover,
-                      alignment: Alignment.center,
-                      filterQuality: FilterQuality.medium,
-                      // Fold the black overlay into the image draw instead of blending
-                      // another full-screen rectangle on every wallpaper frame.
-                      color: shade,
-                      colorBlendMode: BlendMode.srcATop,
-                      frameBuilder: (_, child, frame, synchronous) =>
-                          frame != null || synchronous
-                              ? child
-                              : ColoredBox(color: shade, child: child),
-                      errorBuilder: (_, __, ___) => _SsrvpnAssetErrorBackdrop(
-                          child: ColoredBox(color: shade)),
-                    )),
+                        'assets/backgrounds/network-glass-deep.png',
+                        package: 'ssrvpn_shared',
+                        fit: BoxFit.cover,
+                        alignment: Alignment.center,
+                        filterQuality: FilterQuality.medium,
+                        // Fold the black overlay into the image draw instead of blending
+                        // another full-screen rectangle on every wallpaper frame.
+                        color: shade,
+                        colorBlendMode: BlendMode.srcATop,
+                        frameBuilder: (_, child, frame, synchronous) =>
+                            frame != null || synchronous
+                                ? child
+                                : ColoredBox(color: shade, child: child),
+                        errorBuilder: (_, __, ___) => _SsrvpnAssetErrorBackdrop(
+                            child: ColoredBox(color: shade)),
+                      )),
         ))),
         child,
       ])),

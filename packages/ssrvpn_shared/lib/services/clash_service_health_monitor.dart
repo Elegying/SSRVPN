@@ -142,6 +142,8 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
   void startStatusMonitor() {
     _statusTimer?.cancel();
     _scheduleRuleProviderRefreshOnce();
+    _startDataPlaneWatch();
+    startNetworkChangeWatch();
     if (!enablePeriodicHealthMonitor) {
       _statusTimer = null;
       return;
@@ -259,6 +261,7 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
                   await onStopRequired();
                   return false;
                 }
+                setAutoRecoveryInProgress(true);
                 notifyRuntimeNotice(
                   const RuntimeNotice.progress(
                     '运行状态暂时异常，正在自动恢复连接…',
@@ -291,6 +294,9 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
               event: 'health_recovery',
             );
           }
+          // The rebuild window is over either way; the outcome notice below
+          // carries the result.
+          setAutoRecoveryInProgress(false);
 
           final intentCurrent = recoveryGeneration != null &&
               isConnectionIntentCurrent(
@@ -341,12 +347,35 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
     _invalidateHealthMonitorSession();
     _statusTimer?.cancel();
     _statusTimer = null;
+    _dataPlaneWatchTimer?.cancel();
+    _dataPlaneWatchTimer = null;
+    stopNetworkChangeWatch();
     if (_ruleProviderRefreshTimer?.isActive ?? false) {
       // A cancelled delay has not consumed this launch's one check yet.
       _ruleProviderRefreshScheduled = false;
     }
     _ruleProviderRefreshTimer?.cancel();
     _ruleProviderRefreshTimer = null;
+  }
+
+  /// Android hands control-plane monitoring to its native service, so the
+  /// periodic monitor above never runs there. That left the data plane
+  /// unobserved for the whole session: a node that stopped forwarding while the
+  /// local control plane stayed healthy produced no warning at all, while the
+  /// desktop platforms report it within about 30 seconds. Watch the data plane
+  /// on an independent timer so every platform eventually notices.
+  ///
+  /// This only raises the advisory warning. It deliberately never restarts the
+  /// core, matching the existing contract that data-plane failures are advisory.
+  void _startDataPlaneWatch() {
+    _dataPlaneWatchTimer?.cancel();
+    _dataPlaneWatchTimer = null;
+    if (enablePeriodicHealthMonitor) return;
+    final watchEpoch = _healthMonitorEpoch;
+    _dataPlaneWatchTimer = Timer.periodic(dataPlaneWatchInterval, (_) {
+      if (!_isRunning || watchEpoch != _healthMonitorEpoch) return;
+      scheduleDataPlaneObservation();
+    });
   }
 
   void _scheduleRuleProviderRefreshOnce() {

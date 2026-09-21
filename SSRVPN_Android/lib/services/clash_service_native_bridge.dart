@@ -175,48 +175,11 @@ extension AndroidNativeBridge on ClashService {
     return false;
   }
 
-  Future<bool> _recoverNativeAfterHealthCheckFailure(
-    int connectionGeneration,
-  ) async {
-    if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
-      await stop();
-      return false;
-    }
-    if (await healthCheck()) {
-      setRunning(true);
-      return true;
-    }
-    if (!_healthRecoveryPolicy.tryAcquire()) {
-      await stop();
-      return false;
-    }
-
-    final activeConfigPath =
-        _runningConfigPath ?? _nativeSnapshotConfigPath ?? configPath;
-    _notifyNativeRuntimeNotice(
-      RuntimeNotice.progress(
-        '连接服务持续失去响应，正在执行安全重启'
-        '（${_healthRecoveryPolicy.attempts}/${_healthRecoveryPolicy.maxAttempts}）…',
-      ),
-    );
-    try {
-      await stop();
-    } catch (error) {
-      log('健康检查恢复时停止 Mihomo 失败: cause=${_safeLogErrorCode(error)}');
-      return false;
-    }
-    if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
-      return false;
-    }
-    if (activeConfigPath.isEmpty || !File(activeConfigPath).existsSync()) {
-      setLastStartError('自动恢复所需的运行配置已不存在');
-      return false;
-    }
-    return _start(
-      preparedConfigPath: activeConfigPath,
-      automaticRecovery: true,
-    );
-  }
+  // Recovery after a health-check failure is deliberately absent here. The
+  // native VpnService runs the authoritative 3-second Bridge monitor and the
+  // CoreRecoveryCoordinator restart budget, including while Flutter is asleep.
+  // A Dart-side recovery path could only race that coordinator, so there is
+  // exactly one owner of core restarts on Android.
 
   void _clearStopOperation(Future<void> operation) {
     if (identical(_stopOperation, operation)) _stopOperation = null;

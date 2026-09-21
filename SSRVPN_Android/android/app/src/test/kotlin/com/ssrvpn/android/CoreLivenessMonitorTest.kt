@@ -118,7 +118,7 @@ class CoreLivenessMonitorTest {
     }
 
     @Test
-    fun `zombie port triggers recovery after one extra cycle`() {
+    fun `a zombie port still recovers once the grace window elapses`() {
         var apiChecks = 0
 
         assertTrue(
@@ -137,14 +137,14 @@ class CoreLivenessMonitorTest {
                 sleep = {}
             ).unexpectedExit
         )
-        // 3 次失败后探测端口（可达），再等 1 次确认后退出
-        assertEquals(4, apiChecks)
+        // 端口可达说明不是硬失败；但宽限已到期，同样应在达到阈值后重启
+        assertEquals(3, apiChecks)
     }
 
     @Test
     fun `a healthy local API probe resets the consecutive failure count`() {
-        // 失败×2 → 成功(重置) → 失败×3(触发端口探测，可达) → 失败×1(僵死确认)
-        val apiResults = ArrayDeque(listOf(false, false, true, false, false, false, false))
+        // 失败×2 → 成功(重置) → 失败×3(端口可达且宽限为 0，达到阈值即重启)
+        val apiResults = ArrayDeque(listOf(false, false, true, false, false, false))
 
         assertTrue(
             CoreLivenessMonitor.waitForUnexpectedExit(
@@ -216,7 +216,8 @@ class CoreLivenessMonitorTest {
             startToken = 7, currentGeneration = { 7 }, isRunning = { running },
             isBridgeRunning = { true },
             isApiHealthy = { ++checks >= 6 },
-            isApiPortReachable = { error("must keep the live session during grace") },
+            // 端口仍可达 => 属于软失败，宽限未到就不得重启
+            isApiPortReachable = { true },
             monotonicMillis = { now },
             sleep = { now += it; if (checks == 7) running = false }
         )
@@ -234,7 +235,7 @@ class CoreLivenessMonitorTest {
             sleep = { now += it }
         )
         assertTrue(result.unexpectedExit)
-        assertEquals(30_000L, now)
+        assertEquals(15_000L, now)
     }
 
     @Test
@@ -245,7 +246,7 @@ class CoreLivenessMonitorTest {
         val result = CoreLivenessMonitor.waitForUnexpectedExit(
             startToken = 7, currentGeneration = { 7 }, isRunning = { running },
             isBridgeRunning = { true }, isApiHealthy = { checks++; false },
-            isApiPortReachable = { error("must restart observation after suspend") },
+            isApiPortReachable = { true },
             monotonicMillis = { now },
             sleep = {
                 now += if (checks == 3) 120_000L else it

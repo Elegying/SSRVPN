@@ -39,7 +39,11 @@ class AppConstants {
     fallbackConnectivityTestUrl,
     defaultLatencyTestUrl,
   ];
-  static const int latencyTestInterval = 300; // 秒
+
+  /// Health-check interval for the generated proxy groups (seconds). Short
+  /// enough that a node which died is noticed in ~2 minutes, long enough that
+  /// the probe traffic stays negligible. Only the core reads this value.
+  static const int latencyTestInterval = 120;
 
   // ── 重试机制 ──
   static const int maxRetries = 3;
@@ -107,7 +111,7 @@ class AppConstants {
 
   // ── 版本信息 ──
   static const String appName = 'SSRVPN';
-  static const String appVersion = '5.0.13';
+  static const String appVersion = '5.0.14';
   static const String appUserAgent = '$appName/$appVersion';
   static const String appDescription = 'Cross-platform VPN client';
 

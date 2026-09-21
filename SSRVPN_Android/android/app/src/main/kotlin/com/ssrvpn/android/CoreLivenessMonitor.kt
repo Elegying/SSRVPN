@@ -19,7 +19,7 @@ internal object CoreLivenessMonitor {
         isApiHealthy: () -> Boolean = { true },
         isApiPortReachable: () -> Boolean = { true },
         monotonicMillis: () -> Long = { System.nanoTime() / 1_000_000L },
-        apiFailureGraceMillis: Long = 30_000L,
+        apiFailureGraceMillis: Long = 15_000L,
         sleep: (Long) -> Unit = Thread::sleep
     ): CoreLivenessOutcome {
         val recoveryBudget = CoreRecoveryBudget(recoveryAttempt)
@@ -57,11 +57,18 @@ internal object CoreLivenessMonitor {
                 if (firstApiFailure == null) firstApiFailure = now
                 consecutiveApiFailures++
                 // Only local API evidence is considered here, never public
-                // website reachability. A live bridge gets a bounded grace window.
-                if (consecutiveApiFailures >= MAX_CONSECUTIVE_API_FAILURES &&
-                    now - firstApiFailure!! >= apiFailureGraceMillis) {
+                // website reachability. Two independent conditions can end the
+                // wait, both gated on repeated failures:
+                if (consecutiveApiFailures >= MAX_CONSECUTIVE_API_FAILURES) {
+                    // A closed API port is hard evidence that the core process
+                    // is already gone, so there is nothing left to wait for.
+                    // This is the common real failure and now recovers right
+                    // after the threshold instead of after the full grace.
                     if (!isApiPortReachable()) break
-                    if (consecutiveApiFailures >= MAX_CONSECUTIVE_API_FAILURES + 1) break
+                    // The core still owns the port but is not answering. Treat
+                    // it as a bounded stall so a transient freeze does not cost
+                    // a full restart, yet do not wait out the old 30s window.
+                    if (now - firstApiFailure!! >= apiFailureGraceMillis) break
                 }
             }
             if (startToken != currentGeneration() || !isRunning()) {

@@ -13,7 +13,7 @@ void main() {
         MaterialApp(navigatorKey: navigator, home: const SizedBox()));
     final route = SsrvpnGlassPageRoute<void>(
         builder: (_) => const SsrvpnDriftingBackground(
-            child: ColoredBox(color: Colors.blue)));
+            drift: true, child: ColoredBox(color: Colors.blue)));
     navigator.currentState!.push(route);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 1));
@@ -44,7 +44,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) {
       routeContext = context;
       return const SsrvpnDriftingBackground(
-          child: ColoredBox(color: Colors.blue));
+          drift: true, child: ColoredBox(color: Colors.blue));
     })));
     Offset position() => tester
         .widget<FractionalTranslation>(find.descendant(
@@ -74,7 +74,7 @@ void main() {
             data: MediaQueryData(
                 disableAnimations: reduce, accessibleNavigation: true),
             child: const SsrvpnDriftingBackground(
-                child: ColoredBox(color: Colors.blue)),
+                drift: true, child: ColoredBox(color: Colors.blue)),
           ),
         );
     Offset position() => tester
@@ -109,7 +109,8 @@ void main() {
   testWidgets('turnaround and cycle seam stay continuous', (tester) async {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpWidget(const MaterialApp(
-        home: SsrvpnDriftingBackground(child: ColoredBox(color: Colors.blue))));
+        home: SsrvpnDriftingBackground(
+            drift: true, child: ColoredBox(color: Colors.blue))));
     Offset position() => tester
         .widget<FractionalTranslation>(find.descendant(
             of: find.byType(SsrvpnDriftingBackground),
@@ -140,6 +141,7 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpWidget(const MaterialApp(
         home: SsrvpnDriftingBackground(
+      drift: true,
       child: ColoredBox(key: Key('wallpaper'), color: Colors.blue),
     )));
     final initial = tester.getRect(find.byKey(const Key('wallpaper')));
@@ -158,5 +160,55 @@ void main() {
     expect(seam.left, closeTo(initial.left, .01));
     await tester.pumpWidget(const SizedBox());
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.detached);
+  });
+  testWidgets('a still wallpaper holds its framing and schedules no frame',
+      (tester) async {
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpWidget(const MaterialApp(
+        home: SsrvpnDriftingBackground(
+            drift: false, child: ColoredBox(color: Colors.blue))));
+    Offset position() => tester
+        .widget<FractionalTranslation>(find.descendant(
+            of: find.byType(SsrvpnDriftingBackground),
+            matching: find.byType(FractionalTranslation)))
+        .translation;
+    await tester.pump();
+    final frozen = position();
+    expect(tester.binding.hasScheduledFrame, isFalse, reason: '静默壁纸不应再请求任何一帧');
+    await tester.pump(const Duration(seconds: 6));
+    expect(position(), frozen);
+    await tester.pumpWidget(const SizedBox());
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.detached);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('the preference freezes in place and resumes from there',
+      (tester) async {
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    Widget page({required bool drift}) => MaterialApp(
+        home: SsrvpnDriftingBackground(
+            drift: drift, child: const ColoredBox(color: Colors.blue)));
+    Offset position() => tester
+        .widget<FractionalTranslation>(find.descendant(
+            of: find.byType(SsrvpnDriftingBackground),
+            matching: find.byType(FractionalTranslation)))
+        .translation;
+    await tester.pumpWidget(page(drift: true));
+    await tester.pump(const Duration(seconds: 4));
+    final drifting = position();
+    expect(tester.binding.hasScheduledFrame, isTrue);
+    await tester.pumpWidget(page(drift: false));
+    await tester.pump();
+    final frozen = position();
+    expect(frozen, drifting, reason: '关闭时停在当前相位，不跳回起点');
+    expect(tester.binding.hasScheduledFrame, isFalse);
+    await tester.pump(const Duration(seconds: 6));
+    expect(position(), frozen);
+    await tester.pumpWidget(page(drift: true));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 4));
+    expect(position(), isNot(frozen));
+    await tester.pumpWidget(const SizedBox());
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.detached);
+    expect(tester.takeException(), isNull);
   });
 }

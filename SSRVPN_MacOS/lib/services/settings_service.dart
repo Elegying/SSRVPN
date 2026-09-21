@@ -53,7 +53,8 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
   Future<void> updateAppearance(
           {GlassEffectLevel? glassEffectLevel,
           BackgroundStyle? backgroundStyle,
-          String? customBackgroundPath}) =>
+          String? customBackgroundPath,
+          bool? dynamicBackground}) =>
       _updateSettings((settings) {
         if (glassEffectLevel != null) {
           settings.glassEffectLevel = glassEffectLevel;
@@ -61,6 +62,9 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
         if (backgroundStyle != null) settings.backgroundStyle = backgroundStyle;
         if (customBackgroundPath != null) {
           settings.customBackgroundPath = customBackgroundPath;
+        }
+        if (dynamicBackground != null) {
+          settings.dynamicBackground = dynamicBackground;
         }
       });
 

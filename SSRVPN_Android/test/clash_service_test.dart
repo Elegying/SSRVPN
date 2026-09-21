@@ -1793,7 +1793,11 @@ secret: rejected-test-secret
 
       expect(autoGroup['type'], 'url-test');
       expect(autoGroup['url'], 'https://www.gstatic.com/generate_204');
-      expect(autoGroup['interval'], 300);
+      expect(autoGroup['interval'], AppConstants.latencyTestInterval);
+      // Hysteresis + lazy probing keep the group from re-picking (and resetting
+      // live connections) on tiny latency differences.
+      expect(autoGroup['tolerance'], 50);
+      expect(autoGroup['lazy'], isTrue);
     });
 
     test('API secret is properly quoted in YAML', () {

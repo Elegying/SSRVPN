@@ -1,7 +1,9 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as glass;
+import 'package:ssrvpn_shared/widgets/ssrvpn_drifting_background.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_glass_capture.dart';
 
 class _CaptureBinding extends AutomatedTestWidgetsFlutterBinding {
@@ -98,5 +100,49 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     expect(first.debugDisposed, isTrue);
     binding.handleAppLifecycleStateChanged(AppLifecycleState.detached);
+  });
+
+  testWidgets(
+      'drifting wallpaper rasterizes far below the wallpaper paint rate',
+      (tester) async {
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    final images = <ui.Image>{};
+    await tester.pumpWidget(MaterialApp(
+      home: glass.LiquidGlassScope(
+        child: SsrvpnGlassCapture(
+          captureSupported: true,
+          child: Stack(fit: StackFit.expand, children: [
+            // Motion stays enabled, so the source repaints on every frame the
+            // way the production drifting wallpaper does.
+            SsrvpnGlassBackgroundSource(
+                child: SsrvpnDriftingBackground(
+                    drift: true, child: const ColoredBox(color: Colors.blue))),
+            Builder(
+                builder: (context) => ValueListenableBuilder<SsrvpnGlassFrame?>(
+                      valueListenable: SsrvpnGlassFrame.listenableOf(context)!,
+                      builder: (_, frame, __) {
+                        if (frame != null) images.add(frame.image);
+                        return const SizedBox();
+                      },
+                    )),
+          ]),
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    // 30 repaints of 16ms = 480ms. Without the throttle this rasterizes once
+    // per repaint; the 100ms window caps it at ~5 full-surface captures.
+    for (var i = 0; i < 30; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(images.length, greaterThanOrEqualTo(2),
+        reason: 'drift must still refresh the texture');
+    expect(images.length, lessThanOrEqualTo(6),
+        reason: 'throttle must keep captures well below the paint rate');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    expect(images.every((image) => image.debugDisposed), isTrue);
   });
 }

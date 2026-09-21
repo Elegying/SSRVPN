@@ -12,6 +12,9 @@ mixin _ClashDataPlaneSupport {
   int? _coalescedDataPlaneObservationEpoch;
   String? _dataPlaneConnectivityWarning;
   String? _connectivityOwnershipWarning;
+  Timer? _networkChangeWatchTimer;
+  String? _networkFingerprint;
+  bool _networkCheckInFlight = false;
 
   bool get isRunning;
   AppSettings get settings;
@@ -181,6 +184,73 @@ mixin _ClashDataPlaneSupport {
     );
   }
 
+  /// How often the physical interface fingerprint is compared.
+  ///
+  /// The local control API lives on 127.0.0.1, so switching from Wi-Fi to
+  /// Ethernet leaves it perfectly healthy while the real path is gone. Without
+  /// a watch, the user sat on "connected but unusable" for up to ~70s waiting
+  /// for the platform's own observation throttle to expire. Comparing the
+  /// interface set lets a physical change invalidate that observation at once.
+  ///
+  /// Null disables the watch where the platform already reports changes itself.
+  @protected
+  Duration? get networkChangeWatchInterval => const Duration(seconds: 10);
+
+  @protected
+  void startNetworkChangeWatch() {
+    _networkChangeWatchTimer?.cancel();
+    _networkChangeWatchTimer = null;
+    final interval = networkChangeWatchInterval;
+    if (interval == null) return;
+    _networkChangeWatchTimer = Timer.periodic(interval, (_) {
+      unawaited(_checkNetworkChange());
+    });
+  }
+
+  @protected
+  void stopNetworkChangeWatch() {
+    _networkChangeWatchTimer?.cancel();
+    _networkChangeWatchTimer = null;
+    _networkFingerprint = null;
+  }
+
+  Future<void> _checkNetworkChange() async {
+    if (_networkCheckInFlight || !isRunning) return;
+    _networkCheckInFlight = true;
+    try {
+      final String fingerprint;
+      try {
+        final interfaces = await NetworkInterface.list(
+            includeLoopback: false, includeLinkLocal: false);
+        final parts = <String>[];
+        for (final interface in interfaces) {
+          final addresses = interface.addresses
+              .map((entry) => entry.address)
+              .toList()
+            ..sort();
+          parts.add('${interface.name}:${addresses.join(',')}');
+        }
+        parts.sort();
+        fingerprint = parts.join('|');
+      } catch (error) {
+        // Enumeration is best-effort. A failure must not disturb any state,
+        // and must not be mistaken for a change on the next comparison.
+        return;
+      }
+      final previous = _networkFingerprint;
+      _networkFingerprint = fingerprint;
+      if (previous == null || previous == fingerprint) return;
+      log(
+        '物理网络发生变化，立即重新观察数据通道',
+        event: 'data_plane_probe',
+      );
+      onDataPlaneObservationSessionReset();
+      scheduleDataPlaneObservation(rerunIfActive: true);
+    } finally {
+      _networkCheckInFlight = false;
+    }
+  }
+
   Future<String?> verifyUserConnectivity({
     int maxAttempts = 3,
     Duration retryDelay = const Duration(seconds: 2),
@@ -245,13 +315,15 @@ mixin _ClashDataPlaneSupport {
         }
       }
       if (shouldContinue?.call() == false) return null;
+      // Keep this short. The home surface renders it in a single-line slot it
+      // shares with the public-IP readout, and the full detail is already in
+      // the runtime log. One disclaimer is enough; the previous pair of
+      // hedges ("仅供参考" + "不代表节点失效") diluted the actual signal.
       late final String warning;
       if (lastStatusCode != null) {
-        warning = '连接已建立，但多个外部网络验证端点均返回异常（最近 HTTP '
-            '$lastStatusCode）；这可能是验证站点受限，不代表节点失效';
+        warning = '外部网络验证未通过（最近 HTTP $lastStatusCode），仅供参考';
       } else {
-        warning = '连接已建立，但暂时无法完成多个外部网络验证；'
-            '这可能是验证站点受限，不代表节点失效';
+        warning = '外部网络验证未通过，仅供参考';
       }
       if (isRunning) setConnectivityWarning(warning);
       return warning;

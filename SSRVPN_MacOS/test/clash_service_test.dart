@@ -1386,9 +1386,10 @@ void main() {
       await service.runDataPlaneObservation();
 
       expect(service.connectivityProbes, 1);
-      expect(service.connectivityWarning, contains('系统代理'));
-      expect(
-          service.connectivityWarning, contains('external endpoint blocked'));
+      // The home surface carries only the short reason so the single line
+      // cannot overflow the card; the route mode stays in the log.
+      expect(service.connectivityWarning, 'external endpoint blocked');
+      expect(service.recentLogs, contains('通道=系统代理'));
       expect(service.isRunning, isTrue);
       expect(service.connectionDesired, isTrue);
     });

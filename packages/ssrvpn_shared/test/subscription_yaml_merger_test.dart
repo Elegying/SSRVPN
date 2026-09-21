@@ -1,5 +1,6 @@
 import 'dart:collection';
 
+import 'package:ssrvpn_shared/constants/app_constants.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/services/clash_config_generator.dart';
 import 'package:ssrvpn_shared/services/subscription_yaml_merger.dart';
@@ -153,6 +154,34 @@ proxies:
 
       expect(groupNames.toSet(), hasLength(groupNames.length));
       expect(proxyNames.intersection(groupNames.toSet()), isEmpty);
+    });
+
+    test('fallback group mirrors the auto group health-check tuning', () {
+      const yaml = '''
+proxies:
+  - {name: A, type: trojan, server: a.example.com, port: 443, password: secret}
+  - {name: B, type: trojan, server: b.example.com, port: 443, password: secret}
+''';
+
+      final generated = loadYaml(
+        ClashConfigGenerator.generateConfig(
+          yaml,
+          AppSettings(),
+          includeFallbackGroup: true,
+        ),
+      ) as YamlMap;
+      final groups = (generated['proxy-groups'] as YamlList)
+          .map((group) => group as YamlMap)
+          .toList();
+
+      for (final name in const ['自动选择', '故障转移']) {
+        final group = groups.firstWhere((g) => g['name'] == name);
+        expect(group['interval'], AppConstants.latencyTestInterval);
+        // Both groups must stay tolerant, otherwise either one can thrash the
+        // active node on a few milliseconds of jitter.
+        expect(group['tolerance'], 50);
+        expect(group['lazy'], isTrue);
+      }
     });
 
     test('canonicalizes control characters before collision allocation', () {

@@ -1070,9 +1070,9 @@ void main() {
       );
 
       expect(calls, 3);
-      expect(warning, contains('多个外部网络验证端点'));
+      expect(warning, contains('外部网络验证未通过'));
       expect(warning, contains('HTTP 502'));
-      expect(warning, contains('不代表节点失效'));
+      expect(warning, contains('仅供参考'));
       expect(service.recentLogs, contains('HTTP 502'));
     });
 
@@ -2625,6 +2625,37 @@ proxies:
     expect(service.stopCalls, 0);
   });
 
+  test('shipped timing begins recovery about nine seconds into a failure',
+      () async {
+    final service = _ShippedTimingRecoveryClashService();
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    final window = Stopwatch()..start();
+    service.startStatusMonitor();
+    await service.recoveryQueued.future.timeout(const Duration(seconds: 25));
+
+    // Shipped parameters: 3s poll, 3 consecutive failures, 6s grace. The first
+    // sample lands at +3s and the third at +9s, which already satisfies both
+    // conditions, so recovery must not stack another grace period on top.
+    expect(
+      service.recentLogs,
+      contains('连接状态暂时未通过检查，先保留连接并等待恢复。'),
+      reason: '首次失败先给出提示，而不是立刻重启',
+    );
+    expect(
+      window.elapsedMilliseconds,
+      greaterThanOrEqualTo(8500),
+      reason: '证据不足时不得提前进入恢复',
+    );
+    expect(
+      window.elapsedMilliseconds,
+      lessThan(10500),
+      reason: '恢复必须在第三次失败处落地（实测约 9.0s），不得漂到第二个周期',
+    );
+  });
+
   test(
     'status monitor never overlaps a timed-out source health check',
     () async {
@@ -4111,6 +4142,34 @@ class _QueuedHealthRecoveryClashService extends ClashServiceBase
   int get maxConsecutiveHealthCheckFailures => 1;
   @override
   Future<bool> healthCheck() async => false;
+  @override
+  void log(
+    String message, {
+    RuntimeLogLevel level = RuntimeLogLevel.info,
+    String event = 'runtime',
+  }) {
+    super.log(message, level: level, event: event);
+    if (event == 'health_recovery' && !recoveryQueued.isCompleted) {
+      recoveryQueued.complete();
+    }
+  }
+
+  @override
+  Future<void> onStopRequired() async {
+    stopCalls++;
+    setRunning(false);
+  }
+}
+
+class _ShippedTimingRecoveryClashService extends _TestClashService {
+  final recoveryQueued = Completer<void>();
+  int stopCalls = 0;
+
+  // Deliberately no interval/threshold overrides: this probe measures the
+  // parameters the app actually ships with (3s poll, 3 failures, 6s grace).
+  @override
+  Future<bool> healthCheck() async => false;
+
   @override
   void log(
     String message, {

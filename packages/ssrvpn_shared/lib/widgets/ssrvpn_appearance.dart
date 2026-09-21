@@ -9,17 +9,20 @@ class SsrvpnAppearance extends InheritedWidget {
       required this.level,
       required this.background,
       required this.imagePath,
+      required this.dynamicBackground,
       required super.child});
   final GlassEffectLevel? level;
   final BackgroundStyle background;
   final String imagePath;
+  final bool dynamicBackground;
   static SsrvpnAppearance? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<SsrvpnAppearance>();
   @override
   bool updateShouldNotify(SsrvpnAppearance oldWidget) =>
       level != oldWidget.level ||
       background != oldWidget.background ||
-      imagePath != oldWidget.imagePath;
+      imagePath != oldWidget.imagePath ||
+      dynamicBackground != oldWidget.dynamicBackground;
 }
 
 Color? ssrvpnBackgroundColor(BackgroundStyle style) => switch (style) {
@@ -68,6 +71,7 @@ class SsrvpnAppearanceScope extends StatelessWidget {
         level: settings.glassEffectLevel,
         background: settings.backgroundStyle,
         imagePath: settings.customBackgroundPath,
+        dynamicBackground: settings.dynamicBackground,
         child: glass.GlassAdaptiveScope(
             minQuality: quality,
             maxQuality: quality,
@@ -77,7 +81,7 @@ class SsrvpnAppearanceScope extends StatelessWidget {
 }
 
 String ssrvpnBackgroundLabel(BackgroundStyle style) => switch (style) {
-      BackgroundStyle.flowing => '流动',
+      BackgroundStyle.flowing => '壁纸',
       BackgroundStyle.blue => '蓝',
       BackgroundStyle.gray => '灰',
       BackgroundStyle.forest => '墨绿',

@@ -3,7 +3,17 @@ import 'package:flutter/material.dart';
 
 /// Animate only the wallpaper; foreground controls remain still and reusable.
 class SsrvpnDriftingBackground extends StatefulWidget {
-  const SsrvpnDriftingBackground({super.key, required this.child});
+  const SsrvpnDriftingBackground(
+      {super.key, required this.child, this.drift = false});
+
+  /// When false the wallpaper keeps its framing but never moves. Nothing is
+  /// scheduled per frame, so neither this surface nor the glass above it
+  /// repaints while the app sits idle.
+  ///
+  /// The default matches the product default (still wallpaper). Leaving it at
+  /// `true` would silently opt a future call site back into per-frame repaints,
+  /// so any surface that really wants motion must ask for it explicitly.
+  final bool drift;
   final Widget child;
   @override
   State<SsrvpnDriftingBackground> createState() =>
@@ -44,6 +54,14 @@ class _SsrvpnDriftingBackgroundState extends State<SsrvpnDriftingBackground>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) => _updateMotion();
 
+  /// The preference can change while this widget stays mounted, so a toggle
+  /// has to start or freeze the motion immediately.
+  @override
+  void didUpdateWidget(covariant SsrvpnDriftingBackground oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.drift != widget.drift) _updateMotion();
+  }
+
   void _listenToRoute(bool add) {
     for (final animation in [_route?.animation, _route?.secondaryAnimation]) {
       if (add) {
@@ -58,7 +76,8 @@ class _SsrvpnDriftingBackgroundState extends State<SsrvpnDriftingBackground>
 
   void _updateMotion() {
     final lifecycle = WidgetsBinding.instance.lifecycleState;
-    final active = !_reducedMotion &&
+    final active = widget.drift &&
+        !_reducedMotion &&
         _visible &&
         lifecycle == AppLifecycleState.resumed &&
         (_route?.animation == null ||
@@ -82,23 +101,30 @@ class _SsrvpnDriftingBackgroundState extends State<SsrvpnDriftingBackground>
 
   @override
   Widget build(BuildContext context) => ClipRect(
-        child: AnimatedBuilder(
-          animation: _motion,
-          // The capture source already isolates the wallpaper from foreground
-          // paints. A nested boundary hides late image/placeholder repaints
-          // from that source while motion is paused, leaving its texture stale.
-          child: ExcludeSemantics(child: widget.child),
-          builder: (context, child) {
-            // A full cosine cycle matches position and velocity at both seams.
-            final t = (1 - math.cos(_motion.value * 2 * math.pi)) / 2;
-            return Transform.scale(
-              scale: 1.16,
-              child: FractionalTranslation(
-                translation: Offset((t - .5) * .11, (.5 - t) * .08),
-                child: child,
-              ),
-            );
-          },
-        ),
+        child: widget.drift
+            ? AnimatedBuilder(
+                animation: _motion,
+                // The capture source already isolates the wallpaper from
+                // foreground paints. A nested boundary hides late
+                // image/placeholder repaints from that source while motion is
+                // paused, leaving its texture stale.
+                child: ExcludeSemantics(child: widget.child),
+                builder: (context, child) => _framed(child!, _motion.value),
+              )
+            : _framed(ExcludeSemantics(child: widget.child), _motion.value),
       );
+
+  /// A full cosine cycle matches position and velocity at both seams. A
+  /// wallpaper that was switched off keeps the phase it froze at, so nothing
+  /// jumps the moment the preference changes.
+  Widget _framed(Widget child, double value) {
+    final t = (1 - math.cos(value * 2 * math.pi)) / 2;
+    return Transform.scale(
+      scale: 1.16,
+      child: FractionalTranslation(
+        translation: Offset((t - .5) * .11, (.5 - t) * .08),
+        child: child,
+      ),
+    );
+  }
 }

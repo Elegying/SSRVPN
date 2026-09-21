@@ -27,6 +27,24 @@ class _SsrvpnGlassCaptureState extends State<SsrvpnGlassCapture>
   bool _enabled = false;
   int _capturedRevision = -1;
   double? _capturedDpr;
+
+  /// Frame timestamp of the last rasterizing capture. Null means "raster as soon
+  /// as possible" and is set on first capture, re-enable, and resume so those
+  /// discrete events are never throttled.
+  Duration? _lastRasterFrame;
+
+  /// Upper bound on how often a continuously repainting source is re-rasterized.
+  /// The drift moves only a few device pixels per window, which stays invisible
+  /// behind the glass blur while cutting the raster cost by roughly 6x at 60Hz.
+  ///
+  /// Invariant behind that claim: the capture source only drifts by sub-percent
+  /// amounts between two windows. The wallpaper traverses 11% of its width over
+  /// an 18s cosine cycle, so one 100ms window advances it by at most ~0.2% of
+  /// the surface (worst case ~2 device pixels on a 3x display), which the 1.16x
+  /// overscan and the glass blur hide. Raising this interval, or routing real
+  /// content (video, live data) through the capture source, would turn that
+  /// staleness into a visible jump instead of a sub-pixel drift.
+  static const _minRasterInterval = Duration(milliseconds: 100);
   final _retired = <ui.Image>[];
 
   @override
@@ -51,6 +69,9 @@ class _SsrvpnGlassCaptureState extends State<SsrvpnGlassCapture>
       _listenToRoute(true);
     }
     if (_enabled) {
+      // First build, re-enable, or a media/contrast switch is a discrete event,
+      // so the next capture must not be suppressed by the throttle window.
+      _lastRasterFrame = null;
       _scheduleCapture();
     } else {
       _releaseUnusedCapture();
@@ -91,7 +112,11 @@ class _SsrvpnGlassCaptureState extends State<SsrvpnGlassCapture>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _scheduleCapture();
+    if (state == AppLifecycleState.resumed) {
+      // Return with fresh pixels rather than a frame held across the pause.
+      _lastRasterFrame = null;
+      _scheduleCapture();
+    }
   }
 
   void _scheduleCapture() {
@@ -125,14 +150,38 @@ class _SsrvpnGlassCaptureState extends State<SsrvpnGlassCapture>
       final dpr = View.of(context).devicePixelRatio;
       final previous = _capture.value;
       final origin = boundary.localToGlobal(Offset.zero);
-      // Moving a page only changes the sampling origin; its texture is reusable.
-      // A paused wallpaper produces no paint events and no capture loop at all.
-      final repaint = previous == null ||
-          _capturedRevision != boundary.revision ||
-          _capturedDpr != dpr;
-      if (!repaint && previous.origin == origin) return;
-      final image =
-          repaint ? boundary.toImageSync(pixelRatio: dpr) : previous.image;
+      // A pixel-ratio change is about sharpness, never motion: always raster it.
+      final dprChanged = _capturedDpr != dpr;
+      // Content changes only when the source repaints. A paused or static
+      // wallpaper produces no paint events and therefore no capture loop.
+      final contentChanged =
+          previous == null || _capturedRevision != boundary.revision;
+      if (!contentChanged && !dprChanged) {
+        // Moving a page only changes the sampling origin; its texture stays
+        // reusable and republishing it costs no rasterization.
+        if (previous.origin == origin) return;
+        _capture.value = SsrvpnGlassFrame(previous.image, origin);
+        return;
+      }
+      // Rasterizing is the expensive step: an offscreen full-surface pass plus a
+      // fresh full-surface texture. A drifting wallpaper would pay it on every
+      // frame, so cap it well below the frame rate. The skipped frames move the
+      // background by at most a few device pixels, which the glass blur hides.
+      if (!dprChanged &&
+          previous != null &&
+          _lastRasterFrame != null &&
+          WidgetsBinding.instance.currentFrameTimeStamp - _lastRasterFrame! <
+              _minRasterInterval) {
+        // Inside the window: keep the last texture but still track the page so
+        // glass never drifts off its origin. The next repaint after the window
+        // refreshes the pixels, so no trailing timer is needed.
+        if (previous.origin != origin) {
+          _capture.value = SsrvpnGlassFrame(previous.image, origin);
+        }
+        return;
+      }
+      _lastRasterFrame = WidgetsBinding.instance.currentFrameTimeStamp;
+      final image = boundary.toImageSync(pixelRatio: dpr);
       _capturedRevision = boundary.revision;
       _capturedDpr = dpr;
       _capture.value = SsrvpnGlassFrame(image, origin);

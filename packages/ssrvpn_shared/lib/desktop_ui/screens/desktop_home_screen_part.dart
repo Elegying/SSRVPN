@@ -698,6 +698,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         isConnected: _isConnected,
         isConnecting: isConnectionTransition,
+        isAutoRecovering: core.isAutoRecovering,
         connectionProgress: _connectionProgressText(core),
         selectedNode: displayNode,
         selectedLatency: selectedLatency,

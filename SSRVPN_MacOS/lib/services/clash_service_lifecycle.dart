@@ -478,11 +478,11 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     _lastTunDataPathHealthy = warning == null;
     final routeMode = tunMode ? 'TUN' : '系统代理';
     if (warning != null) {
-      setConnectivityWarning(
-        '连接与 $routeMode 仍在运行；外部网络观察暂未通过，仅供参考：$warning',
-      );
+      // One short line on the home surface; the route mode and the full reason
+      // stay in the log, which the same control already links to.
+      setConnectivityWarning(warning);
       log(
-        '外部网络观察未通过: $warning；未切换节点，未关闭既有连接',
+        '外部网络观察未通过: $warning；未切换节点，未关闭既有连接；通道=$routeMode',
         level: RuntimeLogLevel.warning,
         event: 'data_plane_probe',
       );

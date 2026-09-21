@@ -29,9 +29,6 @@ class ClashService extends ClashServiceBase with PhysicalTcpLatency {
   String _nativeLibDir = '';
   Future<bool>? _startOperation;
   Future<void>? _stopOperation;
-  final CoreRecoveryPolicy _healthRecoveryPolicy = CoreRecoveryPolicy(
-    maxAttempts: 2,
-  );
   Future<void> _nativeSnapshotOperationTail = Future<void>.value();
   int _nativeSnapshotOperationCount = 0;
   String? _nativeSnapshotConfigPath;
@@ -181,10 +178,6 @@ class ClashService extends ClashServiceBase with PhysicalTcpLatency {
     _nativeStateReconciliationTimer = null;
     super.dispose();
   }
-
-  @override
-  Future<bool> recoverAfterHealthCheckFailure(int connectionGeneration) =>
-      _recoverNativeAfterHealthCheckFailure(connectionGeneration);
 
   // ── 平台调试日志 ──
 
@@ -361,9 +354,7 @@ class ClashService extends ClashServiceBase with PhysicalTcpLatency {
   Future<bool> _start({
     String? nodeName,
     String? preparedConfigPath,
-    bool automaticRecovery = false,
   }) {
-    if (!automaticRecovery) _healthRecoveryPolicy.reset();
     final current = _startOperation;
     if (current != null) return current;
 

@@ -288,8 +288,10 @@ void main() {
     await service.runDataPlaneObservation();
 
     expect(service.probeCalls, 1);
-    expect(service.connectivityWarning, contains('系统代理'));
-    expect(service.connectivityWarning, contains('external endpoint blocked'));
+    // The home surface carries only the short reason; the route mode lives in
+    // the log, which is where the listener/proxy distinction must stay visible.
+    expect(service.connectivityWarning, 'external endpoint blocked');
+    expect(service.recentLogs, contains('通道=系统代理'));
     expect(service.isRunning, isTrue);
     expect(service.connectionDesired, isTrue);
   });
@@ -305,8 +307,9 @@ void main() {
     await service.runDataPlaneObservation();
 
     expect(service.probeCalls, 1);
-    expect(service.connectivityWarning, contains('本地保护监听'));
-    expect(service.connectivityWarning, isNot(contains('系统代理仍在运行')));
+    expect(service.connectivityWarning, 'external endpoint blocked');
+    expect(service.recentLogs, contains('通道=本地保护监听'));
+    expect(service.recentLogs, isNot(contains('通道=系统代理')));
     expect(service.isRunning, isTrue);
     expect(service.connectionDesired, isTrue);
   });

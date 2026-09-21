@@ -16,12 +16,17 @@ extension _DesktopHomeConnectionProgress on _HomeScreenState {
     final service = _clashService;
     if (_canUpdateUi &&
         service != null &&
-        _isConnectionTransitionActive(service)) {
+        (_isConnectionTransitionActive(service) || service.isAutoRecovering)) {
       setState(() {});
     }
   }
 
   String? _connectionProgressText(ClashService service) {
+    // A recovery rebuilds the runtime while the app stays connected, so it is
+    // not a connection transition yet still needs a persistent progress line.
+    if (service.isAutoRecovering) {
+      return service.connectionProgress ?? '正在自动恢复连接…';
+    }
     if (!_isConnectionTransitionActive(service)) return null;
     return service.connectionDesired
         ? service.connectionProgress ?? '正在准备连接…'
