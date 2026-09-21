@@ -57,6 +57,15 @@ mixin _ClashDataPlaneSupport {
   @protected
   String? get dataPlaneConnectivityWarning => _dataPlaneConnectivityWarning;
 
+  /// 最近一次数据面观察完成的时间；null 表示本次会话尚未完成过观察。
+  ///
+  /// 诊断页读的是缓存告警，而不是重新探测——完整探测最坏约 41 秒，塞不进
+  /// `diagnosticCheckTimeout`（10 秒）的预算。既然无法在诊断时刷新，
+  /// 就必须把观察时间一并说出来，否则用户无法判断「暂未通过」是当前状态
+  /// 还是几十秒前的旧状态。平台没有独立时间戳时保持 null。
+  @protected
+  DateTime? get dataPlaneObservationAt => null;
+
   @protected
   bool get isDataPlaneObservationCurrent {
     final observationEpoch =
@@ -252,8 +261,8 @@ mixin _ClashDataPlaneSupport {
   }
 
   Future<String?> verifyUserConnectivity({
-    int maxAttempts = 3,
-    Duration retryDelay = const Duration(seconds: 2),
+    int maxAttempts = AppConstants.dataPlaneProbeAttempts,
+    Duration retryDelay = AppConstants.dataPlaneProbeRetryDelay,
     Future<http.Response> Function(Uri uri)? request,
     bool Function()? shouldContinue,
   }) async {
@@ -277,6 +286,9 @@ mixin _ClashDataPlaneSupport {
         : AppConstants.systemProxyConnectivityTestUrls;
     final endpoints = endpointValues.map(Uri.parse).toList(growable: false);
     int? lastStatusCode;
+    // 是否至少有一次拿到了 HTTP 响应。这决定失败的性质：完全无响应说明通道可疑，
+    // 有响应只说明端点不配合。两者此前被同一句话描述，属于语义错误。
+    var sawAnyResponse = false;
     try {
       for (var attempt = 1; attempt <= attempts; attempt++) {
         if (shouldContinue?.call() == false) return null;
@@ -290,6 +302,7 @@ mixin _ClashDataPlaneSupport {
             if (isRunning) setConnectivityWarning(null);
             return null;
           }
+          sawAnyResponse = true;
           lastStatusCode = statusCode;
           log(
             '外部网络验证 $attempt/$attempts 未通过：HTTP $statusCode；'
@@ -300,7 +313,6 @@ mixin _ClashDataPlaneSupport {
           );
         } catch (error) {
           if (shouldContinue?.call() == false) return null;
-          lastStatusCode = null;
           log(
             '外部网络验证 $attempt/$attempts 未通过：'
             'cause=${_safeRuntimeLogErrorCode(error)}；'
@@ -319,11 +331,15 @@ mixin _ClashDataPlaneSupport {
       // shares with the public-IP readout, and the full detail is already in
       // the runtime log. One disclaimer is enough; the previous pair of
       // hedges ("仅供参考" + "不代表节点失效") diluted the actual signal.
-      late final String warning;
-      if (lastStatusCode != null) {
-        warning = '外部网络验证未通过（最近 HTTP $lastStatusCode），仅供参考';
+      //
+      // 只描述**实际发生的事**，不再用「可能是验证站点受限」这类对冲措辞：
+      // 有响应就把状态码说出来（通道已建立，是端点不配合），
+      // 全程无响应才说无响应（通道可疑）。真因在日志的 cause= 里。
+      final String warning;
+      if (sawAnyResponse && lastStatusCode != null) {
+        warning = '外部网络验证未通过（端点 HTTP $lastStatusCode），仅供参考';
       } else {
-        warning = '外部网络验证未通过，仅供参考';
+        warning = '外部网络验证未通过（连接无响应），仅供参考';
       }
       if (isRunning) setConnectivityWarning(warning);
       return warning;

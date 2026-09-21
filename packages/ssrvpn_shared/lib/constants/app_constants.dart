@@ -32,13 +32,22 @@ class AppConstants {
     fallbackConnectivityTestUrl,
     tunConnectivityTestUrl,
   ];
-  // Desktop probes try these three endpoints for at most two rounds.
+  // Probes try these three endpoints for at most two rounds.
   // Any success stops the observation; only six failures publish a warning.
   static const List<String> tunConnectivityTestUrls = [
     tunConnectivityTestUrl,
     fallbackConnectivityTestUrl,
     defaultLatencyTestUrl,
   ];
+
+  /// 外部网络探测的尝试次数与间隔。
+  ///
+  /// 三端必须共用这一份值：同一个网络状况下，尝试次数直接决定告警概率。
+  /// 此前 Windows / macOS 显式传 6 次 / 1 秒，Android 沿用方法默认值 3 次 / 2 秒，
+  /// 使 Android 的误报概率约为桌面的两倍。6 次即在这 3 个端点上跑满 2 轮，
+  /// 任一次成功即判定通道健康。
+  static const int dataPlaneProbeAttempts = 6;
+  static const Duration dataPlaneProbeRetryDelay = Duration(seconds: 1);
 
   /// Health-check interval for the generated proxy groups (seconds). Short
   /// enough that a node which died is noticed in ~2 minutes, long enough that

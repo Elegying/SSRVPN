@@ -144,6 +144,10 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   @protected
   Duration get tunDataPathProbeInterval => const Duration(seconds: 30);
 
+  @override
+  @protected
+  DateTime? get dataPlaneObservationAt => _lastTunDataPathProbeAt;
+
   bool get isStartupDisabled => _startupDisabledReason != null;
   String? get startupDisabledReason => _startupDisabledReason;
   String get corePath => _corePath;
@@ -461,9 +465,11 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
   Future<bool> _probeTunDataPath(int probeGeneration) async {
     final tunMode = settings.enableTun;
+    // 显式传入共享预算，三端一致。不要依赖方法默认值：Dart 的默认参数由
+    // **被调用实现**决定，任何覆写（含测试替身）都会静默改掉它。
     final warning = await verifyUserConnectivity(
-      maxAttempts: 6,
-      retryDelay: const Duration(seconds: 1),
+      maxAttempts: AppConstants.dataPlaneProbeAttempts,
+      retryDelay: AppConstants.dataPlaneProbeRetryDelay,
       shouldContinue: () =>
           probeGeneration == _tunDataPathProbeGeneration &&
           isRunning &&

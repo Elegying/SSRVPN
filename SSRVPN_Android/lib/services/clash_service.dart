@@ -125,7 +125,12 @@ class ClashService extends ClashServiceBase with PhysicalTcpLatency {
     final connectionGeneration = captureAutomaticRestartIntent();
     if (connectionGeneration == null) return;
     final startGeneration = _startGeneration;
+    // 显式传入共享预算：Android 此前沿用方法默认值（3 次 / 2 秒），
+    // 与桌面的 6 次 / 1 秒不一致，误报概率约为两倍。
+    // 不要依赖默认值——Dart 的默认参数由**被调用实现**决定，覆写会静默改掉它。
     await verifyUserConnectivity(
+      maxAttempts: AppConstants.dataPlaneProbeAttempts,
+      retryDelay: AppConstants.dataPlaneProbeRetryDelay,
       shouldContinue: () =>
           isRunning &&
           isDataPlaneObservationCurrent &&

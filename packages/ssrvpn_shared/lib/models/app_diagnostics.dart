@@ -598,6 +598,9 @@ class AppFailure {
         hasAny(const [
           'socketexception',
           'httpexception',
+          // `package:http` 把传输层错误包在 ClientException 里，消息形如
+          // `ClientException: Connection closed before full header was received`。
+          'clientexception',
           'network request',
           'http request',
           'request timed out',
@@ -611,6 +614,7 @@ class AppFailure {
     }
     if (hasAny(const [
       'socketexception',
+      'clientexception',
       'connection refused',
       'failed host lookup',
       'network is unreachable',

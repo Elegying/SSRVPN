@@ -1076,6 +1076,70 @@ void main() {
       expect(service.recentLogs, contains('HTTP 502'));
     });
 
+    test('uses the shared probe budget when no attempt count is given',
+        () async {
+      var calls = 0;
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+
+      await service.verifyUserConnectivity(
+        retryDelay: Duration.zero,
+        request: (_) async {
+          calls += 1;
+          return http.Response('', 502);
+        },
+      );
+
+      // 三端必须共用同一份尝试预算；Android 此前沿用方法默认值 3 次，
+      // 与桌面的 6 次不一致，导致误报概率约为两倍。
+      expect(calls, AppConstants.dataPlaneProbeAttempts);
+      expect(AppConstants.dataPlaneProbeAttempts, 6);
+    });
+
+    test('distinguishes an unresponsive channel from an endpoint anomaly',
+        () async {
+      final silent = _TestClashService();
+      addTearDown(silent.dispose);
+      final silentWarning = await silent.verifyUserConnectivity(
+        maxAttempts: 3,
+        retryDelay: Duration.zero,
+        request: (_) async => throw const SocketException('probe failed'),
+      );
+      expect(silentWarning, contains('连接无响应'));
+      expect(silentWarning, isNot(contains('端点 HTTP')));
+
+      final answered = _TestClashService();
+      addTearDown(answered.dispose);
+      final answeredWarning = await answered.verifyUserConnectivity(
+        maxAttempts: 3,
+        retryDelay: Duration.zero,
+        request: (_) async => http.Response('', 502),
+      );
+      // 有响应说明通道已建立，只是端点不配合；不能说成「外部网络不可用」。
+      expect(answeredWarning, contains('端点 HTTP 502'));
+      expect(answeredWarning, isNot(contains('连接无响应')));
+    });
+
+    test('a later exception does not erase an observed HTTP status', () async {
+      var calls = 0;
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+
+      final warning = await service.verifyUserConnectivity(
+        maxAttempts: 3,
+        retryDelay: Duration.zero,
+        request: (_) async {
+          calls += 1;
+          if (calls == 3) throw const SocketException('probe failed');
+          return http.Response('', 503);
+        },
+      );
+
+      // 最后一次是异常，但前两次拿到了 503 —— 结论必须按「有响应」给出。
+      expect(warning, contains('端点 HTTP 503'));
+      expect(warning, isNot(contains('连接无响应')));
+    });
+
     test('failed connectivity probes retain safe causes without raw secrets',
         () async {
       final service = _TestClashService()..setRunning(true);
@@ -1089,6 +1153,27 @@ void main() {
       );
       expect(service.recentLogs, contains('cause='));
       expect(service.recentLogs, contains('1/1'));
+      // 探测最常见的两类异常必须报出真因，否则日志只有 UNKNOWN、无法排障。
+      // 超时按类型判定，不依赖异常消息里的关键词。
+      expect(service.recentLogs, contains('cause=NETWORK_TIMEOUT'));
+      expect(service.recentLogs, isNot(contains('private.example')));
+      expect(service.recentLogs, isNot(contains('do-not-log')));
+      expect(service.isRunning, isTrue);
+    });
+
+    test('connectivity probe classifies http.ClientException by type',
+        () async {
+      final service = _TestClashService()..setRunning(true);
+      addTearDown(service.dispose);
+      await service.verifyUserConnectivity(
+        maxAttempts: 1,
+        retryDelay: Duration.zero,
+        request: (_) async => throw http.ClientException(
+          'Connection closed before full header was received, '
+          'uri=https://private.example/feed?token=do-not-log',
+        ),
+      );
+      expect(service.recentLogs, contains('cause=NETWORK_UNAVAILABLE'));
       expect(service.recentLogs, isNot(contains('private.example')));
       expect(service.recentLogs, isNot(contains('do-not-log')));
       expect(service.isRunning, isTrue);
@@ -3073,6 +3158,38 @@ proxies:
       final report = await service.runDiagnostics();
       expect(report.userConclusion, '本地检查通过，连接尚未验证');
       expect(service.healthCalls, 0);
+    });
+
+    test('data-plane diagnostic summary states the observation age', () {
+      final now = DateTime(2026, 9, 21, 21, 34, 13);
+
+      expect(
+        buildDataPlaneDiagnosticSummary(
+          observedAt: now.subtract(const Duration(seconds: 12)),
+          now: now,
+        ),
+        contains('最近一次观察 12 秒前'),
+      );
+      // 没有时间戳时不编造新鲜度。
+      expect(
+        buildDataPlaneDiagnosticSummary(observedAt: null, now: now),
+        isNot(contains('秒前')),
+      );
+      // 时钟回拨、以及跨会话残留的旧时间戳，都不能说成「刚刚观察过」。
+      expect(
+        buildDataPlaneDiagnosticSummary(
+          observedAt: now.add(const Duration(minutes: 5)),
+          now: now,
+        ),
+        isNot(contains('秒前')),
+      );
+      expect(
+        buildDataPlaneDiagnosticSummary(
+          observedAt: now.subtract(const Duration(hours: 2)),
+          now: now,
+        ),
+        isNot(contains('秒前')),
+      );
     });
 
     test(

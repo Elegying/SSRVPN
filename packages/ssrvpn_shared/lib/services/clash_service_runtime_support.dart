@@ -6,7 +6,26 @@ enum LocalMixedProxyReadiness {
   listenerUnavailable,
 }
 
+/// 把运行时异常映射成稳定的错误码，供日志与诊断使用。
+///
+/// 先按异常**类型**判定，再退回字符串匹配。这条顺序是必需的：外部网络探测抛出的
+/// `TimeoutException`（`TimeoutException after 0:00:06.000000: Future not
+/// completed`）与 `http.ClientException`（`ClientException: Connection closed
+/// before full header was received`）都不含 `socketexception` 这类传输关键词，
+/// 只走字符串匹配会一律落到 `UNKNOWN`，日志因此失去排障价值。
 String _safeRuntimeLogErrorCode(Object error) {
+  if (error is TimeoutException) {
+    return AppErrorCode.networkTimeout.wireName;
+  }
+  if (error is HandshakeException) {
+    return AppErrorCode.secureConnectionFailed.wireName;
+  }
+  if (error is http.ClientException) {
+    return AppErrorCode.networkUnavailable.wireName;
+  }
+  if (error is SocketException) {
+    return AppErrorCode.networkUnavailable.wireName;
+  }
   try {
     return AppFailure.fromMessage(error).code.wireName;
   } catch (_) {

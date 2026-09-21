@@ -49,8 +49,8 @@ class _ConnectionGenerationObservationService extends ClashService {
 
   @override
   Future<String?> verifyUserConnectivity({
-    int maxAttempts = 3,
-    Duration retryDelay = const Duration(seconds: 2),
+    int maxAttempts = AppConstants.dataPlaneProbeAttempts,
+    Duration retryDelay = AppConstants.dataPlaneProbeRetryDelay,
     Future<http.Response> Function(Uri uri)? request,
     bool Function()? shouldContinue,
   }) async {
@@ -81,8 +81,8 @@ class _ConnectivityRecoveryObservationService extends ClashService {
 
   @override
   Future<String?> verifyUserConnectivity({
-    int maxAttempts = 3,
-    Duration retryDelay = const Duration(seconds: 2),
+    int maxAttempts = AppConstants.dataPlaneProbeAttempts,
+    Duration retryDelay = AppConstants.dataPlaneProbeRetryDelay,
     Future<http.Response> Function(Uri uri)? request,
     bool Function()? shouldContinue,
   }) async {

@@ -426,12 +426,31 @@ route_notification = switch_body.index("_notifyStatusChanged();")
 if route_change > route_notification:
     raise SystemExit(f"{base_path}: route observation starts after status publication")
 
+constants_path = Path(
+    "packages/ssrvpn_shared/lib/constants/app_constants.dart"
+)
+constants_source = constants_path.read_text(encoding="utf-8")
+# The probe budget is shared by all three platforms, so the value itself has to be
+# pinned here: a token match on the call sites alone would still pass if someone
+# changed the constant. 6 attempts = two full rounds over the three endpoints;
+# any single success stops the observation.
+for token in (
+    "dataPlaneProbeAttempts = 6;",
+    "dataPlaneProbeRetryDelay = Duration(seconds: 1);",
+):
+    if token not in constants_source:
+        raise SystemExit(f"{constants_path}: shared probe budget changed: {token}")
+
 for path in paths:
     lifecycle = path.read_text(encoding="utf-8")
     for token in (
         "Future<void> observeDataPlaneHealth() async",
         "scheduleDataPlaneObservation(delay: const Duration(seconds: 5));",
-        "maxAttempts: 6",
+        # Each desktop service must own the budget explicitly rather than inherit a
+        # default: Dart resolves default parameter values from the *invoked*
+        # implementation, so an override would silently change the attempt count.
+        "maxAttempts: AppConstants.dataPlaneProbeAttempts",
+        "retryDelay: AppConstants.dataPlaneProbeRetryDelay",
     ):
         if token not in lifecycle:
             raise SystemExit(f"{path}: missing service-owned data-plane guard {token}")

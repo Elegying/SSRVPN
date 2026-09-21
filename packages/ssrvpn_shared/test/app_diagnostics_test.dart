@@ -62,6 +62,20 @@ void main() {
         AppFailure.fromMessage('network request timed out').code,
         AppErrorCode.networkTimeout,
       );
+      // `package:http` 把传输层错误包在 ClientException 里。该消息既不含
+      // socketexception 也不含传输关键词，此前会落到 unknown，使日志失去排障价值。
+      expect(
+        AppFailure.fromMessage(
+          'ClientException: Connection closed before full header was received',
+        ).code,
+        AppErrorCode.networkUnavailable,
+      );
+      expect(
+        AppFailure.fromMessage(
+          'SocketException: Failed host lookup: private.example',
+        ).code,
+        AppErrorCode.networkUnavailable,
+      );
       expect(
         AppFailure.fromMessage('Windows Mihomo 核心启动配置校验响应超时；raw-secret').code,
         AppErrorCode.coreStartTimeout,
