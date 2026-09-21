@@ -194,33 +194,6 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  void _maybeShowInitialSubscriptionDialog(SubscriptionService subService) {
-    final nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
-    if (_initialSubscriptionDialogInFlight || nodes.isNotEmpty) {
-      return;
-    }
-    if (_lastEmptySubscriptionPromptRevision == subService.revision) return;
-    _lastEmptySubscriptionPromptRevision = subService.revision;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_canUpdateUi) unawaited(_showInitialSubscriptionDialog());
-    });
-  }
-
-  String? _validateSubscriptionInput(
-    String input,
-    SubscriptionService subService,
-  ) {
-    if (input.isEmpty) return '请粘贴订阅或节点链接';
-    if (subService.isSingleNodeLink(input)) return null;
-
-    try {
-      SubscriptionUrlPolicy.parse(input);
-    } on FormatException {
-      return '请输入有效的节点链接或 HTTP/HTTPS 订阅链接';
-    }
-    return null;
-  }
-
   Future<void> _applyNetworkSetting(
     Future<void> Function(SettingsService settings) update,
   ) async {

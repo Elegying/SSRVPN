@@ -393,48 +393,6 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
     }
   }
 
-  Future<void> _backupBadFile(
-    File file,
-    String reason, {
-    required Map<String, dynamic>? decoded,
-  }) async {
-    if (!await file.exists()) return;
-    final stamp = DateTime.now()
-        .toIso8601String()
-        .replaceAll(':', '')
-        .replaceAll('.', '');
-    if (decoded == null) {
-      // A syntactically damaged legacy file can still contain a plaintext API
-      // secret that cannot be parsed and scrubbed safely. Keep only diagnostic
-      // metadata, retire the raw file, then let _load rebuild defaults around
-      // the independently stored secret.
-      await File(
-        '${file.path}.bad-$stamp.reason.txt',
-      ).writeAsString(reason, flush: true);
-      await file.delete();
-      _syncDataDirectory();
-      return;
-    }
-
-    final sanitized = Map<String, dynamic>.from(decoded)..remove('apiSecret');
-    final backup = File('${file.path}.bad-$stamp');
-    final scrubbedTemp = File(
-      '${file.path}.scrubbed.$pid.${DateTime.now().microsecondsSinceEpoch}',
-    );
-    try {
-      await scrubbedTemp.writeAsString(jsonEncode(sanitized), flush: true);
-      await scrubbedTemp.rename(file.path);
-      _syncDataDirectory();
-      await file.rename(backup.path);
-      await File(
-        '${backup.path}.reason.txt',
-      ).writeAsString(reason, flush: true);
-      _syncDataDirectory();
-    } finally {
-      if (await scrubbedTemp.exists()) await scrubbedTemp.delete();
-    }
-  }
-
   String _generateSecret() {
     final rand = Random.secure();
     return List.generate(
