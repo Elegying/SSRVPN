@@ -46,6 +46,12 @@ class AppConstants {
   /// 此前 Windows / macOS 显式传 6 次 / 1 秒，Android 沿用方法默认值 3 次 / 2 秒，
   /// 使 Android 的误报概率约为桌面的两倍。6 次即在这 3 个端点上跑满 2 轮，
   /// 任一次成功即判定通道健康。
+  ///
+  /// **6 是硬上限，不要再往上调。** `verifyUserConnectivity` 内部会
+  /// `clamp(1, 6)`，把这里改成 7 或 8 不会报错，只会被静默截断成 6——
+  /// 上限存在的原因是单轮最坏耗时（6 × 6 秒超时 + 5 × 1 秒间隔 ≈ 41 秒）
+  /// 必须留在 `dataPlaneObservationTimeout`（60 秒）之内。
+  /// 想提高抗抖动能力应当改为跨轮次确认，而不是加长单轮。
   static const int dataPlaneProbeAttempts = 6;
   static const Duration dataPlaneProbeRetryDelay = Duration(seconds: 1);
 

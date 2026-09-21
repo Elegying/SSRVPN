@@ -1096,6 +1096,31 @@ void main() {
       expect(AppConstants.dataPlaneProbeAttempts, 6);
     });
 
+    test('probe attempts are clamped to the safety ceiling', () async {
+      Future<int> runWith(int requested) async {
+        var calls = 0;
+        final service = _TestClashService();
+        addTearDown(service.dispose);
+        await service.verifyUserConnectivity(
+          maxAttempts: requested,
+          retryDelay: Duration.zero,
+          request: (_) async {
+            calls += 1;
+            return http.Response('', 502);
+          },
+        );
+        return calls;
+      }
+
+      // 上限 6 是安全边界（单轮最坏 ≈ 41 秒，须留在 dataPlaneObservationTimeout
+      // 的 60 秒内）。把请求值调大只会被静默截断——钉住这条断言，
+      // 避免将来「把常量调大」却没人发现它没生效。
+      expect(await runWith(40), 6);
+      expect(await runWith(AppConstants.dataPlaneProbeAttempts), 6);
+      // 下界同样收敛到 1 次，不会退化成「一次都不探」。
+      expect(await runWith(0), 1);
+    });
+
     test('distinguishes an unresponsive channel from an endpoint anomaly',
         () async {
       final silent = _TestClashService();

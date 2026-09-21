@@ -280,6 +280,10 @@ mixin _ClashDataPlaneSupport {
     } else {
       sendStatus = (uri) => _sendUserConnectivityStatus(client!, uri);
     }
+    // 上限 6 与 AppConstants.dataPlaneProbeAttempts 一致，是**安全边界**而非默认值：
+    // 单轮最坏耗时 = 6 × 6 秒请求超时 + 5 × 1 秒间隔 ≈ 41 秒，必须留在
+    // dataPlaneObservationTimeout（60 秒）之内。因此这里写死 6 而不是引用常量——
+    // 引用常量会让「把常量调大」同时把安全边界一起放宽，失去拦截作用。
     final attempts = maxAttempts.clamp(1, 6).toInt();
     final endpointValues = settings.enableTun
         ? AppConstants.tunConnectivityTestUrls
