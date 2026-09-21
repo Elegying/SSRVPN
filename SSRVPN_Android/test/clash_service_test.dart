@@ -79,6 +79,8 @@ class _ConnectivityRecoveryObservationService extends ClashService {
 
   void simulateRouteChange() => onDataPlaneRouteChanged();
 
+  DateTime? get observedAt => dataPlaneObservationAt;
+
   @override
   Future<String?> verifyUserConnectivity({
     int maxAttempts = AppConstants.dataPlaneProbeAttempts,
@@ -313,6 +315,23 @@ void main() {
       expect(service.connectivityWarning, isNull);
       expect(service.isRunning, isTrue);
       expect(service.connectionDesired, isTrue);
+    },
+  );
+
+  test(
+    'Android records when the data-plane conclusion was observed',
+    () async {
+      final service = _ConnectivityRecoveryObservationService()
+        ..requestConnectionIntent(true)
+        ..setRunning(true);
+      addTearDown(service.dispose);
+      expect(service.observedAt, isNull);
+
+      await service.observeDataPlaneHealth();
+      expect(service.observedAt, isNotNull);
+
+      service.simulateRouteChange();
+      expect(service.observedAt, isNull);
     },
   );
 

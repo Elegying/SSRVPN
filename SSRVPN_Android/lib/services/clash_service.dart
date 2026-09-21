@@ -14,6 +14,7 @@ part 'clash_service_snapshot_cleanup.dart';
 part 'clash_service_native_bridge.dart';
 part 'clash_service_config.dart';
 part 'clash_service_country.dart';
+part 'clash_service_data_plane.dart';
 
 class _AndroidStartCancelled implements Exception {}
 
@@ -22,7 +23,8 @@ class _AndroidStartCancelled implements Exception {}
 /// 继承 [ClashServiceBase] 共享 API/延迟/健康检查/状态/端口，
 /// 仅实现 Android 特有：MethodChannel 桥接、gomobile VPN 启停、
 /// MMDB 解压、TUN 配置、磁贴/通知集成。
-class ClashService extends ClashServiceBase with PhysicalTcpLatency {
+class ClashService extends ClashServiceBase
+    with PhysicalTcpLatency, _AndroidDataPlaneObservationClock {
   static const _channel = MethodChannel('com.ssrvpn/native');
 
   String _corePath = '';
@@ -125,18 +127,22 @@ class ClashService extends ClashServiceBase with PhysicalTcpLatency {
     final connectionGeneration = captureAutomaticRestartIntent();
     if (connectionGeneration == null) return;
     final startGeneration = _startGeneration;
+    bool sessionStillValid() =>
+        isRunning &&
+        isDataPlaneObservationCurrent &&
+        startGeneration == _startGeneration &&
+        isConnectionIntentCurrent(connectionGeneration, connected: true);
     // 显式传入共享预算：Android 此前沿用方法默认值（3 次 / 2 秒），
     // 与桌面的 6 次 / 1 秒不一致，误报概率约为两倍。
     // 不要依赖默认值——Dart 的默认参数由**被调用实现**决定，覆写会静默改掉它。
     await verifyUserConnectivity(
       maxAttempts: AppConstants.dataPlaneProbeAttempts,
       retryDelay: AppConstants.dataPlaneProbeRetryDelay,
-      shouldContinue: () =>
-          isRunning &&
-          isDataPlaneObservationCurrent &&
-          startGeneration == _startGeneration &&
-          isConnectionIntentCurrent(connectionGeneration, connected: true),
+      shouldContinue: sessionStillValid,
     );
+    // 只有会话仍然有效才记录时间：会话失效时共享层已把告警清空，
+    // 此时留下新时间戳会把「没有结论」说成「刚看过」。
+    if (sessionStillValid()) recordDataPlaneObservation();
   }
 
   // The native VPN service owns the authoritative 3-second Bridge monitor and
