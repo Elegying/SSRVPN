@@ -44,7 +44,7 @@
 - [项目硬性规则](PRODUCT_REQUIREMENTS.zh-CN.md)
 - [安全策略](../SECURITY.md)
 - [社区行为准则](../CODE_OF_CONDUCT.md)
-- [IPv4-only 与 IPv6 防绕过规范](IPV6_DUAL_STACK_SPEC.zh-CN.md)
+- [双栈分流与 IPv6 处理规范](IPV6_DUAL_STACK_SPEC.zh-CN.md)
 - [ADR-001：桌面端 API Secret 的长期存储](decisions/001-desktop-api-secret-storage.md)
 - [ADR-002：Windows 安装版数据保留与多来源隔离](decisions/002-windows-installed-data-preservation.md)
 - [ADR-003：Windows 只发布安装器](decisions/003-windows-installer-only-distribution.md)

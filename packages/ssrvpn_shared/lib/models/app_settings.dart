@@ -380,12 +380,11 @@ String _parseLatencyTestUrl(Object? value) {
   return url;
 }
 
-/// 代理模式枚举
+/// 代理模式枚举。
+///
+/// 界面文案由节点选择页自行提供（`智能` / `全局`），此处不再保留第二份标签，
+/// 避免出现与 UI 不一致的"规则模式"之类的死字段。
 enum ProxyMode {
-  global('全局模式', 'Global'),
-  rule('规则模式', 'Rule');
-
-  final String chineseName;
-  final String englishName;
-  const ProxyMode(this.chineseName, this.englishName);
+  global,
+  rule,
 }

@@ -2,7 +2,6 @@ import 'dart:io';
 
 import '../constants/app_constants.dart';
 import '../utils/subscription_url_policy.dart';
-import 'subscription_parser.dart';
 import 'subscription_processing.dart';
 import 'subscription_refresh_control.dart';
 
@@ -68,12 +67,10 @@ class SubscriptionFetchPolicy {
   static const v2rayNUserAgent = 'v2rayN/7.24.8 ${AppConstants.appUserAgent}';
   static const shadowrocketUserAgent =
       'Shadowrocket/2.2.91 ${AppConstants.appUserAgent}';
-  static const userAgents = <String>[
-    AppConstants.appUserAgent,
-    compatibilityUserAgent,
-    v2rayNUserAgent,
-    shadowrocketUserAgent,
-  ];
+  /// 与 [clientIdentities] 同源派生，避免新增标识时只改一处。
+  static List<String> get userAgents => clientIdentities
+      .map((identity) => identity.userAgent)
+      .toList(growable: false);
   static const clientIdentities = <SubscriptionClientIdentity>[
     SubscriptionClientIdentity(
       id: 'ssrvpn',
@@ -146,10 +143,10 @@ class SubscriptionFetchPolicy {
       );
       final hasAnotherIdentity = index + 1 < clientIdentities.length;
       if (!hasAnotherIdentity ||
-          !(statusCode == 403 ||
-              statusCode == 406 ||
-              statusCode == 415 ||
-              (statusCode == 200 && normalizedBody == null))) {
+          !shouldDowngradeClientIdentity(
+            statusCode: statusCode,
+            normalizedBody: normalizedBody,
+          )) {
         return result;
       }
     }
@@ -195,27 +192,19 @@ class SubscriptionFetchPolicy {
     }
   }
 
-  static bool shouldRetryWithCompatibility({
+  /// 是否降级到下一个客户端标识。
+  ///
+  /// 只有服务端明确拒绝当前标识（403/406/415），或返回 200 但内容无法识别时才降级；
+  /// 认证失败、地址失效和限流（401/404/410/429）立即停止，不轮换标识。
+  /// 这是 [negotiateClientIdentity] 唯一的判定入口，改动必须同步本条测试。
+  static bool shouldDowngradeClientIdentity({
     required int statusCode,
-    required String body,
+    required String? normalizedBody,
   }) {
     if (statusCode == 403 || statusCode == 406 || statusCode == 415) {
       return true;
     }
-    return statusCode == 200 && !_isRecognized(body);
-  }
-
-  static String normalizeRecognizedBody(String body) {
-    if (body.trim().isEmpty) {
-      throw const SubscriptionContentException('订阅内容为空');
-    }
-    final normalized = SubscriptionParser.parseSubscriptionContent(body);
-    if (normalized == null) {
-      throw const SubscriptionContentException(
-        '订阅内容无法识别，服务器可能返回了网页或 JSON 拒绝信息',
-      );
-    }
-    return normalized;
+    return statusCode == HttpStatus.ok && normalizedBody == null;
   }
 
   static Uri resolveRedirect(Uri source, String location) {
@@ -258,14 +247,6 @@ class SubscriptionFetchPolicy {
       }
     }
     return resolved;
-  }
-
-  static bool _isRecognized(String body) {
-    try {
-      return SubscriptionParser.parseSubscriptionContent(body) != null;
-    } catch (_) {
-      return false;
-    }
   }
 
   static bool _sameAddress(InternetAddress left, InternetAddress right) {

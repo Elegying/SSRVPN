@@ -120,11 +120,11 @@ IPv6 节点连接失败、IPv6-only 网站无法打开，或首页只显示 IPv4
 
 **原因或检查**
 
-这是产品设计。SSRVPN 永久关闭 Mihomo 的 DNS AAAA 和 IPv6 连接；Android 与 Windows TUN 还会捕获并拒绝 IPv6，避免底层 IPv6 不完整时反复尝试不可达地址，也防止 IPv6 绕过 VPN。
+这是产品设计的一部分，但已不再是“一律拒绝 IPv6”。三端核心与 DNS 已启用 IPv6，TUN 也接管 IPv6 并按同一套分流规则处理。真正的边界是：IPv6-only 目标需要所选节点自身具备 IPv6 出口，SSRVPN 不做 IPv6 与 IPv4 之间的地址转换（NAT64），代理失败时也不会自动改为直连。首页公网 IP 固定只显示 IPv4。
 
 **动作**
 
-无需修改系统 IPv6 设置。请改用提供 IPv4 地址的节点和目标服务。
+无需修改系统 IPv6 设置。IPv6-only 网站打不开时，改用具备 IPv6 出口的节点，或改访问该服务的 IPv4 入口。
 
 ## macOS 无法直接打开应用
 
