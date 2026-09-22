@@ -110,6 +110,36 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.detached);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('a minimized window (hidden) freezes the wallpaper',
+      (tester) async {
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpWidget(const MaterialApp(
+        home: SsrvpnDriftingBackground(
+            drift: true, child: ColoredBox(color: Colors.blue))));
+    Offset position() => tester
+        .widget<FractionalTranslation>(find.descendant(
+            of: find.byType(SsrvpnDriftingBackground),
+            matching: find.byType(FractionalTranslation)))
+        .translation;
+    await tester.pump(const Duration(seconds: 4));
+    // `hidden` is what the engine reports when a desktop window is minimized:
+    // the wallpaper must freeze instead of sliding behind an invisible window.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    await tester.pump();
+    final minimized = position();
+    await tester.pump(const Duration(seconds: 6));
+    expect(position(), minimized,
+        reason: 'minimized window must not keep the wallpaper drifting');
+    // Coming back to the foreground resumes from the frozen phase.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 4));
+    expect(position(), isNot(minimized));
+    await tester.pumpWidget(const SizedBox());
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.detached);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('turnaround and cycle seam stay continuous', (tester) async {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpWidget(const MaterialApp(

@@ -101,8 +101,8 @@ class GlassInputDecoration extends InputDecoration {
           filled: true,
           isDense: true,
           fillColor: isDark
-              ? Colors.white.withValues(alpha: 0.04)
-              : Colors.white.withValues(alpha: 0.5),
+              ? Colors.white.withValues(alpha: 0.10)
+              : Colors.white.withValues(alpha: 0.60),
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 14,
             vertical: 12,

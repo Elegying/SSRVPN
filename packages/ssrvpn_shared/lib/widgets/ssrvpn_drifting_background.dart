@@ -76,15 +76,18 @@ class _SsrvpnDriftingBackgroundState extends State<SsrvpnDriftingBackground>
 
   /// Whether the host currently has nothing to hide this surface behind.
   ///
-  /// Only a definite `paused`/`detached` means the window is gone: those are
-  /// the two states that promise the surface is neither visible nor
-  /// interactive. `inactive` is deliberately *not* one of them — it means
-  /// input went elsewhere, which on desktop is an ordinary focus change
-  /// between two visible windows. The Windows runner never notifies Flutter
-  /// from `WM_ACTIVATE`, so a freshly launched window can stay `inactive` (or
-  /// unreported) until Flutter's own focus handling runs. Treating that as
-  /// "hidden" is what froze the wallpaper on first open, against the user's
-  /// explicit opt-in.
+  /// A definite `paused`/`detached`/`hidden` means the window is gone: those
+  /// are the states that promise the surface is neither visible nor
+  /// interactive. `hidden` in particular is what the engine reports when a
+  /// desktop window is minimized (see `AppLifecycleState.hidden`), so a
+  /// minimized window must freeze the drift instead of letting the wallpaper
+  /// keep sliding behind a surface the user cannot see. `inactive` is
+  /// deliberately *not* one of them — it means input went elsewhere, which on
+  /// desktop is an ordinary focus change between two visible windows. The
+  /// Windows runner never notifies Flutter from `WM_ACTIVATE`, so a freshly
+  /// launched window can stay `inactive` (or unreported) until Flutter's own
+  /// focus handling runs. Treating that as "hidden" is what froze the
+  /// wallpaper on first open, against the user's explicit opt-in.
   ///
   /// An unreported state (`null`) is treated as active here, unlike the
   /// connection halo, because this controller only ever runs when the user
@@ -93,7 +96,8 @@ class _SsrvpnDriftingBackgroundState extends State<SsrvpnDriftingBackground>
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     return lifecycle == null ||
         (lifecycle != AppLifecycleState.paused &&
-            lifecycle != AppLifecycleState.detached);
+            lifecycle != AppLifecycleState.detached &&
+            lifecycle != AppLifecycleState.hidden);
   }
 
   void _updateMotion() {

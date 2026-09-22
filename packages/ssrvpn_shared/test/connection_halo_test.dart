@@ -75,4 +75,38 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.detached);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('an unreported lifecycle state keeps the halo still',
+      (tester) async {
+    // A host that never reports lifecycle leaves `lifecycleState == null`. The
+    // halo must not guess "active": it repeats forever, so treating a missing
+    // state as active would spin the animation on a host that never reports
+    // anything. It only starts once a first definite `resumed` arrives.
+    await tester.pumpWidget(MaterialApp(
+        home: MediaQuery(
+      data: MediaQueryData(disableAnimations: false),
+      child: Center(
+          child: SsrvpnConnectionHalo(
+        enabled: true,
+        size: 200,
+        color: Colors.green,
+        child: const SizedBox.square(dimension: 200),
+      )),
+    )));
+    final halo = find.byKey(const Key('ssrvpn-connected-halo'));
+    expect(halo, findsOneWidget);
+    expect(tester.binding.transientCallbackCount, 0,
+        reason: 'no lifecycle report yet — the halo must stay still');
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.binding.transientCallbackCount, 0);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(tester.binding.transientCallbackCount, greaterThan(0),
+        reason: 'a first definite resumed starts the pulse');
+
+    await tester.pumpWidget(const SizedBox());
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.detached);
+    expect(tester.takeException(), isNull);
+  });
 }
