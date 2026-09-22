@@ -20,6 +20,38 @@ mixin _ClashHealthSupport {
   });
   void setLastHealthCheckError(String? value);
 
+  // Android defers control-plane monitoring to its native service, so the
+  // periodic control-plane monitor never runs there. This independent
+  // low-frequency timer keeps the data plane observed on that platform too.
+  Timer? _dataPlaneWatchTimer;
+
+  @protected
+  Duration get statusMonitorInterval => const Duration(seconds: 3);
+
+  @protected
+  int get maxConsecutiveHealthCheckFailures => 3;
+
+  /// Recovery requires both repeated failures and elapsed time, and the two
+  /// conditions must overlap instead of stacking.
+  ///
+  /// The failure threshold on its own already spans
+  /// `maxConsecutiveHealthCheckFailures - 1` poll intervals (~6s at the 3s
+  /// poll). The grace therefore has to stay strictly *inside* that span: tying
+  /// it to the same two intervals makes both conditions land on the exact same
+  /// millisecond, and a few milliseconds of timer jitter is then enough to
+  /// withhold the trip and burn a whole extra poll cycle — a measured 9s
+  /// window silently drifting to 12s. One interval keeps a comfortable margin,
+  /// so the third consecutive failure always recovers at about 9s.
+  @protected
+  Duration get healthFailureGrace => statusMonitorInterval;
+
+  /// Low-frequency data-plane observation used only where the periodic
+  /// control-plane monitor is disabled (Android, where the native service owns
+  /// it). Long enough to stay free, short enough that a node which stopped
+  /// forwarding is reported within about a minute instead of never.
+  @protected
+  Duration get dataPlaneWatchInterval => const Duration(seconds: 60);
+
   bool get _canPublishHealthCheckResult {
     final monitorEpoch = Zone.current[_healthMonitorEpochZoneKey] as int?;
     final intent = Zone.current[_healthIntentZoneKey] as int?;
@@ -122,7 +154,7 @@ mixin _ClashHealthSupport {
       if (shouldPublish?.call() == false) return false;
       setLastHealthCheckError('CORE_API_UNAVAILABLE: 运行状态检查异常');
       log(
-        '运行状态检查异常: cause=${_safeRuntimeLogErrorCode(error)}',
+        '运行状态检查异常: cause=${safeRuntimeErrorCode(error)}',
         level: RuntimeLogLevel.warning,
         event: 'health_check',
       );
@@ -142,6 +174,8 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
   void startStatusMonitor() {
     _statusTimer?.cancel();
     _scheduleRuleProviderRefreshOnce();
+    _startDataPlaneWatch();
+    startNetworkChangeWatch();
     if (!enablePeriodicHealthMonitor) {
       _statusTimer = null;
       return;
@@ -259,6 +293,7 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
                   await onStopRequired();
                   return false;
                 }
+                setAutoRecoveryInProgress(true);
                 notifyRuntimeNotice(
                   const RuntimeNotice.progress(
                     '运行状态暂时异常，正在自动恢复连接…',
@@ -286,11 +321,20 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
           } catch (error) {
             this.log(
               '运行状态异常后的恢复失败: '
-              'cause=${_safeRuntimeLogErrorCode(error)}',
+              'cause=${safeRuntimeErrorCode(error)}',
               level: RuntimeLogLevel.error,
               event: 'health_recovery',
             );
           }
+          // The rebuild window is over either way; the outcome notice below
+          // carries the result. This runs unconditionally, including on the
+          // two early returns above that never set the flag. That is only safe
+          // because [setAutoRecoveryInProgress] is idempotent
+          // (`clash_service_connection_progress.dart`): re-setting the same
+          // value returns before touching `_connectionProgress`, so a message
+          // written by another path is never cleared here. Removing that guard
+          // would make this line clobber it.
+          setAutoRecoveryInProgress(false);
 
           final intentCurrent = recoveryGeneration != null &&
               isConnectionIntentCurrent(
@@ -341,12 +385,35 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
     _invalidateHealthMonitorSession();
     _statusTimer?.cancel();
     _statusTimer = null;
+    _dataPlaneWatchTimer?.cancel();
+    _dataPlaneWatchTimer = null;
+    stopNetworkChangeWatch();
     if (_ruleProviderRefreshTimer?.isActive ?? false) {
       // A cancelled delay has not consumed this launch's one check yet.
       _ruleProviderRefreshScheduled = false;
     }
     _ruleProviderRefreshTimer?.cancel();
     _ruleProviderRefreshTimer = null;
+  }
+
+  /// Android hands control-plane monitoring to its native service, so the
+  /// periodic monitor above never runs there. That left the data plane
+  /// unobserved for the whole session: a node that stopped forwarding while the
+  /// local control plane stayed healthy produced no warning at all, while the
+  /// desktop platforms report it within about 30 seconds. Watch the data plane
+  /// on an independent timer so every platform eventually notices.
+  ///
+  /// This only raises the advisory warning. It deliberately never restarts the
+  /// core, matching the existing contract that data-plane failures are advisory.
+  void _startDataPlaneWatch() {
+    _dataPlaneWatchTimer?.cancel();
+    _dataPlaneWatchTimer = null;
+    if (enablePeriodicHealthMonitor) return;
+    final watchEpoch = _healthMonitorEpoch;
+    _dataPlaneWatchTimer = Timer.periodic(dataPlaneWatchInterval, (_) {
+      if (!_isRunning || watchEpoch != _healthMonitorEpoch) return;
+      scheduleDataPlaneObservation();
+    });
   }
 
   void _scheduleRuleProviderRefreshOnce() {

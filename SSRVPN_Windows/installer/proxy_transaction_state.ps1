@@ -198,3 +198,17 @@ function Test-ReachableProxyTransactionState {
   }
   return $false
 }
+
+# Reports whether this installation holds any proxy recovery record. This is
+# a pure path probe with no dependency on process identity, so it lives with
+# the other proxy transaction state helpers rather than in the process
+# stopper that consumes it. The ownership rule built on top of it is
+# documented in docs/decisions/020-installer-system-proxy-ownership.md.
+function Test-ProxyRecoveryStatePresent {
+  $nativePath = 'HKCU:\Software\SSRVPN\RuntimeProxyBackup'
+  if (Test-Path -Path $nativePath) { return $true }
+  if (-not $env:LOCALAPPDATA) { return $false }
+  $jsonPath = Join-Path $env:LOCALAPPDATA `
+    'SSRVPN\runtime\system_proxy_backup.json'
+  return Test-Path -LiteralPath $jsonPath -PathType Leaf
+}

@@ -15,6 +15,9 @@ import 'http_client_adapter.dart';
 /// - 2MB YAML 大小限制
 class SubscriptionService extends SubscriptionServiceBase {
   static final _instance = AsyncLazy<SubscriptionService>();
+
+  /// 比共享 [AppConstants.maxYamlBytes]（4 MB）更严：移动端内存与解析开销更敏感。
+  /// 共享合并器允许到 20 MB，Android 主动收紧到 2 MB。
   static const int _maxYamlBytes = 2 * 1024 * 1024;
   static const int _maxHeaderBytes = 64 * 1024;
   static const _tlsTimeout = Duration(seconds: 20);
@@ -88,7 +91,8 @@ class SubscriptionService extends SubscriptionServiceBase {
       final byteCount = utf8.encode(yaml).length;
       if (byteCount > _maxYamlBytes) {
         throw Exception(
-          '订阅内容过大 (${(byteCount / 1024 / 1024).toStringAsFixed(1)}MB)，超过 2MB 限制',
+          '订阅内容过大 (${(byteCount / 1024 / 1024).toStringAsFixed(1)}MB)，'
+          '超过 ${_maxYamlBytes ~/ (1024 * 1024)}MB 限制',
         );
       }
     }

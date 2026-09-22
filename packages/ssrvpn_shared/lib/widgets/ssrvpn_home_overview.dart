@@ -31,6 +31,7 @@ class SsrvpnHomeOverview extends StatefulWidget {
     this.errorMessage,
     this.connectionNotice,
     this.connectionProgress,
+    this.isAutoRecovering = false,
     this.publicIpv4,
     this.publicIpError,
     this.isRefreshingPublicIp = false,
@@ -45,6 +46,10 @@ class SsrvpnHomeOverview extends StatefulWidget {
   final String? errorMessage;
   final String? connectionNotice;
   final String? connectionProgress;
+
+  /// Keeps the progress line visible while a recovery rebuilds the connection,
+  /// even though the app is technically still connected.
+  final bool isAutoRecovering;
   final String? publicIpv4;
   final String? publicIpError;
   final bool isRefreshingPublicIp;
@@ -62,7 +67,9 @@ class SsrvpnHomeOverview extends StatefulWidget {
 
 class _HomeOverviewState extends State<SsrvpnHomeOverview> {
   String? get _connectionProgress =>
-      widget.isConnecting ? widget.connectionProgress : null;
+      widget.isConnecting || widget.isAutoRecovering
+          ? widget.connectionProgress
+          : null;
 
   Widget _buildConnectionProgress() => Semantics(
         liveRegion: true,

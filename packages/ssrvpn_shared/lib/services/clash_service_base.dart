@@ -92,6 +92,7 @@ abstract class ClashServiceBase
 
   String? _connectionProgress;
   final Set<void Function()> _connectionProgressListeners = {};
+  bool _autoRecoveryInProgress = false;
 
   Timer? _statusTimer;
   Timer? _ruleProviderRefreshTimer;
@@ -107,15 +108,6 @@ abstract class ClashServiceBase
   @protected
   Duration get ruleProviderStartupRefreshDelay =>
       AppConstants.ruleProviderStartupRefreshDelay;
-
-  @protected
-  Duration get statusMonitorInterval => const Duration(seconds: 5);
-
-  @protected
-  int get maxConsecutiveHealthCheckFailures => 3;
-
-  @protected
-  Duration get healthFailureGrace => statusMonitorInterval * 6;
 
   @protected
   bool get enablePeriodicHealthMonitor => true;
@@ -248,7 +240,7 @@ abstract class ClashServiceBase
     } catch (error) {
       this.log(
         '重新生成并启动桌面连接失败: '
-        'cause=${_safeRuntimeLogErrorCode(error)}',
+        'cause=${safeRuntimeErrorCode(error)}',
         level: RuntimeLogLevel.error,
         event: 'health_recovery',
       );
@@ -387,7 +379,7 @@ abstract class ClashServiceBase
         return groups;
       }
     } catch (e) {
-      this.log('获取代理列表失败: cause=${_safeRuntimeLogErrorCode(e)}');
+      this.log('获取代理列表失败: cause=${safeRuntimeErrorCode(e)}');
     }
     return [];
   }
@@ -403,7 +395,7 @@ abstract class ClashServiceBase
       return false;
     } catch (e) {
       this.log(
-        '切换代理失败: cause=${_safeRuntimeLogErrorCode(e)}',
+        '切换代理失败: cause=${safeRuntimeErrorCode(e)}',
         level: RuntimeLogLevel.warning,
         event: 'proxy_switch',
       );
@@ -426,7 +418,7 @@ abstract class ClashServiceBase
           .timeout(const Duration(seconds: 5));
       return response.statusCode == 200 || response.statusCode == 204;
     } catch (e) {
-      this.log('切换模式失败: cause=${_safeRuntimeLogErrorCode(e)}');
+      this.log('切换模式失败: cause=${safeRuntimeErrorCode(e)}');
       return false;
     }
   }
@@ -588,7 +580,7 @@ abstract class ClashServiceBase
     } catch (e) {
       this.log(
         '切换代理组失败 $groupName -> $nodeName: '
-        'cause=${_safeRuntimeLogErrorCode(e)}',
+        'cause=${safeRuntimeErrorCode(e)}',
         level: RuntimeLogLevel.warning,
         event: 'proxy_switch',
       );
@@ -646,7 +638,7 @@ abstract class ClashServiceBase
     } catch (error) {
       this.log(
         '节点已切换，但旧连接清理未完成: '
-        'cause=${_safeRuntimeLogErrorCode(error)}',
+        'cause=${safeRuntimeErrorCode(error)}',
         level: RuntimeLogLevel.warning,
         event: 'connection_cleanup',
       );

@@ -49,8 +49,8 @@ class _ConnectionGenerationObservationService extends ClashService {
 
   @override
   Future<String?> verifyUserConnectivity({
-    int maxAttempts = 3,
-    Duration retryDelay = const Duration(seconds: 2),
+    int maxAttempts = AppConstants.dataPlaneProbeAttempts,
+    Duration retryDelay = AppConstants.dataPlaneProbeRetryDelay,
     Future<http.Response> Function(Uri uri)? request,
     bool Function()? shouldContinue,
   }) async {
@@ -79,10 +79,12 @@ class _ConnectivityRecoveryObservationService extends ClashService {
 
   void simulateRouteChange() => onDataPlaneRouteChanged();
 
+  DateTime? get observedAt => dataPlaneObservationAt;
+
   @override
   Future<String?> verifyUserConnectivity({
-    int maxAttempts = 3,
-    Duration retryDelay = const Duration(seconds: 2),
+    int maxAttempts = AppConstants.dataPlaneProbeAttempts,
+    Duration retryDelay = AppConstants.dataPlaneProbeRetryDelay,
     Future<http.Response> Function(Uri uri)? request,
     bool Function()? shouldContinue,
   }) async {
@@ -313,6 +315,23 @@ void main() {
       expect(service.connectivityWarning, isNull);
       expect(service.isRunning, isTrue);
       expect(service.connectionDesired, isTrue);
+    },
+  );
+
+  test(
+    'Android records when the data-plane conclusion was observed',
+    () async {
+      final service = _ConnectivityRecoveryObservationService()
+        ..requestConnectionIntent(true)
+        ..setRunning(true);
+      addTearDown(service.dispose);
+      expect(service.observedAt, isNull);
+
+      await service.observeDataPlaneHealth();
+      expect(service.observedAt, isNotNull);
+
+      service.simulateRouteChange();
+      expect(service.observedAt, isNull);
     },
   );
 
@@ -1793,7 +1812,11 @@ secret: rejected-test-secret
 
       expect(autoGroup['type'], 'url-test');
       expect(autoGroup['url'], 'https://www.gstatic.com/generate_204');
-      expect(autoGroup['interval'], 300);
+      expect(autoGroup['interval'], AppConstants.latencyTestInterval);
+      // Hysteresis + lazy probing keep the group from re-picking (and resetting
+      // live connections) on tiny latency differences.
+      expect(autoGroup['tolerance'], 50);
+      expect(autoGroup['lazy'], isTrue);
     });
 
     test('API secret is properly quoted in YAML', () {

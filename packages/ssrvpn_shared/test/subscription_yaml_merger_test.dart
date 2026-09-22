@@ -1,5 +1,6 @@
 import 'dart:collection';
 
+import 'package:ssrvpn_shared/constants/app_constants.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/services/clash_config_generator.dart';
 import 'package:ssrvpn_shared/services/subscription_yaml_merger.dart';
@@ -153,6 +154,44 @@ proxies:
 
       expect(groupNames.toSet(), hasLength(groupNames.length));
       expect(proxyNames.intersection(groupNames.toSet()), isEmpty);
+    });
+
+    test('health-check tuning matches what the core parses per group type', () {
+      const yaml = '''
+proxies:
+  - {name: A, type: trojan, server: a.example.com, port: 443, password: secret}
+  - {name: B, type: trojan, server: b.example.com, port: 443, password: secret}
+''';
+
+      final generated = loadYaml(
+        ClashConfigGenerator.generateConfig(
+          yaml,
+          AppSettings(),
+          includeFallbackGroup: true,
+        ),
+      ) as YamlMap;
+      final groups = (generated['proxy-groups'] as YamlList)
+          .map((group) => group as YamlMap)
+          .toList();
+
+      final auto = groups.firstWhere((g) => g['name'] == '自动选择');
+      expect(auto['type'], 'url-test');
+      expect(auto['interval'], AppConstants.latencyTestInterval);
+      expect(auto['lazy'], isTrue);
+      // url-test re-picks on latency, so it needs hysteresis to stop a few
+      // milliseconds of jitter from resetting live connections. The core
+      // parses `tolerance` for this group type only.
+      expect(auto['tolerance'], 50);
+
+      final fallback = groups.firstWhere((g) => g['name'] == '故障转移');
+      expect(fallback['type'], 'fallback');
+      expect(fallback['interval'], AppConstants.latencyTestInterval);
+      expect(fallback['lazy'], isTrue);
+      // A tolerance here would be a dead field, not protection: the core parses
+      // it for url-test and silently drops it for fallback. Verified against
+      // the embedded core by feeding an invalid value — url-test rejects it,
+      // fallback accepts it unchanged.
+      expect(fallback.containsKey('tolerance'), isFalse);
     });
 
     test('canonicalizes control characters before collision allocation', () {

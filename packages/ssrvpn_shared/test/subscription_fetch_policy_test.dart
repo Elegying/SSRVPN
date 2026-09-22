@@ -130,44 +130,46 @@ void main() {
       );
     });
 
-    test('only refusal statuses and unparseable success request compat UA', () {
+    test('only refusal statuses and unparseable success downgrade the identity',
+        () {
       for (final status in [403, 406, 415]) {
         expect(
-          SubscriptionFetchPolicy.shouldRetryWithCompatibility(
+          SubscriptionFetchPolicy.shouldDowngradeClientIdentity(
             statusCode: status,
-            body: '',
+            normalizedBody: null,
           ),
           isTrue,
         );
       }
       expect(
-        SubscriptionFetchPolicy.shouldRetryWithCompatibility(
+        SubscriptionFetchPolicy.shouldDowngradeClientIdentity(
           statusCode: 500,
-          body: '',
+          normalizedBody: null,
         ),
         isFalse,
       );
       for (final status in [401, 404, 410, 429]) {
         expect(
-          SubscriptionFetchPolicy.shouldRetryWithCompatibility(
+          SubscriptionFetchPolicy.shouldDowngradeClientIdentity(
             statusCode: status,
-            body: '',
+            normalizedBody: null,
           ),
           isFalse,
           reason: 'HTTP $status must not rotate client identities',
         );
       }
       expect(
-        SubscriptionFetchPolicy.shouldRetryWithCompatibility(
+        SubscriptionFetchPolicy.shouldDowngradeClientIdentity(
           statusCode: 200,
-          body: '<html>access denied</html>',
+          normalizedBody: null,
         ),
         isTrue,
+        reason: '200 但内容无法识别时必须降级',
       );
       expect(
-        SubscriptionFetchPolicy.shouldRetryWithCompatibility(
+        SubscriptionFetchPolicy.shouldDowngradeClientIdentity(
           statusCode: 200,
-          body: _validYaml,
+          normalizedBody: _validYaml,
         ),
         isFalse,
       );
@@ -381,13 +383,34 @@ void main() {
     test(
       'recognition returns parseable YAML and rejects refusal documents',
       () {
+        SubscriptionIdentityNegotiationResult<Object?> result({
+          required String body,
+          required String? normalizedBody,
+        }) =>
+            SubscriptionIdentityNegotiationResult<Object?>(
+              response: null,
+              body: body,
+              identity: SubscriptionFetchPolicy.clientIdentities.first,
+              attemptCount: 1,
+              statusCode: 200,
+              normalizedBody: normalizedBody,
+            );
+
         expect(
-          SubscriptionFetchPolicy.normalizeRecognizedBody(_validYaml),
+          SubscriptionFetchPolicy.requireRecognizedBody(
+            result(body: _validYaml, normalizedBody: _validYaml),
+          ),
           contains('Valid Node'),
         );
         expect(
-          () => SubscriptionFetchPolicy.normalizeRecognizedBody(
-            '{"error":"forbidden"}',
+          () => SubscriptionFetchPolicy.requireRecognizedBody(
+            result(body: '{"error":"forbidden"}', normalizedBody: null),
+          ),
+          throwsA(isA<SubscriptionContentException>()),
+        );
+        expect(
+          () => SubscriptionFetchPolicy.requireRecognizedBody(
+            result(body: '   ', normalizedBody: null),
           ),
           throwsA(isA<SubscriptionContentException>()),
         );

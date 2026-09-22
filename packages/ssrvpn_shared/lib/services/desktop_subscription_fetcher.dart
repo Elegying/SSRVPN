@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../constants/app_constants.dart';
 import '../services/direct_fetcher.dart';
 import '../services/subscription_fetch_policy.dart';
 import '../services/subscription_refresh_control.dart';
@@ -20,7 +21,8 @@ class DesktopSubscriptionFetchResult {
 }
 
 class DesktopSubscriptionFetcher {
-  static const int maxSubscriptionBytes = 20 * 1024 * 1024;
+  /// 与 [AppConstants.maxSubscriptionBytes] 同源，避免多处各写一份 20 MB 字面量。
+  static const int maxSubscriptionBytes = AppConstants.maxSubscriptionBytes;
   static const _maxRedirects = 4;
   static const _readInactivityTimeout = Duration(seconds: 30);
   static const _requestTimeout = Duration(seconds: 60);

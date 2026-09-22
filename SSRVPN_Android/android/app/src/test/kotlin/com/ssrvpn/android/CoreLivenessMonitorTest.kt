@@ -113,12 +113,44 @@ class CoreLivenessMonitorTest {
                 sleep = {}
             ).unexpectedExit
         )
-        assertEquals(3, apiChecks)
-        assertEquals(1, portProbes)
+        // 3 次失败后触发第一次端口探测；单次不可达不算硬证据，第 4 次轮询
+        // 再次不可达才累计到 PORT_MISSES_BEFORE_RESTART，随即重启。
+        assertEquals(4, apiChecks)
+        assertEquals(2, portProbes)
     }
 
     @Test
-    fun `zombie port triggers recovery after one extra cycle`() {
+    fun `a single unreachable port probe does not restart the core`() {
+        val now = 0L
+        var portProbes = 0
+
+        // 端口探测本身只是一次 100 ms 采样，单次失败可能只是调度抖动导致的
+        // 伪超时。这里让它第一次不可达、第二次恢复可达：因为凑不满
+        // PORT_MISSES_BEFORE_RESTART 次连续失败，核心不得被判定为死亡。
+        // 循环在第二次探测后由 isRunning 收尾（isRunning 恒为 true 会让循环
+        // 无法终止，而 60s 宽限在 sleep 为空时不推进时钟，永远到不了）。
+        val outcome = CoreLivenessMonitor.waitForUnexpectedExit(
+            startToken = 7,
+            currentGeneration = { 7 },
+            isRunning = { portProbes < 2 },
+            isBridgeRunning = { true },
+            isProtectMonitorRunning = { true },
+            isApiHealthy = { false },
+            isApiPortReachable = {
+                portProbes++
+                portProbes != 1 // 第一次不可达，之后可达
+            },
+            apiFailureGraceMillis = 60_000L, // 大到不会因宽限而重启
+            monotonicMillis = { now },
+            sleep = {}
+        )
+
+        assertFalse(outcome.unexpectedExit)
+        assertEquals(2, portProbes)
+    }
+
+    @Test
+    fun `a reachable port restarts at the threshold once the grace window has expired`() {
         var apiChecks = 0
 
         assertTrue(
@@ -137,14 +169,17 @@ class CoreLivenessMonitorTest {
                 sleep = {}
             ).unexpectedExit
         )
-        // 3 次失败后探测端口（可达），再等 1 次确认后退出
-        assertEquals(4, apiChecks)
+        // apiFailureGraceMillis = 0 时 `now - firstApiFailure >= 0` 恒真，因此
+        // 本用例并不检验宽限时长，只断言：端口可达（软失败）时，达到
+        // MAX_CONSECUTIVE_API_FAILURES 即重启。真实宽限由下面
+        // `persistent unresponsive API recovers after bounded grace` 守卫。
+        assertEquals(3, apiChecks)
     }
 
     @Test
     fun `a healthy local API probe resets the consecutive failure count`() {
-        // 失败×2 → 成功(重置) → 失败×3(触发端口探测，可达) → 失败×1(僵死确认)
-        val apiResults = ArrayDeque(listOf(false, false, true, false, false, false, false))
+        // 失败×2 → 成功(重置) → 失败×3(端口可达且宽限为 0，达到阈值即重启)
+        val apiResults = ArrayDeque(listOf(false, false, true, false, false, false))
 
         assertTrue(
             CoreLivenessMonitor.waitForUnexpectedExit(
@@ -216,7 +251,8 @@ class CoreLivenessMonitorTest {
             startToken = 7, currentGeneration = { 7 }, isRunning = { running },
             isBridgeRunning = { true },
             isApiHealthy = { ++checks >= 6 },
-            isApiPortReachable = { error("must keep the live session during grace") },
+            // 端口仍可达 => 属于软失败，宽限未到就不得重启
+            isApiPortReachable = { true },
             monotonicMillis = { now },
             sleep = { now += it; if (checks == 7) running = false }
         )
@@ -234,7 +270,7 @@ class CoreLivenessMonitorTest {
             sleep = { now += it }
         )
         assertTrue(result.unexpectedExit)
-        assertEquals(30_000L, now)
+        assertEquals(15_000L, now)
     }
 
     @Test
@@ -245,7 +281,7 @@ class CoreLivenessMonitorTest {
         val result = CoreLivenessMonitor.waitForUnexpectedExit(
             startToken = 7, currentGeneration = { 7 }, isRunning = { running },
             isBridgeRunning = { true }, isApiHealthy = { checks++; false },
-            isApiPortReachable = { error("must restart observation after suspend") },
+            isApiPortReachable = { true },
             monotonicMillis = { now },
             sleep = {
                 now += if (checks == 3) 120_000L else it

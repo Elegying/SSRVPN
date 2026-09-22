@@ -32,14 +32,33 @@ class AppConstants {
     fallbackConnectivityTestUrl,
     tunConnectivityTestUrl,
   ];
-  // Desktop probes try these three endpoints for at most two rounds.
+  // Probes try these three endpoints for at most two rounds.
   // Any success stops the observation; only six failures publish a warning.
   static const List<String> tunConnectivityTestUrls = [
     tunConnectivityTestUrl,
     fallbackConnectivityTestUrl,
     defaultLatencyTestUrl,
   ];
-  static const int latencyTestInterval = 300; // 秒
+
+  /// 外部网络探测的尝试次数与间隔。
+  ///
+  /// 三端必须共用这一份值：同一个网络状况下，尝试次数直接决定告警概率。
+  /// 此前 Windows / macOS 显式传 6 次 / 1 秒，Android 沿用方法默认值 3 次 / 2 秒，
+  /// 使 Android 的误报概率约为桌面的两倍。6 次即在这 3 个端点上跑满 2 轮，
+  /// 任一次成功即判定通道健康。
+  ///
+  /// **6 是硬上限，不要再往上调。** `verifyUserConnectivity` 内部会
+  /// `clamp(1, 6)`，把这里改成 7 或 8 不会报错，只会被静默截断成 6——
+  /// 上限存在的原因是单轮最坏耗时（6 × 6 秒超时 + 5 × 1 秒间隔 ≈ 41 秒）
+  /// 必须留在 `dataPlaneObservationTimeout`（60 秒）之内。
+  /// 想提高抗抖动能力应当改为跨轮次确认，而不是加长单轮。
+  static const int dataPlaneProbeAttempts = 6;
+  static const Duration dataPlaneProbeRetryDelay = Duration(seconds: 1);
+
+  /// Health-check interval for the generated proxy groups (seconds). Short
+  /// enough that a node which died is noticed in ~2 minutes, long enough that
+  /// the probe traffic stays negligible. Only the core reads this value.
+  static const int latencyTestInterval = 120;
 
   // ── 重试机制 ──
   static const int maxRetries = 3;
@@ -107,7 +126,7 @@ class AppConstants {
 
   // ── 版本信息 ──
   static const String appName = 'SSRVPN';
-  static const String appVersion = '5.0.13';
+  static const String appVersion = '5.0.15';
   static const String appUserAgent = '$appName/$appVersion';
   static const String appDescription = 'Cross-platform VPN client';
 

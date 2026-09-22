@@ -4,6 +4,8 @@ import '../constants/app_constants.dart';
 enum GlassEffectLevel { none, low, medium, high }
 
 enum BackgroundStyle {
+  /// The bundled wallpaper. Whether it drifts is a separate choice:
+  /// see [AppSettings.dynamicBackground].
   flowing,
   blue,
   gray,
@@ -26,6 +28,14 @@ class AppSettings {
   GlassEffectLevel? glassEffectLevel;
   BackgroundStyle backgroundStyle;
   String customBackgroundPath;
+
+  /// Whether the [BackgroundStyle.flowing] wallpaper keeps drifting.
+  ///
+  /// Off by default. The drift repaints the whole surface every frame, which
+  /// forces the glass behind it to re-composite at the display refresh rate;
+  /// a still wallpaper schedules no frame at all. Only the bundled wallpaper
+  /// reacts to this flag — solid colours and custom images never animate.
+  bool dynamicBackground;
 
   // ── 端口 ──
   int proxyPort; // mixed-port, 默认7890
@@ -54,6 +64,7 @@ class AppSettings {
     this.glassEffectLevel,
     this.backgroundStyle = BackgroundStyle.flowing,
     this.customBackgroundPath = '',
+    this.dynamicBackground = false,
     this.proxyPort = 7890,
     this.socksPort = 7891,
     this.apiPort = 9090,
@@ -105,6 +116,7 @@ class AppSettings {
     GlassEffectLevel? glassEffectLevel,
     BackgroundStyle? backgroundStyle,
     String? customBackgroundPath,
+    bool? dynamicBackground,
     int? proxyPort,
     int? socksPort,
     int? apiPort,
@@ -148,6 +160,7 @@ class AppSettings {
       glassEffectLevel: glassEffectLevel ?? this.glassEffectLevel,
       backgroundStyle: backgroundStyle ?? this.backgroundStyle,
       customBackgroundPath: customBackgroundPath ?? this.customBackgroundPath,
+      dynamicBackground: dynamicBackground ?? this.dynamicBackground,
       proxyPort: proxyPort ?? this.proxyPort,
       socksPort: socksPort ?? this.socksPort,
       apiPort: apiPort ?? this.apiPort,
@@ -177,6 +190,7 @@ class AppSettings {
       'glassEffectLevel': glassEffectLevel?.name,
       'backgroundStyle': backgroundStyle.name,
       'customBackgroundPath': customBackgroundPath,
+      'dynamicBackground': dynamicBackground,
       'proxyPort': proxyPort,
       'socksPort': socksPort,
       'apiPort': apiPort,
@@ -205,6 +219,7 @@ class AppSettings {
       customBackgroundPath: json['customBackgroundPath'] is String
           ? json['customBackgroundPath'] as String
           : '',
+      dynamicBackground: _parseBool(json['dynamicBackground'], false),
       proxyPort: _parsePort(json['proxyPort'], 7890),
       socksPort: _parsePort(json['socksPort'], 7891),
       apiPort: _parsePort(json['apiPort'], 9090),
@@ -240,6 +255,7 @@ class AppSettings {
         other.glassEffectLevel == glassEffectLevel &&
         other.backgroundStyle == backgroundStyle &&
         other.customBackgroundPath == customBackgroundPath &&
+        other.dynamicBackground == dynamicBackground &&
         other.proxyPort == proxyPort &&
         other.socksPort == socksPort &&
         other.apiPort == apiPort &&
@@ -261,6 +277,7 @@ class AppSettings {
       glassEffectLevel,
       backgroundStyle,
       customBackgroundPath,
+      dynamicBackground,
       proxyPort,
       socksPort,
       apiPort,
@@ -363,12 +380,11 @@ String _parseLatencyTestUrl(Object? value) {
   return url;
 }
 
-/// 代理模式枚举
+/// 代理模式枚举。
+///
+/// 界面文案由节点选择页自行提供（`智能` / `全局`），此处不再保留第二份标签，
+/// 避免出现与 UI 不一致的"规则模式"之类的死字段。
 enum ProxyMode {
-  global('全局模式', 'Global'),
-  rule('规则模式', 'Rule');
-
-  final String chineseName;
-  final String englishName;
-  const ProxyMode(this.chineseName, this.englishName);
+  global,
+  rule,
 }

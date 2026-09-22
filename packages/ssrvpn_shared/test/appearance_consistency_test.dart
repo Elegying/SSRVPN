@@ -5,6 +5,7 @@ import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_appearance.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_app_surface.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_connection_halo.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_drifting_background.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_home_overview.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_glass.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_dialog.dart';
@@ -110,4 +111,30 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
   }
+  testWidgets(
+      'the shipped backdrop is still until the preference enables drift',
+      (tester) async {
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    Offset position() => tester
+        .widget<FractionalTranslation>(find.descendant(
+            of: find.byType(SsrvpnDriftingBackground),
+            matching: find.byType(FractionalTranslation)))
+        .translation;
+    Widget app(AppSettings settings) => MaterialApp(
+        builder: (_, child) =>
+            SsrvpnAppearanceScope(settings: settings, child: child!),
+        home: const SsrvpnAppBackdrop(child: SizedBox()));
+    await tester.pumpWidget(app(AppSettings()));
+    await tester.pump();
+    final still = position();
+    await tester.pump(const Duration(seconds: 6));
+    expect(position(), still);
+    await tester.pumpWidget(app(AppSettings(dynamicBackground: true)));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 6));
+    expect(position(), isNot(still));
+    await tester.pumpWidget(const SizedBox());
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.detached);
+    expect(tester.takeException(), isNull);
+  });
 }

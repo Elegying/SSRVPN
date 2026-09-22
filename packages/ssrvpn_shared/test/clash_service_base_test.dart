@@ -1070,10 +1070,99 @@ void main() {
       );
 
       expect(calls, 3);
-      expect(warning, contains('多个外部网络验证端点'));
+      expect(warning, contains('外部网络验证未通过'));
       expect(warning, contains('HTTP 502'));
-      expect(warning, contains('不代表节点失效'));
+      expect(warning, contains('仅供参考'));
       expect(service.recentLogs, contains('HTTP 502'));
+    });
+
+    test('uses the shared probe budget when no attempt count is given',
+        () async {
+      var calls = 0;
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+
+      await service.verifyUserConnectivity(
+        retryDelay: Duration.zero,
+        request: (_) async {
+          calls += 1;
+          return http.Response('', 502);
+        },
+      );
+
+      // 三端必须共用同一份尝试预算；Android 此前沿用方法默认值 3 次，
+      // 与桌面的 6 次不一致，导致误报概率约为两倍。
+      expect(calls, AppConstants.dataPlaneProbeAttempts);
+      expect(AppConstants.dataPlaneProbeAttempts, 6);
+    });
+
+    test('probe attempts are clamped to the safety ceiling', () async {
+      Future<int> runWith(int requested) async {
+        var calls = 0;
+        final service = _TestClashService();
+        addTearDown(service.dispose);
+        await service.verifyUserConnectivity(
+          maxAttempts: requested,
+          retryDelay: Duration.zero,
+          request: (_) async {
+            calls += 1;
+            return http.Response('', 502);
+          },
+        );
+        return calls;
+      }
+
+      // 上限 6 是安全边界（单轮最坏 ≈ 41 秒，须留在 dataPlaneObservationTimeout
+      // 的 60 秒内）。把请求值调大只会被静默截断——钉住这条断言，
+      // 避免将来「把常量调大」却没人发现它没生效。
+      expect(await runWith(40), 6);
+      expect(await runWith(AppConstants.dataPlaneProbeAttempts), 6);
+      // 下界同样收敛到 1 次，不会退化成「一次都不探」。
+      expect(await runWith(0), 1);
+    });
+
+    test('distinguishes an unresponsive channel from an endpoint anomaly',
+        () async {
+      final silent = _TestClashService();
+      addTearDown(silent.dispose);
+      final silentWarning = await silent.verifyUserConnectivity(
+        maxAttempts: 3,
+        retryDelay: Duration.zero,
+        request: (_) async => throw const SocketException('probe failed'),
+      );
+      expect(silentWarning, contains('连接无响应'));
+      expect(silentWarning, isNot(contains('端点 HTTP')));
+
+      final answered = _TestClashService();
+      addTearDown(answered.dispose);
+      final answeredWarning = await answered.verifyUserConnectivity(
+        maxAttempts: 3,
+        retryDelay: Duration.zero,
+        request: (_) async => http.Response('', 502),
+      );
+      // 有响应说明通道已建立，只是端点不配合；不能说成「外部网络不可用」。
+      expect(answeredWarning, contains('端点 HTTP 502'));
+      expect(answeredWarning, isNot(contains('连接无响应')));
+    });
+
+    test('a later exception does not erase an observed HTTP status', () async {
+      var calls = 0;
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+
+      final warning = await service.verifyUserConnectivity(
+        maxAttempts: 3,
+        retryDelay: Duration.zero,
+        request: (_) async {
+          calls += 1;
+          if (calls == 3) throw const SocketException('probe failed');
+          return http.Response('', 503);
+        },
+      );
+
+      // 最后一次是异常，但前两次拿到了 503 —— 结论必须按「有响应」给出。
+      expect(warning, contains('端点 HTTP 503'));
+      expect(warning, isNot(contains('连接无响应')));
     });
 
     test('failed connectivity probes retain safe causes without raw secrets',
@@ -1089,6 +1178,27 @@ void main() {
       );
       expect(service.recentLogs, contains('cause='));
       expect(service.recentLogs, contains('1/1'));
+      // 探测最常见的两类异常必须报出真因，否则日志只有 UNKNOWN、无法排障。
+      // 超时按类型判定，不依赖异常消息里的关键词。
+      expect(service.recentLogs, contains('cause=NETWORK_TIMEOUT'));
+      expect(service.recentLogs, isNot(contains('private.example')));
+      expect(service.recentLogs, isNot(contains('do-not-log')));
+      expect(service.isRunning, isTrue);
+    });
+
+    test('connectivity probe classifies http.ClientException by type',
+        () async {
+      final service = _TestClashService()..setRunning(true);
+      addTearDown(service.dispose);
+      await service.verifyUserConnectivity(
+        maxAttempts: 1,
+        retryDelay: Duration.zero,
+        request: (_) async => throw http.ClientException(
+          'Connection closed before full header was received, '
+          'uri=https://private.example/feed?token=do-not-log',
+        ),
+      );
+      expect(service.recentLogs, contains('cause=NETWORK_UNAVAILABLE'));
       expect(service.recentLogs, isNot(contains('private.example')));
       expect(service.recentLogs, isNot(contains('do-not-log')));
       expect(service.isRunning, isTrue);
@@ -2625,6 +2735,49 @@ proxies:
     expect(service.stopCalls, 0);
   });
 
+  test('shipped timing begins recovery about nine seconds into a failure',
+      () async {
+    final service = _ShippedTimingRecoveryClashService();
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    final window = Stopwatch()..start();
+    service.startStatusMonitor();
+    await service.recoveryQueued.future.timeout(const Duration(seconds: 25));
+
+    // Shipped parameters: 3s poll, 3 consecutive failures, 3s grace. The first
+    // sample lands at +3s and the third at +9s, which already satisfies both
+    // conditions, so recovery must not stack another grace period on top.
+    expect(
+      service.recentLogs,
+      contains('连接状态暂时未通过检查，先保留连接并等待恢复。'),
+      reason: '首次失败先给出提示，而不是立刻重启',
+    );
+    expect(
+      window.elapsedMilliseconds,
+      greaterThanOrEqualTo(8500),
+      reason: '证据不足时不得提前进入恢复',
+    );
+    expect(
+      window.elapsedMilliseconds,
+      lessThan(10500),
+      reason: '恢复必须在第三次失败处落地（实测约 9.0s），不得漂到第二个周期',
+    );
+    // Read from the service rather than restated in prose, so the numbers above
+    // cannot go stale again. The grace must stay strictly inside the span the
+    // failure threshold already covers (`threshold - 1` poll intervals): tying
+    // the two makes both conditions land on the same tick, and a few
+    // milliseconds of timer jitter then silently drifts the 9s window to 12s —
+    // which is exactly the bug this test guards against.
+    expect(service.shippedPollInterval, const Duration(seconds: 3));
+    expect(
+      service.shippedGrace,
+      lessThan(service.shippedPollInterval * 2),
+      reason: '宽限必须严格小于阈值自带的跨度，否则两个条件会落在同一拍',
+    );
+  });
+
   test(
     'status monitor never overlaps a timed-out source health check',
     () async {
@@ -2860,6 +3013,118 @@ proxies:
     },
   );
 
+  test(
+    'a physical network change discards stale probes like a route change',
+    () async {
+      final service = _NetworkChangeDataPlaneClashService()
+        ..requestConnectionIntent(true)
+        ..setRunning(true);
+      addTearDown(service.dispose);
+      service.publishDataPlaneWarning('旧节点外部联网告警');
+      service.publishOwnershipWarning('系统代理所有权告警');
+
+      // The first check only records a baseline; nothing is re-probed.
+      service.fingerprint = 'en0:10.0.0.2';
+      await service.checkNetworkChange();
+      expect(service.observationCalls, 0);
+
+      service.scheduleObservationForTest();
+      await service.firstObservationStarted.future;
+
+      final notificationsBeforeChange = service.notifications;
+      service.fingerprint = 'en0:192.168.1.9';
+      await service.checkNetworkChange();
+      await service.secondObservationStarted.future.timeout(
+        const Duration(seconds: 1),
+      );
+
+      expect(service.observationCalls, 2);
+      expect(
+        service.notifications,
+        greaterThan(notificationsBeforeChange),
+        reason: '清掉的告警必须通知出去：这条路径没有调用方替它通知',
+      );
+      expect(service.connectivityWarning, contains('当前节点外部联网告警'));
+      expect(service.connectivityWarning, contains('系统代理所有权告警'));
+      expect(service.connectivityWarning, isNot(contains('旧节点')));
+
+      // The probe that started on the old network settles afterwards. Its epoch
+      // is gone, so it must neither publish nor release the new probe's
+      // ownership.
+      service.firstObservation.complete();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(service.observationCalls, 2);
+      expect(service.connectivityWarning, contains('当前节点外部联网告警'));
+      expect(service.connectivityWarning, isNot(contains('旧探测')));
+      expect(service.isRunning, isTrue);
+      expect(service.connectionDesired, isTrue);
+    },
+  );
+
+  group('networkFingerprintOf', () {
+    List<InternetAddress> addresses(List<String> raw) =>
+        raw.map(InternetAddress.new).toList();
+
+    test('an IPv6 privacy-address rotation is not a network change', () {
+      // Same interface, same IPv4, new temporary IPv6 address. macOS rotates
+      // these about once a day; treating it as a change would re-probe the data
+      // plane (~41s worst case) and raise an advisory warning on a schedule.
+      final before = networkFingerprintOf({
+        'en0': addresses(['10.0.0.2', 'fd00::1', 'fe80::1']),
+      });
+      final after = networkFingerprintOf({
+        'en0': addresses(['10.0.0.2', 'fd00::9', 'fe80::1']),
+      });
+      expect(after, before);
+    });
+
+    test('a real switch is still a network change', () {
+      final wifi = networkFingerprintOf({
+        'en0': addresses(['10.0.0.2', 'fd00::1']),
+      });
+      final ethernet = networkFingerprintOf({
+        'en1': addresses(['192.168.1.9', 'fd00::1']),
+      });
+      expect(ethernet, isNot(wifi));
+
+      final reconnected = networkFingerprintOf({
+        'en0': addresses(['192.168.1.9', 'fd00::1']),
+      });
+      expect(reconnected, isNot(wifi));
+    });
+
+    test('an IPv6-only interface keeps its IPv6 identity', () {
+      final before = networkFingerprintOf({
+        'en0': addresses(['fd00::1', 'fe80::1']),
+      });
+      final after = networkFingerprintOf({
+        'en0': addresses(['fd00::9', 'fe80::1']),
+      });
+      expect(before, 'en0:fd00::1,fe80::1');
+      expect(after, isNot(before));
+    });
+
+    test('IPv4-only interfaces ignore nothing and stay order independent', () {
+      expect(
+        networkFingerprintOf({
+          'en1': addresses(['192.168.1.9']),
+          'en0': addresses(['10.0.0.2']),
+        }),
+        networkFingerprintOf({
+          'en0': addresses(['10.0.0.2']),
+          'en1': addresses(['192.168.1.9']),
+        }),
+      );
+      expect(
+        networkFingerprintOf({
+          'en0': addresses(['10.0.0.2']),
+        }),
+        'en0:10.0.0.2',
+      );
+    });
+  });
+
   group('ClashServiceBase diagnostics', () {
     test('reports missing core and config with stable error codes', () async {
       final tempDir = await Directory.systemTemp.createTemp(
@@ -3044,6 +3309,38 @@ proxies:
       expect(service.healthCalls, 0);
     });
 
+    test('data-plane diagnostic summary states the observation age', () {
+      final now = DateTime(2026, 9, 21, 21, 34, 13);
+
+      expect(
+        buildDataPlaneDiagnosticSummary(
+          observedAt: now.subtract(const Duration(seconds: 12)),
+          now: now,
+        ),
+        contains('最近一次观察 12 秒前'),
+      );
+      // 没有时间戳时不编造新鲜度。
+      expect(
+        buildDataPlaneDiagnosticSummary(observedAt: null, now: now),
+        isNot(contains('秒前')),
+      );
+      // 时钟回拨、以及跨会话残留的旧时间戳，都不能说成「刚刚观察过」。
+      expect(
+        buildDataPlaneDiagnosticSummary(
+          observedAt: now.add(const Duration(minutes: 5)),
+          now: now,
+        ),
+        isNot(contains('秒前')),
+      );
+      expect(
+        buildDataPlaneDiagnosticSummary(
+          observedAt: now.subtract(const Duration(hours: 2)),
+          now: now,
+        ),
+        isNot(contains('秒前')),
+      );
+    });
+
     test(
       'uses a fresh platform data-plane warning in manual diagnostics',
       () async {
@@ -3184,6 +3481,54 @@ proxies:
       expect(report.checks.any((check) => check.id == 'proxy'), isTrue);
       expect(text, contains('PROXY_RECOVERY_PENDING'));
       expect(text, isNot(contains('top-secret')));
+    });
+  });
+
+  group('safeRuntimeErrorCode', () {
+    // 三端（含 Android 原生桥）共用这一个实现。平台侧不要再复制一份只做字符串
+    // 匹配的版本：复制品会让 `.timeout()` 自身的 catch 把超时写成 cause=UNKNOWN。
+    test('classifies by exception type before consulting the message', () {
+      // 下面这些消息里都不含分类器依赖的传输关键词。只做字符串匹配时它们会一律
+      // 落到 UNKNOWN —— 这正是修复前三端日志里的实际表现。
+      expect(
+        safeRuntimeErrorCode(
+          TimeoutException('Future not completed', const Duration(seconds: 3)),
+        ),
+        'NETWORK_TIMEOUT',
+      );
+      expect(
+        safeRuntimeErrorCode(
+          TimeoutException('公网 IP 请求超时', const Duration(seconds: 8)),
+        ),
+        'NETWORK_TIMEOUT',
+      );
+      expect(
+        safeRuntimeErrorCode(SocketException('link down')),
+        'NETWORK_UNAVAILABLE',
+      );
+      expect(
+        safeRuntimeErrorCode(
+          http.ClientException('Connection closed before full header was '
+              'received'),
+        ),
+        'NETWORK_UNAVAILABLE',
+      );
+      expect(
+        safeRuntimeErrorCode(HandshakeException('tls failure')),
+        'SECURE_CONNECTION_FAILED',
+      );
+    });
+
+    test('keeps the keyword fallback for message-only failures', () {
+      expect(
+        safeRuntimeErrorCode(Exception('网络请求超时')),
+        'NETWORK_TIMEOUT',
+      );
+      expect(
+        safeRuntimeErrorCode(Exception('socketexception: connection reset')),
+        'NETWORK_UNAVAILABLE',
+      );
+      expect(safeRuntimeErrorCode(StateError('raw-secret')), 'UNKNOWN');
     });
   });
 }
@@ -4001,6 +4346,44 @@ class _RouteDataPlaneClashService extends _TestClashService {
   }
 }
 
+class _NetworkChangeDataPlaneClashService extends _TestClashService {
+  final Completer<void> firstObservationStarted = Completer<void>();
+  final Completer<void> secondObservationStarted = Completer<void>();
+  final Completer<void> firstObservation = Completer<void>();
+  int observationCalls = 0;
+  int notifications = 0;
+  String? fingerprint;
+
+  @override
+  Duration get dataPlaneObservationTimeout => const Duration(seconds: 2);
+
+  @override
+  Future<String?> buildNetworkFingerprint() async => fingerprint;
+
+  void scheduleObservationForTest() => scheduleDataPlaneObservation();
+
+  Future<void> checkNetworkChange() => runNetworkChangeCheck();
+
+  @override
+  void notifyStatusChanged() {
+    notifications++;
+    super.notifyStatusChanged();
+  }
+
+  @override
+  Future<void> observeDataPlaneHealth() async {
+    observationCalls++;
+    if (observationCalls == 1) {
+      firstObservationStarted.complete();
+      await firstObservation.future;
+      setConnectivityWarning('旧探测迟到的外部联网告警');
+      return;
+    }
+    secondObservationStarted.complete();
+    setConnectivityWarning('当前节点外部联网告警');
+  }
+}
+
 class _HangingDiagnosticClashService extends _TestClashService {
   @override
   Duration get diagnosticCheckTimeout => const Duration(milliseconds: 10);
@@ -4111,6 +4494,37 @@ class _QueuedHealthRecoveryClashService extends ClashServiceBase
   int get maxConsecutiveHealthCheckFailures => 1;
   @override
   Future<bool> healthCheck() async => false;
+  @override
+  void log(
+    String message, {
+    RuntimeLogLevel level = RuntimeLogLevel.info,
+    String event = 'runtime',
+  }) {
+    super.log(message, level: level, event: event);
+    if (event == 'health_recovery' && !recoveryQueued.isCompleted) {
+      recoveryQueued.complete();
+    }
+  }
+
+  @override
+  Future<void> onStopRequired() async {
+    stopCalls++;
+    setRunning(false);
+  }
+}
+
+class _ShippedTimingRecoveryClashService extends _TestClashService {
+  final recoveryQueued = Completer<void>();
+  int stopCalls = 0;
+
+  // Deliberately no interval/threshold overrides: this probe measures the
+  // parameters the app actually ships with (3s poll, 3 failures, 3s grace).
+  // Surfaced so those numbers cannot drift away from the shipped values again.
+  Duration get shippedPollInterval => statusMonitorInterval;
+  Duration get shippedGrace => healthFailureGrace;
+  @override
+  Future<bool> healthCheck() async => false;
+
   @override
   void log(
     String message, {

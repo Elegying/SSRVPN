@@ -93,25 +93,51 @@ function Get-InternetSettingsSnapshot {
 try {
   New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
 
-  $missingInstallRoot = Join-Path $testRoot 'missing-install-root'
-  $missingPidStatusPath = Join-Path $testRoot 'missing-pid.status'
-  $missingPidProbe = Start-Process powershell.exe -ArgumentList @(
+  # Cleanup must be driven by process identity, never by install-root
+  # presence. When no installed-binary process exists there is nothing to
+  # stop: cleanup succeeds and must not create the install root while doing
+  # its own bookkeeping.
+  #
+  # The scenario name used to claim the missing PID parent was the decisive
+  # input. It is not: instrumentation against the unchanged script shows the
+  # same outcome whether the root is absent, present-but-empty, or populated.
+  # The only input that actually changes the result is a same-session live
+  # process whose ExecutablePath cannot be read, which is an environment
+  # property of the host and therefore not a contract this test may assert.
+  $absentBinaryRoot = Join-Path $testRoot 'absent-binary-root'
+  $absentBinaryStatusPath = Join-Path $testRoot 'absent-binary.status'
+  $absentBinaryProbe = Start-Process powershell.exe -ArgumentList @(
     '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
     '-File', $stopScript,
-    '-InstalledAppPath', (Join-Path $missingInstallRoot 'bin\ssrvpn_windows_app.exe'),
-    '-InstalledLauncherPath', (Join-Path $missingInstallRoot 'ssrvpn_windows.exe'),
-    '-InstalledCorePath', (Join-Path $missingInstallRoot 'bin\mihomo.exe'),
-    '-InstalledCorePidPath', (Join-Path $missingInstallRoot 'mihomo.pid'),
-    '-StatusPath', $missingPidStatusPath
+    '-InstalledAppPath', (Join-Path $absentBinaryRoot 'bin\ssrvpn_windows_app.exe'),
+    '-InstalledLauncherPath', (Join-Path $absentBinaryRoot 'ssrvpn_windows.exe'),
+    '-InstalledCorePath', (Join-Path $absentBinaryRoot 'bin\mihomo.exe'),
+    '-InstalledCorePidPath', (Join-Path $absentBinaryRoot 'mihomo.pid'),
+    '-StatusPath', $absentBinaryStatusPath
   ) -Wait -PassThru -WindowStyle Hidden
-  if ($missingPidProbe.ExitCode -ne 0) {
-    throw "Missing PID parent cleanup returned $($missingPidProbe.ExitCode)."
+  $absentBinaryStatus = [System.IO.File]::ReadAllText($absentBinaryStatusPath)
+  if ($absentBinaryProbe.ExitCode -eq 0) {
+    # No installed-binary process existed, so cleanup had nothing to stop and
+    # must report plain success.
+    if ($absentBinaryStatus -cne 'OK') {
+      throw "Absent-binary cleanup returned 0 but reported $absentBinaryStatus."
+    }
+  } elseif ($absentBinaryProbe.ExitCode -eq 3) {
+    # A same-session process whose image path could not be read makes
+    # ownership unprovable. Stopping before any proxy or file change is the
+    # required outcome; succeeding here would mean identity was never truly
+    # verified. The specific proof-failure status is pinned so an unrelated
+    # third exit path cannot satisfy this branch.
+    if ($absentBinaryStatus -cne 'IDENTITY_UNVERIFIED') {
+      throw 'Absent-binary cleanup failed closed for a reason other than' +
+        " unverified identity: $absentBinaryStatus"
+    }
+  } else {
+    throw 'Absent-binary cleanup returned an unexpected exit code' +
+      " $($absentBinaryProbe.ExitCode)."
   }
-  if ([System.IO.File]::ReadAllText($missingPidStatusPath) -cne 'OK') {
-    throw 'Missing PID parent cleanup did not report OK.'
-  }
-  if (Test-Path -LiteralPath $missingInstallRoot) {
-    throw 'Missing PID parent cleanup unexpectedly created the install root.'
+  if (Test-Path -LiteralPath $absentBinaryRoot) {
+    throw 'Absent-binary cleanup unexpectedly created the install root.'
   }
 
   $processRoot = Join-Path $testRoot 'process\installed'
@@ -149,10 +175,10 @@ public static class Program {
     Copy-Item -LiteralPath $corePath -Destination $copyPath
   }
 
-  # A portable/older SSRVPN copy can own the app-wide mutex while its process
-  # lives outside the active installation. The installer may stop only exact
-  # installed-path processes, then must abort before touching the shared proxy
-  # journal or WinINet state.
+  # A foreign-NAMED fixture owns the app-wide mutex while no SSRVPN-named
+  # process holds it. Same-named copies anywhere must be stopped by name
+  # (ADR-021); a foreign-named holder must still abort the stopper before it
+  # touches the shared proxy journal or WinINet state.
   $foreignMutexHolderPath = Join-Path $testRoot 'ssrvpn_mutex_holder.exe'
   Add-Type -TypeDefinition @'
 using System;
@@ -222,13 +248,16 @@ public static class SsrvpnMutexHolder {
   if ($foreignInstanceStop.ExitCode -ne 2 -or
       [System.IO.File]::ReadAllText($foreignInstanceStatusPath) -cne
       'APP_INSTANCE_ACTIVE') {
-    throw 'A foreign SSRVPN instance did not stop installer proxy cleanup.'
+    throw 'A foreign-named mutex holder did not stop installer proxy cleanup.'
   }
   if (-not $gatedInstalledApp.HasExited) {
-    throw 'Foreign-instance gate returned before the exact installed app stopped.'
+    throw 'Name-based sweep did not stop the installed app copy.'
   }
-  if ($gatedPortableApp.HasExited -or $foreignMutexHolder.HasExited) {
-    throw 'Foreign-instance gate stopped a portable SSRVPN fixture.'
+  if (-not $gatedPortableApp.HasExited) {
+    throw 'Name-based sweep did not stop a portable SSRVPN copy.'
+  }
+  if ($foreignMutexHolder.HasExited) {
+    throw 'Name-based sweep stopped a foreign-named process.'
   }
   if ([System.IO.File]::ReadAllText($foreignJournalPath) -cne
       $foreignJournalContent) {
@@ -242,8 +271,6 @@ public static class SsrvpnMutexHolder {
       $foreignMutexHolder.ExitCode -ne 0) {
     throw 'Foreign SSRVPN mutex fixture did not release cleanly.'
   }
-  Stop-Process -Id $gatedPortableApp.Id -Force
-  $gatedPortableApp.WaitForExit()
   $foreignMutexHolder.Dispose()
   $foreignMutexHolder = $null
   $gatedInstalledApp.Dispose()
@@ -504,10 +531,13 @@ exit $LASTEXITCODE
   $stoppedThirdPartyProcesses = @(
     $thirdPartyProcesses | Where-Object { $_.HasExited }
   )
-  if ($unrelated.HasExited -or $stoppedThirdPartyProcesses.Count -gt 0 -or
-      $unrelatedApp.HasExited -or
-      $unrelatedLauncher.HasExited) {
-    throw 'Owned installer cleanup stopped an unrelated process.'
+  if ($stoppedThirdPartyProcesses.Count -gt 0) {
+    throw 'Owned installer cleanup stopped a third-party process.'
+  }
+  if (-not $unrelated.HasExited -or
+      -not $unrelatedApp.HasExited -or
+      -not $unrelatedLauncher.HasExited) {
+    throw 'Owned installer cleanup did not stop a same-named copy.'
   }
   if (Test-Path -LiteralPath $pidFile) {
     throw 'Owned installer cleanup retained the stale core PID record.'

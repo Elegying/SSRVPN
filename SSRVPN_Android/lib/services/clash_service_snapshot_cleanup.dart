@@ -291,7 +291,7 @@ extension AndroidSnapshotCleanup on ClashService {
             version >= 2 ? expectedGeneration as String? : null,
       );
     } catch (error) {
-      log('快照配置清理标记无效，已安全保留文件: cause=${_safeLogErrorCode(error)}');
+      log('快照配置清理标记无效，已安全保留文件: cause=${safeRuntimeErrorCode(error)}');
       return null;
     }
   }
@@ -311,7 +311,7 @@ extension AndroidSnapshotCleanup on ClashService {
       } catch (error) {
         log(
           '恢复旧版快照配置延迟清理失败，保留候选文件: '
-          'cause=${_safeLogErrorCode(error)}',
+          'cause=${safeRuntimeErrorCode(error)}',
         );
         return;
       }
@@ -353,7 +353,7 @@ extension AndroidSnapshotCleanup on ClashService {
       } catch (error) {
         log(
           '恢复原生快照清理事务失败，保留待清理配置: '
-          'cause=${_safeLogErrorCode(error)}',
+          'cause=${safeRuntimeErrorCode(error)}',
         );
         return;
       }
@@ -535,7 +535,7 @@ extension AndroidSnapshotCleanup on ClashService {
     } catch (error) {
       log(
         '快照配置延迟清理失败，保留事务标记以便重试: '
-        'cause=${_safeLogErrorCode(error)}',
+        'cause=${safeRuntimeErrorCode(error)}',
       );
     }
   }

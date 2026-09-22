@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
+import '../constants/app_constants.dart';
 import '../models/subscription.dart';
 import '../models/proxy_node.dart';
 import '../models/proxy_group.dart';
@@ -13,6 +14,7 @@ import '../services/subscription_header_name_parser.dart';
 import '../services/subscription_node_codec.dart';
 import 'subscription_node_editor.dart';
 import 'subscription_failure_diagnosis.dart';
+import '../services/subscription_fetch_policy.dart';
 import '../services/subscription_parser.dart';
 import '../services/subscription_processing.dart';
 import '../services/subscription_refresh_control.dart';
@@ -36,7 +38,8 @@ part 'subscription_service_transaction.dart';
 /// 各平台只需实现 [fetchSubscription] 提供平台特定的 HTTP 拉取策略。
 abstract class SubscriptionServiceBase extends ChangeNotifier
     with _SubscriptionPersistence {
-  static const int maxSubscriptionBytes = 20 * 1024 * 1024;
+  /// 与 [AppConstants.maxSubscriptionBytes] 同源，避免多处各写一份 20 MB 字面量。
+  static const int maxSubscriptionBytes = AppConstants.maxSubscriptionBytes;
   static const int processingIsolateThreshold =
       SubscriptionProcessing.isolateThreshold;
   static const Duration defaultBatchRefreshTimeout = Duration(minutes: 2);
@@ -708,9 +711,20 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
 
   // ── YAML 解析 ──
 
-  /// 子类可覆盖此方法添加合并后验证（如大小检查）
+  /// 合并缓存与节点编辑提交前的最后一道尺寸闸门。
+  ///
+  /// 默认上限取 [AppConstants.maxSubscriptionBytes]，与合并器自身的输出上限一致，
+  /// 因此不会拒绝任何合并器已经产出的结果；它的作用是在合并器上限被放宽时仍然拦住
+  /// 失控的 YAML。子类可覆盖为更严的阈值（Android 即为 2 MB）。
   void validateMergedYaml(String? yaml) {
-    // 默认不做验证
+    if (yaml == null) return;
+    final byteCount = utf8.encode(yaml).length;
+    if (byteCount > maxSubscriptionBytes) {
+      throw SubscriptionContentException(
+        '订阅内容过大 (${(byteCount / 1024 / 1024).toStringAsFixed(1)}MB)，'
+        '超过 ${maxSubscriptionBytes ~/ (1024 * 1024)}MB 限制',
+      );
+    }
   }
 
   @override

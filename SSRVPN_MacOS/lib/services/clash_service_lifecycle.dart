@@ -144,6 +144,10 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   @protected
   Duration get tunDataPathProbeInterval => const Duration(seconds: 30);
 
+  @override
+  @protected
+  DateTime? get dataPlaneObservationAt => _lastTunDataPathProbeAt;
+
   bool get isStartupDisabled => _startupDisabledReason != null;
   String? get startupDisabledReason => _startupDisabledReason;
   String get corePath => _corePath;
@@ -461,9 +465,11 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
   Future<bool> _probeTunDataPath(int probeGeneration) async {
     final tunMode = settings.enableTun;
+    // 显式传入共享预算，三端一致。不要依赖方法默认值：Dart 的默认参数由
+    // **被调用实现**决定，任何覆写（含测试替身）都会静默改掉它。
     final warning = await verifyUserConnectivity(
-      maxAttempts: 6,
-      retryDelay: const Duration(seconds: 1),
+      maxAttempts: AppConstants.dataPlaneProbeAttempts,
+      retryDelay: AppConstants.dataPlaneProbeRetryDelay,
       shouldContinue: () =>
           probeGeneration == _tunDataPathProbeGeneration &&
           isRunning &&
@@ -478,11 +484,11 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     _lastTunDataPathHealthy = warning == null;
     final routeMode = tunMode ? 'TUN' : '系统代理';
     if (warning != null) {
-      setConnectivityWarning(
-        '连接与 $routeMode 仍在运行；外部网络观察暂未通过，仅供参考：$warning',
-      );
+      // One short line on the home surface; the route mode and the full reason
+      // stay in the log, which the same control already links to.
+      setConnectivityWarning(warning);
       log(
-        '外部网络观察未通过: $warning；未切换节点，未关闭既有连接',
+        '外部网络观察未通过: $warning；未切换节点，未关闭既有连接；通道=$routeMode',
         level: RuntimeLogLevel.warning,
         event: 'data_plane_probe',
       );

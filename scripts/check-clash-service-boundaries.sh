@@ -15,6 +15,7 @@ services = {
             "clash_service_snapshot_cleanup.dart",
             "clash_service_config.dart",
             "clash_service_country.dart",
+            "clash_service_data_plane.dart",
         ),
     ),
     Path("packages/ssrvpn_shared/lib/services/clash_service_base.dart"): (

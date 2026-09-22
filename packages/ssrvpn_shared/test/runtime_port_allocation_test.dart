@@ -8,23 +8,50 @@ void main() {
   test('IPv6-only UDP occupancy prevents port reuse', () async {
     final service = _RuntimePortProbe();
     addTearDown(service.dispose);
-    final RawDatagramSocket datagram;
-    try {
-      datagram = await RawDatagramSocket.bind(InternetAddress.loopbackIPv6, 0,
-          reuseAddress: false, reusePort: false);
-    } on SocketException catch (error) {
-      if (![47, 49, 97, 99, 10047, 10049].contains(error.osError?.errorCode)) {
-        rethrow;
+
+    // Windows 会把 Hyper-V / WSL / Docker 预留的端口放进「排除端口范围」，
+    // 对落在其中的端口 bind 会得到 WSAEACCES（errno 10013）。而 OS 分配给
+    // IPv6 UDP 的临时端口可能正好落在其中——此时失败与代码无关。
+    // 因此这里换端口重试，直到拿到一个 IPv4 也能绑的端口。
+    late RawDatagramSocket held;
+    var port = 0;
+    for (var attempt = 0; attempt < 8 && port == 0; attempt++) {
+      final RawDatagramSocket candidate;
+      try {
+        candidate = await RawDatagramSocket.bind(
+          InternetAddress.loopbackIPv6,
+          0,
+          reuseAddress: false,
+          reusePort: false,
+        );
+      } on SocketException catch (error) {
+        if (![47, 49, 97, 99, 10047, 10049]
+            .contains(error.osError?.errorCode)) {
+          rethrow;
+        }
+        markTestSkipped('IPv6 loopback is unavailable on this host');
+        return;
       }
-      markTestSkipped('IPv6 loopback is unavailable on this host');
+      // The IPv4 listener must be free: rejection has to come from the IPv6 check.
+      try {
+        final ipv4 = await ServerSocket.bind(
+          InternetAddress.loopbackIPv4,
+          candidate.port,
+          shared: false,
+        );
+        await ipv4.close();
+        held = candidate;
+        port = candidate.port;
+      } on SocketException catch (error) {
+        candidate.close();
+        if (error.osError?.errorCode != 10013) rethrow;
+      }
+    }
+    if (port == 0) {
+      markTestSkipped('the host never offered an IPv4-bindable port');
       return;
     }
-    addTearDown(datagram.close);
-    final port = datagram.port;
-    // The IPv4 listener is free: rejection must come from the IPv6 check.
-    final ipv4 = await ServerSocket.bind(InternetAddress.loopbackIPv4, port,
-        shared: false);
-    await ipv4.close();
+    addTearDown(held.close);
     expect(await service.probe(port), isFalse);
   });
 

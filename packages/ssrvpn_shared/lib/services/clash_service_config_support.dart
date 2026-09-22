@@ -114,7 +114,7 @@ mixin _ClashConfigSupport {
         restoredVersion != null
             ? '新版内置规则准备失败，继续使用已确认规则 $restoredVersion'
             : '智能规则基线准备失败，保留磁盘缓存并使用保守内置规则启动: '
-                'cause=${_safeRuntimeLogErrorCode(error)}',
+                'cause=${safeRuntimeErrorCode(error)}',
         level: RuntimeLogLevel.warning,
         event: 'rule_provider_baseline',
       );

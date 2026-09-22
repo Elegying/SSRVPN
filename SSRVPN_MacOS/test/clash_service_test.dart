@@ -1386,9 +1386,10 @@ void main() {
       await service.runDataPlaneObservation();
 
       expect(service.connectivityProbes, 1);
-      expect(service.connectivityWarning, contains('系统代理'));
-      expect(
-          service.connectivityWarning, contains('external endpoint blocked'));
+      // The home surface carries only the short reason so the single line
+      // cannot overflow the card; the route mode stays in the log.
+      expect(service.connectivityWarning, 'external endpoint blocked');
+      expect(service.recentLogs, contains('通道=系统代理'));
       expect(service.isRunning, isTrue);
       expect(service.connectionDesired, isTrue);
     });
@@ -2904,8 +2905,8 @@ class _SystemProxyDataPlaneClashService extends ClashService {
 
   @override
   Future<String?> verifyUserConnectivity({
-    int maxAttempts = 3,
-    Duration retryDelay = const Duration(seconds: 2),
+    int maxAttempts = AppConstants.dataPlaneProbeAttempts,
+    Duration retryDelay = AppConstants.dataPlaneProbeRetryDelay,
     Future<http.Response> Function(Uri uri)? request,
     bool Function()? shouldContinue,
   }) async {
@@ -2942,8 +2943,8 @@ class _TunDataPathClashService extends ClashService
 
   @override
   Future<String?> verifyUserConnectivity({
-    int maxAttempts = 3,
-    Duration retryDelay = const Duration(seconds: 2),
+    int maxAttempts = AppConstants.dataPlaneProbeAttempts,
+    Duration retryDelay = AppConstants.dataPlaneProbeRetryDelay,
     Future<http.Response> Function(Uri uri)? request,
     bool Function()? shouldContinue,
   }) async =>
@@ -2962,8 +2963,8 @@ class _BlockingStartupDataPathClashService extends ClashService
 
   @override
   Future<String?> verifyUserConnectivity({
-    int maxAttempts = 3,
-    Duration retryDelay = const Duration(seconds: 2),
+    int maxAttempts = AppConstants.dataPlaneProbeAttempts,
+    Duration retryDelay = AppConstants.dataPlaneProbeRetryDelay,
     Future<http.Response> Function(Uri uri)? request,
     bool Function()? shouldContinue,
   }) {
@@ -2986,8 +2987,8 @@ class _TunHealthyClashService extends ClashService
 
   @override
   Future<String?> verifyUserConnectivity({
-    int maxAttempts = 3,
-    Duration retryDelay = const Duration(seconds: 2),
+    int maxAttempts = AppConstants.dataPlaneProbeAttempts,
+    Duration retryDelay = AppConstants.dataPlaneProbeRetryDelay,
     Future<http.Response> Function(Uri uri)? request,
     bool Function()? shouldContinue,
   }) async =>
@@ -3015,8 +3016,8 @@ class _SequencedTunHealthClashService extends ClashService
 
   @override
   Future<String?> verifyUserConnectivity({
-    int maxAttempts = 3,
-    Duration retryDelay = const Duration(seconds: 2),
+    int maxAttempts = AppConstants.dataPlaneProbeAttempts,
+    Duration retryDelay = AppConstants.dataPlaneProbeRetryDelay,
     Future<http.Response> Function(Uri uri)? request,
     bool Function()? shouldContinue,
   }) async =>
@@ -3043,8 +3044,8 @@ class _TunProbeClashService extends ClashService with _HealthyTunRuntimeConfig {
 
   @override
   Future<String?> verifyUserConnectivity({
-    int maxAttempts = 3,
-    Duration retryDelay = const Duration(seconds: 2),
+    int maxAttempts = AppConstants.dataPlaneProbeAttempts,
+    Duration retryDelay = AppConstants.dataPlaneProbeRetryDelay,
     Future<http.Response> Function(Uri uri)? request,
     bool Function()? shouldContinue,
   }) async {
@@ -3109,8 +3110,8 @@ class _ConcurrentSelectionTunProbeClashService extends ClashService
 
   @override
   Future<String?> verifyUserConnectivity({
-    int maxAttempts = 3,
-    Duration retryDelay = const Duration(seconds: 2),
+    int maxAttempts = AppConstants.dataPlaneProbeAttempts,
+    Duration retryDelay = AppConstants.dataPlaneProbeRetryDelay,
     Future<http.Response> Function(Uri uri)? request,
     bool Function()? shouldContinue,
   }) async {
@@ -3145,8 +3146,8 @@ class _ControllableTunProbeClashService extends ClashService
 
   @override
   Future<String?> verifyUserConnectivity({
-    int maxAttempts = 3,
-    Duration retryDelay = const Duration(seconds: 2),
+    int maxAttempts = AppConstants.dataPlaneProbeAttempts,
+    Duration retryDelay = AppConstants.dataPlaneProbeRetryDelay,
     Future<http.Response> Function(Uri uri)? request,
     bool Function()? shouldContinue,
   }) async {
@@ -3224,8 +3225,8 @@ class _RecoveryFailureTunProbeClashService extends ClashService
 
   @override
   Future<String?> verifyUserConnectivity({
-    int maxAttempts = 3,
-    Duration retryDelay = const Duration(seconds: 2),
+    int maxAttempts = AppConstants.dataPlaneProbeAttempts,
+    Duration retryDelay = AppConstants.dataPlaneProbeRetryDelay,
     Future<http.Response> Function(Uri uri)? request,
     bool Function()? shouldContinue,
   }) async {
@@ -3305,8 +3306,8 @@ class _FailoverTunProbeClashService extends ClashService
 
   @override
   Future<String?> verifyUserConnectivity({
-    int maxAttempts = 3,
-    Duration retryDelay = const Duration(seconds: 2),
+    int maxAttempts = AppConstants.dataPlaneProbeAttempts,
+    Duration retryDelay = AppConstants.dataPlaneProbeRetryDelay,
     Future<http.Response> Function(Uri uri)? request,
     bool Function()? shouldContinue,
   }) async {

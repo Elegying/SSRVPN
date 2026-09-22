@@ -44,7 +44,7 @@
 - [项目硬性规则](PRODUCT_REQUIREMENTS.zh-CN.md)
 - [安全策略](../SECURITY.md)
 - [社区行为准则](../CODE_OF_CONDUCT.md)
-- [IPv4-only 与 IPv6 防绕过规范](IPV6_DUAL_STACK_SPEC.zh-CN.md)
+- [双栈分流与 IPv6 处理规范](IPV6_DUAL_STACK_SPEC.zh-CN.md)
 - [ADR-001：桌面端 API Secret 的长期存储](decisions/001-desktop-api-secret-storage.md)
 - [ADR-002：Windows 安装版数据保留与多来源隔离](decisions/002-windows-installed-data-preservation.md)
 - [ADR-003：Windows 只发布安装器](decisions/003-windows-installer-only-distribution.md)
@@ -60,7 +60,11 @@
 - [ADR-013：客户端连接后仅使用 GitHub Releases 更新](decisions/013-github-release-connected-update.md)
 - [ADR-014：GeoIP 仅按明确指令手动更新](decisions/014-manual-only-geoip-updates.md)
 - [ADR-015：智能模式使用 GFW 代理与默认直连（已取代）](decisions/015-gfw-proxy-default-direct-routing.md)
-- [ADR-016：分层智能路由与可用性优先的代理兜底](decisions/016-layered-smart-routing-safe-fallback.md)
+- [ADR-016：分层智能路由与可用性优先的代理兜底（部分由 ADR-017 与 ADR-019 取代）](decisions/016-layered-smart-routing-safe-fallback.md)
+- [ADR-017：独立签名规则通道与用户优先分流](decisions/017-independent-routing-channel.md)
+- [ADR-018：规则发布必须经过可靠性审查](decisions/018-rule-publication-review.md)
+- [ADR-019：规则优先的双栈分流与代理内地址选择](decisions/019-dual-stack-routing.md)
+- [ADR-020：安装器只处置可证明归属的系统代理](decisions/020-installer-system-proxy-ownership.md)
 
 ## 文档维护规则
 

@@ -51,6 +51,15 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Local assistant workspace data and scratch output (never product files)
+.workbuddy/
+.workbuddy-ai/
+
+# One-off review and audit snapshots kept locally. docs/README.md reserves the
+# documentation tree for current documents and expects one-off review evidence
+# to live in the matching commit, issue or pull request instead.
+docs/reviews/
+
 # Generated independent rule-channel publication snapshots.
 rule-channel/latest/
 rule-channel/snapshots/

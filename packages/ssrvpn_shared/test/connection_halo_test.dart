@@ -56,6 +56,11 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
     expect(tester.binding.transientCallbackCount, greaterThan(0));
+    // A focus change is not a hidden window: the pulse must survive it instead
+    // of stalling mid-cycle and jumping when focus returns.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(tester.binding.transientCallbackCount, greaterThan(0));
     for (final page in [
       scene(reduce: true),
       scene(active: false),

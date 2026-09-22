@@ -32,7 +32,8 @@ class SsrvpnSettingsPage extends StatefulWidget {
   final Future<void> Function(
       {GlassEffectLevel? glassEffectLevel,
       BackgroundStyle? backgroundStyle,
-      String? customBackgroundPath}) onAppearanceChanged;
+      String? customBackgroundPath,
+      bool? dynamicBackground}) onAppearanceChanged;
   final Future<void> Function(int) onPortChanged;
   final Future<AppUpdateInfo?> Function() checkForUpdate;
   final void Function(AppUpdateInfo) onUpdateFound;
@@ -222,6 +223,7 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                       .where((s) => s != BackgroundStyle.custom))
                     _backgroundChoice(style)
                 ]),
+                _backgroundMotionSwitch(),
                 const SizedBox(height: 12),
                 Wrap(spacing: 8, runSpacing: 8, children: [
                   OutlinedButton.icon(
@@ -330,6 +332,38 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
             const SizedBox(height: 16),
             ...children
           ])));
+
+  /// Drifting repaints the wallpaper every frame and drags the glass above it
+  /// along, so the switch is offered only for the one background that can move.
+  /// Two things can make the switch inert: a background with no movable
+  /// wallpaper, and the system "reduce motion" preference. Both are reported
+  /// here instead of leaving a toggle that looks on yet cannot be tapped.
+  Widget _backgroundMotionSwitch() {
+    final reducedMotion = MediaQuery.disableAnimationsOf(context);
+    final supported =
+        widget.settings.backgroundStyle == BackgroundStyle.flowing;
+    final interactive = supported && !reducedMotion && !_saving;
+    return SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        // Show the switch as off whenever the wallpaper cannot actually move,
+        // so the displayed value always matches what the user sees.
+        value: supported && !reducedMotion && widget.settings.dynamicBackground,
+        onChanged: interactive
+            ? (value) => _save(
+                () => widget.onAppearanceChanged(dynamicBackground: value),
+                value ? '已开启动态背景' : '已关闭动态背景')
+            : null,
+        secondary: const Icon(Icons.motion_photos_on_outlined),
+        title:
+            const Text('动态背景', style: TextStyle(fontWeight: FontWeight.w600)),
+        subtitle: Text(
+            !supported
+                ? '仅「壁纸」背景支持动态效果'
+                : reducedMotion
+                    ? '系统已开启「减少动态效果」，壁纸将保持静止'
+                    : '壁纸缓慢流动。关闭后画面静止，可明显降低 GPU 与电量占用',
+            style: const TextStyle(fontSize: 12, height: 1.5)));
+  }
 
   Widget _backgroundChoice(BackgroundStyle style) {
     final selected = widget.settings.backgroundStyle == style;

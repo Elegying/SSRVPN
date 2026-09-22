@@ -25,7 +25,15 @@ AppSupportURL=https://github.com/Elegying/SSRVPN/issues
 AppUpdatesURL=https://github.com/Elegying/SSRVPN/releases
 DefaultDirName={localappdata}\Programs\SSRVPN
 DefaultGroupName=SSRVPN
-DisableDirPage=yes
+; Always show the destination page. `no` is the only value that actually offers
+; the choice on a machine that already has SSRVPN: `yes` hides the page
+; outright, and `auto` hides it whenever Setup finds a previous install under
+; the same AppId -- which is every upgrade. `auto` reads like "ask on a first
+; install, skip afterwards", but it only ever asks a user who has never
+; installed SSRVPN, so a re-install silently keeps the old directory.
+; UsePreviousAppDir (below) keeps an upgrade pre-filled with the directory the
+; user chose last time, so accepting it stays a single click.
+DisableDirPage=no
 DisableProgramGroupPage=yes
 ; SSRVPN and Mihomo normally run elevated so a medium-integrity installer
 ; cannot verify their image paths or terminate stale instances before an
@@ -46,7 +54,10 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=no
 RestartApplications=no
-UsePreviousAppDir=no
+; Reuse the destination recorded by a previous install. Without this the
+; destination page would reappear on every upgrade prefilled with the default
+; path, and a user who had chosen elsewhere would silently get a second copy.
+UsePreviousAppDir=yes
 InfoBeforeFile={#ProjectDir}\installer\overwrite_notice.zh-CN.txt
 
 [Languages]
@@ -73,12 +84,14 @@ Type: filesandordirs; Name: "{localappdata}\vip.ssrvpn.windows\EBWebView"
 Source: "{#ProjectDir}\installer\stop_ssrvpn_processes.ps1"; Flags: dontcopy noencryption
 Source: "{#ProjectDir}\installer\proxy_transaction_state.ps1"; Flags: dontcopy noencryption
 Source: "{#ProjectDir}\installer\tun_ownership.ps1"; Flags: dontcopy noencryption
+Source: "{#ProjectDir}\installer\name_based_process_sweep.ps1"; Flags: dontcopy noencryption
 Source: "{#ProjectDir}\installer\program_files_transaction.ps1"; Flags: dontcopy noencryption
 Source: "{#PayloadManifestPath}"; DestName: "ssrvpn_expected_payload.sha256"; Flags: dontcopy noencryption
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "bin\ssrvpn,bin\ssrvpn\*"; Flags: ignoreversion recursesubdirs createallsubdirs overwritereadonly
 Source: "{#ProjectDir}\installer\stop_ssrvpn_processes.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
 Source: "{#ProjectDir}\installer\proxy_transaction_state.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
 Source: "{#ProjectDir}\installer\tun_ownership.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
+Source: "{#ProjectDir}\installer\name_based_process_sweep.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
 Source: "{#ProjectDir}\installer\post_install_cleanup.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
 Source: "{#ProjectDir}\installer\program_files_transaction.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion; AfterInstall: ValidateProgramFilesTransaction
 
@@ -363,6 +376,10 @@ begin
   InstalledCorePidPath := ExpandConstant('{app}\bin\ssrvpn\mihomo.pid');
   StatusPath := GenerateUniqueName(
     ExpandConstant('{tmp}'), StopStatusSuffix);
+  // The stopper matches processes by exact shipped image name (ADR-021), so
+  // no previous install location needs to be read from the uninstall
+  // registry: copies in the previous directory, portable copies, and any
+  // other same-named process are all covered by the name-based sweep.
   try
     Parameters := '-NoLogo -NoProfile -NonInteractive ' +
       '-ExecutionPolicy Bypass -File ' + AddQuotes(ScriptPath) +
@@ -394,6 +411,7 @@ function StopSsrvpnProcesses: Integer;
 begin
   ExtractTemporaryFile('proxy_transaction_state.ps1');
   ExtractTemporaryFile('tun_ownership.ps1');
+  ExtractTemporaryFile('name_based_process_sweep.ps1');
   ExtractTemporaryFile('stop_ssrvpn_processes.ps1');
   Result := RunStopSsrvpnProcesses(
     ExpandConstant('{tmp}\stop_ssrvpn_processes.ps1'), False);
@@ -633,7 +651,8 @@ begin
   else if LastStopStatus = 'APP_INSTANCE_ACTIVE' then
   begin
     ReleaseInstallGates;
-    Result := '检测到其他目录或便携版 SSRVPN 仍在运行，安装尚未修改程序文件。' + #13#10 +
+    Result := '仍有 SSRVPN 同名进程无法自动结束（含其他目录或便携版副本），' +
+      '安装尚未修改程序文件。' + #13#10 +
       StopStatusDiagnostic + #13#10 +
       '请退出所有 SSRVPN 窗口和托盘实例后重试；如果仍然失败，' +
       '请重启 Windows 后再次安装。';
@@ -877,7 +896,8 @@ begin
   begin
     ReleaseInstallGates;
     if LastStopStatus = 'APP_INSTANCE_ACTIVE' then
-      MsgBox('检测到其他目录或便携版 SSRVPN 仍在运行，卸载尚未删除程序文件。' + #13#10 +
+      MsgBox('仍有 SSRVPN 同名进程无法自动结束（含其他目录或便携版副本），' +
+        '卸载尚未删除程序文件。' + #13#10 +
         StopStatusDiagnostic + #13#10 +
         '请退出所有 SSRVPN 窗口和托盘实例后重试；如果仍然失败，' +
         '请重启 Windows 后再次卸载。', mbError, MB_OK)

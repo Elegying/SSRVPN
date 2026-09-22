@@ -91,6 +91,13 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   @protected
   Duration get tunDataPlaneObservationInterval => const Duration(seconds: 30);
 
+  /// 该时间戳同时用于 30 秒节流，因此记录的是**本次观察的开始时间**而非完成时间。
+  /// 诊断页据此显示的「观察于 X 秒前」会略大于告警的真实年龄——方向上偏保守，
+  /// 不会把旧结论说成新的。改为记录完成时间会同时改变节流语义，故保持不动。
+  @override
+  @protected
+  DateTime? get dataPlaneObservationAt => _lastTunDataPlaneObservationAt;
+
   @protected
   void resetTunDataPlaneObservationSession() {
     onDataPlaneObservationSessionReset();
@@ -190,9 +197,11 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
     final generation = captureAutomaticRestartIntent();
     if (generation == null) return;
     _lastTunDataPlaneObservationAt = now;
+    // 显式传入共享预算，三端一致。不要依赖方法默认值：Dart 的默认参数由
+    // **被调用实现**决定，任何覆写（含测试替身）都会静默改掉它。
     final warning = await verifyUserConnectivity(
-      maxAttempts: 6,
-      retryDelay: const Duration(seconds: 1),
+      maxAttempts: AppConstants.dataPlaneProbeAttempts,
+      retryDelay: AppConstants.dataPlaneProbeRetryDelay,
       shouldContinue: () =>
           isRunning &&
           isDataPlaneObservationCurrent &&
@@ -214,9 +223,11 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
         : proxyRecoveryListenerActive
             ? '本地保护监听'
             : '系统代理';
-    setConnectivityWarning('连接与 $routeMode 仍在运行；外部网络观察暂未通过，仅供参考：$warning');
+    // One short line on the home surface; the route mode and the full reason
+    // stay in the log, which the same control already links to.
+    setConnectivityWarning(warning);
     log(
-      '外部网络观察未通过: $warning；未断开连接，未切换节点',
+      '外部网络观察未通过: $warning；未断开连接，未切换节点；通道=$routeMode',
       level: RuntimeLogLevel.warning,
       event: 'data_plane_probe',
     );

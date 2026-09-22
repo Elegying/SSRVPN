@@ -42,14 +42,6 @@ String _nativeStartFailureMessage(PlatformException error) {
   return androidUnknownCoreStartFailure;
 }
 
-String _safeLogErrorCode(Object error) {
-  try {
-    return AppFailure.fromMessage(error).code.wireName;
-  } catch (_) {
-    return AppErrorCode.unknown.wireName;
-  }
-}
-
 const _nativeStateRetryDelays = <Duration>[
   Duration(milliseconds: 100),
   Duration(milliseconds: 300),
@@ -169,54 +161,17 @@ extension AndroidNativeBridge on ClashService {
       await stop();
       setLastStartError('$malformedStateError，VPN 已安全回滚');
     } catch (stopError) {
-      log('原生 VPN 安全回滚失败: cause=${_safeLogErrorCode(stopError)}');
+      log('原生 VPN 安全回滚失败: cause=${safeRuntimeErrorCode(stopError)}');
       setLastStartError('$malformedStateError；安全回滚未完成，请重新打开应用后重试');
     }
     return false;
   }
 
-  Future<bool> _recoverNativeAfterHealthCheckFailure(
-    int connectionGeneration,
-  ) async {
-    if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
-      await stop();
-      return false;
-    }
-    if (await healthCheck()) {
-      setRunning(true);
-      return true;
-    }
-    if (!_healthRecoveryPolicy.tryAcquire()) {
-      await stop();
-      return false;
-    }
-
-    final activeConfigPath =
-        _runningConfigPath ?? _nativeSnapshotConfigPath ?? configPath;
-    _notifyNativeRuntimeNotice(
-      RuntimeNotice.progress(
-        '连接服务持续失去响应，正在执行安全重启'
-        '（${_healthRecoveryPolicy.attempts}/${_healthRecoveryPolicy.maxAttempts}）…',
-      ),
-    );
-    try {
-      await stop();
-    } catch (error) {
-      log('健康检查恢复时停止 Mihomo 失败: cause=${_safeLogErrorCode(error)}');
-      return false;
-    }
-    if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
-      return false;
-    }
-    if (activeConfigPath.isEmpty || !File(activeConfigPath).existsSync()) {
-      setLastStartError('自动恢复所需的运行配置已不存在');
-      return false;
-    }
-    return _start(
-      preparedConfigPath: activeConfigPath,
-      automaticRecovery: true,
-    );
-  }
+  // Recovery after a health-check failure is deliberately absent here. The
+  // native VpnService runs the authoritative 3-second Bridge monitor and the
+  // CoreRecoveryCoordinator restart budget, including while Flutter is asleep.
+  // A Dart-side recovery path could only race that coordinator, so there is
+  // exactly one owner of core restarts on Android.
 
   void _clearStopOperation(Future<void> operation) {
     if (identical(_stopOperation, operation)) _stopOperation = null;
@@ -228,7 +183,7 @@ extension AndroidNativeBridge on ClashService {
           .invokeMethod('notifyVpnStateChanged')
           .timeout(const Duration(seconds: 3));
     } catch (e) {
-      log('通知原生 VPN 状态失败: cause=${_safeLogErrorCode(e)}');
+      log('通知原生 VPN 状态失败: cause=${safeRuntimeErrorCode(e)}');
     }
   }
 
@@ -549,7 +504,7 @@ extension AndroidNativeBridge on ClashService {
           .invokeMethod<bool>('isCoreRunning')
           .timeout(const Duration(seconds: 3));
     } catch (e) {
-      log('查询原生 VPN 状态失败: cause=${_safeLogErrorCode(e)}');
+      log('查询原生 VPN 状态失败: cause=${safeRuntimeErrorCode(e)}');
       return null;
     }
   }
@@ -569,7 +524,7 @@ extension AndroidNativeBridge on ClashService {
           ? state
           : null;
     } catch (e) {
-      log('查询原生 VPN 会话状态失败: cause=${_safeLogErrorCode(e)}');
+      log('查询原生 VPN 会话状态失败: cause=${safeRuntimeErrorCode(e)}');
       return null;
     }
   }
@@ -922,7 +877,7 @@ extension AndroidNativeBridge on ClashService {
       );
       if (result != null && result.isNotEmpty) return result;
     } catch (e) {
-      log('原生库目录查询失败: cause=${_safeLogErrorCode(e)}');
+      log('原生库目录查询失败: cause=${safeRuntimeErrorCode(e)}');
     }
     for (final dir in ['/data/app/~~/lib/arm64', '/data/app/lib/arm64']) {
       if (Directory(dir).existsSync()) {

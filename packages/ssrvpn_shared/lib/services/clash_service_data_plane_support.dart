@@ -2,6 +2,43 @@ part of 'clash_service_base.dart';
 
 final Object _dataPlaneObservationEpochZoneKey = Object();
 
+/// Builds the comparison key the network-change watch looks at.
+///
+/// An interface that already has an IPv4 address is identified by IPv4 alone.
+/// IPv6 privacy/temporary addresses rotate on an otherwise unchanged interface
+/// (macOS regenerates them roughly once a day), so including them would report
+/// a "physical network change" on a schedule and trigger a full re-probe — up
+/// to ~41s of requests — plus a spurious advisory warning. Real changes are
+/// still caught: a Wi-Fi/Ethernet switch changes the interface set, and a
+/// reconnect to a different network changes the IPv4 address.
+///
+/// An interface with no IPv4 address has nothing else to be identified by, so
+/// its IPv6 addresses are kept. That covers IPv6-only networks.
+///
+/// Takes the enumerated addresses rather than enumerating itself so the
+/// selection rule can be tested without real interfaces.
+@visibleForTesting
+String networkFingerprintOf(Map<String, List<InternetAddress>> interfaces) {
+  final parts = <String>[];
+  for (final entry in interfaces.entries) {
+    final ipv4 = entry.value
+        .where((address) => address.type == InternetAddressType.IPv4)
+        .map((address) => address.address)
+        .toList()
+      ..sort();
+    final addresses = <String>[...ipv4];
+    if (ipv4.isEmpty) {
+      addresses.addAll(entry.value
+          .where((address) => address.type == InternetAddressType.IPv6)
+          .map((address) => address.address));
+      addresses.sort();
+    }
+    parts.add('${entry.key}:${addresses.join(',')}');
+  }
+  parts.sort();
+  return parts.join('|');
+}
+
 /// Advisory node/internet state that is deliberately separate from the
 /// process, service and runtime-configuration lifecycle.
 mixin _ClashDataPlaneSupport {
@@ -12,6 +49,9 @@ mixin _ClashDataPlaneSupport {
   int? _coalescedDataPlaneObservationEpoch;
   String? _dataPlaneConnectivityWarning;
   String? _connectivityOwnershipWarning;
+  Timer? _networkChangeWatchTimer;
+  String? _networkFingerprint;
+  bool _networkCheckInFlight = false;
 
   bool get isRunning;
   AppSettings get settings;
@@ -53,6 +93,15 @@ mixin _ClashDataPlaneSupport {
   /// ownership warnings deliberately remain separate for diagnostics.
   @protected
   String? get dataPlaneConnectivityWarning => _dataPlaneConnectivityWarning;
+
+  /// 最近一次数据面观察完成的时间；null 表示本次会话尚未完成过观察。
+  ///
+  /// 诊断页读的是缓存告警，而不是重新探测——完整探测最坏约 41 秒，塞不进
+  /// `diagnosticCheckTimeout`（10 秒）的预算。既然无法在诊断时刷新，
+  /// 就必须把观察时间一并说出来，否则用户无法判断「暂未通过」是当前状态
+  /// 还是几十秒前的旧状态。平台没有独立时间戳时保持 null。
+  @protected
+  DateTime? get dataPlaneObservationAt => null;
 
   @protected
   bool get isDataPlaneObservationCurrent {
@@ -98,6 +147,29 @@ mixin _ClashDataPlaneSupport {
   /// scheduled independently of the periodic control-plane monitor.
   @protected
   void onDataPlaneRouteChanged() {
+    _invalidateDataPlaneObservationAndReprobe();
+  }
+
+  /// Drops every in-flight observation, discards the warning those
+  /// observations may already have published, and schedules one observation of
+  /// the new path.
+  ///
+  /// **Both the route change and the physical network change go through here.**
+  /// `setConnectivityWarning` is epoch-gated, so an observation that started
+  /// before the path changed would otherwise still count as current and publish
+  /// the *old* path's conclusion — for up to `dataPlaneObservationTimeout`.
+  ///
+  /// The replacement observation starts even while the previous one is still
+  /// running, because `Future.timeout` does not cancel its source. That overlap
+  /// is bounded to one extra probe budget, and the stale result is discarded
+  /// twice over: its zone epoch no longer matches, so `setConnectivityWarning`
+  /// refuses it, and `finishObservation` no longer matches
+  /// `_activeDataPlaneObservationEpoch`, so it cannot release the replacement's
+  /// ownership. The route-change path has always behaved this way.
+  ///
+  /// Callers own the user-visible half: clearing the field is silent, so a
+  /// caller that had a warning on screen must notify listeners itself.
+  void _invalidateDataPlaneObservationAndReprobe() {
     _dataPlaneObservationEpoch++;
     _coalescedDataPlaneObservationEpoch = null;
     onDataPlaneObservationSessionReset();
@@ -172,7 +244,7 @@ mixin _ClashDataPlaneSupport {
         }
         log(
           '数据通道观察失败，不影响核心生命周期: '
-          'cause=${_safeRuntimeLogErrorCode(error)}',
+          'cause=${safeRuntimeErrorCode(error)}',
           level: RuntimeLogLevel.warning,
           event: 'data_plane_probe',
         );
@@ -181,9 +253,89 @@ mixin _ClashDataPlaneSupport {
     );
   }
 
+  /// How often the physical interface fingerprint is compared.
+  ///
+  /// The local control API lives on 127.0.0.1, so switching from Wi-Fi to
+  /// Ethernet leaves it perfectly healthy while the real path is gone. Without
+  /// a watch, the user sat on "connected but unusable" for up to ~70s waiting
+  /// for the platform's own observation throttle to expire. Comparing the
+  /// interface set lets a physical change invalidate that observation at once.
+  ///
+  /// Null disables the watch where the platform already reports changes itself.
+  @protected
+  Duration? get networkChangeWatchInterval => const Duration(seconds: 10);
+
+  @protected
+  void startNetworkChangeWatch() {
+    _networkChangeWatchTimer?.cancel();
+    _networkChangeWatchTimer = null;
+    final interval = networkChangeWatchInterval;
+    if (interval == null) return;
+    _networkChangeWatchTimer = Timer.periodic(interval, (_) {
+      unawaited(_checkNetworkChange());
+    });
+  }
+
+  @protected
+  void stopNetworkChangeWatch() {
+    _networkChangeWatchTimer?.cancel();
+    _networkChangeWatchTimer = null;
+    _networkFingerprint = null;
+  }
+
+  /// Fingerprint compared by the watch, built from the non-loopback interface
+  /// address lists.
+  ///
+  /// Overridable so tests can drive the watch without touching real interfaces.
+  /// Returning null means "unknown" and leaves every piece of state alone.
+  @protected
+  Future<String?> buildNetworkFingerprint() async {
+    final interfaces = await NetworkInterface.list(
+        includeLoopback: false, includeLinkLocal: false);
+    return networkFingerprintOf({
+      for (final interface in interfaces) interface.name: interface.addresses,
+    });
+  }
+
+  @visibleForTesting
+  Future<void> runNetworkChangeCheck() => _checkNetworkChange();
+
+  Future<void> _checkNetworkChange() async {
+    if (_networkCheckInFlight || !isRunning) return;
+    _networkCheckInFlight = true;
+    try {
+      final String? fingerprint;
+      try {
+        fingerprint = await buildNetworkFingerprint();
+      } catch (error) {
+        // Enumeration is best-effort. A failure must not disturb any state,
+        // and must not be mistaken for a change on the next comparison.
+        return;
+      }
+      if (fingerprint == null) return;
+      final previous = _networkFingerprint;
+      _networkFingerprint = fingerprint;
+      if (previous == null || previous == fingerprint) return;
+      log(
+        '物理网络发生变化，立即重新观察数据通道',
+        event: 'data_plane_probe',
+      );
+      // Exactly the route-change semantics. Without the epoch bump, an
+      // observation that started on the old network still counts as current and
+      // publishes its stale conclusion. Without the notify, the cleared warning
+      // stays on screen: this path has no caller to do it, unlike
+      // `onDataPlaneRouteChanged` whose caller notifies right after.
+      final hadWarning = _dataPlaneConnectivityWarning != null;
+      _invalidateDataPlaneObservationAndReprobe();
+      if (hadWarning) notifyStatusChanged();
+    } finally {
+      _networkCheckInFlight = false;
+    }
+  }
+
   Future<String?> verifyUserConnectivity({
-    int maxAttempts = 3,
-    Duration retryDelay = const Duration(seconds: 2),
+    int maxAttempts = AppConstants.dataPlaneProbeAttempts,
+    Duration retryDelay = AppConstants.dataPlaneProbeRetryDelay,
     Future<http.Response> Function(Uri uri)? request,
     bool Function()? shouldContinue,
   }) async {
@@ -201,12 +353,19 @@ mixin _ClashDataPlaneSupport {
     } else {
       sendStatus = (uri) => _sendUserConnectivityStatus(client!, uri);
     }
+    // 上限 6 与 AppConstants.dataPlaneProbeAttempts 一致，是**安全边界**而非默认值：
+    // 单轮最坏耗时 = 6 × 6 秒请求超时 + 5 × 1 秒间隔 ≈ 41 秒，必须留在
+    // dataPlaneObservationTimeout（60 秒）之内。因此这里写死 6 而不是引用常量——
+    // 引用常量会让「把常量调大」同时把安全边界一起放宽，失去拦截作用。
     final attempts = maxAttempts.clamp(1, 6).toInt();
     final endpointValues = settings.enableTun
         ? AppConstants.tunConnectivityTestUrls
         : AppConstants.systemProxyConnectivityTestUrls;
     final endpoints = endpointValues.map(Uri.parse).toList(growable: false);
     int? lastStatusCode;
+    // 是否至少有一次拿到了 HTTP 响应。这决定失败的性质：完全无响应说明通道可疑，
+    // 有响应只说明端点不配合。两者此前被同一句话描述，属于语义错误。
+    var sawAnyResponse = false;
     try {
       for (var attempt = 1; attempt <= attempts; attempt++) {
         if (shouldContinue?.call() == false) return null;
@@ -220,6 +379,7 @@ mixin _ClashDataPlaneSupport {
             if (isRunning) setConnectivityWarning(null);
             return null;
           }
+          sawAnyResponse = true;
           lastStatusCode = statusCode;
           log(
             '外部网络验证 $attempt/$attempts 未通过：HTTP $statusCode；'
@@ -230,10 +390,9 @@ mixin _ClashDataPlaneSupport {
           );
         } catch (error) {
           if (shouldContinue?.call() == false) return null;
-          lastStatusCode = null;
           log(
             '外部网络验证 $attempt/$attempts 未通过：'
-            'cause=${_safeRuntimeLogErrorCode(error)}；'
+            'cause=${safeRuntimeErrorCode(error)}；'
             '轮次=${(attempt - 1) ~/ endpoints.length + 1}；'
             '站点=${endpoints[(attempt - 1) % endpoints.length].host}；'
             '路径=${settings.enableTun ? 'TUN' : '本地代理'}，保留当前连接',
@@ -245,13 +404,19 @@ mixin _ClashDataPlaneSupport {
         }
       }
       if (shouldContinue?.call() == false) return null;
-      late final String warning;
-      if (lastStatusCode != null) {
-        warning = '连接已建立，但多个外部网络验证端点均返回异常（最近 HTTP '
-            '$lastStatusCode）；这可能是验证站点受限，不代表节点失效';
+      // Keep this short. The home surface renders it in a single-line slot it
+      // shares with the public-IP readout, and the full detail is already in
+      // the runtime log. One disclaimer is enough; the previous pair of
+      // hedges ("仅供参考" + "不代表节点失效") diluted the actual signal.
+      //
+      // 只描述**实际发生的事**，不再用「可能是验证站点受限」这类对冲措辞：
+      // 有响应就把状态码说出来（通道已建立，是端点不配合），
+      // 全程无响应才说无响应（通道可疑）。真因在日志的 cause= 里。
+      final String warning;
+      if (sawAnyResponse && lastStatusCode != null) {
+        warning = '外部网络验证未通过（端点 HTTP $lastStatusCode），仅供参考';
       } else {
-        warning = '连接已建立，但暂时无法完成多个外部网络验证；'
-            '这可能是验证站点受限，不代表节点失效';
+        warning = '外部网络验证未通过（连接无响应），仅供参考';
       }
       if (isRunning) setConnectivityWarning(warning);
       return warning;
@@ -337,7 +502,7 @@ mixin _ClashDataPlaneSupport {
       return info;
     } catch (error) {
       log(
-          '公网 IP 查询暂未完成：cause=${_safeRuntimeLogErrorCode(error)}；'
+          '公网 IP 查询暂未完成：cause=${safeRuntimeErrorCode(error)}；'
           '耗时 ${elapsed.elapsedMilliseconds}ms；不改变当前连接',
           event: 'public_ip');
       rethrow;

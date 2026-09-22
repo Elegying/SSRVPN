@@ -19,6 +19,7 @@ class SsrvpnLiquidSurface extends StatelessWidget {
       this.padding = EdgeInsets.zero,
       this.dense = false,
       this.tint,
+      this.tintOpacity,
       this.borderColor,
       this.circular = false});
   final Widget child;
@@ -26,6 +27,11 @@ class SsrvpnLiquidSurface extends StatelessWidget {
   final EdgeInsetsGeometry padding;
   final bool dense;
   final Color? tint;
+
+  /// Opacity applied to [tint] before it becomes the glass color. Dialogs pass
+  /// a high value so their content stays legible over busy backdrops; cards and
+  /// menus omit it to keep the default 0.18 translucent look.
+  final double? tintOpacity;
   final Color? borderColor;
   final bool circular;
 
@@ -67,7 +73,7 @@ class SsrvpnLiquidSurface extends StatelessWidget {
       // offscreen filter, custom shader, or per-card capture.
       return DecoratedBox(
         decoration: BoxDecoration(
-          color: tint?.withValues(alpha: .18) ??
+          color: tint?.withValues(alpha: tintOpacity ?? .18) ??
               (dark ? const Color(0x50303C60) : const Color(0xB8FFFFFF)),
           shape: circular ? BoxShape.circle : BoxShape.rectangle,
           borderRadius: circular ? null : BorderRadius.circular(radius),
@@ -83,7 +89,7 @@ class SsrvpnLiquidSurface extends StatelessWidget {
         frames != null;
     final surfaceSettings = settingsFor(context).copyWith(
         blur: dense ? 5 : 7,
-        glassColor: tint?.withValues(alpha: .18) ??
+        glassColor: tint?.withValues(alpha: tintOpacity ?? .18) ??
             (dark ? const Color(0x30303C60) : const Color(0x88FFFFFF)));
     final surface = glass.GlassContainer(
       shape: circular

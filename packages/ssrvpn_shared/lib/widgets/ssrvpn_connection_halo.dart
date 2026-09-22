@@ -49,10 +49,22 @@ class _ConnectionHaloState extends State<SsrvpnConnectionHalo>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) => _sync();
 
+  /// Whether the host currently has nothing to hide this surface behind.
+  ///
+  /// Only a definite `paused`/`detached` means the window is gone; `inactive`
+  /// is an ordinary desktop focus change and must not stall the pulse mid
+  /// cycle. An *unreported* state (`null`) is deliberately **not** treated as
+  /// active: this controller repeats forever, so guessing "active" on a
+  /// missing state would spin the animation on a host that never reports
+  /// lifecycle at all. Waiting for a first definite `resumed` is the safe
+  /// reading, and the `inactive` case above is what actually fixes focus
+  /// flicker.
+  bool get _hostActive =>
+      WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed ||
+      WidgetsBinding.instance.lifecycleState == AppLifecycleState.inactive;
+
   void _sync() {
-    final animate = widget.enabled &&
-        _visible &&
-        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    final animate = widget.enabled && _visible && _hostActive;
     if (animate && !_pulse.isAnimating) {
       _pulse.repeat();
     } else if (!animate) {

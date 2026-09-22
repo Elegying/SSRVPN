@@ -68,11 +68,13 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
   Future<void> updateAppearance(
           {GlassEffectLevel? glassEffectLevel,
           BackgroundStyle? backgroundStyle,
-          String? customBackgroundPath}) =>
+          String? customBackgroundPath,
+          bool? dynamicBackground}) =>
       _updateSettings((settings) => settings.copyWith(
           glassEffectLevel: glassEffectLevel,
           backgroundStyle: backgroundStyle,
-          customBackgroundPath: customBackgroundPath));
+          customBackgroundPath: customBackgroundPath,
+          dynamicBackground: dynamicBackground));
 
   SettingsService._({
     Future<String?> Function()? readApiSecret,

@@ -81,7 +81,8 @@ void main() {
       service.updateAppearance(
           glassEffectLevel: GlassEffectLevel.medium,
           backgroundStyle: BackgroundStyle.custom,
-          customBackgroundPath: '/synthetic/background.png'),
+          customBackgroundPath: '/synthetic/background.png',
+          dynamicBackground: true),
       service.updateProxyPort(8123),
     ]);
     final reloaded = await load();
@@ -90,6 +91,7 @@ void main() {
     expect(reloaded.settings.glassEffectLevel, GlassEffectLevel.medium);
     expect(reloaded.settings.backgroundStyle, BackgroundStyle.custom);
     expect(reloaded.settings.customBackgroundPath, '/synthetic/background.png');
+    expect(reloaded.settings.dynamicBackground, isTrue);
     expect(before.proxyPort, 7890);
     final saved = jsonDecode(await File(configPath).readAsString());
     expect(saved['apiSecret'], isNull);

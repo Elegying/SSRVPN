@@ -5,6 +5,26 @@ part of 'clash_service_base.dart';
 extension ClashConnectionProgress on ClashServiceBase {
   String? get connectionProgress => _connectionProgress;
 
+  /// True while a health-check recovery is rebuilding the connection.
+  ///
+  /// The recovery notice used to be a toast the user could miss, so a rebuild
+  /// that took tens of seconds read as a frozen app. The home surface keeps the
+  /// progress line visible for this whole window instead.
+  bool get isAutoRecovering => _autoRecoveryInProgress;
+
+  void setAutoRecoveryInProgress(bool value) {
+    if (_autoRecoveryInProgress == value) return;
+    _autoRecoveryInProgress = value;
+    // Own the progress line only for the rebuild window; the connection itself
+    // is already up, so nothing else is using it here.
+    _connectionProgress = value ? '运行状态异常，正在自动恢复连接…' : null;
+    for (final listener
+        in List<void Function()>.from(_connectionProgressListeners)) {
+      listener();
+    }
+    notifyStatusChanged();
+  }
+
   void addConnectionProgressListener(void Function() listener) =>
       _connectionProgressListeners.add(listener);
 

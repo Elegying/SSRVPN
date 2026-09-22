@@ -406,8 +406,20 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
 
         self.assertIn(r"DefaultDirName={localappdata}\Programs\SSRVPN", script)
-        self.assertIn("DisableDirPage=yes", script)
-        self.assertIn("UsePreviousAppDir=no", script)
+        # The destination page must be shown on every run, upgrades included.
+        # `no` is the only value that does that: `yes` hides the page outright,
+        # and `auto` hides it whenever Setup finds a previous install under the
+        # same AppId -- which is every upgrade, and every machine that already
+        # has SSRVPN. Anything other than `no` silently pins a re-install to the
+        # previously recorded directory.
+        self.assertIn("DisableDirPage=no", script)
+        self.assertNotIn("DisableDirPage=yes", script)
+        self.assertNotIn("DisableDirPage=auto", script)
+        # Showing the destination page is only safe together with reusing the
+        # recorded directory: otherwise an upgrade prefills the default and a
+        # user who installed elsewhere silently ends up with a second copy.
+        self.assertIn("UsePreviousAppDir=yes", script)
+        self.assertNotIn("UsePreviousAppDir=no", script)
         self.assertIn("PrivilegesRequired=admin", script)
         self.assertIn("UsedUserAreasWarning=no", script)
         setup = script.split("[Setup]", 1)[1].split("[Languages]", 1)[0]
@@ -451,8 +463,9 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         self.assertIn("覆盖升级会保留安装版的设置、订阅", notice)
         self.assertIn("旧独立副本文件不会被删除或修改", notice)
-        self.assertIn("只会结束可执行路径属于当前 SSRVPN 安装目录", notice)
-        self.assertIn("不会按通用进程名关闭其他代理或 VPN 软件", notice)
+        self.assertIn("按进程名结束所有 SSRVPN 应用、启动器和 Mihomo 进程", notice)
+        self.assertIn("包括其他目录或便携版副本", notice)
+        self.assertIn("也不会按 Clash、OpenVPN 等通用名称匹配", notice)
         self.assertIn("3 秒自行收尾", notice)
         self.assertNotIn("永久删除当前 Windows 用户的 SSRVPN 旧数据", notice)
         self.assertIn("ssrvpn_windows_app.exe", script)
@@ -752,10 +765,26 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "stop_ssrvpn_processes.ps1",
             "proxy_transaction_state.ps1",
             "tun_ownership.ps1",
+            "name_based_process_sweep.ps1",
             "post_install_cleanup.ps1",
             "program_files_transaction.ps1",
         ):
             self.assertIn(installed_helper, build_installer)
+        # Every helper the [Files] section drops into {app}\installer must also
+        # be enumerated in New-TrustedPayloadManifest: a helper installed but
+        # absent from the trusted manifest trips the post-install integrity
+        # check (payload file count mismatch) and rolls the whole update back.
+        installer_helpers = []
+        for files_line in files_section.splitlines():
+            if 'DestDir: "{app}\\installer"' not in files_line:
+                continue
+            match = re.search(r'Source: "[^"]*[\\/]([^"\\/]+)"', files_line)
+            self.assertIsNotNone(match, files_line)
+            installer_helpers.append(match.group(1))
+        self.assertTrue(installer_helpers)
+        manifest_helpers = re.findall(r"'([A-Za-z_]+\.ps1)'", build_installer)
+        for installed_helper in installer_helpers:
+            self.assertIn(installed_helper, manifest_helpers)
         self.assertIn("ProgramFilesRecoveryPending := DirExists(", installer)
         begin_transaction = installer.split(
             "function BeginProgramFilesTransaction: Boolean;", 1
@@ -1101,7 +1130,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         ).read_text(encoding="ascii")
         self.assertIn("test_windows_package_payload_guard.ps1", policy_runner)
 
-    def test_installer_cleanup_is_path_exact_and_best_effort(self) -> None:
+    def test_installer_cleanup_is_name_exact_and_best_effort(self) -> None:
         installer_root = ROOT / "SSRVPN_Windows" / "installer"
         installer = (installer_root / "SSRVPN.iss").read_text(encoding="utf-8")
         stopper = (installer_root / "stop_ssrvpn_processes.ps1").read_text(
@@ -1117,8 +1146,11 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("stop_ssrvpn_processes.ps1", installer)
         self.assertIn("proxy_transaction_state.ps1", installer)
         self.assertIn("tun_ownership.ps1", installer)
-        self.assertIn(". $proxyTransactionStatePath", stopper)
-        self.assertIn(". $tunOwnershipPath", stopper)
+        # All three helpers are dot-sourced through one presence-checked loop.
+        self.assertIn(". $helperPath", stopper)
+        self.assertIn("'proxy_transaction_state.ps1'", stopper)
+        self.assertIn("'tun_ownership.ps1'", stopper)
+        self.assertIn("'name_based_process_sweep.ps1'", stopper)
         self.assertIn("function Get-SsrvpnTunOwnership", tun_helper)
         self.assertIn("StopResult := StopSsrvpnProcesses", installer)
         self.assertIn("hasProxyEnable", transaction_state)
@@ -1397,6 +1429,35 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         self.assertIn("ProxyEnable -ne 1) { return $false }", safe_to_stop)
         self.assertIn("if (-not $hasProxyServer) { return $false }", safe_to_stop)
+        # The probe is defined in the transaction-state helper and consumed
+        # here. Pin both halves of that boundary: moving the definition back
+        # into the stopper reintroduces the hotspot this split relieved.
+        self.assertIn("function Test-ProxyRecoveryStatePresent", transaction_state)
+        self.assertNotIn(
+            "function Test-ProxyRecoveryStatePresent", stopper
+        )
+        recovery_probe = transaction_state.split(
+            "function Test-ProxyRecoveryStatePresent", 1
+        )[1]
+        self.assertIn(
+            "HKCU:\\Software\\SSRVPN\\RuntimeProxyBackup", recovery_probe
+        )
+        self.assertIn("system_proxy_backup.json", recovery_probe)
+        self.assertIn(
+            "Test-Path -LiteralPath $jsonPath -PathType Leaf", recovery_probe
+        )
+        self.assertIn(
+            "$hasProxyRecoveryState = Test-ProxyRecoveryStatePresent",
+            safe_to_stop,
+        )
+        owned_fingerprint = safe_to_stop.split("$ownedFingerprint =", 1)[1]
+        self.assertLess(
+            owned_fingerprint.index("$hasProxyRecoveryState -and"),
+            owned_fingerprint.index(
+                "(Test-OwnedProxyServer -Value $proxyServer)"
+            ),
+        )
+        self.assertIn("return -not $ownedFingerprint", safe_to_stop)
         self.assertGreaterEqual(stopper.count("$autoDetectDisabled"), 6)
         proxy_gate = runtime_flow.index(
             "if (-not (Test-SystemProxySafeToStop -Backup $proxyBackup"
@@ -1443,17 +1504,43 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         proxy_state_read = stopper.index("$proxyBackup = Get-ProxyRecoveryState")
         self.assertLess(
             expected_path_gate,
-            stopper.index("Get-ProcessesAtPathFailClosed `", enumeration),
+            stopper.index(
+                "Get-ImageNameProcessesFailClosed `", enumeration
+            ),
         )
         runtime_enumeration = stopper[enumeration:]
         self.assertNotRegex(
             runtime_enumeration,
             re.compile(r"(?m)^\s*Get-ProcessesAtPath\s+`"),
         )
+        # 8 enumeration/recheck sweeps. Each goes through the name-based helper
+        # (ADR-021, 2026-09-22): every process whose exact image name matches a
+        # shipped executable is stopped, wherever it runs - the current install
+        # directory, an older install directory, or a portable/extracted copy.
+        # Real novice users could not resolve the previous path-exact behavior:
+        # a third-directory copy kept holding the single-instance gate and
+        # blocked installs with APP_INSTANCE_ACTIVE.
         self.assertEqual(
             8,
-            runtime_enumeration.count("Get-ProcessesAtPathFailClosed `"),
+            runtime_enumeration.count(
+                "Get-ImageNameProcessesFailClosed `"
+            ),
         )
+        self.assertIn("'name_based_process_sweep.ps1'", stopper)
+        self.assertIn("Get-ImageNameProcessesFailClosed", stopper)
+        self.assertNotIn("PreviousInstallLocation", stopper)
+        self.assertNotIn("Get-PreviousInstallPaths", stopper)
+        sweep_helper = (
+            installer_root / "name_based_process_sweep.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Get-ImageNameProcessesFailClosed", sweep_helper)
+        self.assertIn(
+            "'ssrvpn_windows_app.exe', 'ssrvpn_windows.exe', 'mihomo.exe'",
+            sweep_helper,
+        )
+        self.assertNotIn("Get-PreviousInstallPaths", sweep_helper)
+        self.assertNotIn("PreviousInstallLocation", sweep_helper)
+        self.assertNotIn("Test-ExactPath", sweep_helper)
         self.assertNotIn("$foreignApps", stopper)
         self.assertNotIn("$foreignLaunchers", stopper)
         self.assertNotIn("$foreignCores", stopper)
@@ -1480,17 +1567,17 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "zerotier-one_x64.exe",
         ):
             self.assertNotIn(process_name, stopper.lower())
-        for process_name, expected_path in (
-            ("ssrvpn_windows_app.exe", "$InstalledAppPath"),
-            ("ssrvpn_windows.exe", "$InstalledLauncherPath"),
-            ("mihomo.exe", "$InstalledCorePath"),
+        for process_name in (
+            "ssrvpn_windows_app.exe",
+            "ssrvpn_windows.exe",
+            "mihomo.exe",
         ):
             self.assertRegex(
                 stopper,
                 re.compile(
-                    rf"Get-ProcessesAtPathFailClosed\s+`?\s*"
+                    rf"Get-ImageNameProcessesFailClosed\s+`?\s*"
                     rf"-Name '{re.escape(process_name)}'\s+`?\s*"
-                    rf"-ExpectedPath {re.escape(expected_path)}"
+                    rf"-Phase"
                 ),
             )
         self.assertIn("[string]::IsNullOrWhiteSpace($Path)", stopper)
@@ -1534,7 +1621,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         self.assertNotIn("prepare_install_directory.ps1", runtime_test)
         self.assertIn("Owned installer cleanup returned", runtime_test)
-        self.assertIn("stopped an unrelated process", runtime_test)
+        self.assertIn("did not stop a same-named copy", runtime_test)
+        self.assertIn("stopped a third-party process", runtime_test)
         for process_name in (
             "openvpn.exe",
             "wireguard.exe",
@@ -1559,6 +1647,14 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "Get-Content -LiteralPath $jsonPath -Encoding UTF8 -Raw",
             stopper,
         )
+        # ADR-021 (2026-09-22): the stopper matches by exact image name, so the
+        # installer no longer reads the previous install location from the
+        # uninstall registry; a previous-directory or portable copy is covered
+        # by the name-based sweep instead. The registry read must stay gone.
+        installer_iss = (
+            ROOT / "SSRVPN_Windows" / "installer" / "SSRVPN.iss"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("PreviousInstallLocation", installer_iss)
 
     def test_installer_cleanup_status_is_fixed_and_sanitized(self) -> None:
         installer_root = ROOT / "SSRVPN_Windows" / "installer"
@@ -1628,8 +1724,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         uninstall = installer.split("function InitializeUninstall(): Boolean;", 1)[1]
         self.assertGreaterEqual(prepare.count("StopStatusDiagnostic"), 2)
         self.assertGreaterEqual(uninstall.count("StopStatusDiagnostic"), 2)
-        self.assertIn("其他目录或便携版 SSRVPN", prepare)
-        self.assertIn("其他目录或便携版 SSRVPN", uninstall)
+        self.assertIn("同名进程无法自动结束（含其他目录或便携版副本）", prepare)
+        self.assertIn("同名进程无法自动结束（含其他目录或便携版副本）", uninstall)
 
         app_gate = stopper.split("$installedProcessRunning =", 1)[1]
         exact_app_check = app_gate.index("if ($appsBeforeRecovery.Count -gt 0)")
@@ -1645,7 +1741,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("APP_INSTANCE_ACTIVE", runtime_test)
         self.assertIn("foreignInstance\":\"must-remain-byte-for-byte", runtime_test)
         self.assertIn("Get-InternetSettingsSnapshot", runtime_test)
-        self.assertIn("Foreign-instance gate stopped a portable SSRVPN fixture", runtime_test)
+        self.assertIn("Name-based sweep did not stop a portable SSRVPN copy", runtime_test)
+        self.assertIn("Name-based sweep stopped a foreign-named process", runtime_test)
 
         tun_capture = tun_helper.split("function Get-SsrvpnTunOwnership", 1)[1]
         tun_capture = tun_capture.split(

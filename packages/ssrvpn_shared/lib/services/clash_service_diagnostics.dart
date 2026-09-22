@@ -13,6 +13,27 @@ abstract interface class ClashPlatformDiagnosticCapability {
   Future<AppRepairResult> repairDiagnosticIssue(AppRepairAction action);
 }
 
+/// 诊断页展示的数据面结论文案。
+///
+/// 诊断读的是**缓存告警**而不是重新探测：完整探测最坏约 41 秒（6 次尝试 ×
+/// 6 秒超时 + 5 次 1 秒间隔），远超 [diagnosticCheckTimeout] 的 10 秒预算。
+/// 既然无法在诊断时刷新，就必须把观察时间一并说出来，否则用户无法判断
+/// 「暂未通过」是当前状态还是几十秒前的旧状态。
+///
+/// [now] 由调用方传入而不是内部取 `DateTime.now()`，便于测试时间窗边界。
+String buildDataPlaneDiagnosticSummary({
+  required DateTime? observedAt,
+  required DateTime now,
+}) {
+  const base = '外部网络观察暂未通过；核心、系统服务和运行配置仍保持连接';
+  if (observedAt == null) return base;
+  final seconds = now.difference(observedAt).inSeconds;
+  // 时钟回拨、或跨会话残留的旧时间戳，都不足以支撑「刚刚观察过」的措辞。
+  if (seconds < 0 || seconds > 3600) return base;
+  return '外部网络观察暂未通过（最近一次观察 $seconds 秒前）；'
+      '核心、系统服务和运行配置仍保持连接';
+}
+
 /// Read-only diagnostics and narrowly scoped, platform-owned repair hooks.
 mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
   static int _nextLogSession = 0;
@@ -35,6 +56,9 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
   String? get lastRuntimePortAdjustmentMessage;
   String? get connectivityWarning;
   String? get dataPlaneConnectivityWarning;
+
+  /// 最近一次数据面观察完成的时间；null 表示平台没有可用的时间戳。
+  DateTime? get dataPlaneObservationAt;
   String get recentLogs => _logBuffer;
   String get configPath;
   @protected
@@ -117,7 +141,7 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
       log('诊断检查 $id 超时');
       return null;
     } catch (error) {
-      log('诊断检查 $id 失败: cause=${_safeRuntimeLogErrorCode(error)}');
+      log('诊断检查 $id 失败: cause=${safeRuntimeErrorCode(error)}');
       return null;
     }
   }
@@ -272,11 +296,14 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
         dataPlaneWarning != null &&
         dataPlaneWarning.isNotEmpty) {
       checks.add(
-        const AppDiagnosticCheck(
+        AppDiagnosticCheck(
           id: 'data_plane',
           title: '节点与外部网络',
           status: AppDiagnosticStatus.warning,
-          summary: '外部网络观察暂未通过；核心、系统服务和运行配置仍保持连接',
+          summary: buildDataPlaneDiagnosticSummary(
+            observedAt: dataPlaneObservationAt,
+            now: (clock ?? DateTime.now)(),
+          ),
           errorCode: AppErrorCode.dataPlaneDegraded,
         ),
       );
