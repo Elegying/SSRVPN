@@ -2,6 +2,43 @@ part of 'clash_service_base.dart';
 
 final Object _dataPlaneObservationEpochZoneKey = Object();
 
+/// Builds the comparison key the network-change watch looks at.
+///
+/// An interface that already has an IPv4 address is identified by IPv4 alone.
+/// IPv6 privacy/temporary addresses rotate on an otherwise unchanged interface
+/// (macOS regenerates them roughly once a day), so including them would report
+/// a "physical network change" on a schedule and trigger a full re-probe — up
+/// to ~41s of requests — plus a spurious advisory warning. Real changes are
+/// still caught: a Wi-Fi/Ethernet switch changes the interface set, and a
+/// reconnect to a different network changes the IPv4 address.
+///
+/// An interface with no IPv4 address has nothing else to be identified by, so
+/// its IPv6 addresses are kept. That covers IPv6-only networks.
+///
+/// Takes the enumerated addresses rather than enumerating itself so the
+/// selection rule can be tested without real interfaces.
+@visibleForTesting
+String networkFingerprintOf(Map<String, List<InternetAddress>> interfaces) {
+  final parts = <String>[];
+  for (final entry in interfaces.entries) {
+    final ipv4 = entry.value
+        .where((address) => address.type == InternetAddressType.IPv4)
+        .map((address) => address.address)
+        .toList()
+      ..sort();
+    final addresses = <String>[...ipv4];
+    if (ipv4.isEmpty) {
+      addresses.addAll(entry.value
+          .where((address) => address.type == InternetAddressType.IPv6)
+          .map((address) => address.address));
+      addresses.sort();
+    }
+    parts.add('${entry.key}:${addresses.join(',')}');
+  }
+  parts.sort();
+  return parts.join('|');
+}
+
 /// Advisory node/internet state that is deliberately separate from the
 /// process, service and runtime-configuration lifecycle.
 mixin _ClashDataPlaneSupport {
@@ -255,14 +292,9 @@ mixin _ClashDataPlaneSupport {
   Future<String?> buildNetworkFingerprint() async {
     final interfaces = await NetworkInterface.list(
         includeLoopback: false, includeLinkLocal: false);
-    final parts = <String>[];
-    for (final interface in interfaces) {
-      final addresses =
-          interface.addresses.map((entry) => entry.address).toList()..sort();
-      parts.add('${interface.name}:${addresses.join(',')}');
-    }
-    parts.sort();
-    return parts.join('|');
+    return networkFingerprintOf({
+      for (final interface in interfaces) interface.name: interface.addresses,
+    });
   }
 
   @visibleForTesting

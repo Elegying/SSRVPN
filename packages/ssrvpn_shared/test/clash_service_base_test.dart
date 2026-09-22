@@ -3062,6 +3062,69 @@ proxies:
     },
   );
 
+  group('networkFingerprintOf', () {
+    List<InternetAddress> addresses(List<String> raw) =>
+        raw.map(InternetAddress.new).toList();
+
+    test('an IPv6 privacy-address rotation is not a network change', () {
+      // Same interface, same IPv4, new temporary IPv6 address. macOS rotates
+      // these about once a day; treating it as a change would re-probe the data
+      // plane (~41s worst case) and raise an advisory warning on a schedule.
+      final before = networkFingerprintOf({
+        'en0': addresses(['10.0.0.2', 'fd00::1', 'fe80::1']),
+      });
+      final after = networkFingerprintOf({
+        'en0': addresses(['10.0.0.2', 'fd00::9', 'fe80::1']),
+      });
+      expect(after, before);
+    });
+
+    test('a real switch is still a network change', () {
+      final wifi = networkFingerprintOf({
+        'en0': addresses(['10.0.0.2', 'fd00::1']),
+      });
+      final ethernet = networkFingerprintOf({
+        'en1': addresses(['192.168.1.9', 'fd00::1']),
+      });
+      expect(ethernet, isNot(wifi));
+
+      final reconnected = networkFingerprintOf({
+        'en0': addresses(['192.168.1.9', 'fd00::1']),
+      });
+      expect(reconnected, isNot(wifi));
+    });
+
+    test('an IPv6-only interface keeps its IPv6 identity', () {
+      final before = networkFingerprintOf({
+        'en0': addresses(['fd00::1', 'fe80::1']),
+      });
+      final after = networkFingerprintOf({
+        'en0': addresses(['fd00::9', 'fe80::1']),
+      });
+      expect(before, 'en0:fd00::1,fe80::1');
+      expect(after, isNot(before));
+    });
+
+    test('IPv4-only interfaces ignore nothing and stay order independent', () {
+      expect(
+        networkFingerprintOf({
+          'en1': addresses(['192.168.1.9']),
+          'en0': addresses(['10.0.0.2']),
+        }),
+        networkFingerprintOf({
+          'en0': addresses(['10.0.0.2']),
+          'en1': addresses(['192.168.1.9']),
+        }),
+      );
+      expect(
+        networkFingerprintOf({
+          'en0': addresses(['10.0.0.2']),
+        }),
+        'en0:10.0.0.2',
+      );
+    });
+  });
+
   group('ClashServiceBase diagnostics', () {
     test('reports missing core and config with stable error codes', () async {
       final tempDir = await Directory.systemTemp.createTemp(
