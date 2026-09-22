@@ -17,13 +17,29 @@ class SsrvpnLiquidDialog extends StatelessWidget {
   final double? elevation;
   final ShapeBorder? shape;
   @override
-  Widget build(BuildContext context) => Dialog(
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        insetPadding: insetPadding,
-        child: SsrvpnLiquidSurface(radius: 20, child: child),
-      );
+  Widget build(BuildContext context) {
+    // `backgroundColor` is the opaque "frosted" surface callers ask for. It is
+    // ignored by the underlying glass material unless threaded through as a
+    // high-opacity tint: a dialog whose backing is left at the default ~16%
+    // glass alpha is nearly invisible over busy wallpaper and the text on it
+    // becomes unreadable. `Colors.transparent` opts back into the fully clear
+    // look for callers that intentionally float on the backdrop.
+    final bg = backgroundColor;
+    final tint = (bg == null || bg.a == 0) ? null : bg;
+    final tintOpacity = (bg == null || bg.a == 0) ? null : 0.82;
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: insetPadding,
+      child: SsrvpnLiquidSurface(
+        radius: 20,
+        tint: tint,
+        tintOpacity: tintOpacity,
+        child: child,
+      ),
+    );
+  }
 }
 
 /// Standard alert content/actions on the same material as our tutorial panels.
@@ -43,6 +59,7 @@ class SsrvpnLiquidAlertDialog extends StatelessWidget {
   final EdgeInsetsGeometry contentPadding;
   @override
   Widget build(BuildContext context) => SsrvpnLiquidDialog(
+        backgroundColor: backgroundColor,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 440),
           child: Column(mainAxisSize: MainAxisSize.min, children: [

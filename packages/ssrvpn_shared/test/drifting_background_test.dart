@@ -67,7 +67,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('wallpaper moves only while resumed and respects reduced motion',
+  testWidgets('wallpaper moves while a visible window only loses focus',
       (tester) async {
     Widget page({bool reduce = false}) => MaterialApp(
           home: MediaQuery(
@@ -87,11 +87,15 @@ void main() {
     final initial = position();
     await tester.pump(const Duration(seconds: 6));
     expect(position(), isNot(initial));
+    // `inactive` is a focus change, not a hidden window: the desktop runner
+    // reports it while the surface is still visible, so a wallpaper the user
+    // explicitly enabled must keep drifting.
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     await tester.pump();
-    final inactive = position();
+    final unfocused = position();
     await tester.pump(const Duration(seconds: 6));
-    expect(position(), inactive);
+    expect(position(), isNot(unfocused));
+    // Only a definite pause hides the window, and that must freeze it.
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pump();
     final paused = position();

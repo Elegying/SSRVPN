@@ -115,28 +115,39 @@ class _SsrvpnGlassCaptureState extends State<SsrvpnGlassCapture>
     if (state == AppLifecycleState.resumed) {
       // Return with fresh pixels rather than a frame held across the pause.
       _lastRasterFrame = null;
-      _scheduleCapture();
     }
+    // Every transition is a chance to (re)install the texture, including one
+    // that arrives while the surface is merely unfocused. A pause still
+    // declines in `_scheduleCapture`, so this cannot rasterize in the
+    // background.
+    _scheduleCapture();
+  }
+
+  /// Whether a capture is allowed right now.
+  ///
+  /// A definite `paused`/`detached` is a real reason to hold off. `inactive`
+  /// is not: on desktop it is an ordinary focus change while the window stays
+  /// visible, and the Windows runner never notifies Flutter from
+  /// `WM_ACTIVATE`, so a freshly launched window can sit in `inactive` (or
+  /// with no reported state at all) until Flutter's own focus handling runs.
+  bool get _mayCapture {
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    return lifecycle == null ||
+        (lifecycle != AppLifecycleState.paused &&
+            lifecycle != AppLifecycleState.detached);
   }
 
   void _scheduleCapture() {
     // Minimal/high-contrast surfaces do not consume a texture. Avoid queuing
     // a no-op callback on every wallpaper paint; re-enabling or resuming calls
     // this method again and captures the latest background revision.
-    final lifecycle = WidgetsBinding.instance.lifecycleState;
-    if (_queued ||
-        !mounted ||
-        !_enabled ||
-        (lifecycle != null && lifecycle != AppLifecycleState.resumed)) {
+    if (_queued || !mounted || !_enabled || !_mayCapture) {
       return;
     }
     _queued = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _queued = false;
-      final lifecycle = WidgetsBinding.instance.lifecycleState;
-      if (!mounted ||
-          !_enabled ||
-          (lifecycle != null && lifecycle != AppLifecycleState.resumed)) {
+      if (!mounted || !_enabled || !_mayCapture) {
         return;
       }
       final boundary = _key?.currentContext?.findRenderObject();
@@ -145,6 +156,12 @@ class _SsrvpnGlassCaptureState extends State<SsrvpnGlassCapture>
           !boundary.readyToCapture ||
           !boundary.hasSize ||
           boundary.size.isEmpty) {
+        // Not paintable yet. This is not a dead end: the source repaints on
+        // its own cadence and calls `onBackgroundPaint` again, and every
+        // lifecycle transition calls this method, so a later attempt
+        // succeeds. Retrying here instead would spin forever whenever the
+        // source legitimately stops painting, which is exactly what a static
+        // wallpaper does.
         return;
       }
       final dpr = View.of(context).devicePixelRatio;

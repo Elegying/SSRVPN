@@ -74,12 +74,33 @@ class _SsrvpnDriftingBackgroundState extends State<SsrvpnDriftingBackground>
 
   void _routeStatusChanged(AnimationStatus _) => _updateMotion();
 
-  void _updateMotion() {
+  /// Whether the host currently has nothing to hide this surface behind.
+  ///
+  /// Only a definite `paused`/`detached` means the window is gone: those are
+  /// the two states that promise the surface is neither visible nor
+  /// interactive. `inactive` is deliberately *not* one of them — it means
+  /// input went elsewhere, which on desktop is an ordinary focus change
+  /// between two visible windows. The Windows runner never notifies Flutter
+  /// from `WM_ACTIVATE`, so a freshly launched window can stay `inactive` (or
+  /// unreported) until Flutter's own focus handling runs. Treating that as
+  /// "hidden" is what froze the wallpaper on first open, against the user's
+  /// explicit opt-in.
+  ///
+  /// An unreported state (`null`) is treated as active here, unlike the
+  /// connection halo, because this controller only ever runs when the user
+  /// opted in via `drift` — a still wallpaper never reaches `repeat()`.
+  bool get _hostActive {
     final lifecycle = WidgetsBinding.instance.lifecycleState;
+    return lifecycle == null ||
+        (lifecycle != AppLifecycleState.paused &&
+            lifecycle != AppLifecycleState.detached);
+  }
+
+  void _updateMotion() {
     final active = widget.drift &&
         !_reducedMotion &&
         _visible &&
-        lifecycle == AppLifecycleState.resumed &&
+        _hostActive &&
         (_route?.animation == null ||
             _route!.animation!.status == AnimationStatus.completed) &&
         (_route?.secondaryAnimation == null ||
