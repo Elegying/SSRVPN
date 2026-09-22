@@ -156,7 +156,18 @@ class _SsrvpnGlassCaptureState extends State<SsrvpnGlassCapture>
       // wallpaper produces no paint events and therefore no capture loop.
       final contentChanged =
           previous == null || _capturedRevision != boundary.revision;
-      if (!contentChanged && !dprChanged) {
+      // A layout change is the one case where the held texture is *wrong*
+      // rather than merely stale: it is still the old size, so glass would
+      // sample a background short by (elapsed x drag speed) until the next
+      // raster. Measured at 21 device pixels on a 3.0 dpr resize. Compare
+      // against the size `toImageSync` actually produces, which is
+      // ceil(size * dpr).
+      final expectedWidth = (boundary.size.width * dpr).ceil();
+      final expectedHeight = (boundary.size.height * dpr).ceil();
+      final sizeChanged = previous != null &&
+          (previous.image.width != expectedWidth ||
+              previous.image.height != expectedHeight);
+      if (!contentChanged && !dprChanged && !sizeChanged) {
         // Moving a page only changes the sampling origin; its texture stays
         // reusable and republishing it costs no rasterization.
         if (previous.origin == origin) return;
@@ -167,7 +178,10 @@ class _SsrvpnGlassCaptureState extends State<SsrvpnGlassCapture>
       // fresh full-surface texture. A drifting wallpaper would pay it on every
       // frame, so cap it well below the frame rate. The skipped frames move the
       // background by at most a few device pixels, which the glass blur hides.
+      // A resize is exempt: it already repaints every frame, so the cap saves
+      // nothing there while introducing the size error described above.
       if (!dprChanged &&
+          !sizeChanged &&
           previous != null &&
           _lastRasterFrame != null &&
           WidgetsBinding.instance.currentFrameTimeStamp - _lastRasterFrame! <

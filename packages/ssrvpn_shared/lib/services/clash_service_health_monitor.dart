@@ -327,7 +327,13 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
             );
           }
           // The rebuild window is over either way; the outcome notice below
-          // carries the result.
+          // carries the result. This runs unconditionally, including on the
+          // two early returns above that never set the flag. That is only safe
+          // because [setAutoRecoveryInProgress] is idempotent
+          // (`clash_service_connection_progress.dart`): re-setting the same
+          // value returns before touching `_connectionProgress`, so a message
+          // written by another path is never cleared here. Removing that guard
+          // would make this line clobber it.
           setAutoRecoveryInProgress(false);
 
           final intentCurrent = recoveryGeneration != null &&

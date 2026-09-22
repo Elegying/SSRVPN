@@ -145,4 +145,50 @@ void main() {
     await tester.pump();
     expect(images.every((image) => image.debugDisposed), isTrue);
   });
+
+  testWidgets('a resized window never keeps sampling the previous texture',
+      (tester) async {
+    // The texture is reused across frames to save rasterization, but a resize
+    // leaves it at its previous size. Sampling it would hand the glass a
+    // background short by the resize delta until the throttle window closes,
+    // so a size change has to bypass the throttle.
+    tester.view.devicePixelRatio = 3.0;
+    tester.view.physicalSize = const Size(1200, 2400);
+    addTearDown(tester.view.reset);
+
+    SsrvpnGlassFrame? frame;
+    await tester.pumpWidget(MaterialApp(
+      home: glass.LiquidGlassScope(
+        child: SsrvpnGlassCapture(
+          captureSupported: true,
+          child: Stack(fit: StackFit.expand, children: [
+            const SsrvpnGlassBackgroundSource(
+                child: SsrvpnDriftingBackground(
+                    drift: true, child: ColoredBox(color: Colors.blue))),
+            Builder(
+                builder: (context) => ValueListenableBuilder<SsrvpnGlassFrame?>(
+                      valueListenable: SsrvpnGlassFrame.listenableOf(context)!,
+                      builder: (_, value, __) {
+                        frame = value;
+                        return const SizedBox();
+                      },
+                    )),
+          ]),
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(frame, isNotNull);
+    expect(frame!.image.width, 1200);
+
+    // Grow the window by 300 device pixels, then advance only 32ms: still
+    // inside the 100ms raster window, yet the texture must already match.
+    tester.view.physicalSize = const Size(1500, 2400);
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(frame!.image.width, 1500);
+
+    await tester.pumpWidget(const SizedBox());
+  });
 }
