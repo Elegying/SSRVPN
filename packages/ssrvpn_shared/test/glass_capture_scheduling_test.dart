@@ -102,6 +102,63 @@ void main() {
     binding.handleAppLifecycleStateChanged(AppLifecycleState.detached);
   });
 
+  testWidgets('a minimized window (hidden) stops glass rasterization',
+      (tester) async {
+    // `hidden` is the engine's report for a minimized desktop window. The
+    // capture gate must treat it like `paused`/`detached` — a window the user
+    // cannot see must not keep rasterizing a fresh texture.
+    final color = ValueNotifier<Color>(Colors.blue);
+    addTearDown(color.dispose);
+    SsrvpnGlassFrame? frame;
+    Widget page() => MaterialApp(
+          home: glass.LiquidGlassScope(
+            child: SsrvpnGlassCapture(
+              captureSupported: true,
+              child: Stack(fit: StackFit.expand, children: [
+                SsrvpnGlassBackgroundSource(
+                  child: ValueListenableBuilder<Color>(
+                    valueListenable: color,
+                    builder: (_, value, __) => ColoredBox(color: value),
+                  ),
+                ),
+                Builder(
+                    builder: (context) =>
+                        ValueListenableBuilder<SsrvpnGlassFrame?>(
+                          valueListenable: SsrvpnGlassFrame.listenableOf(context)!,
+                          builder: (_, value, __) {
+                            frame = value;
+                            return const SizedBox();
+                          },
+                        )),
+              ]),
+            ),
+          ),
+        );
+
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpWidget(page());
+    await tester.pump();
+    expect(frame, isNotNull);
+    final first = frame!.image;
+    final count = binding.capturesQueued;
+
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    color.value = Colors.green;
+    await tester.pump();
+    await tester.pump();
+    expect(binding.capturesQueued, count,
+        reason: 'minimized window must not rasterize a new texture');
+    expect(frame!.image, same(first));
+
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump();
+    expect(binding.capturesQueued, greaterThan(count));
+
+    await tester.pumpWidget(const SizedBox());
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.detached);
+  });
+
   testWidgets(
       'drifting wallpaper rasterizes far below the wallpaper paint rate',
       (tester) async {

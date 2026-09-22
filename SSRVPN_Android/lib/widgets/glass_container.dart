@@ -107,8 +107,8 @@ class GlassInputDecoration extends InputDecoration {
   }) : super(
           filled: true,
           fillColor: isDark
-              ? Colors.white.withValues(alpha: 10 / 255)
-              : Colors.white.withValues(alpha: 25 / 255),
+              ? Colors.white.withValues(alpha: 28 / 255)
+              : Colors.white.withValues(alpha: 150 / 255),
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           border: OutlineInputBorder(
