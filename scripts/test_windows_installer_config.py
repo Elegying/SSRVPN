@@ -1397,10 +1397,16 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         self.assertIn("ProxyEnable -ne 1) { return $false }", safe_to_stop)
         self.assertIn("if (-not $hasProxyServer) { return $false }", safe_to_stop)
-        self.assertIn("function Test-ProxyRecoveryStatePresent", stopper)
-        recovery_probe = stopper.split(
+        # The probe is defined in the transaction-state helper and consumed
+        # here. Pin both halves of that boundary: moving the definition back
+        # into the stopper reintroduces the hotspot this split relieved.
+        self.assertIn("function Test-ProxyRecoveryStatePresent", transaction_state)
+        self.assertNotIn(
+            "function Test-ProxyRecoveryStatePresent", stopper
+        )
+        recovery_probe = transaction_state.split(
             "function Test-ProxyRecoveryStatePresent", 1
-        )[1].split("function Test-JsonActivationCorroboratedByNative", 1)[0]
+        )[1]
         self.assertIn(
             "HKCU:\\Software\\SSRVPN\\RuntimeProxyBackup", recovery_probe
         )
