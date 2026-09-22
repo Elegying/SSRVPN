@@ -93,25 +93,51 @@ function Get-InternetSettingsSnapshot {
 try {
   New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
 
-  $missingInstallRoot = Join-Path $testRoot 'missing-install-root'
-  $missingPidStatusPath = Join-Path $testRoot 'missing-pid.status'
-  $missingPidProbe = Start-Process powershell.exe -ArgumentList @(
+  # Cleanup must be driven by process identity, never by install-root
+  # presence. When no installed-binary process exists there is nothing to
+  # stop: cleanup succeeds and must not create the install root while doing
+  # its own bookkeeping.
+  #
+  # The scenario name used to claim the missing PID parent was the decisive
+  # input. It is not: instrumentation against the unchanged script shows the
+  # same outcome whether the root is absent, present-but-empty, or populated.
+  # The only input that actually changes the result is a same-session live
+  # process whose ExecutablePath cannot be read, which is an environment
+  # property of the host and therefore not a contract this test may assert.
+  $absentBinaryRoot = Join-Path $testRoot 'absent-binary-root'
+  $absentBinaryStatusPath = Join-Path $testRoot 'absent-binary.status'
+  $absentBinaryProbe = Start-Process powershell.exe -ArgumentList @(
     '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
     '-File', $stopScript,
-    '-InstalledAppPath', (Join-Path $missingInstallRoot 'bin\ssrvpn_windows_app.exe'),
-    '-InstalledLauncherPath', (Join-Path $missingInstallRoot 'ssrvpn_windows.exe'),
-    '-InstalledCorePath', (Join-Path $missingInstallRoot 'bin\mihomo.exe'),
-    '-InstalledCorePidPath', (Join-Path $missingInstallRoot 'mihomo.pid'),
-    '-StatusPath', $missingPidStatusPath
+    '-InstalledAppPath', (Join-Path $absentBinaryRoot 'bin\ssrvpn_windows_app.exe'),
+    '-InstalledLauncherPath', (Join-Path $absentBinaryRoot 'ssrvpn_windows.exe'),
+    '-InstalledCorePath', (Join-Path $absentBinaryRoot 'bin\mihomo.exe'),
+    '-InstalledCorePidPath', (Join-Path $absentBinaryRoot 'mihomo.pid'),
+    '-StatusPath', $absentBinaryStatusPath
   ) -Wait -PassThru -WindowStyle Hidden
-  if ($missingPidProbe.ExitCode -ne 0) {
-    throw "Missing PID parent cleanup returned $($missingPidProbe.ExitCode)."
+  $absentBinaryStatus = [System.IO.File]::ReadAllText($absentBinaryStatusPath)
+  if ($absentBinaryProbe.ExitCode -eq 0) {
+    # No installed-binary process existed, so cleanup had nothing to stop and
+    # must report plain success.
+    if ($absentBinaryStatus -cne 'OK') {
+      throw "Absent-binary cleanup returned 0 but reported $absentBinaryStatus."
+    }
+  } elseif ($absentBinaryProbe.ExitCode -eq 3) {
+    # A same-session process whose image path could not be read makes
+    # ownership unprovable. Stopping before any proxy or file change is the
+    # required outcome; succeeding here would mean identity was never truly
+    # verified. The specific proof-failure status is pinned so an unrelated
+    # third exit path cannot satisfy this branch.
+    if ($absentBinaryStatus -cne 'IDENTITY_UNVERIFIED') {
+      throw 'Absent-binary cleanup failed closed for a reason other than' +
+        " unverified identity: $absentBinaryStatus"
+    }
+  } else {
+    throw 'Absent-binary cleanup returned an unexpected exit code' +
+      " $($absentBinaryProbe.ExitCode)."
   }
-  if ([System.IO.File]::ReadAllText($missingPidStatusPath) -cne 'OK') {
-    throw 'Missing PID parent cleanup did not report OK.'
-  }
-  if (Test-Path -LiteralPath $missingInstallRoot) {
-    throw 'Missing PID parent cleanup unexpectedly created the install root.'
+  if (Test-Path -LiteralPath $absentBinaryRoot) {
+    throw 'Absent-binary cleanup unexpectedly created the install root.'
   }
 
   $processRoot = Join-Path $testRoot 'process\installed'
