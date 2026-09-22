@@ -31,6 +31,13 @@
    make assets
    scripts/verify-core-assets.sh
    ```
+
+   这一步不是可选项：三端随包内核必须是带 SSRVPN 流量统计扩展的定制构建（`native/proxy_traffic/`
+   补丁打进 mihomo/AtlasCore，版本号带 `-ssrvpn.1` 后缀），**不得用官方原版内核替代**。流量统计、
+   首页与常驻通知的代理用量、私家车流量展示、设备数展示都依赖定制内核的 `GET /ssrvpn/traffic`
+   端点；一旦换成官方原版内核，该端点缺失，这些功能会静默失效而不报错。`verify-core-assets.sh`
+   会按来源清单的二进制 SHA-256 fail-closed 校验定制内核，缺失、哈希不符或误用官方内核都会
+   阻断发布。任何情况下都不得为赶发版而跳过或放宽此校验。
    `Prepare Release` 与正式 `Release` 都不得请求上游 GeoIP、判断新旧或改写来源记录；固定
    快照不是最新版也不得阻断发版。完整性、三端一致性和已记录来源仍必须验证通过。
    只有精确 tag 下的 Release/资产 ID、上传完成状态、摘要、commit 与 provenance 全部一致的
