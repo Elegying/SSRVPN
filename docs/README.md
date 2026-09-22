@@ -64,6 +64,7 @@
 - [ADR-017：独立签名规则通道与用户优先分流](decisions/017-independent-routing-channel.md)
 - [ADR-018：规则发布必须经过可靠性审查](decisions/018-rule-publication-review.md)
 - [ADR-019：规则优先的双栈分流与代理内地址选择](decisions/019-dual-stack-routing.md)
+- [ADR-020：安装器只处置可证明归属的系统代理](decisions/020-installer-system-proxy-ownership.md)
 
 ## 文档维护规则
 

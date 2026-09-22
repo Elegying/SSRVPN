@@ -601,6 +601,15 @@ function Test-NativeRecoveryJournalNonReplayable {
   return $true
 }
 
+function Test-ProxyRecoveryStatePresent {
+  $nativePath = 'HKCU:\Software\SSRVPN\RuntimeProxyBackup'
+  if (Test-Path -Path $nativePath) { return $true }
+  if (-not $env:LOCALAPPDATA) { return $false }
+  $jsonPath = Join-Path $env:LOCALAPPDATA `
+    'SSRVPN\runtime\system_proxy_backup.json'
+  return Test-Path -LiteralPath $jsonPath -PathType Leaf
+}
+
 function Test-JsonActivationCorroboratedByNative {
   param(
     [AllowNull()]$Native,
@@ -1082,7 +1091,17 @@ function Test-SystemProxySafeToStop {
       -not $hasAutoDetect -or
       ((Test-DwordFlag -Value $current.AutoDetect) -and
         [int]$current.AutoDetect -eq 0)
+    # A loopback endpoint carrying the conventional bypass list is not, by
+    # itself, evidence that SSRVPN owns the current system proxy. The user's
+    # proxy port is arbitrary, so any local proxy tool can occupy the same shape
+    # with the same override string, and treating that as ownership made a fresh
+    # install fail closed on a machine that never ran SSRVPN. Ownership is only
+    # claimed when this installation still holds proxy recovery state, the same
+    # precondition Repair-InvalidProxyRecoveryState uses before it will write to
+    # Internet Settings. Without it the endpoint is left untouched as foreign.
+    $hasProxyRecoveryState = Test-ProxyRecoveryStatePresent
     $ownedFingerprint =
+      $hasProxyRecoveryState -and
       (Test-OwnedProxyServer -Value $proxyServer) -and
       $hasProxyOverride -and
       [string]$current.ProxyOverride -eq $script:OwnedProxyOverride -and

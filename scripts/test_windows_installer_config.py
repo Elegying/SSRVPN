@@ -1397,6 +1397,29 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         self.assertIn("ProxyEnable -ne 1) { return $false }", safe_to_stop)
         self.assertIn("if (-not $hasProxyServer) { return $false }", safe_to_stop)
+        self.assertIn("function Test-ProxyRecoveryStatePresent", stopper)
+        recovery_probe = stopper.split(
+            "function Test-ProxyRecoveryStatePresent", 1
+        )[1].split("function Test-JsonActivationCorroboratedByNative", 1)[0]
+        self.assertIn(
+            "HKCU:\\Software\\SSRVPN\\RuntimeProxyBackup", recovery_probe
+        )
+        self.assertIn("system_proxy_backup.json", recovery_probe)
+        self.assertIn(
+            "Test-Path -LiteralPath $jsonPath -PathType Leaf", recovery_probe
+        )
+        self.assertIn(
+            "$hasProxyRecoveryState = Test-ProxyRecoveryStatePresent",
+            safe_to_stop,
+        )
+        owned_fingerprint = safe_to_stop.split("$ownedFingerprint =", 1)[1]
+        self.assertLess(
+            owned_fingerprint.index("$hasProxyRecoveryState -and"),
+            owned_fingerprint.index(
+                "(Test-OwnedProxyServer -Value $proxyServer)"
+            ),
+        )
+        self.assertIn("return -not $ownedFingerprint", safe_to_stop)
         self.assertGreaterEqual(stopper.count("$autoDetectDisabled"), 6)
         proxy_gate = runtime_flow.index(
             "if (-not (Test-SystemProxySafeToStop -Backup $proxyBackup"
