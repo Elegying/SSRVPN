@@ -65,6 +65,7 @@
 - [ADR-018：规则发布必须经过可靠性审查](decisions/018-rule-publication-review.md)
 - [ADR-019：规则优先的双栈分流与代理内地址选择](decisions/019-dual-stack-routing.md)
 - [ADR-020：安装器只处置可证明归属的系统代理](decisions/020-installer-system-proxy-ownership.md)
+- [ADR-021：安装/卸载按精确映像名结束随包进程](decisions/021-installer-name-based-process-stop.md)
 
 ## 文档维护规则
 
