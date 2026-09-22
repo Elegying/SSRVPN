@@ -110,6 +110,29 @@ mixin _ClashDataPlaneSupport {
   /// scheduled independently of the periodic control-plane monitor.
   @protected
   void onDataPlaneRouteChanged() {
+    _invalidateDataPlaneObservationAndReprobe();
+  }
+
+  /// Drops every in-flight observation, discards the warning those
+  /// observations may already have published, and schedules one observation of
+  /// the new path.
+  ///
+  /// **Both the route change and the physical network change go through here.**
+  /// `setConnectivityWarning` is epoch-gated, so an observation that started
+  /// before the path changed would otherwise still count as current and publish
+  /// the *old* path's conclusion — for up to `dataPlaneObservationTimeout`.
+  ///
+  /// The replacement observation starts even while the previous one is still
+  /// running, because `Future.timeout` does not cancel its source. That overlap
+  /// is bounded to one extra probe budget, and the stale result is discarded
+  /// twice over: its zone epoch no longer matches, so `setConnectivityWarning`
+  /// refuses it, and `finishObservation` no longer matches
+  /// `_activeDataPlaneObservationEpoch`, so it cannot release the replacement's
+  /// ownership. The route-change path has always behaved this way.
+  ///
+  /// Callers own the user-visible half: clearing the field is silent, so a
+  /// caller that had a warning on screen must notify listeners itself.
+  void _invalidateDataPlaneObservationAndReprobe() {
     _dataPlaneObservationEpoch++;
     _coalescedDataPlaneObservationEpoch = null;
     onDataPlaneObservationSessionReset();
@@ -223,29 +246,41 @@ mixin _ClashDataPlaneSupport {
     _networkFingerprint = null;
   }
 
+  /// Fingerprint compared by the watch, built from the non-loopback interface
+  /// address lists.
+  ///
+  /// Overridable so tests can drive the watch without touching real interfaces.
+  /// Returning null means "unknown" and leaves every piece of state alone.
+  @protected
+  Future<String?> buildNetworkFingerprint() async {
+    final interfaces = await NetworkInterface.list(
+        includeLoopback: false, includeLinkLocal: false);
+    final parts = <String>[];
+    for (final interface in interfaces) {
+      final addresses =
+          interface.addresses.map((entry) => entry.address).toList()..sort();
+      parts.add('${interface.name}:${addresses.join(',')}');
+    }
+    parts.sort();
+    return parts.join('|');
+  }
+
+  @visibleForTesting
+  Future<void> runNetworkChangeCheck() => _checkNetworkChange();
+
   Future<void> _checkNetworkChange() async {
     if (_networkCheckInFlight || !isRunning) return;
     _networkCheckInFlight = true;
     try {
-      final String fingerprint;
+      final String? fingerprint;
       try {
-        final interfaces = await NetworkInterface.list(
-            includeLoopback: false, includeLinkLocal: false);
-        final parts = <String>[];
-        for (final interface in interfaces) {
-          final addresses = interface.addresses
-              .map((entry) => entry.address)
-              .toList()
-            ..sort();
-          parts.add('${interface.name}:${addresses.join(',')}');
-        }
-        parts.sort();
-        fingerprint = parts.join('|');
+        fingerprint = await buildNetworkFingerprint();
       } catch (error) {
         // Enumeration is best-effort. A failure must not disturb any state,
         // and must not be mistaken for a change on the next comparison.
         return;
       }
+      if (fingerprint == null) return;
       final previous = _networkFingerprint;
       _networkFingerprint = fingerprint;
       if (previous == null || previous == fingerprint) return;
@@ -253,8 +288,14 @@ mixin _ClashDataPlaneSupport {
         '物理网络发生变化，立即重新观察数据通道',
         event: 'data_plane_probe',
       );
-      onDataPlaneObservationSessionReset();
-      scheduleDataPlaneObservation(rerunIfActive: true);
+      // Exactly the route-change semantics. Without the epoch bump, an
+      // observation that started on the old network still counts as current and
+      // publishes its stale conclusion. Without the notify, the cleared warning
+      // stays on screen: this path has no caller to do it, unlike
+      // `onDataPlaneRouteChanged` whose caller notifies right after.
+      final hadWarning = _dataPlaneConnectivityWarning != null;
+      _invalidateDataPlaneObservationAndReprobe();
+      if (hadWarning) notifyStatusChanged();
     } finally {
       _networkCheckInFlight = false;
     }

@@ -299,7 +299,9 @@ class ClashConfigGenerator {
     result.writeln('    interval: ${AppConstants.latencyTestInterval}');
     // Without a tolerance the group re-picks on tiny latency differences and
     // resets live connections. Lazy testing leaves idle members alone instead
-    // of probing every node forever.
+    // of probing every node forever. Both fields belong to url-test: the core
+    // parses `tolerance` for this group type only and silently drops it for
+    // `fallback`, so the group below deliberately omits it.
     result.writeln('    tolerance: 50');
     result.writeln('    lazy: true');
     if (includeFallbackGroup) {
@@ -311,7 +313,12 @@ class ClashConfigGenerator {
       }
       result.writeln("    url: ${_quote(healthCheckUrl)}");
       result.writeln('    interval: ${AppConstants.latencyTestInterval}');
-      result.writeln('    tolerance: 50');
+      // No `tolerance` here on purpose. A fallback group picks the first
+      // healthy member rather than the fastest one, so it has no latency
+      // jitter to dampen, and the core does not read the field for this type
+      // at all — writing it would look like protection the group never had.
+      // Verified against the embedded core by feeding an invalid value:
+      // url-test rejects it, fallback accepts it unchanged.
       result.writeln('    lazy: true');
     }
     for (final groupName in normalizedExtraGroupNames) {

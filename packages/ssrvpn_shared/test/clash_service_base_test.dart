@@ -2746,7 +2746,7 @@ proxies:
     service.startStatusMonitor();
     await service.recoveryQueued.future.timeout(const Duration(seconds: 25));
 
-    // Shipped parameters: 3s poll, 3 consecutive failures, 6s grace. The first
+    // Shipped parameters: 3s poll, 3 consecutive failures, 3s grace. The first
     // sample lands at +3s and the third at +9s, which already satisfies both
     // conditions, so recovery must not stack another grace period on top.
     expect(
@@ -2763,6 +2763,18 @@ proxies:
       window.elapsedMilliseconds,
       lessThan(10500),
       reason: '恢复必须在第三次失败处落地（实测约 9.0s），不得漂到第二个周期',
+    );
+    // Read from the service rather than restated in prose, so the numbers above
+    // cannot go stale again. The grace must stay strictly inside the span the
+    // failure threshold already covers (`threshold - 1` poll intervals): tying
+    // the two makes both conditions land on the same tick, and a few
+    // milliseconds of timer jitter then silently drifts the 9s window to 12s —
+    // which is exactly the bug this test guards against.
+    expect(service.shippedPollInterval, const Duration(seconds: 3));
+    expect(
+      service.shippedGrace,
+      lessThan(service.shippedPollInterval * 2),
+      reason: '宽限必须严格小于阈值自带的跨度，否则两个条件会落在同一拍',
     );
   });
 
@@ -2995,6 +3007,55 @@ proxies:
       expect(service.observationCalls, 2);
       expect(service.connectivityWarning, contains('当前节点外部联网告警'));
       expect(service.connectivityWarning, contains('系统代理所有权告警'));
+      expect(service.connectivityWarning, isNot(contains('旧探测')));
+      expect(service.isRunning, isTrue);
+      expect(service.connectionDesired, isTrue);
+    },
+  );
+
+  test(
+    'a physical network change discards stale probes like a route change',
+    () async {
+      final service = _NetworkChangeDataPlaneClashService()
+        ..requestConnectionIntent(true)
+        ..setRunning(true);
+      addTearDown(service.dispose);
+      service.publishDataPlaneWarning('旧节点外部联网告警');
+      service.publishOwnershipWarning('系统代理所有权告警');
+
+      // The first check only records a baseline; nothing is re-probed.
+      service.fingerprint = 'en0:10.0.0.2';
+      await service.checkNetworkChange();
+      expect(service.observationCalls, 0);
+
+      service.scheduleObservationForTest();
+      await service.firstObservationStarted.future;
+
+      final notificationsBeforeChange = service.notifications;
+      service.fingerprint = 'en0:192.168.1.9';
+      await service.checkNetworkChange();
+      await service.secondObservationStarted.future.timeout(
+        const Duration(seconds: 1),
+      );
+
+      expect(service.observationCalls, 2);
+      expect(
+        service.notifications,
+        greaterThan(notificationsBeforeChange),
+        reason: '清掉的告警必须通知出去：这条路径没有调用方替它通知',
+      );
+      expect(service.connectivityWarning, contains('当前节点外部联网告警'));
+      expect(service.connectivityWarning, contains('系统代理所有权告警'));
+      expect(service.connectivityWarning, isNot(contains('旧节点')));
+
+      // The probe that started on the old network settles afterwards. Its epoch
+      // is gone, so it must neither publish nor release the new probe's
+      // ownership.
+      service.firstObservation.complete();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(service.observationCalls, 2);
+      expect(service.connectivityWarning, contains('当前节点外部联网告警'));
       expect(service.connectivityWarning, isNot(contains('旧探测')));
       expect(service.isRunning, isTrue);
       expect(service.connectionDesired, isTrue);
@@ -4222,6 +4283,44 @@ class _RouteDataPlaneClashService extends _TestClashService {
   }
 }
 
+class _NetworkChangeDataPlaneClashService extends _TestClashService {
+  final Completer<void> firstObservationStarted = Completer<void>();
+  final Completer<void> secondObservationStarted = Completer<void>();
+  final Completer<void> firstObservation = Completer<void>();
+  int observationCalls = 0;
+  int notifications = 0;
+  String? fingerprint;
+
+  @override
+  Duration get dataPlaneObservationTimeout => const Duration(seconds: 2);
+
+  @override
+  Future<String?> buildNetworkFingerprint() async => fingerprint;
+
+  void scheduleObservationForTest() => scheduleDataPlaneObservation();
+
+  Future<void> checkNetworkChange() => runNetworkChangeCheck();
+
+  @override
+  void notifyStatusChanged() {
+    notifications++;
+    super.notifyStatusChanged();
+  }
+
+  @override
+  Future<void> observeDataPlaneHealth() async {
+    observationCalls++;
+    if (observationCalls == 1) {
+      firstObservationStarted.complete();
+      await firstObservation.future;
+      setConnectivityWarning('旧探测迟到的外部联网告警');
+      return;
+    }
+    secondObservationStarted.complete();
+    setConnectivityWarning('当前节点外部联网告警');
+  }
+}
+
 class _HangingDiagnosticClashService extends _TestClashService {
   @override
   Duration get diagnosticCheckTimeout => const Duration(milliseconds: 10);
@@ -4356,7 +4455,10 @@ class _ShippedTimingRecoveryClashService extends _TestClashService {
   int stopCalls = 0;
 
   // Deliberately no interval/threshold overrides: this probe measures the
-  // parameters the app actually ships with (3s poll, 3 failures, 6s grace).
+  // parameters the app actually ships with (3s poll, 3 failures, 3s grace).
+  // Surfaced so those numbers cannot drift away from the shipped values again.
+  Duration get shippedPollInterval => statusMonitorInterval;
+  Duration get shippedGrace => healthFailureGrace;
   @override
   Future<bool> healthCheck() async => false;
 
