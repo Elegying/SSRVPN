@@ -269,7 +269,7 @@ class ClashService extends ClashServiceBase
         log('SSRVPN 安装目录匹配数: $matchingDirectoryCount');
       }
     } catch (e) {
-      log('Android 安装目录检查失败: cause=${_safeLogErrorCode(e)}');
+      log('Android 安装目录检查失败: cause=${safeRuntimeErrorCode(e)}');
     }
   }
 
@@ -302,7 +302,7 @@ class ClashService extends ClashServiceBase
         '✅ MMDB 已从内置资源解压 (${(bytes.length / 1024 / 1024).toStringAsFixed(1)} MB)',
       );
     } catch (e) {
-      log('⚠️ 内置资源复制失败: cause=${_safeLogErrorCode(e)}');
+      log('⚠️ 内置资源复制失败: cause=${safeRuntimeErrorCode(e)}');
       log('❌ IP 归属数据库不可用；纯 IP 流量无法按地区识别，未命中规则时按默认代理');
     }
   }
@@ -465,7 +465,7 @@ class ClashService extends ClashServiceBase
             await stop();
             setLastStartError(snapshotError);
           } catch (stopError) {
-            log('VPN 安全回滚未完整结束: cause=${_safeLogErrorCode(stopError)}');
+            log('VPN 安全回滚未完整结束: cause=${safeRuntimeErrorCode(stopError)}');
             setLastStartError('$snapshotError；请重新打开应用后重试');
           }
           return false;
@@ -501,7 +501,7 @@ class ClashService extends ClashServiceBase
       }
       return false;
     } catch (e) {
-      log('❌ VPN 核心启动异常: cause=${_safeLogErrorCode(e)}');
+      log('❌ VPN 核心启动异常: cause=${safeRuntimeErrorCode(e)}');
       setLastStartError(safeUserFacingFailureMessage(e));
       return false;
     }
@@ -534,7 +534,7 @@ class ClashService extends ClashServiceBase
       log('核心已停止');
     } catch (e) {
       stopError = e;
-      log('停止 VPN 核心失败: cause=${_safeLogErrorCode(e)}');
+      log('停止 VPN 核心失败: cause=${safeRuntimeErrorCode(e)}');
     }
 
     final runningAfterStop = stopError == null
@@ -607,7 +607,7 @@ class ClashService extends ClashServiceBase
           // baseline, so recovery cannot clear this newer snapshot.
           log(
             '原生快速启动快照已提交，旧清理事务收口失败: '
-            'cause=${_safeLogErrorCode(error)}',
+            'cause=${safeRuntimeErrorCode(error)}',
           );
         }
 
@@ -667,7 +667,7 @@ class ClashService extends ClashServiceBase
         } catch (error) {
           log(
             '原生快速启动快照已提交，旧数据清理失败: '
-            'cause=${_safeLogErrorCode(error)}',
+            'cause=${safeRuntimeErrorCode(error)}',
           );
         }
         if (!isRunning) await _completePendingSnapshotFileCleanup();
@@ -676,7 +676,7 @@ class ClashService extends ClashServiceBase
     } catch (error) {
       log(
         '原生快速启动数据同步失败，保留上次可用快照: '
-        'cause=${_safeLogErrorCode(error)}',
+        'cause=${safeRuntimeErrorCode(error)}',
       );
       return false;
     }
@@ -831,7 +831,7 @@ class ClashService extends ClashServiceBase
       await prefs.setString('selectedNodeName', nodeName);
       return true;
     } catch (e) {
-      log('更新 VPN 通知失败: cause=${_safeLogErrorCode(e)}');
+      log('更新 VPN 通知失败: cause=${safeRuntimeErrorCode(e)}');
       return false;
     }
   }

@@ -154,7 +154,7 @@ mixin _ClashHealthSupport {
       if (shouldPublish?.call() == false) return false;
       setLastHealthCheckError('CORE_API_UNAVAILABLE: 运行状态检查异常');
       log(
-        '运行状态检查异常: cause=${_safeRuntimeLogErrorCode(error)}',
+        '运行状态检查异常: cause=${safeRuntimeErrorCode(error)}',
         level: RuntimeLogLevel.warning,
         event: 'health_check',
       );
@@ -321,7 +321,7 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
           } catch (error) {
             this.log(
               '运行状态异常后的恢复失败: '
-              'cause=${_safeRuntimeLogErrorCode(error)}',
+              'cause=${safeRuntimeErrorCode(error)}',
               level: RuntimeLogLevel.error,
               event: 'health_recovery',
             );

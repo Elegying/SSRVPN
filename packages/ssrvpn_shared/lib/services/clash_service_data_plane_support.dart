@@ -184,7 +184,7 @@ mixin _ClashDataPlaneSupport {
         }
         log(
           '数据通道观察失败，不影响核心生命周期: '
-          'cause=${_safeRuntimeLogErrorCode(error)}',
+          'cause=${safeRuntimeErrorCode(error)}',
           level: RuntimeLogLevel.warning,
           event: 'data_plane_probe',
         );
@@ -319,7 +319,7 @@ mixin _ClashDataPlaneSupport {
           if (shouldContinue?.call() == false) return null;
           log(
             '外部网络验证 $attempt/$attempts 未通过：'
-            'cause=${_safeRuntimeLogErrorCode(error)}；'
+            'cause=${safeRuntimeErrorCode(error)}；'
             '轮次=${(attempt - 1) ~/ endpoints.length + 1}；'
             '站点=${endpoints[(attempt - 1) % endpoints.length].host}；'
             '路径=${settings.enableTun ? 'TUN' : '本地代理'}，保留当前连接',
@@ -429,7 +429,7 @@ mixin _ClashDataPlaneSupport {
       return info;
     } catch (error) {
       log(
-          '公网 IP 查询暂未完成：cause=${_safeRuntimeLogErrorCode(error)}；'
+          '公网 IP 查询暂未完成：cause=${safeRuntimeErrorCode(error)}；'
           '耗时 ${elapsed.elapsedMilliseconds}ms；不改变当前连接',
           event: 'public_ip');
       rethrow;

@@ -13,7 +13,11 @@ enum LocalMixedProxyReadiness {
 /// completed`）与 `http.ClientException`（`ClientException: Connection closed
 /// before full header was received`）都不含 `socketexception` 这类传输关键词，
 /// 只走字符串匹配会一律落到 `UNKNOWN`，日志因此失去排障价值。
-String _safeRuntimeLogErrorCode(Object error) {
+///
+/// **这是三端唯一的实现**：Android 曾自带一份只做字符串匹配的同名助手，导致
+/// `.timeout()` 自身的 catch 分支把超时写成 `cause=UNKNOWN`。平台侧请直接调用
+/// 本函数（经 `package:ssrvpn_shared/ssrvpn_shared.dart` 可见），不要再复制。
+String safeRuntimeErrorCode(Object error) {
   if (error is TimeoutException) {
     return AppErrorCode.networkTimeout.wireName;
   }
@@ -369,7 +373,7 @@ extension _ControllerReads on ClashServiceBase {
     } catch (error) {
       if (current()) {
         this.log('读取核心状态失败（API ${endpoint.port}）: '
-            'cause=${_safeRuntimeLogErrorCode(error)}');
+            'cause=${safeRuntimeErrorCode(error)}');
       }
       return null;
     } finally {

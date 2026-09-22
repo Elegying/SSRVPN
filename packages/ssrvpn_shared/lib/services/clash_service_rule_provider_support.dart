@@ -165,7 +165,7 @@ mixin _ClashRuleProviderSupport {
     } catch (error) {
       log(
         '智能规则后台检查失败，继续使用现有本地规则: '
-        'cause=${_safeRuntimeLogErrorCode(error)}',
+        'cause=${safeRuntimeErrorCode(error)}',
         level: RuntimeLogLevel.warning,
         event: 'rule_provider_refresh',
       );

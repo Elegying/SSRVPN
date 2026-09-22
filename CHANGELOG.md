@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 自动恢复期间首页显示持续的“正在自动恢复连接…”，取代可能被错过的一闪而过提示。
 - 代理组健康检查补齐参数：`tolerance: 50` 避免因微小延迟差异反复切换节点而重置连接，`lazy: true` 停止对空闲节点的持续探测，检查间隔由 300 秒缩短到 120 秒。默认 `PROXY` 仍是手动 `select` 组，需要自动转移请选择「自动选择」或「故障转移」。
 - 外部网络探测的失败原因不再一律记为 `UNKNOWN`。探测抛出的 `TimeoutException` 与 `http.ClientException` 都不含既有分类器依赖的传输关键词，此前会落到兜底分支，日志只剩 `cause=UNKNOWN`，无法区分超时、连接被关闭还是本地代理不可达；现在先按异常类型判定，分别报出 `NETWORK_TIMEOUT` 与 `NETWORK_UNAVAILABLE`。
+- 三端错误码分类收敛为唯一实现。Android 曾自带一份只做字符串匹配的同名助手（18 处调用），其中 `notifyVpnStateChanged`、`stopCore` 等 `.timeout()` 自身的 catch 分支会把超时写成 `cause=UNKNOWN`，与上一项同一病根。现删除该复制品，三端共用共享层的 `safeRuntimeErrorCode`，并新增护栏禁止平台侧再声明本地错误码助手。
 - 三端探测预算统一为共享常量（6 次尝试 / 1 秒间隔）。此前 Windows 与 macOS 显式传该值，Android 沿用方法默认值（3 次 / 2 秒），同一网络状况下 Android 的误报概率约为桌面的两倍。该值必须写在调用点上：Dart 的默认参数由被调用实现决定，任何覆写都会静默改掉它。另需注意 6 是内部硬上限（`verifyUserConnectivity` 会 `clamp(1, 6)`，因为单轮最坏约 41 秒必须留在 60 秒的观察上限内），调大不会报错但会被静默截断。
 
 ### 其他

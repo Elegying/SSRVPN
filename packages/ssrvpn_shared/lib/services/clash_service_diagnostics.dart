@@ -141,7 +141,7 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
       log('诊断检查 $id 超时');
       return null;
     } catch (error) {
-      log('诊断检查 $id 失败: cause=${_safeRuntimeLogErrorCode(error)}');
+      log('诊断检查 $id 失败: cause=${safeRuntimeErrorCode(error)}');
       return null;
     }
   }

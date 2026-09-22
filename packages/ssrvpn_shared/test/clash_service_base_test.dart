@@ -3359,6 +3359,54 @@ proxies:
       expect(text, isNot(contains('top-secret')));
     });
   });
+
+  group('safeRuntimeErrorCode', () {
+    // 三端（含 Android 原生桥）共用这一个实现。平台侧不要再复制一份只做字符串
+    // 匹配的版本：复制品会让 `.timeout()` 自身的 catch 把超时写成 cause=UNKNOWN。
+    test('classifies by exception type before consulting the message', () {
+      // 下面这些消息里都不含分类器依赖的传输关键词。只做字符串匹配时它们会一律
+      // 落到 UNKNOWN —— 这正是修复前三端日志里的实际表现。
+      expect(
+        safeRuntimeErrorCode(
+          TimeoutException('Future not completed', const Duration(seconds: 3)),
+        ),
+        'NETWORK_TIMEOUT',
+      );
+      expect(
+        safeRuntimeErrorCode(
+          TimeoutException('公网 IP 请求超时', const Duration(seconds: 8)),
+        ),
+        'NETWORK_TIMEOUT',
+      );
+      expect(
+        safeRuntimeErrorCode(SocketException('link down')),
+        'NETWORK_UNAVAILABLE',
+      );
+      expect(
+        safeRuntimeErrorCode(
+          http.ClientException('Connection closed before full header was '
+              'received'),
+        ),
+        'NETWORK_UNAVAILABLE',
+      );
+      expect(
+        safeRuntimeErrorCode(HandshakeException('tls failure')),
+        'SECURE_CONNECTION_FAILED',
+      );
+    });
+
+    test('keeps the keyword fallback for message-only failures', () {
+      expect(
+        safeRuntimeErrorCode(Exception('网络请求超时')),
+        'NETWORK_TIMEOUT',
+      );
+      expect(
+        safeRuntimeErrorCode(Exception('socketexception: connection reset')),
+        'NETWORK_UNAVAILABLE',
+      );
+      expect(safeRuntimeErrorCode(StateError('raw-secret')), 'UNKNOWN');
+    });
+  });
 }
 
 Future<void> _waitForCountrySwitch(bool Function() ready) async {

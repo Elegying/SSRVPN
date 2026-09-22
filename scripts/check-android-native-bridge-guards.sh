@@ -1060,6 +1060,18 @@ fi
 require_file_text "$CLASH_DART" "scheduleUserConnectivityObservation({bool rerunIfActive = false}) =>"
 require_file_text "$CLASH_DART" "scheduleDataPlaneObservation(rerunIfActive: rerunIfActive)"
 require_file_text "$CLASH_NATIVE_BRIDGE" "scheduleUserConnectivityObservation(rerunIfActive: true)"
+# Android 曾自带一份只做字符串匹配的错误码助手，导致 `.timeout()` 自身的 catch
+# 分支把超时写成 cause=UNKNOWN。三端必须共用共享实现，不能再长出本地复制品。
+for android_service in \
+  "$CLASH_DART" \
+  "$CLASH_NATIVE_BRIDGE" \
+  "$ROOT/SSRVPN_Android/lib/services/clash_service_snapshot_cleanup.dart"; do
+  if grep -Eq 'String _[A-Za-z]*ErrorCode\(' "$android_service"; then
+    echo "Android must reuse the shared safeRuntimeErrorCode helper" >&2
+    exit 1
+  fi
+done
+require_file_text "$CLASH_DART" "safeRuntimeErrorCode("
 require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "bypassDomesticApps: Boolean"
 require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "val bypassedDomesticApps = if (bypassDomesticApps)"
 require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "adbPackages.forEach"
