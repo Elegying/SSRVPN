@@ -16,10 +16,10 @@
 ## 2. 安装、升级与用户数据
 
 7. macOS DMG 根目录必须包含 `SSRVPN.app` 和指向 `/Applications` 的快捷方式，支持拖拽安装。
-8. Windows 固定安装到 `%LOCALAPPDATA%\Programs\SSRVPN`，不提供安装目录选择；安装阶段可以请求管理员权限，但不得因此改装到 Program Files。
+8. Windows 默认安装到 `%LOCALAPPDATA%\Programs\SSRVPN`，安装器始终显示安装目录选择页并预填上次选择的目录；安装阶段可以请求管理员权限，但不得因此改装到 Program Files。
 9. Windows 覆盖升级、卸载和保留数据后的重装必须保留安装版订阅、设置、DPAPI 密钥、LocalAppData 回退数据和窗口状态，只替换已知程序文件。
-10. Windows 安装器不得搜索、迁移、合并、修改或删除桌面、下载目录及其他位置的旧独立副本；存在其他运行中副本时，应在改动系统代理前停止安装并提示用户自行退出。
-11. 安装、卸载、退出和异常恢复只可结束路径、PID、会话、创建时间和所有权能够证明属于当前 SSRVPN 安装的进程；不得按 Clash、OpenVPN、WireGuard、Tailscale、ZeroTier 等通用名称结束第三方软件。
+10. Windows 安装器不得搜索、迁移、合并、修改或删除桌面、下载目录及其他位置的旧独立副本的文件；其他运行中副本（含便携版）由安装器按精确映像名自动结束（见规则 11 与 [ADR-021](decisions/021-installer-name-based-process-stop.md)），不要求用户自行退出。
+11. 安装与卸载只可结束映像名精确等于随包可执行文件名（`ssrvpn_windows_app.exe`、`ssrvpn_windows.exe`、`mihomo.exe`）的进程，无论其所在目录（2026-09-22 产品决策，取代按路径证明的旧边界，见 [ADR-021](decisions/021-installer-name-based-process-stop.md)）；应用退出与异常恢复仍只可结束路径、PID、会话、创建时间和所有权能够证明属于当前 SSRVPN 安装的进程；任何场景都不得按 Clash、OpenVPN、WireGuard、Tailscale、ZeroTier 等第三方通用名称结束软件。
 12. 安装或升级事务不明确时必须失败关闭并保留用户数据、安装包和恢复证据，不得用猜测性清理换取继续安装。系统代理状态的归属只能由本安装自身的恢复记录证明，不得凭端点形状、端口或旁路列表推断；无法证明归属的外来系统代理必须原样保留，既不改写也不为其写入恢复记录（见 [ADR-020](decisions/020-installer-system-proxy-ownership.md)）。
 
 ## 3. 订阅与节点数据

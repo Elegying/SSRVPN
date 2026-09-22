@@ -175,10 +175,10 @@ public static class Program {
     Copy-Item -LiteralPath $corePath -Destination $copyPath
   }
 
-  # A portable/older SSRVPN copy can own the app-wide mutex while its process
-  # lives outside the active installation. The installer may stop only exact
-  # installed-path processes, then must abort before touching the shared proxy
-  # journal or WinINet state.
+  # A foreign-NAMED fixture owns the app-wide mutex while no SSRVPN-named
+  # process holds it. Same-named copies anywhere must be stopped by name
+  # (ADR-021); a foreign-named holder must still abort the stopper before it
+  # touches the shared proxy journal or WinINet state.
   $foreignMutexHolderPath = Join-Path $testRoot 'ssrvpn_mutex_holder.exe'
   Add-Type -TypeDefinition @'
 using System;
@@ -248,13 +248,16 @@ public static class SsrvpnMutexHolder {
   if ($foreignInstanceStop.ExitCode -ne 2 -or
       [System.IO.File]::ReadAllText($foreignInstanceStatusPath) -cne
       'APP_INSTANCE_ACTIVE') {
-    throw 'A foreign SSRVPN instance did not stop installer proxy cleanup.'
+    throw 'A foreign-named mutex holder did not stop installer proxy cleanup.'
   }
   if (-not $gatedInstalledApp.HasExited) {
-    throw 'Foreign-instance gate returned before the exact installed app stopped.'
+    throw 'Name-based sweep did not stop the installed app copy.'
   }
-  if ($gatedPortableApp.HasExited -or $foreignMutexHolder.HasExited) {
-    throw 'Foreign-instance gate stopped a portable SSRVPN fixture.'
+  if (-not $gatedPortableApp.HasExited) {
+    throw 'Name-based sweep did not stop a portable SSRVPN copy.'
+  }
+  if ($foreignMutexHolder.HasExited) {
+    throw 'Name-based sweep stopped a foreign-named process.'
   }
   if ([System.IO.File]::ReadAllText($foreignJournalPath) -cne
       $foreignJournalContent) {
@@ -268,8 +271,6 @@ public static class SsrvpnMutexHolder {
       $foreignMutexHolder.ExitCode -ne 0) {
     throw 'Foreign SSRVPN mutex fixture did not release cleanly.'
   }
-  Stop-Process -Id $gatedPortableApp.Id -Force
-  $gatedPortableApp.WaitForExit()
   $foreignMutexHolder.Dispose()
   $foreignMutexHolder = $null
   $gatedInstalledApp.Dispose()
@@ -530,10 +531,13 @@ exit $LASTEXITCODE
   $stoppedThirdPartyProcesses = @(
     $thirdPartyProcesses | Where-Object { $_.HasExited }
   )
-  if ($unrelated.HasExited -or $stoppedThirdPartyProcesses.Count -gt 0 -or
-      $unrelatedApp.HasExited -or
-      $unrelatedLauncher.HasExited) {
-    throw 'Owned installer cleanup stopped an unrelated process.'
+  if ($stoppedThirdPartyProcesses.Count -gt 0) {
+    throw 'Owned installer cleanup stopped a third-party process.'
+  }
+  if (-not $unrelated.HasExited -or
+      -not $unrelatedApp.HasExited -or
+      -not $unrelatedLauncher.HasExited) {
+    throw 'Owned installer cleanup did not stop a same-named copy.'
   }
   if (Test-Path -LiteralPath $pidFile) {
     throw 'Owned installer cleanup retained the stale core PID record.'

@@ -91,9 +91,11 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
    覆盖升级、卸载以及保留数据后的重装都必须保留安装版订阅、设置、DPAPI 密钥、
    LocalAppData 回退数据和窗口状态，前后哈希一致；程序文件、旧恢复状态和两个已知
    WebView 缓存目录必须清理。交互和静默安装完成后都不得自动启动 GUI。
-   另保持已安装实例占用文件，确认安装器会在修改程序文件前阻断；退出实例后重试必须成功。
-   再让其他目录中的 SSRVPN 副本持有全局实例锁：安装器应先结束当前安装路径中的精确进程，
-   但保留外部副本、系统代理和恢复日志，并以 `APP_INSTANCE_ACTIVE` 在文件覆盖前停止。
+   另保持已安装实例占用文件，确认安装器会按映像名结束该实例后继续安装；安装必须成功。
+   再让其他目录中的 SSRVPN 副本（含便携版）持有全局实例锁：安装器应按映像名结束所有
+   同名进程（含外部副本）后继续安装；第三方命名的进程（Clash、OpenVPN 等）不得被结束，
+   其文件与恢复日志不得被搜索、修改或删除。仅当同名进程无法被结束时，才允许以
+   `APP_INSTANCE_ACTIVE` 在文件覆盖前失败关闭。
 11. 先确认未连接启动和首页初始化不会发起更新请求；连接节点后，应用内更新必须只从
    `Elegying/SSRVPN` 的正式 GitHub Release 读取并下载固定资产 `SSRVPN_Setup.exe` 及 SHA-256，
    不得请求 OSS `latest.json` 或 OSS 安装包。校验通过后必须使用 Windows Known Folder
