@@ -96,7 +96,7 @@ Windows 安装器未签名；Android 使用固定自签名证书谱系支持覆�
   适合游戏和不读取系统代理的程序。
 - 桌面端支持 mixed、SOCKS 和本地控制 API 端口；冲突时可在安全边界内选择临时端口并显示变化。
 - TUN 配置支持 Mihomo 的 `gvisor`、`system` 和 `mixed` 栈值，非法旧设置回退到安全默认值。
-- 三端核心和 DNS 启用 IPv6，TUN 接管 IPv4 / IPv6 并沿用相同分流规则。代理域名目标优先尝试 IPv4，并在有限预算内尝试备用地址；IPv6-only 代理目标需要节点具备 IPv6 出口，不会在代理失败后自动改为直连。设计与限制见 [双栈分流说明](decisions/018-dual-stack-routing.md)。
+- 三端核心和 DNS 启用 IPv6，TUN 接管 IPv4 / IPv6 并沿用相同分流规则。代理域名目标优先尝试 IPv4，并在有限预算内尝试备用地址；IPv6-only 代理目标需要节点具备 IPv6 出口，不会在代理失败后自动改为直连。设计与限制见 [双栈分流说明](decisions/019-dual-stack-routing.md)。
 
 ## 连接状态、健康与恢复
 

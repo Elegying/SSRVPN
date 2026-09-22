@@ -1,7 +1,7 @@
 # SSRVPN 三端双栈分流与 IPv6 处理规范
 
 > 本文取代此前的「三端 IPv4-only 与 IPv6 防绕过规范」。自 5.0.12 起三端启用双栈，
-> 决策与限制以 [ADR-018](decisions/018-dual-stack-routing.md) 为准；本文只描述可验证的
+> 决策与限制以 [ADR-019](decisions/019-dual-stack-routing.md) 为准；本文只描述可验证的
 > 行为约束与验收标准。
 
 ## 目标

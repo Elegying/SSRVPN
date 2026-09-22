@@ -60,7 +60,10 @@
 - [ADR-013：客户端连接后仅使用 GitHub Releases 更新](decisions/013-github-release-connected-update.md)
 - [ADR-014：GeoIP 仅按明确指令手动更新](decisions/014-manual-only-geoip-updates.md)
 - [ADR-015：智能模式使用 GFW 代理与默认直连（已取代）](decisions/015-gfw-proxy-default-direct-routing.md)
-- [ADR-016：分层智能路由与可用性优先的代理兜底](decisions/016-layered-smart-routing-safe-fallback.md)
+- [ADR-016：分层智能路由与可用性优先的代理兜底（部分由 ADR-017 与 ADR-019 取代）](decisions/016-layered-smart-routing-safe-fallback.md)
+- [ADR-017：独立签名规则通道与用户优先分流](decisions/017-independent-routing-channel.md)
+- [ADR-018：规则发布必须经过可靠性审查](decisions/018-rule-publication-review.md)
+- [ADR-019：规则优先的双栈分流与代理内地址选择](decisions/019-dual-stack-routing.md)
 
 ## 文档维护规则
 
