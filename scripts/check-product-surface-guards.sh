@@ -443,5 +443,24 @@ if "_checkUpdateDelayed" in desktop_init:
         f"{desktop_home_path}: desktop startup must not check updates before connection"
     )
 
+hard_rule_path = Path("docs/PRODUCT_REQUIREMENTS.zh-CN.md")
+hard_rule_lines = read_source(hard_rule_path).splitlines()
+hard_rule_end = len(hard_rule_lines)
+for index, line in enumerate(hard_rule_lines):
+    if line.startswith("## 规则变更流程"):
+        hard_rule_end = index
+        break
+hard_rule_numbers = [
+    int(match.group(1))
+    for line in hard_rule_lines[:hard_rule_end]
+    for match in (re.match(r"^(\d+)\.\s", line),)
+    if match
+]
+if hard_rule_numbers != list(range(1, len(hard_rule_numbers) + 1)):
+    raise SystemExit(
+        f"{hard_rule_path}: hard rules must be numbered 1..N contiguously and in order; "
+        f"found {hard_rule_numbers}"
+    )
+
 print("Shared three-page product surface guards passed.")
 PY
