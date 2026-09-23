@@ -311,7 +311,8 @@ Future<WindowsTunResidualProbeResult> probeWindowsTunResidual(
         const <WindowsTunInterfaceIdentity>{},
     Set<WindowsTunInterfaceIdentity> baselineInterfaces =
         const <WindowsTunInterfaceIdentity>{},
-    bool discoverLegacySignatures = false}) async {
+    bool discoverLegacySignatures = false,
+    Future<ProcessResult> Function(String script)? scriptRunner}) async {
   if (!Platform.isWindows) return _tunResidualProbeFailed;
   try {
     if (expectedInterfaces.isEmpty &&
@@ -481,7 +482,11 @@ $ownedInterfaces = @(
 )
 $signatureInterfaces = @(
   $allAdapters | Where-Object {
-    $postStartSignatureIndexes -contains [int]$_.ifIndex
+    $guid = ([Guid]$_.InterfaceGuid).ToString('D').ToLowerInvariant()
+    # Address signatures alone do not establish ownership of a preexisting VPN.
+    # Legacy recovery is separately gated by its full address+route signature.
+    ($postStartSignatureIndexes -contains [int]$_.ifIndex) -and
+      ($discoverLegacySignatures -or $baselineGuids -notcontains $guid)
   } | ForEach-Object {
     [pscustomobject]@{
       Index = [int]$_.ifIndex
@@ -550,18 +555,20 @@ if ($artifacts.Count -eq 0) {
           '__ROUTE_DESTINATIONS__',
           _tunRouteDestinations.map((value) => "'$value'").join(', '),
         );
-    final result = await TimedProcessRunner.run(
-      windowsPowerShellExecutable(),
-      [
-        '-NoLogo',
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        windowsPowerShellUtf8Script(script),
-      ],
-      timeout: _windowsNetworkCmdletTimeout,
-      timeoutStderr: 'Windows TUN residual probe timed out',
-    );
+    final result = scriptRunner != null
+        ? await scriptRunner(script)
+        : await TimedProcessRunner.run(
+            windowsPowerShellExecutable(),
+            [
+              '-NoLogo',
+              '-NoProfile',
+              '-NonInteractive',
+              '-Command',
+              windowsPowerShellUtf8Script(script),
+            ],
+            timeout: _windowsNetworkCmdletTimeout,
+            timeoutStderr: 'Windows TUN residual probe timed out',
+          );
     if (result.exitCode != 0) return _tunResidualProbeFailed;
     return parseWindowsTunResidualProbeOutput(result.stdout.toString());
   } catch (_) {
