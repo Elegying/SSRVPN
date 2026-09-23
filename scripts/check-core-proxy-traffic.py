@@ -113,6 +113,14 @@ def wait_for_core(process, log, api, mixed):
         raise AssertionError('core API or proxy listener did not start: ' + log.read())
 
 
+def require_custom_version(api):
+    status, body = request(api, '/version')
+    payload = json.loads(body)
+    version = payload.get('version') if isinstance(payload, dict) else None
+    if status != 200 or not isinstance(version, str) or not version.endswith('-ssrvpn.1'):
+        raise AssertionError(f'Expected SSRVPN custom core version, got {version!r}')
+
+
 def run(core):
     with ExitStack() as stack:
         folder = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix='ssrvpn-traffic-check-')))
@@ -155,6 +163,7 @@ rules:
                 process.wait()
         stack.callback(stop)
         wait_for_core(process, log, api, mixed)
+        require_custom_version(api)
         assert request(api, '/ssrvpn/traffic', False)[0] == 401
 
         def sample():

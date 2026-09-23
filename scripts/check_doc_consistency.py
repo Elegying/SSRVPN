@@ -262,6 +262,43 @@ def _is_external(target: str) -> bool:
     return bool(parsed.scheme or parsed.netloc)
 
 
+HARD_RULES_PATH = "docs/PRODUCT_REQUIREMENTS.zh-CN.md"
+
+
+def hard_rule_numbering(markdown: str) -> list[str]:
+    parts = re.split(r"^## 规则变更流程[ \t]*$", strip_code(markdown), flags=re.MULTILINE)
+    if len(parts) != 2:
+        return ["hard rules must have exactly one change-process boundary"]
+    numbers = [int(value) for value in re.findall(r"^(\d+)\.\s", parts[0], re.MULTILINE)]
+    if not numbers or numbers != list(range(1, len(numbers) + 1)):
+        return [f"hard rules must be numbered 1..N contiguously and in order; found {numbers}"]
+    return []
+
+
+def current_policy_claims(root: Path, relative_name: str, markdown: str) -> list[str]:
+    findings: list[str] = []
+    if relative_name == ".github/PULL_REQUEST_TEMPLATE.md":
+        # This checklist declares the current baseline, not historical policy.
+        text = markdown.replace("`", "")
+        if re.search(r"两页(?:产品)?结构|IPv4-only[ \t]*(?:路由|routing)", text, re.IGNORECASE):
+            findings.append("PR checklist contradicts the three-page dual-stack product baseline")
+        if "三页" not in text or "双栈" not in text:
+            findings.append("PR checklist must preserve the three-page dual-stack baseline")
+    if relative_name == "docs/PROJECT_HEALTH.md":
+        # Older release sections are evidence, not assertions about this candidate.
+        current = "## ".join(re.split(r"^## ", markdown, maxsplit=2, flags=re.MULTILINE)[:2])
+        if re.search(r"第三方代理\s*[/／]\s*VPN\s*软件不受影响", current):
+            findings.append("installer may stop third-party processes with the same exact image name")
+        counts = re.findall(r"硬(?:性)?规则清单[^\n。]*?1\.\.(\d+)", current)
+        if counts:
+            source = root / HARD_RULES_PATH
+            rules = source.read_text(encoding="utf-8") if source.is_file() else ""
+            count = len(re.findall(r"^(\d+)\.\s", strip_code(rules).split("## 规则变更流程")[0], re.MULTILINE))
+            if any(int(documented) != count for documented in counts):
+                findings.append(f"stale hard-rule count; actual count is {count}")
+    return findings
+
+
 def validate(root: Path, docs: list[str], *, links_only: bool = False) -> list[str]:
     errors: list[str] = []
     root = root.resolve()
@@ -294,6 +331,9 @@ def validate(root: Path, docs: list[str], *, links_only: bool = False) -> list[s
                 errors.append(f"{relative_name}: broken local link: {target}")
 
         if not links_only:
+            if relative_name == HARD_RULES_PATH:
+                errors.extend(f"{relative_name}: {finding}" for finding in hard_rule_numbering(markdown))
+            errors.extend(f"{relative_name}: {finding}" for finding in current_policy_claims(root, relative_name, markdown))
             for finding in stale_claims(markdown):
                 errors.append(f"{relative_name}: {finding}")
             for finding in stale_release_instructions(markdown):

@@ -21,5 +21,8 @@ if [[ "${#all_docs[@]}" -eq 0 ]]; then
 fi
 
 python3 "$ROOT/scripts/check_doc_consistency.py" --self-test
+# Critical policy files remain mandatory even when a docs-only change deletes one.
+python3 "$ROOT/scripts/check_doc_consistency.py" "$ROOT" \
+  docs/PRODUCT_REQUIREMENTS.zh-CN.md .github/PULL_REQUEST_TEMPLATE.md docs/PROJECT_HEALTH.md
 python3 "$ROOT/scripts/check_doc_consistency.py" --links-only "$ROOT" "${all_docs[@]}"
 python3 "$ROOT/scripts/check_doc_consistency.py" "$ROOT" "${current_docs[@]}"

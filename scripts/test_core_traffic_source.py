@@ -25,6 +25,18 @@ probe_spec.loader.exec_module(probe)
 
 
 class CoreTrafficReadinessTests(unittest.TestCase):
+    def test_live_version_requires_custom_identity(self):
+        for value in ('v1.19.29-ssrvpn.1', '7031b756-ssrvpn.1'):
+            with patch.object(probe, 'request', return_value=(200, json.dumps({'version': value}).encode())):
+                probe.require_custom_version(1234)
+        for status, payload in ((200, {'version': 'v1.19.29'}), (200, {}),
+                                (200, {'version': None}), (200, []),
+                                (401, {'version': 'v1.19.29-ssrvpn.1'})):
+            with self.subTest(status=status, payload=payload), \
+                    patch.object(probe, 'request', return_value=(status, json.dumps(payload).encode())), \
+                    self.assertRaisesRegex(AssertionError, 'custom core version'):
+                probe.require_custom_version(1234)
+
     def test_mixed_port_skips_udp_reservation_and_releases_probes(self):
         sockets = [MagicMock() for _ in range(4)]
         for item in sockets:
