@@ -2,8 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ssrvpn_shared/services/clash_config_generator.dart';
-import 'package:ssrvpn_shared/services/subscription_parser.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
   final core = File('assets/mihomo.exe').absolute;

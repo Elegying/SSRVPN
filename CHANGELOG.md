@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 订阅与连接
 
+- 逐条隔离分享链接的解析错误，查询参数含非法 UTF-8 编码时跳过坏链接，保留同批次的正常节点。
+
 - 修复 SS 分享链接的 SIP002 插件参数转换：将插件名与选项分开交给内核，支持 simple-obfs
   别名和转义参数；恢复旧式完整 Base64 SS 链接的导入，并保留大小写及密码中的特殊字符。
 - 修复 HY2 分享链接省略端口时无法导入的问题，按协议默认使用 443；支持在地址中携带

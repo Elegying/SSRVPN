@@ -21,6 +21,16 @@ class _SubscriptionUriParser {
   }
 
   static Map<String, dynamic>? proxyFromUri(String line) {
+    try {
+      return _parseUri(line.trim());
+    } on FormatException {
+      // Query decoding can fail after Uri.tryParse succeeds. One malformed
+      // share link must not discard every valid sibling in a subscription.
+      return null;
+    }
+  }
+
+  static Map<String, dynamic>? _parseUri(String line) {
     if (_SsrSubscriptionParser.isSsrLink(line)) {
       try {
         final yaml = _SsrSubscriptionParser.importSsrLink(line);

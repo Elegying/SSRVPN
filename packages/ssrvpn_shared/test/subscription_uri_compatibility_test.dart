@@ -4,6 +4,22 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/services/subscription_parser.dart';
 
 void main() {
+  test('malformed UTF-8 query parameters cannot poison a mixed subscription',
+      () {
+    final invalid = [
+      for (final scheme in ['ss', 'trojan', 'anytls', 'hy2', 'vless', 'tuic'])
+        '$scheme://aes-128-gcm:fixture@host.test:443/?sni=%FF',
+    ];
+    for (final link in invalid) {
+      expect(SubscriptionParser.proxyFromUri(link), isNull, reason: link);
+    }
+    final yaml = SubscriptionParser.uriListToYaml([
+      ...invalid,
+      'hy2://fixture@host.test#Valid',
+    ].join('\n'))!;
+    expect(SubscriptionParser.parseYaml(yaml).nodes.single.name, 'Valid');
+  });
+
   test('SIP002 simple-obfs options become runnable Mihomo plugin options', () {
     final plugin =
         Uri.encodeComponent('obfs-local;obfs=tls;obfs-host=cdn.example.test');
