@@ -56,6 +56,8 @@ void main() {
     'socks5': 'socks5://user:fixture@127.0.0.1:1080',
     'http': 'http://user:fixture@127.0.0.1:8080',
     'https': 'https://user:fixture@127.0.0.1:8443',
+    'http-default-port': 'http://user:fixture@127.0.0.1:80',
+    'https-default-port': 'https://user:fixture@127.0.0.1:443',
   };
   for (final entry in fixtures.entries) {
     test('bundled core accepts imported ${entry.key}', () async {

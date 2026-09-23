@@ -19,6 +19,26 @@ void _expectIsolated(List<String> invalid) {
 }
 
 void main() {
+  test('HTTP proxy links retain explicit default ports after URI normalization',
+      () {
+    for (final entry in {'http': 80, 'https': 443}.entries) {
+      for (final host in ['127.0.0.1', '[2001:db8::1]']) {
+        final proxy = SubscriptionParser.proxyFromUri(
+            '${entry.key}://user:fixture@$host:${entry.value}')!;
+        expect(proxy['port'], entry.value);
+        expect(proxy['username'], 'user');
+        expect(proxy['password'], 'fixture');
+        expect(proxy['tls'], entry.key == 'https' ? isTrue : isNull);
+      }
+      for (final suffix in ['', ':0', ':65536']) {
+        expect(
+            SubscriptionParser.proxyFromUri(
+                '${entry.key}://user:fixture@127.0.0.1$suffix'),
+            isNull);
+      }
+    }
+  });
+
   test('SS plugins cannot silently fall back on cores without the plugin', () {
     _expectIsolated(
         [_ss('jls;host=localhost;username=fixture;password=fixture')]);

@@ -66,7 +66,17 @@ class _SubscriptionUriParser {
     if (scheme == 'tuic') return _parseTuicUri(uri);
     if (scheme == 'snell') return _parseSnellUri(uri);
     if (_isSocksScheme(scheme)) return _parseSocksUri(uri);
-    if (scheme == 'http' || scheme == 'https') return _parseHttpUri(uri);
+    if (scheme == 'http' || scheme == 'https') {
+      // Uri removes explicit :80/:443 from HTTP(S) authorities. Inspect the
+      // input so these proxy ports remain valid while bare subscription URLs
+      // and an explicit :0 are not reinterpreted as default-port proxies.
+      final authority =
+          line.substring(line.indexOf('://') + 3).split(RegExp(r'[/?#]')).first;
+      final rawPort = RegExp(r':(\d+)$').firstMatch(authority)?.group(1);
+      final port = int.tryParse(rawPort ?? '');
+      if (port == null || port < 1 || port > 65535) return null;
+      return _parseHttpUri(uri, port);
+    }
 
     if (uri.host.isEmpty || uri.port <= 0) return null;
     final password = _decodeUriPart(uri.userInfo);
@@ -520,16 +530,12 @@ class _SubscriptionUriParser {
     return proxy;
   }
 
-  static Map<String, dynamic>? _parseHttpUri(Uri uri) {
-    if (uri.host.isEmpty || !uri.hasPort || uri.port <= 0 || uri.port > 65535) {
-      return null;
-    }
-
+  static Map<String, dynamic>? _parseHttpUri(Uri uri, int explicitPort) {
     final proxy = <String, dynamic>{
       'name': _proxyNameFromUri(uri),
       'type': 'http',
       'server': uri.host,
-      'port': uri.port,
+      'port': explicitPort,
     };
     if (uri.scheme.toLowerCase() == 'https') proxy['tls'] = true;
     _putUserInfo(proxy, uri.userInfo);
