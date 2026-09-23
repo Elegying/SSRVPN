@@ -61,6 +61,7 @@ class HardRuleDocumentationTests(unittest.TestCase):
         for text in (
             '保持双栈、三页；不得改变 IPv4-only 路由和两页产品结构。',
             '保持双栈、三页；不得恢复 IPv4-only 路由，但两页产品结构保持不变。',
+            '保持双栈、三页；不会采用双栈而保持 IPv4-only 路由。',
         ):
             with self.subTest(text=text):
                 self.assertTrue(self.check({name: text}))

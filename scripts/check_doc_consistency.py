@@ -280,11 +280,16 @@ def current_policy_claims(root: Path, relative_name: str, markdown: str) -> list
     if relative_name == ".github/PULL_REQUEST_TEMPLATE.md":
         # This checklist declares the current baseline, not historical policy.
         text = markdown.replace("`", "")
-        for obsolete in re.finditer(r"两页(?:产品)?结构|IPv4-only[ \t]*(?:路由|routing)", text, re.IGNORECASE):
+        old_baseline = r"两页(?:产品)?结构|IPv4-only[ \t]*(?:路由|routing)"
+        prohibition = (
+            r"(?:不得|禁止|不能|不会)\s*(?:恢复|回退(?:为|到)?|回到|采用)\s*"
+            rf"(?:(?:{old_baseline})\s*(?:和|及|与|或|、)\s*)*$"
+        )
+        for obsolete in re.finditer(old_baseline, text, re.IGNORECASE):
             clause = re.split(r"[。！？;；,\n，]|但是|然而|不过|但|否则", text[:obsolete.start()])[-1]
             # Forbidding a return to the old baseline is valid. Forbidding a
             # change to that old baseline instead preserves the obsolete rule.
-            if not re.search(r"(?:不得|禁止|不能|不会)\s*(?:恢复|回退|回到|采用)", clause):
+            if not re.search(prohibition, clause, re.IGNORECASE):
                 findings.append("PR checklist contradicts the three-page dual-stack product baseline")
                 break
         if "三页" not in text or "双栈" not in text:
