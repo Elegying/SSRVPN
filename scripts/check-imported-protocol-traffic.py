@@ -44,7 +44,7 @@ class Target(traffic.Target):
         super().do_GET()
 
 
-def launch_server(stack, core, folder, config):
+def launch_server(stack, core, folder, config, health):
     # Test servers may be upstream implementations without SSRVPN's traffic API.
     # The client below still uses the bundled-core readiness/identity checks.
     folder.mkdir()
@@ -57,6 +57,7 @@ def launch_server(stack, core, folder, config):
             status, _ = traffic.request(int(config['external-controller'].split(':')[-1]), '/version')
             if status == 200:
                 with socket.create_connection(('127.0.0.1', config['mixed-port']), timeout=.2):
+                    wait_ready(config['mixed-port'], health)
                     return process, log
         except OSError:
             pass
@@ -215,9 +216,9 @@ def ss_link(port, plugin):
     return f'ss://{credentials}@127.0.0.1:{port}/?plugin={quote(plugin, safe="")}#fixture'
 
 
-def client_config(proxy, cert):
+def client_config(proxy, cert, health):
     config = protocols.base_config()
-    config.update(proxies=[proxy], rules=['MATCH,fixture'],
+    config.update(proxies=[proxy], rules=[f'DST-PORT,{health},DIRECT', 'MATCH,fixture'],
         tls={'custom-certifactes': [cert.read_text()]})
     return config
 
@@ -225,6 +226,21 @@ def client_config(proxy, cert):
 def transfer(port, target):
     status, body = traffic.request(port, f'http://127.0.0.1:{target}/payload', False)
     assert status == 200 and body == b'proxy-traffic-regression' * 4096, (status, len(body))
+
+
+def wait_ready(port, health):
+    # Mihomo binds its controller/mixed listeners before tunnel.OnRunning().
+    # Probe a separate DIRECT-only fixture, so an early 502 cannot be mistaken
+    # for either protocol incompatibility or successful password rejection.
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            transfer(port, health)
+            return
+        except (AssertionError, OSError, http.client.HTTPException):
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(.1)
 
 
 def udp_transfer(mixed, target):
@@ -271,6 +287,7 @@ def main():
             core.chmod(0o700)
         server_core = args.server_core.resolve() if args.server_core else core
         target = traffic.serve(stack, traffic.ThreadingHTTPServer(('127.0.0.1', 0), Target))
+        health = traffic.serve(stack, traffic.ThreadingHTTPServer(('127.0.0.1', 0), traffic.Target))
         udp = traffic.serve(stack, socketserver.ThreadingUDPServer(('127.0.0.1', 0), protocols.Echo))
         cert, key = folder / 'cert.pem', folder / 'key.pem'
         subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
@@ -332,12 +349,14 @@ def main():
                     link = f'hysteria2://{quote(PASSWORD, safe="")}@127.0.0.1:{entry}/?sni=proxy.fixture&pinSHA256={fingerprint}&mport={hop.ports[0]},{hop.ports[1]}&hop-interval=1#fixture'
                 proxy, = parse_links(str(dart), [link])
                 assert proxy and proxy['name'] == 'fixture', (case, 'production parser rejected fixture')
-                _, server_log = launch_server(run, server_core, folder / f'{case}-server', server)
-                client = client_config(proxy, cert)
+                _, server_log = launch_server(run, server_core, folder / f'{case}-server', server, health)
+                client = client_config(proxy, cert, health)
                 process, client_log = protocols.launch(run, core, folder / f'{case}-client', client)
                 try:
                     traffic.require_custom_version(int(client['external-controller'].split(':')[-1]))
-                    transfer(client['mixed-port'], target)
+                    wait_ready(client['mixed-port'], health)
+                    for _ in range(3):
+                        transfer(client['mixed-port'], target)
                     if websocket:
                         assert websocket.handshakes > 0, 'WebSocket plugin was bypassed'
                     if hop:
@@ -359,8 +378,9 @@ def main():
                         bad_link = link.replace(good_auth, bad_auth)
                     rejected, = parse_links(str(dart), [bad_link])
                     assert rejected, 'negative fixture should be syntactically valid'
-                    negative = client_config(rejected, cert)
+                    negative = client_config(rejected, cert, health)
                     rejected_process, _ = protocols.launch(run, core, folder / f'{case}-bad-auth', negative)
+                    wait_ready(negative['mixed-port'], health)
                     before = Target.requests
                     try:
                         status, _ = traffic.request(negative['mixed-port'], f'http://127.0.0.1:{target}/must-not-arrive', False)
