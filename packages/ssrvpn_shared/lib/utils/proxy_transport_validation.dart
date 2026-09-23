@@ -1,7 +1,53 @@
+import 'dart:convert';
+
 /// Transport fields shared by URI import, YAML import and local node editing.
 /// Invalid entries must be filtered before a single bad proxy can prevent the
 /// core from loading the complete subscription. Unknown optional keys are kept.
 class ProxyTransportValidation {
+  // All three pinned cores use sing-shadowsocks2 v0.2.7. Keep the actual
+  // registry, including its non-standard methods, rather than guessing aliases.
+  static const shadowsocksCiphers = {
+    'none',
+    'aes-128-gcm',
+    'aes-192-gcm',
+    'aes-256-gcm',
+    'chacha20-ietf-poly1305',
+    'xchacha20-ietf-poly1305',
+    'chacha8-ietf-poly1305',
+    'xchacha8-ietf-poly1305',
+    'rabbit128-poly1305',
+    'aes-128-ccm',
+    'aes-192-ccm',
+    'aes-256-ccm',
+    'aes-128-gcm-siv',
+    'aes-256-gcm-siv',
+    'aegis-128l',
+    'aegis-256',
+    'aez-384',
+    'deoxys-ii-256-128',
+    'lea-128-gcm',
+    'lea-192-gcm',
+    'lea-256-gcm',
+    'ascon128',
+    'ascon128a',
+    'aes-128-ctr',
+    'aes-192-ctr',
+    'aes-256-ctr',
+    'aes-128-cfb',
+    'aes-192-cfb',
+    'aes-256-cfb',
+    'rc4-md5',
+    'chacha20-ietf',
+    'xchacha20',
+    'chacha20',
+    '2022-blake3-aes-128-gcm',
+    '2022-blake3-aes-256-gcm',
+    '2022-blake3-chacha20-poly1305',
+    '2022-blake3-chacha8-poly1305',
+    '2022-blake3-aes-128-ccm',
+    '2022-blake3-aes-256-ccm',
+  };
+
   static const shadowsocksPlugins = {
     'obfs',
     'v2ray-plugin',
@@ -58,6 +104,12 @@ class ProxyTransportValidation {
   };
 
   static bool shadowsocks(Map<Object?, Object?> proxy) {
+    final cipher = proxy['cipher'];
+    if (cipher is! String || !shadowsocksCiphers.contains(cipher)) return false;
+    if (cipher.startsWith('2022-') &&
+        !_valid2022Keys(cipher, proxy['password'])) {
+      return false;
+    }
     final plugin = proxy['plugin'];
     if (plugin == null || plugin == '') return true;
     if (!shadowsocksPlugins.contains(plugin)) return false;
@@ -77,7 +129,7 @@ class ProxyTransportValidation {
     }
     if (plugin == 'restls' &&
         (options['password'] is! String ||
-            options['version-hint'] is! String)) {
+            !const {'tls12', 'tls13'}.contains(options['version-hint']))) {
       return false;
     }
     for (final key in _stringOptions) {
@@ -110,6 +162,27 @@ class ProxyTransportValidation {
     }
     final ech = options['ech-opts'];
     return ech == null || ech is Map;
+  }
+
+  static bool _valid2022Keys(String cipher, Object? password) {
+    if (password is! String) return false;
+    final keys = password.split(':');
+    if (cipher.contains('chacha') && keys.length != 1) return false;
+    final expectedLength = cipher.contains('aes-128') ? 16 : 32;
+    for (final key in keys) {
+      // Go StdEncoding accepts CR/LF, but not URL-safe or unpadded base64.
+      final encoded = key.replaceAll(RegExp(r'[\r\n]'), '');
+      if (encoded.length % 4 != 0 ||
+          !RegExp(r'^[A-Za-z0-9+/]*={0,2}$').hasMatch(encoded)) {
+        return false;
+      }
+      try {
+        if (base64Decode(encoded).length != expectedLength) return false;
+      } on FormatException {
+        return false;
+      }
+    }
+    return true;
   }
 
   static bool hysteria2(Map<Object?, Object?> proxy) =>

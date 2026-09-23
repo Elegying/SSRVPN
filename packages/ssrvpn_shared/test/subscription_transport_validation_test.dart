@@ -16,6 +16,43 @@ const _valid = {
 
 void main() {
   final invalid = <Map<String, Object?>>[
+    {'cipher': 'not-a-cipher'},
+    {'password': true},
+    {'cipher': '2022-blake3-aes-128-gcm', 'password': 'fixture'},
+    {
+      'cipher': '2022-blake3-aes-128-gcm',
+      'password': base64Encode(List.filled(32, 1)),
+    },
+    {
+      'cipher': '2022-blake3-chacha20-poly1305',
+      'password': List.filled(2, base64Encode(List.filled(32, 1))).join(':'),
+    },
+    {
+      'cipher': '2022-blake3-aes-128-gcm',
+      'password': base64Encode(List.filled(16, 1)).replaceAll('=', ''),
+    },
+    {
+      'cipher': '2022-blake3-aes-128-gcm',
+      'password': base64UrlEncode(List.filled(16, 255)),
+    },
+    {
+      'cipher': '2022-blake3-aes-128-gcm',
+      'password': '${base64Encode(List.filled(16, 1))}:broken',
+    },
+    for (final type in ['trojan', 'anytls', 'hysteria2'])
+      {'type': type, 'password': true},
+    for (final type in ['vmess', 'vless']) {'type': type, 'uuid': true},
+    {'type': 'hysteria', 'auth-str': true},
+    {'type': 'tuic', 'token': true},
+    {'type': 'snell', 'psk': true},
+    {
+      'plugin': 'restls',
+      'plugin-opts': {
+        'host': 'localhost',
+        'password': 'fixture',
+        'version-hint': 'bad',
+      },
+    },
     for (final plugin in ['v2ray-plugin', 'gost-plugin']) ...[
       {'plugin': plugin},
       {'plugin': plugin, 'plugin-opts': true},
@@ -101,6 +138,12 @@ void main() {
     final proxies = [
       {
         ..._valid,
+        'name': 'SS2022',
+        'cipher': '2022-blake3-aes-128-gcm',
+        'password': List.filled(2, base64Encode(List.filled(16, 1))).join(':'),
+      },
+      {
+        ..._valid,
         'name': 'WS',
         'plugin': 'v2ray-plugin',
         'plugin-opts': {
@@ -136,5 +179,23 @@ void main() {
       expect(runtime, contains(proxy['name']! as String));
     }
     expect(runtime, contains('headers'));
+  });
+
+  test('URI credentials and Restls version use the same runtime validation',
+      () {
+    for (final uri in [
+      'ss://not-a-cipher:fixture@127.0.0.1:443',
+      'ss://2022-blake3-aes-128-gcm:fixture@127.0.0.1:443',
+      'ss://aes-128-gcm:fixture@127.0.0.1:443/?plugin='
+          '${Uri.encodeComponent('restls;host=localhost;password=fixture;version-hint=bad')}',
+    ]) {
+      expect(SubscriptionParser.proxyFromUri(uri), isNull, reason: uri);
+    }
+    final numeric = jsonEncode({
+      'proxies': [
+        {..._valid, 'password': 12345}
+      ]
+    });
+    expect(SubscriptionParser.parseYaml(numeric).nodes.single.name, 'Valid');
   });
 }

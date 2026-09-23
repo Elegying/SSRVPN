@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
+import 'package:ssrvpn_shared/utils/proxy_transport_validation.dart';
 
 void main() {
   final core = File('assets/mihomo.exe').absolute;
@@ -33,6 +34,26 @@ void main() {
           'plugin-opts': {'mtu': true}
         },
         {...base, 'name': 'Bad-HY2', 'type': 'hysteria2', 'ports': 'bad'},
+        {...base, 'name': 'Bad-Cipher', 'cipher': 'not-a-cipher'},
+        {...base, 'name': 'Bad-Password', 'password': true},
+        {
+          ...base,
+          'name': 'Bad-Restls',
+          'plugin': 'restls',
+          'plugin-opts': {
+            'host': 'localhost',
+            'password': 'fixture',
+            'version-hint': 'bad',
+          }
+        },
+        {...base, 'name': 'Good-Numeric', 'password': 12345},
+        {
+          ...base,
+          'name': 'Good-SS2022',
+          'cipher': '2022-blake3-aes-128-gcm',
+          'password':
+              List.filled(2, base64Encode(List.filled(16, 1))).join(':'),
+        },
         {
           ...base,
           'name': 'Good-WS',
@@ -60,7 +81,7 @@ void main() {
         },
       ]
     });
-    expect(SubscriptionParser.parseYaml(yaml).nodes.length, 3);
+    expect(SubscriptionParser.parseYaml(yaml).nodes.length, 5);
     final proxies = ClashConfigGenerator.buildProxiesText(yaml);
     expect(proxies, isNot(contains('Bad-')));
     final config = File('${directory.path}/config.yaml');
@@ -72,6 +93,9 @@ void main() {
   }, skip: !Platform.isWindows || !core.existsSync());
   const uuid = '00112233-4455-6677-8899-aabbccddeeff';
   final fixtures = <String, String>{
+    for (final cipher in ProxyTransportValidation.shadowsocksCiphers)
+      'ss-registry-$cipher': 'ss://$cipher:'
+          '${Uri.encodeComponent(cipher.startsWith('2022-') ? base64Encode(List.filled(cipher.contains('aes-128') ? 16 : 32, 1)) : 'fixture')}@127.0.0.1:443',
     'ss': 'ss://aes-128-gcm:fixture@127.0.0.1:443',
     'ss-legacy':
         'ss://${base64UrlEncode(utf8.encode('aes-128-gcm:fixture@127.0.0.1:443'))}',

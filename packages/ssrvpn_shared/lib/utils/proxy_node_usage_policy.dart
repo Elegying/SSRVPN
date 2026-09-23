@@ -167,7 +167,9 @@ class ProxyNodeUsagePolicy {
   }
 
   static bool _hasRequiredValue(Object? value) {
-    if (value is! String && value is! num && value is! bool) return false;
+    // The core can decode numeric YAML scalars as strings, but not booleans.
+    if (value is! String && value is! num) return false;
+    if (value is num && !value.isFinite) return false;
     if (value is String && value.length > _maxRequiredValueLength) return false;
     final text = value.toString().trim();
     return text.isNotEmpty && text.length <= _maxRequiredValueLength;

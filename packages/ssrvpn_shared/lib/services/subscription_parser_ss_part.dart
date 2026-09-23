@@ -48,7 +48,7 @@ class _ShadowsocksUriParser {
       if (plugin != null && plugin.isNotEmpty && !_applyPlugin(proxy, plugin)) {
         return null;
       }
-      return proxy;
+      return ProxyTransportValidation.shadowsocks(proxy) ? proxy : null;
     } on FormatException {
       return null;
     }
