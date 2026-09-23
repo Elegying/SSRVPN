@@ -118,5 +118,11 @@ class NodeLatencyCache {
     return _writes.add(() => _writeAtomically(_file, contents));
   }
 
-  Future<void> flush() => _writes.flush();
+  Future<void> flush() async {
+    try {
+      await _writes.flush();
+    } catch (_) {
+      // Live results remain usable even when optional history cannot be saved.
+    }
+  }
 }
