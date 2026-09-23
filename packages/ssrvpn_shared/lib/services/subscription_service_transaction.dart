@@ -14,6 +14,28 @@ typedef _SubscriptionSnapshot = ({
 /// One undo record covers JSON/YAML and an optional preferred-node rename.
 /// Deleting it commits all stores; an earlier crash restores them at startup.
 extension _SubscriptionTransaction on _SubscriptionPersistence {
+  void _acceptCache(
+      String yaml, ParsedSubscription parsed, String runtimeText) {
+    if (runtimeText != _runtimeProxyText) {
+      _revision++;
+    } else {
+      final previous = {for (final node in _allNodes) node.name: node};
+      for (final node in parsed.nodes) {
+        final old = previous[node.name];
+        if (old == null) continue;
+        node.latency = old.latency;
+        node.lastLatencyTest = old.lastLatencyTest;
+        node.isOnline = old.isOnline;
+      }
+    }
+    if (yaml != _rawYaml) _displayRevision++;
+    _runtimeProxyText = runtimeText;
+    _rawYaml = yaml;
+    _allNodes = parsed.nodes;
+    _allGroups = parsed.groups;
+    _latencyCache?.restore(_allNodes);
+  }
+
   File? get _transactionFile => _cacheDir == null
       ? null
       : File('$_cacheDir/${SubscriptionUndoRecord.fileName}');

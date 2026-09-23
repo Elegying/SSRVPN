@@ -29,27 +29,6 @@ mixin _SubscriptionPersistence on ChangeNotifier {
     }
   }
 
-  void _acceptCache(
-      String yaml, ParsedSubscription parsed, String runtimeText) {
-    if (runtimeText != _runtimeProxyText) {
-      _revision++;
-    } else {
-      final previous = {for (final node in _allNodes) node.name: node};
-      for (final node in parsed.nodes) {
-        final old = previous[node.name];
-        if (old == null) continue;
-        node.latency = old.latency;
-        node.lastLatencyTest = old.lastLatencyTest;
-        node.isOnline = old.isOnline;
-      }
-    }
-    if (yaml != _rawYaml) _displayRevision++;
-    _runtimeProxyText = runtimeText;
-    _rawYaml = yaml;
-    _allNodes = parsed.nodes;
-    _allGroups = parsed.groups;
-    _latencyCache?.restore(_allNodes);
-  }
   // ── 持久化 ──
 
   Future<void> init(String cacheDir, {NodePreferenceStore? preferences}) async {
@@ -154,11 +133,7 @@ mixin _SubscriptionPersistence on ChangeNotifier {
   }
 
   Future<void> flushLatencyResults() async {
-    try {
-      await _latencyCache?.flush();
-    } catch (_) {
-      // Live results remain usable even when optional history cannot be saved.
-    }
+    await _latencyCache?.flush();
   }
 
   Future<void> cacheYaml(String yaml) async {
