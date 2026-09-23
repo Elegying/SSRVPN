@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -10,6 +11,33 @@ void main() {
       (index: 7, interfaceGuid: '11111111-1111-4111-8111-111111111111');
   const unrelated =
       (index: 8, interfaceGuid: '22222222-2222-4222-8222-222222222222');
+
+  Future<ProcessResult> runBaseline(String script, {bool active = false}) {
+    final fixture = '''
+function Get-NetAdapter {
+  param([switch]\$IncludeHidden)
+  [pscustomobject]@{ifIndex=7; InterfaceGuid='${existing.interfaceGuid}'}
+  [pscustomobject]@{ifIndex=8; InterfaceGuid='${unrelated.interfaceGuid}'}
+}
+function Get-NetIPAddress {
+  [pscustomobject]@{InterfaceIndex=8; IPAddress='192.0.2.8'}
+  ${active ? "[pscustomobject]@{InterfaceIndex=7; IPAddress='198.18.0.1'}" : ''}
+}
+function Get-NetRoute {
+  [pscustomobject]@{InterfaceIndex=8; DestinationPrefix='192.0.2.0/24'}
+}
+''';
+    return TimedProcessRunner.run(
+        windowsPowerShellExecutable(),
+        [
+          '-NoLogo',
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          windowsPowerShellUtf8Script('$fixture\n$script'),
+        ],
+        timeout: const Duration(seconds: 10));
+  }
 
   Future<ProcessResult> runSnapshot(String script, {bool dual = true}) {
     // Execute the production PowerShell against inert snapshots. No adapter,
@@ -51,6 +79,73 @@ function Get-NetRoute {
       expect(result.interfaces, isEmpty);
     }, skip: !Platform.isWindows);
   }
+
+  test('startup baseline cannot exempt an empty TUN reused with the same GUID',
+      () async {
+    final baseline = await probeWindowsNetworkInterfaceIdentities(
+      includeEmptyAdapters: false,
+      scriptRunner: runBaseline,
+    );
+    expect(baseline, const {unrelated});
+    final captured =
+        selectWindowsTunInterfacesCreatedAfter(const {existing}, baseline);
+    expect(captured, const {existing});
+    // Also cover an early crash before owned identities could be persisted.
+    final residual = await probeWindowsTunResidual(
+      baselineInterfaces: baseline,
+      scriptRunner: runSnapshot,
+    );
+    expect(residual.status, WindowsTunResidualStatus.present);
+    expect(residual.interfaces, const {existing});
+  }, skip: !Platform.isWindows);
+
+  test('startup baseline still exempts an already active external TUN',
+      () async {
+    final baseline = await probeWindowsNetworkInterfaceIdentities(
+      includeEmptyAdapters: false,
+      scriptRunner: (script) => runBaseline(script, active: true),
+    );
+    expect(baseline, const {existing, unrelated});
+    final residual = await probeWindowsTunResidual(
+      baselineInterfaces: baseline,
+      scriptRunner: runSnapshot,
+    );
+    expect(residual.status, WindowsTunResidualStatus.gone);
+  }, skip: !Platform.isWindows);
+
+  test('old baseline-only markers cannot hide a reopened TUN on upgrade',
+      () async {
+    final old = decodeWindowsTunTeardownMarker(jsonEncode({
+      'version': 2,
+      'interfaces': <Object>[],
+      'baselineInterfaces': [
+        {'index': existing.index, 'guid': existing.interfaceGuid},
+      ],
+    }))!;
+    final gate = WindowsTunTeardownGate()
+      ..markPending(old.interfaces, old.baselineInterfaces,
+          old.baselineIncludesEmptyAdapters);
+    expect(gate.baselineIncludesEmptyAdapters, isTrue);
+    final result = await probeWindowsTunResidual(
+      baselineInterfaces: gate.baselineInterfaces,
+      baselineIncludesEmptyAdapters: gate.baselineIncludesEmptyAdapters,
+      scriptRunner: (script) => runSnapshot(script, dual: false),
+    );
+    expect(result.status, WindowsTunResidualStatus.present);
+    gate.observe(result);
+    expect(gate.interfaces, const {existing});
+    expect(
+        gate.accept((
+          status: WindowsTunResidualStatus.gone,
+          interfaces: const <WindowsTunInterfaceIdentity>{}
+        )),
+        isTrue);
+    expect(gate.baselineIncludesEmptyAdapters, isFalse);
+    final fresh = decodeWindowsTunTeardownMarker(encodeWindowsTunTeardownMarker(
+        const {},
+        baselineInterfaces: const {unrelated}))!;
+    expect(fresh.baselineIncludesEmptyAdapters, isFalse);
+  }, skip: !Platform.isWindows);
 
   test('production residual script still detects a newly created TUN',
       () async {

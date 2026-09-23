@@ -15,6 +15,16 @@ void main() {
         'ss://aes-128-gcm:fixture@127.0.0.1:443/?plugin=${Uri.encodeComponent('obfs-local;obfs=tls;obfs-host=localhost')}',
     'ss-wss':
         'ss://aes-128-gcm:fixture@127.0.0.1:443/?plugin=${Uri.encodeComponent('v2ray-plugin;tls;host=localhost;path=/edge')}',
+    'ss-ws-flags':
+        'ss://aes-128-gcm:fixture@127.0.0.1:443/?plugin=${Uri.encodeComponent('v2ray-plugin;tls=0;mux=false;v2ray-http-upgrade=1;v2ray-http-upgrade-fast-open=1')}',
+    'ss-gost':
+        'ss://aes-128-gcm:fixture@127.0.0.1:443/?plugin=${Uri.encodeComponent('gost-plugin;tls;host=localhost;path=/edge')}',
+    'ss-shadowtls':
+        'ss://aes-128-gcm:fixture@127.0.0.1:443/?plugin=${Uri.encodeComponent('shadow-tls;host=localhost;password=fixture;version=3;alpn=h2,http/1.1')}',
+    'ss-restls':
+        'ss://aes-128-gcm:fixture@127.0.0.1:443/?plugin=${Uri.encodeComponent('restls;host=localhost;password=fixture;version-hint=tls13')}',
+    'ss-kcptun':
+        'ss://aes-128-gcm:fixture@127.0.0.1:443/?plugin=${Uri.encodeComponent('kcptun;key=fixture;mtu=1350;nocomp=false;acknodelay')}',
     'ssr':
         'ssr://${base64UrlEncode(utf8.encode('127.0.0.1:443:auth_sha1_v4:aes-128-cfb:tls1.2_ticket_auth:${base64UrlEncode(utf8.encode('fixture'))}'))}',
     'vmess': 'vmess://${base64Encode(utf8.encode(jsonEncode({
@@ -36,6 +46,11 @@ void main() {
     'hysteria': 'hysteria://fixture@127.0.0.1:443?upmbps=10&downmbps=50',
     'hy2-default': 'hy2://fixture@127.0.0.1/?sni=localhost',
     'hy2-hopping': 'hy2://fixture@127.0.0.1:443,5000-6000/?sni=localhost',
+    'hy2-query-hopping':
+        'hy2://fixture@127.0.0.1/?ports=443,5000-6000&hop-interval=10-30',
+    'hy2-mixed-invalid': 'hy2://fixture@127.0.0.1/?ports=bad\n'
+        'ss://aes-128-gcm:fixture@127.0.0.1:443/?plugin=v2ray-plugin%3Bhost\n'
+        'hy2://fixture@127.0.0.1/?ports=443,444&hop-interval=5',
     'tuic': 'tuic://$uuid:fixture@127.0.0.1:443?congestion_control=bbr&alpn=h3',
     'snell': 'snell://fixture@127.0.0.1:443?version=4',
     'socks5': 'socks5://user:fixture@127.0.0.1:1080',

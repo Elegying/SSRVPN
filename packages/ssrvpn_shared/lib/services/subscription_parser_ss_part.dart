@@ -89,15 +89,7 @@ class _ShadowsocksUriParser {
     var plugin = fields.keys.first;
     if (fields.remove(plugin) != true) return false;
     if (plugin == 'obfs-local' || plugin == 'simple-obfs') plugin = 'obfs';
-    if (!const {
-      'obfs',
-      'v2ray-plugin',
-      'gost-plugin',
-      'shadow-tls',
-      'restls',
-      'kcptun',
-      'jls'
-    }.contains(plugin)) {
+    if (!ProxyNodeUsagePolicy.supportedShadowsocksPlugins.contains(plugin)) {
       return false;
     }
     if (plugin == 'obfs') {
@@ -107,12 +99,40 @@ class _ShadowsocksUriParser {
       }
       if (!const {'http', 'tls'}.contains(fields['mode'])) return false;
     }
-    if (plugin == 'v2ray-plugin') fields.putIfAbsent('mode', () => 'websocket');
+    if (plugin == 'v2ray-plugin' || plugin == 'gost-plugin') {
+      fields.putIfAbsent('mode', () => 'websocket');
+      if (fields['mode'] != 'websocket') return false;
+    }
+    // SIP002 bare tokens are flags, not string/numeric values. Letting one
+    // reach Mihomo in a typed field rejects the entire generated config.
+    for (final option in [
+      'host',
+      'path',
+      'fingerprint',
+      'certificate',
+      'private-key',
+      'password',
+      'key',
+      'crypt',
+      'version-hint',
+      'restls-script',
+      'mode',
+      'alpn',
+    ]) {
+      if (fields.containsKey(option) && fields[option] is! String) return false;
+    }
+    // These structured YAML fields have no scalar SIP002 representation.
+    if (fields.containsKey('headers') || fields.containsKey('ech-opts')) {
+      return false;
+    }
     for (final option in [
       'tls',
       'mux',
       'skip-cert-verify',
-      'v2ray-http-upgrade'
+      'v2ray-http-upgrade',
+      'v2ray-http-upgrade-fast-open',
+      'nocomp',
+      'acknodelay',
     ]) {
       final value = fields[option];
       if (value is String) {
@@ -120,10 +140,37 @@ class _ShadowsocksUriParser {
         fields[option] = value == 'true' || value == '1';
       }
     }
-    if (fields['version'] is String) {
-      final version = int.tryParse(fields['version'] as String);
-      if (version == null) return false;
-      fields['version'] = version;
+    for (final option in [
+      'version',
+      'conn',
+      'autoexpire',
+      'scavengettl',
+      'mtu',
+      'ratelimit',
+      'sndwnd',
+      'rcvwnd',
+      'datashard',
+      'parityshard',
+      'dscp',
+      'nodelay',
+      'interval',
+      'resend',
+      'nc',
+      'sockbuf',
+      'smuxver',
+      'smuxbuf',
+      'framesize',
+      'streambuf',
+      'keepalive',
+    ]) {
+      if (!fields.containsKey(option)) continue;
+      final value = fields[option];
+      final parsed = value is String ? int.tryParse(value) : null;
+      if (parsed == null || parsed < 0 || parsed > 0x7fffffff) return false;
+      fields[option] = parsed;
+    }
+    if (fields['alpn'] is String) {
+      fields['alpn'] = (fields['alpn'] as String).split(',');
     }
     proxy['plugin'] = plugin;
     if (fields.isNotEmpty) proxy['plugin-opts'] = fields;

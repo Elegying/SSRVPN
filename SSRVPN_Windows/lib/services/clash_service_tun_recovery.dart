@@ -41,6 +41,12 @@ extension _WindowsTunRecovery on _WindowsCoreLifecycle {
           probeWindowsTunResidual(
             expectedInterfaces: expectedInterfaces,
             baselineInterfaces: _tunTeardownGate.baselineInterfaces,
+            // A v2 baseline also included empty adapters, which may now be
+            // our reopened TUN. Preserve its conservative signature checks
+            // until a GUID is captured or teardown is confirmed.
+            baselineIncludesEmptyAdapters:
+                _tunTeardownGate.baselineIncludesEmptyAdapters &&
+                    expectedInterfaces.isEmpty,
           ));
     } catch (_) {
       return (
@@ -90,6 +96,7 @@ extension _WindowsTunRecovery on _WindowsCoreLifecycle {
         _tunTeardownGate.markPending(
           snapshot.interfaces,
           snapshot.baselineInterfaces,
+          snapshot.baselineIncludesEmptyAdapters,
         );
       }
     } catch (error) {
@@ -101,9 +108,9 @@ extension _WindowsTunRecovery on _WindowsCoreLifecycle {
   Future<void> _migrateLegacyTunTeardownMarker(
     Set<int> legacyInterfaceIndexes,
   ) async {
-    final allInterfaces =
-        await (_networkInterfaceIdentityProbeOverride?.call() ??
-            probeWindowsNetworkInterfaceIdentities());
+    final allInterfaces = await (_networkInterfaceIdentityProbeOverride
+            ?.call() ??
+        probeWindowsNetworkInterfaceIdentities(includeEmptyAdapters: false));
     var baseline = allInterfaces;
 
     Future<WindowsTunResidualProbeResult> probeLegacyResidual() async {

@@ -28,6 +28,7 @@ typedef WindowsTunTeardownMarkerSnapshot = ({
   Set<WindowsTunInterfaceIdentity> baselineInterfaces,
   Set<int> legacyInterfaceIndexes,
   bool legacy,
+  bool baselineIncludesEmptyAdapters,
 });
 typedef WindowsTunResidualProbeResult = ({
   WindowsTunResidualStatus status,
@@ -66,6 +67,7 @@ class WindowsTunTeardownGate {
   final _baselineInterfaces = <WindowsTunInterfaceIdentity>{};
   bool _pending = false;
   bool _ownershipKnown = true;
+  bool _baselineIncludesEmptyAdapters = false;
   WindowsTunResidualStatus? _lastObservation;
 
   String get diagnosticSummary {
@@ -83,6 +85,7 @@ class WindowsTunTeardownGate {
 
   bool get pending => _pending;
   bool get ownershipKnown => _ownershipKnown;
+  bool get baselineIncludesEmptyAdapters => _baselineIncludesEmptyAdapters;
   Set<WindowsTunInterfaceIdentity> get interfaces =>
       Set.unmodifiable(_interfaces);
   Set<WindowsTunInterfaceIdentity> get baselineInterfaces =>
@@ -94,6 +97,7 @@ class WindowsTunTeardownGate {
         const <WindowsTunInterfaceIdentity>[],
     Iterable<WindowsTunInterfaceIdentity> baselineInterfaces =
         const <WindowsTunInterfaceIdentity>[],
+    bool baselineIncludesEmptyAdapters = false,
   ]) {
     _pending = true;
     _lastObservation = null;
@@ -101,6 +105,7 @@ class WindowsTunTeardownGate {
     final baseline = baselineInterfaces.toSet();
     _interfaces.addAll(captured);
     _baselineInterfaces.addAll(baseline);
+    _baselineIncludesEmptyAdapters |= baselineIncludesEmptyAdapters;
     _ownershipKnown = _interfaces.isNotEmpty || _baselineInterfaces.isNotEmpty;
   }
 
@@ -121,6 +126,7 @@ class WindowsTunTeardownGate {
     _pending = false;
     _interfaces.clear();
     _baselineInterfaces.clear();
+    _baselineIncludesEmptyAdapters = false;
     _ownershipKnown = true;
     return true;
   }
@@ -256,13 +262,17 @@ Future<Set<WindowsTunInterfaceIdentity>>
 }
 
 Future<Set<WindowsTunInterfaceIdentity>> probeWindowsNetworkInterfaceIdentities(
-    {Future<void>? cancellation}) {
+    {Future<void>? cancellation,
+    bool includeEmptyAdapters = true,
+    Future<ProcessResult> Function(String script)? scriptRunner}) {
   if (!Platform.isWindows) {
     return Future.value(const <WindowsTunInterfaceIdentity>{});
   }
   return retryWindowsNetworkInterfaceIdentityProbe(
     probe: () => _probeWindowsNetworkInterfaceIdentitiesOnce(
       cancellation: cancellation,
+      includeEmptyAdapters: includeEmptyAdapters,
+      scriptRunner: scriptRunner,
     ),
   );
 }
@@ -270,12 +280,26 @@ Future<Set<WindowsTunInterfaceIdentity>> probeWindowsNetworkInterfaceIdentities(
 Future<Set<WindowsTunInterfaceIdentity>>
     _probeWindowsNetworkInterfaceIdentitiesOnce({
   Future<void>? cancellation,
+  required bool includeEmptyAdapters,
+  Future<ProcessResult> Function(String script)? scriptRunner,
 }) async {
   try {
-    const script = r'''
+    final script = r'''
 $ErrorActionPreference = 'Stop'
+$includeEmptyAdapters = __INCLUDE_EMPTY_ADAPTERS__
+$activeIndexes = @()
+if (-not $includeEmptyAdapters) {
+  # An empty adapter may be reopened by this start with the same GUID. Only
+  # addresses/routes already present establish the external network baseline.
+  $activeIndexes = @(
+    Get-NetIPAddress | ForEach-Object { [int]$_.InterfaceIndex }
+    Get-NetRoute | ForEach-Object { [int]$_.InterfaceIndex }
+  ) | Sort-Object -Unique
+}
 $identities = @(
-  Get-NetAdapter -IncludeHidden | ForEach-Object {
+  Get-NetAdapter -IncludeHidden | Where-Object {
+    $includeEmptyAdapters -or $activeIndexes -contains [int]$_.ifIndex
+  } | ForEach-Object {
     $guid = ([Guid]$_.InterfaceGuid).ToString('D').ToLowerInvariant()
     "$([int]$_.ifIndex)|$guid"
   } | Sort-Object -Unique
@@ -285,20 +309,24 @@ if ($identities.Count -eq 0) {
 } else {
   'FOUND|' + ($identities -join ';')
 }
-''';
-    final result = await TimedProcessRunner.run(
-      windowsPowerShellExecutable(),
-      [
-        '-NoLogo',
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        windowsPowerShellUtf8Script(script),
-      ],
-      timeout: _windowsNetworkCmdletTimeout,
-      timeoutStderr: 'Windows network interface baseline probe timed out',
-      cancellation: cancellation,
-    );
+'''
+        .replaceAll('__INCLUDE_EMPTY_ADAPTERS__',
+            includeEmptyAdapters ? r'$true' : r'$false');
+    final result = scriptRunner != null
+        ? await scriptRunner(script)
+        : await TimedProcessRunner.run(
+            windowsPowerShellExecutable(),
+            [
+              '-NoLogo',
+              '-NoProfile',
+              '-NonInteractive',
+              '-Command',
+              windowsPowerShellUtf8Script(script),
+            ],
+            timeout: _windowsNetworkCmdletTimeout,
+            timeoutStderr: 'Windows network interface baseline probe timed out',
+            cancellation: cancellation,
+          );
     if (result.exitCode != 0) return const <WindowsTunInterfaceIdentity>{};
     return parseWindowsTunInterfaceIdentityOutput(result.stdout.toString());
   } catch (_) {
@@ -312,6 +340,7 @@ Future<WindowsTunResidualProbeResult> probeWindowsTunResidual(
     Set<WindowsTunInterfaceIdentity> baselineInterfaces =
         const <WindowsTunInterfaceIdentity>{},
     bool discoverLegacySignatures = false,
+    bool baselineIncludesEmptyAdapters = false,
     Future<ProcessResult> Function(String script)? scriptRunner}) async {
   if (!Platform.isWindows) return _tunResidualProbeFailed;
   try {
@@ -373,6 +402,7 @@ $baselineGuids = @(
   $baseline | ForEach-Object { [string]$_.Guid } | Sort-Object -Unique
 )
 $discoverLegacySignatures = __DISCOVER_LEGACY_SIGNATURES__
+$baselineIncludesEmptyAdapters = __BASELINE_INCLUDES_EMPTY_ADAPTERS__
 $allAddresses = @(Get-NetIPAddress)
 $signatureIpv4Indexes = @(
   $allAddresses | Where-Object {
@@ -486,7 +516,8 @@ $signatureInterfaces = @(
     # Address signatures alone do not establish ownership of a preexisting VPN.
     # Legacy recovery is separately gated by its full address+route signature.
     ($postStartSignatureIndexes -contains [int]$_.ifIndex) -and
-      ($discoverLegacySignatures -or $baselineGuids -notcontains $guid)
+      ($discoverLegacySignatures -or $baselineIncludesEmptyAdapters -or
+        $baselineGuids -notcontains $guid)
   } | ForEach-Object {
     [pscustomobject]@{
       Index = [int]$_.ifIndex
@@ -542,6 +573,10 @@ if ($artifacts.Count -eq 0) {
         .replaceAll(
           '__DISCOVER_LEGACY_SIGNATURES__',
           discoverLegacySignatures ? r'$true' : r'$false',
+        )
+        .replaceAll(
+          '__BASELINE_INCLUDES_EMPTY_ADAPTERS__',
+          baselineIncludesEmptyAdapters ? r'$true' : r'$false',
         )
         .replaceAll(
           '__EXPECTED_IPV4__',
@@ -768,7 +803,7 @@ String encodeWindowsTunTeardownMarker(
       return byGuid != 0 ? byGuid : left.index.compareTo(right.index);
     });
   return '${jsonEncode({
-        'version': 2,
+        'version': 3,
         'interfaces': [
           for (final identity in sorted)
             {
@@ -799,12 +834,13 @@ WindowsTunTeardownMarkerSnapshot? decodeWindowsTunTeardownMarker(
       baselineInterfaces: const <WindowsTunInterfaceIdentity>{},
       legacyInterfaceIndexes: indexes,
       legacy: true,
+      baselineIncludesEmptyAdapters: true,
     );
   }
   try {
     final decoded = jsonDecode(trimmed);
     if (decoded is! Map<String, dynamic> ||
-        (decoded['version'] != 1 && decoded['version'] != 2) ||
+        !const [1, 2, 3].contains(decoded['version']) ||
         decoded['interfaces'] is! List) {
       return null;
     }
@@ -828,7 +864,7 @@ WindowsTunTeardownMarkerSnapshot? decodeWindowsTunTeardownMarker(
 
     final interfaces = decodeInterfaces(decoded['interfaces']);
     if (interfaces == null) return null;
-    final baseline = decoded['version'] == 2
+    final baseline = decoded['version'] != 1
         ? decodeInterfaces(decoded['baselineInterfaces'])
         : const <WindowsTunInterfaceIdentity>{};
     if (baseline == null) return null;
@@ -838,6 +874,7 @@ WindowsTunTeardownMarkerSnapshot? decodeWindowsTunTeardownMarker(
       baselineInterfaces: baseline,
       legacyInterfaceIndexes: const <int>{},
       legacy: false,
+      baselineIncludesEmptyAdapters: decoded['version'] == 2,
     );
   } on FormatException {
     return null;

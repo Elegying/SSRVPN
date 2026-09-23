@@ -3,6 +3,18 @@ import 'dart:io';
 import '../models/proxy_node.dart';
 
 class ProxyNodeUsagePolicy {
+  // Intersection of the three pinned cores' actual SS plugin implementations.
+  // Unknown plugins are silently ignored by older cores, removing transport
+  // protection even when `mihomo -t` reports success.
+  static const supportedShadowsocksPlugins = {
+    'obfs',
+    'v2ray-plugin',
+    'gost-plugin',
+    'shadow-tls',
+    'restls',
+    'kcptun',
+  };
+
   /// Shared by URI parsing and redaction, including accepted protocol aliases.
   static const nodeUriSchemes = {
     'ss',
@@ -84,7 +96,11 @@ class ProxyNodeUsagePolicy {
 
     switch (type) {
       case 'ss':
-        return _hasAll(proxy, const ['cipher', 'password']);
+        final plugin = proxy['plugin'];
+        return _hasAll(proxy, const ['cipher', 'password']) &&
+            (plugin == null ||
+                plugin == '' ||
+                supportedShadowsocksPlugins.contains(plugin));
       case 'ssr':
         return _hasAll(
           proxy,

@@ -128,6 +128,7 @@ extension _WindowsStartPreparationSupport on _WindowsCoreLifecycle {
         baselineProbe?.call() ??
             probeWindowsNetworkInterfaceIdentities(
               cancellation: _startCancellation?.future,
+              includeEmptyAdapters: false,
             ),
         startToken,
       );

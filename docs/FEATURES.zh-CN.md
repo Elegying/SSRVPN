@@ -72,6 +72,11 @@ Windows 安装器未签名；Android 使用固定自签名证书谱系支持覆�
 订阅内容仍需满足 Mihomo 支持范围和项目的字段、地址、端口、节点数量及数据大小限制；
 “能够解析”不等于服务端、协议组合或目标网络一定可用。
 
+SS 插件按三端随包内核的共同支持范围接收：obfs（含分享链接中的 simple-obfs/obfs-local
+别名）、v2ray-plugin、gost-plugin、shadow-tls、restls、kcptun。未知或仅部分内核支持的
+插件（如 JLS）不导入，以免内核静默取消插件传输。HY2 的 mport/ports 和 hop-interval
+查询参数同样检查合法范围；无效分享链接会被逐条跳过。
+
 ## 节点管理与选择
 
 - 按订阅筛选当前显示的节点。

@@ -297,17 +297,8 @@ class _SubscriptionUriParser {
     if (separator > authority.lastIndexOf(']') &&
         separator > authority.lastIndexOf('@')) {
       final value = authority.substring(separator + 1);
-      if (!RegExp(r'^\d+(?:[-,]\d+)*$').hasMatch(value)) return null;
-      int? firstPort;
-      for (final item in value.split(',')) {
-        final range = item.split('-').map(int.tryParse).toList();
-        if (range.length > 2 ||
-            range.any((port) => port == null || port < 1 || port > 65535) ||
-            range.first! > range.last!) {
-          return null;
-        }
-        firstPort ??= range.first;
-      }
+      if (!_validUnsignedRanges(value, minimum: 1, maximum: 65535)) return null;
+      final firstPort = int.parse(value.split(RegExp('[-,]')).first);
       if (value.contains(',') || value.contains('-')) ports = value;
       uri = Uri.tryParse('${match[1]}://${authority.substring(0, separator)}'
           ':$firstPort${match[3]}');
@@ -315,18 +306,56 @@ class _SubscriptionUriParser {
     if (uri == null || !ProxyNodeUsagePolicy.isValidServerValue(uri.host)) {
       return null;
     }
-    final proxy = _parseHysteria2Uri(uri);
-    if (ports != null && proxy != null) proxy['ports'] = ports;
-    return proxy;
+    return _parseHysteria2Uri(uri, authorityPorts: ports);
   }
 
-  static Map<String, dynamic>? _parseHysteria2Uri(Uri uri) {
+  static bool _validUnsignedRanges(
+    String value, {
+    required int minimum,
+    required int maximum,
+    bool allowList = true,
+  }) {
+    if (!RegExp(r'^\d+(?:[-,]\d+)*$').hasMatch(value) ||
+        (!allowList && value.contains(','))) {
+      return false;
+    }
+    for (final item in value.split(',')) {
+      final range = item.split('-').map(int.tryParse).toList();
+      if (range.length > 2 ||
+          range.any((n) => n == null || n < minimum || n > maximum) ||
+          range.first! > range.last!) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static Map<String, dynamic>? _parseHysteria2Uri(
+    Uri uri, {
+    String? authorityPorts,
+  }) {
     final port = uri.hasPort ? uri.port : 443;
     if (uri.host.isEmpty || port <= 0 || port > 65535 || uri.userInfo.isEmpty) {
       return null;
     }
 
     final query = uri.queryParameters;
+    final ports = (authorityPorts ?? query['mport'] ?? query['ports'])?.trim();
+    if (ports != null &&
+        ports.isNotEmpty &&
+        !_validUnsignedRanges(ports, minimum: 1, maximum: 65535)) {
+      return null;
+    }
+    final hopInterval = (query['hop-interval'] ?? query['hopInterval'])?.trim();
+    if (hopInterval != null &&
+        hopInterval.isNotEmpty &&
+        !_validUnsignedRanges(hopInterval,
+            minimum: 0,
+            // Go's time.Duration stores nanoseconds in a signed 64-bit integer.
+            maximum: 9223372036,
+            allowList: false)) {
+      return null;
+    }
     final proxy = <String, dynamic>{
       'name': _proxyNameFromUri(uri.replace(port: port)),
       'type': 'hysteria2',
@@ -335,7 +364,7 @@ class _SubscriptionUriParser {
       'password': _decodeUriPart(uri.userInfo),
     };
 
-    _putIfNotEmpty(proxy, 'ports', query['mport'] ?? query['ports']);
+    _putIfNotEmpty(proxy, 'ports', ports);
     _putIfNotEmpty(proxy, 'sni', query['sni']);
     _putIfNotEmpty(proxy, 'fingerprint', query['pinSHA256']);
     _putIfNotEmpty(proxy, 'obfs', query['obfs']);
@@ -344,11 +373,7 @@ class _SubscriptionUriParser {
       'obfs-password',
       query['obfs-password'] ?? query['obfsPassword'],
     );
-    _putIfNotEmpty(
-      proxy,
-      'hop-interval',
-      query['hop-interval'] ?? query['hopInterval'],
-    );
+    _putIfNotEmpty(proxy, 'hop-interval', hopInterval);
     _putIfNotEmpty(proxy, 'up', query['up']);
     _putIfNotEmpty(proxy, 'down', query['down']);
 
