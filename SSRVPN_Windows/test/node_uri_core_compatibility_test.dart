@@ -3,7 +3,49 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
-import 'package:ssrvpn_shared/utils/proxy_transport_validation.dart';
+
+// Independent fixture from the pinned sing-shadowsocks2 v0.2.7 registry.
+const _coreCiphers = [
+  'none',
+  'aes-128-gcm',
+  'aes-192-gcm',
+  'aes-256-gcm',
+  'chacha20-ietf-poly1305',
+  'xchacha20-ietf-poly1305',
+  'chacha8-ietf-poly1305',
+  'xchacha8-ietf-poly1305',
+  'rabbit128-poly1305',
+  'aes-128-ccm',
+  'aes-192-ccm',
+  'aes-256-ccm',
+  'aes-128-gcm-siv',
+  'aes-256-gcm-siv',
+  'aegis-128l',
+  'aegis-256',
+  'aez-384',
+  'deoxys-ii-256-128',
+  'lea-128-gcm',
+  'lea-192-gcm',
+  'lea-256-gcm',
+  'ascon128',
+  'ascon128a',
+  'aes-128-ctr',
+  'aes-192-ctr',
+  'aes-256-ctr',
+  'aes-128-cfb',
+  'aes-192-cfb',
+  'aes-256-cfb',
+  'rc4-md5',
+  'chacha20-ietf',
+  'xchacha20',
+  'chacha20',
+  '2022-blake3-aes-128-gcm',
+  '2022-blake3-aes-256-gcm',
+  '2022-blake3-chacha20-poly1305',
+  '2022-blake3-chacha8-poly1305',
+  '2022-blake3-aes-128-ccm',
+  '2022-blake3-aes-256-ccm',
+];
 
 void main() {
   final core = File('assets/mihomo.exe').absolute;
@@ -93,7 +135,7 @@ void main() {
   }, skip: !Platform.isWindows || !core.existsSync());
   const uuid = '00112233-4455-6677-8899-aabbccddeeff';
   final fixtures = <String, String>{
-    for (final cipher in ProxyTransportValidation.shadowsocksCiphers)
+    for (final cipher in _coreCiphers)
       'ss-registry-$cipher': 'ss://$cipher:'
           '${Uri.encodeComponent(cipher.startsWith('2022-') ? base64Encode(List.filled(cipher.contains('aes-128') ? 16 : 32, 1)) : 'fixture')}@127.0.0.1:443',
     'ss': 'ss://aes-128-gcm:fixture@127.0.0.1:443',
