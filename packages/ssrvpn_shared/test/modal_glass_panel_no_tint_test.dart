@@ -13,12 +13,8 @@ void main() {
       ),
     ));
 
-    // The panel is a single SsrvpnLiquidSurface with the shared default glass
-    // (tint == null). Forcing a custom tint here is exactly the regression that
-    // made the force-proxy/direct dialogs look too transparent over busy
-    // wallpapers: a high-alpha tint on the glass *color* never produces a solid
-    // backing, so the panel must stay on the same default glass as the About /
-    // tutorial / global-mode dialogs.
+    // Information panels retain their glass appearance. Rule-entry forms opt
+    // into a separately painted backing; a glass tint is not an opaque layer.
     final surface = tester.widget<SsrvpnLiquidSurface>(
       find.byType(SsrvpnLiquidSurface),
     );

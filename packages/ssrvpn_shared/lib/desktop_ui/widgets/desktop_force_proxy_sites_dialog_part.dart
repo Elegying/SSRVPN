@@ -92,6 +92,7 @@ class _DesktopForceProxySitesDialogState
         constraints: const BoxConstraints(maxWidth: 460),
         child: SsrvpnModalGlassPanel(
           borderRadius: 16,
+          opaque: true,
           child: SingleChildScrollView(
             padding: EdgeInsets.only(
               bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -162,6 +163,9 @@ class _DesktopForceProxySitesDialogState
                         labelText: '网址 ${i + 1}',
                         hintText: 'https://example.com',
                         prefixIcon: const Icon(Icons.language, size: 18),
+                      ).copyWith(
+                        labelStyle: TextStyle(color: subtitleColor),
+                        hintStyle: TextStyle(color: subtitleColor),
                       ),
                       onSubmitted: (_) {
                         if (i == AppSettings.forceProxySiteLimit - 1) {

@@ -100,6 +100,7 @@ class _ForceProxySitesDialogState extends State<ForceProxySitesDialog> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: SsrvpnModalGlassPanel(
         borderRadius: 16,
+        opaque: true,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
           child: SingleChildScrollView(
@@ -177,6 +178,9 @@ class _ForceProxySitesDialogState extends State<ForceProxySitesDialog> {
                         labelText: '网址 ${i + 1}',
                         hintText: 'https://example.com',
                         prefixIcon: const Icon(Icons.language, size: 18),
+                      ).copyWith(
+                        labelStyle: TextStyle(color: subColor),
+                        hintStyle: TextStyle(color: subColor),
                       ),
                       onSubmitted: (_) {
                         if (i == AppSettings.forceProxySiteLimit - 1) {
