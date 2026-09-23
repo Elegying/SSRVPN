@@ -22,6 +22,7 @@ import 'package:ssrvpn_macos/theme/app_theme.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 import '../../packages/ssrvpn_shared/test/support/update_proxy_fixture.dart';
+import '../../packages/ssrvpn_shared/test/support/dialog_readability.dart';
 
 const _nodeYaml = '''
 proxies:
@@ -58,12 +59,15 @@ void main() {
       final fixture =
           (await tester.runAsync(() => _HomeFixture.create(withNodes: true)))!;
       addTearDown(fixture.dispose);
-      await tester.pumpWidget(fixture.build());
+      final captureKey = GlobalKey();
+      await tester
+          .pumpWidget(RepaintBoundary(key: captureKey, child: fixture.build()));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
       await tester.pumpAndSettle();
       await tester.tap(find.text(direct ? '强制直连网站' : '强制代理网站'));
       await tester.pumpAndSettle();
+      await expectRuleDialogOccludesPage(tester, captureKey);
       await tester.enterText(
           find.byType(TextField).first, 'https://[2001:db8::123]/path');
       await tester.tap(find.text('确定'));

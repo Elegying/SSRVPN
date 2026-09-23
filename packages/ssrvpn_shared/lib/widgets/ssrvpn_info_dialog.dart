@@ -133,18 +133,40 @@ class SsrvpnModalGlassPanel extends StatelessWidget {
     required this.child,
     this.padding = EdgeInsets.zero,
     this.borderRadius = 16,
+    this.opaque = false,
   });
 
   final Widget child;
   final EdgeInsetsGeometry padding;
   final double borderRadius;
 
+  /// Form content needs a painted backing; glass tint alone cannot occlude
+  /// foreground widgets behind the dialog, especially with wallpaper capture.
+  final bool opaque;
+
   @override
   Widget build(BuildContext context) {
     return SsrvpnLiquidSurface(
       radius: borderRadius,
-      padding: padding,
-      child: child,
+      padding: opaque ? EdgeInsets.zero : padding,
+      child: opaque
+          ? Padding(
+              // Leave the material's edge (including high-contrast outlines)
+              // visible while painting over the glass below all form content.
+              padding: const EdgeInsets.all(1),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .surface
+                      .withValues(alpha: 1),
+                  borderRadius: BorderRadius.circular(
+                      (borderRadius - 1).clamp(0, double.infinity)),
+                ),
+                child: Padding(padding: padding, child: child),
+              ),
+            )
+          : child,
     );
   }
 }
