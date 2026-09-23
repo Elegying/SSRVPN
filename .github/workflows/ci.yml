@@ -196,7 +196,7 @@ jobs:
         if: needs.changes.outputs.platform_required == 'false'
         run: |
           bash scripts/check-doc-consistency.sh
-          python3 -m unittest scripts.test_third_party_licenses scripts.test_ci_docs_scope scripts.test_classify_ci_scope
+          python3 -m unittest scripts.test_third_party_licenses scripts.test_ci_docs_scope scripts.test_classify_ci_scope scripts.test_doc_consistency
 
   core-assets:
     name: Prepare verified core assets
@@ -382,6 +382,13 @@ jobs:
       - name: Verify production routing on real core
         if: needs.changes.outputs.platform_required == 'true' && matrix.directory == 'SSRVPN_MacOS'
         run: python3 scripts/check-routing-core.py
+
+      - name: Verify real-core dual-stack forwarding
+        if: needs.changes.outputs.platform_required == 'true' && matrix.directory == 'SSRVPN_MacOS'
+        timeout-minutes: 10
+        run: |
+          python3 scripts/check-core-dual-stack.py
+          python3 scripts/check-core-dual-stack-protocols.py
 
       - name: Initialize CodeQL
         if: needs.changes.outputs.platform_required == 'true' && matrix.directory != 'SSRVPN_MacOS'

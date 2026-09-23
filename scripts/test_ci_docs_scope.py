@@ -2,6 +2,7 @@ import json
 import itertools
 import os
 import subprocess
+import tempfile
 import textwrap
 from pathlib import Path
 import unittest
@@ -77,6 +78,7 @@ class CiDocsScopeTest(unittest.TestCase):
                 self.assertIn("platform_required == 'false'", step)
                 self.assertIn("scripts.test_third_party_licenses", step)
                 self.assertIn("check-doc-consistency.sh", step)
+                self.assertIn("scripts.test_doc_consistency", step)
             else:
                 self.assertIn("platform_required == 'true'", step)
         core = job(workflow, "core-assets", "macos-native")
@@ -154,6 +156,32 @@ class CiDocsScopeTest(unittest.TestCase):
         self.assertNotIn("cache-hit", bootstrap)
         source = (ROOT / "scripts/bootstrap-core-assets.sh").read_text()
         self.assertTrue(source.rstrip().endswith("bash scripts/verify-core-assets.sh"))
+
+    def test_dual_stack_probes_are_required_and_fail_closed(self) -> None:
+        probes = ['scripts/check-core-dual-stack.py', 'scripts/check-core-dual-stack-protocols.py']
+        for workflow_file in (CI, ROOT / '.github/workflows/release.yml'):
+            workflow = workflow_file.read_text()
+            step = workflow.split('      - name: Verify real-core dual-stack forwarding\n', 1)[1].split('\n      - ', 1)[0]
+            self.assertNotIn('continue-on-error', step)
+            if workflow_file == CI:
+                self.assertIn("platform_required == 'true' && matrix.directory == 'SSRVPN_MacOS'", step)
+            else:
+                self.assertNotIn('if:', step)
+            script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+            for probe in probes:
+                self.assertIn('python3 ' + probe, script)
+            with tempfile.TemporaryDirectory() as directory:
+                trace = Path(directory) / 'trace'
+                stub = 'python3() { echo "$*" >> "$TRACE"; if [ "$*" = "$FAIL_PROBE" ]; then return 7; fi; }\n'
+                for fail in ('', *probes):
+                    with self.subTest(workflow=workflow_file.name, fail=fail):
+                        if trace.exists():
+                            trace.unlink()
+                        result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', stub + script],
+                                                env=dict(os.environ, TRACE=str(trace), FAIL_PROBE=fail),
+                                                capture_output=True)
+                        self.assertEqual(result.returncode, 7 if fail else 0, result.stderr)
+                        self.assertEqual(trace.read_text().splitlines(), probes[:1] if fail == probes[0] else probes)
 
 
 if __name__ == "__main__":

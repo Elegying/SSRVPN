@@ -19,6 +19,12 @@ make verify
 
 - 全部受版本控制 Dart 源码格式、Shell 脚本 ShellCheck、共享包导入、版本同步、安装包内指南和当前文档一致性。
 - Mihomo/GeoIP 资源的可复现引导与 SHA256。
+- 硬规则文档、PR 模板和当前状态说明必须存在且一致；纯文档 CI 也检查规则编号，覆盖
+  重号、漏号、顺序错误和文件删除，不需要为这些检查启动平台构建。
+- 三端定制内核版本必须带 `-ssrvpn.1`：构建时验证实际 Go 版本变量，Android 检查二进制
+  嵌入身份，桌面检查认证后的 `/version`；这些检查不替代固定 SHA-256 校验。
+- macOS CI 与 Release 运行 `check-core-dual-stack.py` 和 `check-core-dual-stack-protocols.py`，
+  覆盖真实核心的双栈及 SS/Trojan/AnyTLS 回环转发，任一失败都阻断该门禁。
 - Android native bridge、AGP 9 应用模块内置 Kotlin、三页产品表面、桌面启动、Clash/订阅/私有存储职责、macOS 特权和 Windows launcher 的静态边界。
 - 全部受版本控制 PowerShell 脚本的 ASCII 源码约束、显式 UTF-8 文件读取、Windows PowerShell 5.1 真实解析与已知参数集兼容性，以及 CI/Release 子进程退出码的逐次传播。
 - 明显密钥模式扫描、固定 commit 的 Gitleaks 全历史扫描、免费桌面分发策略守卫和发布工具单元测试；

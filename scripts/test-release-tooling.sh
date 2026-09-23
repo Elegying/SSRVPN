@@ -18,6 +18,7 @@ python3 -m unittest \
   scripts/test_macos_native_gate.py \
   scripts/test_check_release_assets.py \
   scripts/test_ci_docs_scope.py \
+  scripts/test_doc_consistency.py \
   scripts/test_pr_cache_cleanup.py \
   scripts/test_classify_ci_scope.py \
   scripts/test_free_desktop_distribution.py \

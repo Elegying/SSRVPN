@@ -19,7 +19,7 @@ Android API: 24
 NDK version: 28.2.13676358 (r28c)
 Mirror repo: Elegying/SSRVPN
 Mirror release tag: core-assets-v1
-Mirror asset name: libgojni-5326a535c157d489d9f045a78e436e000f24701edae13eba5c7cefd11f313707.so
-Mirror URL: https://github.com/Elegying/SSRVPN/releases/download/core-assets-v1/libgojni-5326a535c157d489d9f045a78e436e000f24701edae13eba5c7cefd11f313707.so
-Library SHA256: 5326a535c157d489d9f045a78e436e000f24701edae13eba5c7cefd11f313707
+Mirror asset name: libgojni-38536873281857949eb2adb1b7f12bb5acbde86d37c555432de12b97f666227a.so
+Mirror URL: https://github.com/Elegying/SSRVPN/releases/download/core-assets-v1/libgojni-38536873281857949eb2adb1b7f12bb5acbde86d37c555432de12b97f666227a.so
+Library SHA256: 38536873281857949eb2adb1b7f12bb5acbde86d37c555432de12b97f666227a
 Traffic extension SHA256: 29ce213f502c10ca42aab0159b06a90ad07ab5627d9f35ae10bf2c04d3cb825e

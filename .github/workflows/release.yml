@@ -386,6 +386,12 @@ jobs:
         shell: bash
         run: python3 scripts/check-core-proxy-traffic.py SSRVPN_MacOS/assets/AtlasCore.gz
 
+      - name: Verify real-core dual-stack forwarding
+        timeout-minutes: 10
+        run: |
+          python3 scripts/check-core-dual-stack.py
+          python3 scripts/check-core-dual-stack-protocols.py
+
       - uses: ./.github/actions/setup-flutter
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
