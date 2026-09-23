@@ -125,6 +125,24 @@ void main() {
     expect(reopened.allNodes.map((node) => node.latency), [null, 68, null]);
   });
 
+  test('new probes remain durable after an unchanged subscription refresh',
+      () async {
+    final visibleNodes = service.allNodes;
+    controller.applyNow(visibleNodes, 'First', 42, testedAt: testedAt);
+    final revision = service.revision;
+    final displayRevision = service.displayRevision;
+    await service.setRawYaml(service.rawYaml!);
+    expect(service.revision, revision);
+    expect(service.displayRevision, displayRevision);
+    // The home page keeps its visible nodes when neither revision changes.
+    controller.applyNow(visibleNodes, 'First', 68,
+        testedAt: testedAt.add(const Duration(seconds: 1)));
+    final reopened = await restart();
+    expect(reopened.allNodes.first.latency, 68);
+    expect(reopened.allNodes.first.lastLatencyTest,
+        testedAt.add(const Duration(seconds: 1)));
+  });
+
   test('a probe completed during publication is visible in the committed nodes',
       () async {
     final oldNodes = service.allNodes;

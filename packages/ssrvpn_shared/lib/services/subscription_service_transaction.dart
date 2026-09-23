@@ -16,6 +16,9 @@ typedef _SubscriptionSnapshot = ({
 extension _SubscriptionTransaction on _SubscriptionPersistence {
   void _acceptCache(
       String yaml, ParsedSubscription parsed, String runtimeText) {
+    // Home pages retain their nodes while both revisions are unchanged.
+    // Preserve those objects so later accepted probes still belong to this state.
+    if (yaml == _rawYaml && runtimeText == _runtimeProxyText) return;
     if (runtimeText != _runtimeProxyText) {
       _revision++;
     } else {
