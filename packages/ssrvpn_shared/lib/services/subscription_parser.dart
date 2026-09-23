@@ -9,6 +9,7 @@ import '../utils/proxy_node_usage_policy.dart';
 part 'subscription_parser_base64_part.dart';
 part 'subscription_parser_naming_part.dart';
 part 'subscription_parser_ssr_part.dart';
+part 'subscription_parser_ss_part.dart';
 part 'subscription_parser_uri_part.dart';
 part 'subscription_parser_yaml_part.dart';
 

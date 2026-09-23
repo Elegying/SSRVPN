@@ -38,19 +38,21 @@ class _SubscriptionUriParser {
       }
     }
 
+    if (line.trim().toLowerCase().startsWith('ss://')) {
+      return _ShadowsocksUriParser.parse(line.trim());
+    }
+    if (RegExp(r'^(hysteria2|hy2)://', caseSensitive: false).hasMatch(line)) {
+      return _parseHysteria2Link(line);
+    }
     final uri = Uri.tryParse(line);
     if (uri == null) return null;
     final scheme = uri.scheme.toLowerCase();
     if (!ProxyNodeUsagePolicy.nodeUriSchemes.contains(scheme)) return null;
 
-    if (scheme == 'ss') return _parseSsUri(uri);
     if (scheme == 'vmess') return _parseVmessUri(line);
     if (!ProxyNodeUsagePolicy.isValidServerValue(uri.host)) return null;
     if (scheme == 'vless') return _parseVlessUri(uri);
     if (scheme == 'hysteria' || scheme == 'hy') return _parseHysteriaUri(uri);
-    if (scheme == 'hysteria2' || scheme == 'hy2') {
-      return _parseHysteria2Uri(uri);
-    }
     if (scheme == 'tuic') return _parseTuicUri(uri);
     if (scheme == 'snell') return _parseSnellUri(uri);
     if (_isSocksScheme(scheme)) return _parseSocksUri(uri);
@@ -108,27 +110,6 @@ class _SubscriptionUriParser {
     }
 
     return null;
-  }
-
-  static Map<String, dynamic>? _parseSsUri(Uri uri) {
-    if (uri.host.isEmpty || uri.port <= 0 || uri.userInfo.isEmpty) {
-      return null;
-    }
-
-    final credentials = _parseSsCredentials(uri.userInfo);
-    if (credentials == null) return null;
-
-    final proxy = <String, dynamic>{
-      'name': _proxyNameFromUri(uri),
-      'type': 'ss',
-      'server': uri.host,
-      'port': uri.port,
-      'cipher': credentials.cipher,
-      'password': credentials.password,
-      'udp': true,
-    };
-    _putIfNotEmpty(proxy, 'plugin', uri.queryParameters['plugin']);
-    return proxy;
   }
 
   static Map<String, dynamic>? _parseVmessUri(String line) {
@@ -292,17 +273,55 @@ class _SubscriptionUriParser {
     return proxy;
   }
 
+  static Map<String, dynamic>? _parseHysteria2Link(String line) {
+    final match =
+        RegExp(r'^(hysteria2|hy2)://([^/?#]+)(.*)$', caseSensitive: false)
+            .firstMatch(line);
+    if (match == null) return null;
+    final authority = match[2]!;
+    final separator = authority.lastIndexOf(':');
+    var uri = Uri.tryParse(line);
+    String? ports;
+    // Validate raw ports before Uri normalizes an explicit zero into no port.
+    // HY2 also permits comma/range ports, which Uri cannot parse directly.
+    if (separator > authority.lastIndexOf(']') &&
+        separator > authority.lastIndexOf('@')) {
+      final value = authority.substring(separator + 1);
+      if (!RegExp(r'^\d+(?:[-,]\d+)*$').hasMatch(value)) return null;
+      int? firstPort;
+      for (final item in value.split(',')) {
+        final range = item.split('-').map(int.tryParse).toList();
+        if (range.length > 2 ||
+            range.any((port) => port == null || port < 1 || port > 65535) ||
+            range.first! > range.last!) {
+          return null;
+        }
+        firstPort ??= range.first;
+      }
+      if (value.contains(',') || value.contains('-')) ports = value;
+      uri = Uri.tryParse('${match[1]}://${authority.substring(0, separator)}'
+          ':$firstPort${match[3]}');
+    }
+    if (uri == null || !ProxyNodeUsagePolicy.isValidServerValue(uri.host)) {
+      return null;
+    }
+    final proxy = _parseHysteria2Uri(uri);
+    if (ports != null && proxy != null) proxy['ports'] = ports;
+    return proxy;
+  }
+
   static Map<String, dynamic>? _parseHysteria2Uri(Uri uri) {
-    if (uri.host.isEmpty || uri.port <= 0 || uri.userInfo.isEmpty) {
+    final port = uri.hasPort ? uri.port : 443;
+    if (uri.host.isEmpty || port <= 0 || port > 65535 || uri.userInfo.isEmpty) {
       return null;
     }
 
     final query = uri.queryParameters;
     final proxy = <String, dynamic>{
-      'name': _proxyNameFromUri(uri),
+      'name': _proxyNameFromUri(uri.replace(port: port)),
       'type': 'hysteria2',
       'server': uri.host,
-      'port': uri.port,
+      'port': port,
       'password': _decodeUriPart(uri.userInfo),
     };
 

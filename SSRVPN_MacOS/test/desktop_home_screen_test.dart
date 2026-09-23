@@ -54,6 +54,26 @@ double _contrastRatio(Color foreground, Color background) {
 }
 
 void main() {
+  testWidgets(
+      'adding a feed with new ownership preserves the active connection',
+      (tester) async {
+    final fixture = (await tester
+        .runAsync(() => _HomeFixture.create(withNodes: true, running: true)))!;
+    addTearDown(fixture.dispose);
+    fixture.clash.runtimeSelectedNodeName = '东京节点';
+    await tester.pumpWidget(fixture.build());
+    await tester.pumpAndSettle();
+    await tester.runAsync(() => fixture.subscription.setRawYaml(
+          "${_nodeYaml.replaceFirst('    type: ss', '    ssrvpn-subscription: 第二来源\n    ssrvpn-subscription-ids: [first, second]\n    type: ss')}"
+          '  - {name: 新增节点, type: socks5, server: 127.0.0.3, port: 1080}\n',
+        ));
+    await tester.pumpAndSettle();
+    expect(fixture.clash.isRunning, isTrue);
+    expect(fixture.clash.transitionEvents, isNot(contains('stop')));
+    expect(find.text('已连接'), findsWidgets);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('restores latency history after restart without probing',
       (tester) async {
     final fixture =
@@ -78,6 +98,46 @@ void main() {
   });
 
   for (final direct in [false, true]) {
+    testWidgets(
+        'routing rule save failure is visible and preserves connection direct=$direct',
+        (tester) async {
+      final fixture = (await tester.runAsync(() => _HomeFixture.create(
+          withNodes: true, running: true, failSettingsWrites: true)))!;
+      addTearDown(fixture.dispose);
+      final oldDirect =
+          List<String>.of(fixture.settings.settings.forceDirectSites);
+      final oldProxy =
+          List<String>.of(fixture.settings.settings.forceProxySites);
+      await tester.pumpWidget(fixture.build());
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(direct ? '强制直连网站' : '强制代理网站'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'example.test');
+      await tester.tap(find.text('确定'));
+      await tester.pumpAndSettle();
+      for (var attempt = 0; attempt < 20; attempt++) {
+        if (find
+            .text('${direct ? '强制直连' : '强制代理'}网站保存失败，请重试')
+            .evaluate()
+            .isNotEmpty) {
+          break;
+        }
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)));
+        await tester.pump();
+      }
+      expect(tester.takeException(), isNull);
+      expect(
+          find.text('${direct ? '强制直连' : '强制代理'}网站保存失败，请重试'), findsOneWidget);
+      expect(fixture.settings.settings.forceDirectSites, oldDirect);
+      expect(fixture.settings.settings.forceProxySites, oldProxy);
+      expect(fixture.clash.isRunning, isTrue);
+      expect(fixture.clash.transitionEvents, isNot(contains('stop')));
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
     testWidgets('manual IPv6 rule saves through desktop UI direct=$direct',
         (tester) async {
       final fixture =

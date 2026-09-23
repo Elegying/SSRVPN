@@ -58,11 +58,11 @@ Windows 安装器未签名；Android 使用固定自签名证书谱系支持覆�
 
 支持解析 Mihomo/Clash YAML、Base64 文本和逐行 URI 列表。当前解析器覆盖：
 
-- Shadowsocks（SS）与 ShadowsocksR（SSR）
+- Shadowsocks（SS）与 ShadowsocksR（SSR）；SS 支持 SIP002 插件参数及旧式完整 Base64 分享链接
 - VMess
 - VLESS，包括 TLS、Reality、WebSocket、HTTP/H2、gRPC 和 XHTTP 等常见参数
 - Trojan
-- Hysteria 与 Hysteria2
+- Hysteria 与 Hysteria2；HY2 分享链接支持默认 443 端口和地址中的端口跳跃范围
 - TUIC
 - AnyTLS
 - Snell

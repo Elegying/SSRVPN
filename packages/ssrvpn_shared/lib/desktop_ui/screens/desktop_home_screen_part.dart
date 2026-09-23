@@ -293,7 +293,17 @@ class _HomeScreenState extends State<HomeScreen> {
       forceDirect: forceDirect,
     );
     if (sites == null || !_canUpdateUi) return;
-    await _applyRoutingSites(sites, forceDirect: forceDirect);
+    try {
+      await _applyRoutingSites(sites, forceDirect: forceDirect);
+    } catch (error) {
+      AppLogger.warning(
+          'RoutingSites', '保存${forceDirect ? '强制直连' : '强制代理'}网站失败: $error');
+      if (!_canUpdateUi) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('${forceDirect ? '强制直连' : '强制代理'}网站保存失败，请重试'),
+        duration: const Duration(seconds: 3),
+      ));
+    }
   }
 
   Future<void> _applyRoutingSites(

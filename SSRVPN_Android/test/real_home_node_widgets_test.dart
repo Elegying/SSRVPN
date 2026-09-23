@@ -94,6 +94,27 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('adding a feed with new ownership preserves Android connection',
+      (tester) async {
+    final clash = _FailedReloadAndroidClashService()
+      ..setRunning(true)
+      ..requestConnectionIntent(true);
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(tester, find.text('已连接'));
+    await tester.runAsync(() => fixture.subscription.setRawYaml(
+        "${_nodeYaml.replaceFirst('    type: ss', '    ssrvpn-subscription: 第二来源\n    ssrvpn-subscription-ids: [first, second]\n    type: ss')}"
+        '  - {name: 新增节点, type: socks5, server: 127.0.0.3, port: 1080}\n'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(clash.stopCalls, 0);
+    expect(clash.startCalls, 0);
+    expect(clash.isRunning, isTrue);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('Home uses cached endpoint country in overview and selector',
       (tester) async {
     final fixture = (await tester.runAsync(

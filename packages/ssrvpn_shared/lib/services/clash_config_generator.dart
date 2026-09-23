@@ -15,7 +15,9 @@ import '../utils/runtime_config_name_policy.dart';
 /// 生成通用的 Clash 配置，平台特定的配置可以通过继承或组合方式扩展
 class ClashConfigGenerator {
   static const int isolateThreshold = 256 * 1024;
-  static const _internalProxyKeys = {
+
+  /// App metadata that must not alter core routing or connection identity.
+  static const internalProxyKeys = {
     'ssrvpn-subscription',
     'ssrvpn-subscription-ids',
     'ssrvpn-original-name',
@@ -555,7 +557,7 @@ class ClashConfigGenerator {
         if (!seenKeys.add(key)) {
           throw FormatException('代理字段清理后名称冲突：“$key”');
         }
-        if (_internalProxyKeys.contains(key)) continue;
+        if (internalProxyKeys.contains(key)) continue;
         result[key] = _plainYamlValue(entry.value);
       }
       return result;

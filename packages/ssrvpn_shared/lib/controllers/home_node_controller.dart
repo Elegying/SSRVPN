@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../services/clash_config_generator.dart';
 import '../services/subscription_node_codec.dart';
 import '../models/proxy_node.dart';
 import '../utils/node_display_policy.dart';
@@ -68,13 +69,7 @@ class HomeNodeController {
         'server': node.server,
         'port': node.port
       };
-      for (final key in [
-        'group',
-        'latency',
-        'lastLatencyTest',
-        'isOnline',
-        'extra'
-      ]) {
+      for (final key in ClashConfigGenerator.internalProxyKeys) {
         config.remove(key);
       }
       chain.add(config);
