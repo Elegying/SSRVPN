@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.16] - 2026-09-23
+
 ### 订阅与连接
 
 - 逐条隔离分享链接的解析错误，查询参数含非法 UTF-8 编码时跳过坏链接，保留同批次的正常节点。
@@ -35,6 +37,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - macOS、Windows 保存强制直连／强制代理网站失败时显示明确错误反馈，保留原规则和当前连接，
   避免弹窗关闭后没有提示或产生未处理异常。
+
+### 验证与兼容说明
+
+- 新增从生产链接解析器到真实内核的 SS 插件、HY2 通信回归，覆盖有效载荷、错误密码拒绝、
+  失败不回退直连，以及 HY2 双端口跳跃和 TCP/UDP。CI 与正式发布构建持续执行。
+- SS 插件共同支持范围为 obfs、v2ray-plugin、gost-plugin、shadow-tls、restls、kcptun；
+  JLS 等不在三端共同支持范围的插件会被拒绝导入，不再被旧内核静默忽略。
+- Windows 新临时 TUN 恢复记录为 v3，仍读取 v1/v2；需要回退旧版时，应先正常断开并完成
+  网络清理。订阅和设置不做格式迁移。
+- 本次维护者明确选择跳过三端实机验收，采用自动化、真实协议通信和正式发布产物校验；
+  未将切网、休眠、长时保活或完整实机交互记作已验证。
 
 ## [5.0.15] - 2026-09-22
 
