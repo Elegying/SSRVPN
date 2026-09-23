@@ -3,6 +3,34 @@ import 'package:ssrvpn_shared/models/proxy_node.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('source ownership changes do not invalidate the running connection', () {
+    final node = ProxyNode(
+        name: 'A',
+        type: 'trojan',
+        server: 'a.example',
+        port: 443,
+        extra: {
+          'password': 'fixture',
+          'ssrvpn-subscription': 'First',
+          'ssrvpn-subscription-ids': ['first'],
+          'ssrvpn-original-name': 'A'
+        });
+    final shared = node.copyWith(extra: {
+      ...node.extra,
+      'ssrvpn-subscription': 'Second',
+      'ssrvpn-subscription-ids': ['first', 'second']
+    });
+    expect(
+        HomeNodeController.connectionUnchanged([node], [shared], 'A'), isTrue);
+    expect(
+        HomeNodeController.connectionUnchanged([
+          node
+        ], [
+          shared.copyWith(extra: {...shared.extra, 'password': 'changed'})
+        ], 'A'),
+        isFalse);
+  });
+
   test(
       'connection comparison ignores display data but includes credentials and dependencies',
       () {

@@ -390,6 +390,11 @@ jobs:
           python3 scripts/check-core-dual-stack.py
           python3 scripts/check-core-dual-stack-protocols.py
 
+      - name: Verify imported protocol traffic
+        if: needs.changes.outputs.platform_required == 'true' && matrix.directory == 'SSRVPN_MacOS'
+        timeout-minutes: 5
+        run: python3 scripts/check-imported-protocol-traffic.py --restls
+
       - name: Initialize CodeQL
         if: needs.changes.outputs.platform_required == 'true' && matrix.directory != 'SSRVPN_MacOS'
         uses: github/codeql-action/init@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
@@ -524,6 +529,11 @@ jobs:
       - name: Verify Windows proxy-only traffic
         shell: bash
         run: python3 scripts/check-core-proxy-traffic.py SSRVPN_Windows/assets/mihomo.exe
+
+      - name: Verify imported protocol traffic
+        shell: bash
+        timeout-minutes: 5
+        run: python3 scripts/check-imported-protocol-traffic.py --core SSRVPN_Windows/assets/mihomo.exe
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4

@@ -21,6 +21,16 @@ class _SubscriptionUriParser {
   }
 
   static Map<String, dynamic>? proxyFromUri(String line) {
+    try {
+      return _parseUri(line.trim());
+    } on FormatException {
+      // Query decoding can fail after Uri.tryParse succeeds. One malformed
+      // share link must not discard every valid sibling in a subscription.
+      return null;
+    }
+  }
+
+  static Map<String, dynamic>? _parseUri(String line) {
     if (_SsrSubscriptionParser.isSsrLink(line)) {
       try {
         final yaml = _SsrSubscriptionParser.importSsrLink(line);
@@ -38,23 +48,35 @@ class _SubscriptionUriParser {
       }
     }
 
+    if (line.trim().toLowerCase().startsWith('ss://')) {
+      return _ShadowsocksUriParser.parse(line.trim());
+    }
+    if (RegExp(r'^(hysteria2|hy2)://', caseSensitive: false).hasMatch(line)) {
+      return _parseHysteria2Link(line);
+    }
     final uri = Uri.tryParse(line);
     if (uri == null) return null;
     final scheme = uri.scheme.toLowerCase();
     if (!ProxyNodeUsagePolicy.nodeUriSchemes.contains(scheme)) return null;
 
-    if (scheme == 'ss') return _parseSsUri(uri);
     if (scheme == 'vmess') return _parseVmessUri(line);
     if (!ProxyNodeUsagePolicy.isValidServerValue(uri.host)) return null;
     if (scheme == 'vless') return _parseVlessUri(uri);
     if (scheme == 'hysteria' || scheme == 'hy') return _parseHysteriaUri(uri);
-    if (scheme == 'hysteria2' || scheme == 'hy2') {
-      return _parseHysteria2Uri(uri);
-    }
     if (scheme == 'tuic') return _parseTuicUri(uri);
     if (scheme == 'snell') return _parseSnellUri(uri);
     if (_isSocksScheme(scheme)) return _parseSocksUri(uri);
-    if (scheme == 'http' || scheme == 'https') return _parseHttpUri(uri);
+    if (scheme == 'http' || scheme == 'https') {
+      // Uri removes explicit :80/:443 from HTTP(S) authorities. Inspect the
+      // input so these proxy ports remain valid while bare subscription URLs
+      // and an explicit :0 are not reinterpreted as default-port proxies.
+      final authority =
+          line.substring(line.indexOf('://') + 3).split(RegExp(r'[/?#]')).first;
+      final rawPort = RegExp(r':(\d+)$').firstMatch(authority)?.group(1);
+      final port = int.tryParse(rawPort ?? '');
+      if (port == null || port < 1 || port > 65535) return null;
+      return _parseHttpUri(uri, port);
+    }
 
     if (uri.host.isEmpty || uri.port <= 0) return null;
     final password = _decodeUriPart(uri.userInfo);
@@ -108,27 +130,6 @@ class _SubscriptionUriParser {
     }
 
     return null;
-  }
-
-  static Map<String, dynamic>? _parseSsUri(Uri uri) {
-    if (uri.host.isEmpty || uri.port <= 0 || uri.userInfo.isEmpty) {
-      return null;
-    }
-
-    final credentials = _parseSsCredentials(uri.userInfo);
-    if (credentials == null) return null;
-
-    final proxy = <String, dynamic>{
-      'name': _proxyNameFromUri(uri),
-      'type': 'ss',
-      'server': uri.host,
-      'port': uri.port,
-      'cipher': credentials.cipher,
-      'password': credentials.password,
-      'udp': true,
-    };
-    _putIfNotEmpty(proxy, 'plugin', uri.queryParameters['plugin']);
-    return proxy;
   }
 
   static Map<String, dynamic>? _parseVmessUri(String line) {
@@ -292,21 +293,88 @@ class _SubscriptionUriParser {
     return proxy;
   }
 
-  static Map<String, dynamic>? _parseHysteria2Uri(Uri uri) {
-    if (uri.host.isEmpty || uri.port <= 0 || uri.userInfo.isEmpty) {
+  static Map<String, dynamic>? _parseHysteria2Link(String line) {
+    final match =
+        RegExp(r'^(hysteria2|hy2)://([^/?#]+)(.*)$', caseSensitive: false)
+            .firstMatch(line);
+    if (match == null) return null;
+    final authority = match[2]!;
+    final separator = authority.lastIndexOf(':');
+    var uri = Uri.tryParse(line);
+    String? ports;
+    // Validate raw ports before Uri normalizes an explicit zero into no port.
+    // HY2 also permits comma/range ports, which Uri cannot parse directly.
+    if (separator > authority.lastIndexOf(']') &&
+        separator > authority.lastIndexOf('@')) {
+      final value = authority.substring(separator + 1);
+      if (!_validUnsignedRanges(value, minimum: 1, maximum: 65535)) return null;
+      final firstPort = int.parse(value.split(RegExp('[-,]')).first);
+      if (value.contains(',') || value.contains('-')) ports = value;
+      uri = Uri.tryParse('${match[1]}://${authority.substring(0, separator)}'
+          ':$firstPort${match[3]}');
+    }
+    if (uri == null || !ProxyNodeUsagePolicy.isValidServerValue(uri.host)) {
+      return null;
+    }
+    return _parseHysteria2Uri(uri, authorityPorts: ports);
+  }
+
+  static bool _validUnsignedRanges(
+    String value, {
+    required int minimum,
+    required int maximum,
+    bool allowList = true,
+  }) {
+    if (!RegExp(r'^\d+(?:[-,]\d+)*$').hasMatch(value) ||
+        (!allowList && value.contains(','))) {
+      return false;
+    }
+    for (final item in value.split(',')) {
+      final range = item.split('-').map(int.tryParse).toList();
+      if (range.length > 2 ||
+          range.any((n) => n == null || n < minimum || n > maximum) ||
+          range.first! > range.last!) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static Map<String, dynamic>? _parseHysteria2Uri(
+    Uri uri, {
+    String? authorityPorts,
+  }) {
+    final port = uri.hasPort ? uri.port : 443;
+    if (uri.host.isEmpty || port <= 0 || port > 65535 || uri.userInfo.isEmpty) {
       return null;
     }
 
     final query = uri.queryParameters;
+    final ports = (authorityPorts ?? query['mport'] ?? query['ports'])?.trim();
+    if (ports != null &&
+        ports.isNotEmpty &&
+        !_validUnsignedRanges(ports, minimum: 1, maximum: 65535)) {
+      return null;
+    }
+    final hopInterval = (query['hop-interval'] ?? query['hopInterval'])?.trim();
+    if (hopInterval != null &&
+        hopInterval.isNotEmpty &&
+        !_validUnsignedRanges(hopInterval,
+            minimum: 0,
+            // Go's time.Duration stores nanoseconds in a signed 64-bit integer.
+            maximum: 9223372036,
+            allowList: false)) {
+      return null;
+    }
     final proxy = <String, dynamic>{
-      'name': _proxyNameFromUri(uri),
+      'name': _proxyNameFromUri(uri.replace(port: port)),
       'type': 'hysteria2',
       'server': uri.host,
-      'port': uri.port,
+      'port': port,
       'password': _decodeUriPart(uri.userInfo),
     };
 
-    _putIfNotEmpty(proxy, 'ports', query['mport'] ?? query['ports']);
+    _putIfNotEmpty(proxy, 'ports', ports);
     _putIfNotEmpty(proxy, 'sni', query['sni']);
     _putIfNotEmpty(proxy, 'fingerprint', query['pinSHA256']);
     _putIfNotEmpty(proxy, 'obfs', query['obfs']);
@@ -315,11 +383,7 @@ class _SubscriptionUriParser {
       'obfs-password',
       query['obfs-password'] ?? query['obfsPassword'],
     );
-    _putIfNotEmpty(
-      proxy,
-      'hop-interval',
-      query['hop-interval'] ?? query['hopInterval'],
-    );
+    _putIfNotEmpty(proxy, 'hop-interval', hopInterval);
     _putIfNotEmpty(proxy, 'up', query['up']);
     _putIfNotEmpty(proxy, 'down', query['down']);
 
@@ -466,16 +530,12 @@ class _SubscriptionUriParser {
     return proxy;
   }
 
-  static Map<String, dynamic>? _parseHttpUri(Uri uri) {
-    if (uri.host.isEmpty || !uri.hasPort || uri.port <= 0 || uri.port > 65535) {
-      return null;
-    }
-
+  static Map<String, dynamic>? _parseHttpUri(Uri uri, int explicitPort) {
     final proxy = <String, dynamic>{
       'name': _proxyNameFromUri(uri),
       'type': 'http',
       'server': uri.host,
-      'port': uri.port,
+      'port': explicitPort,
     };
     if (uri.scheme.toLowerCase() == 'https') proxy['tls'] = true;
     _putUserInfo(proxy, uri.userInfo);

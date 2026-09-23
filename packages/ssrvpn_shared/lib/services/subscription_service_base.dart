@@ -758,6 +758,10 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
     if (scheme == 'http' || scheme == 'https') {
       final hasEndpointPath = uri!.path.isNotEmpty && uri.path != '/';
       if (hasEndpointPath || uri.hasQuery) return false;
+      // Anonymous standard-port endpoints retain the existing subscription
+      // interpretation. URI lists can still contain these HTTP proxy nodes;
+      // credentials distinguish a single default-port proxy entered directly.
+      if (!uri.hasPort && uri.userInfo.isEmpty) return false;
     }
     return SubscriptionParser.proxyFromUri(value) != null;
   }

@@ -9,6 +9,30 @@ import 'package:ssrvpn_shared/utils/bounded_yaml.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('default-port proxies do not turn subscription URLs into node links',
+      () {
+    final service = _FakeSubscriptionService();
+    addTearDown(service.dispose);
+    for (final link in [
+      'http://user:fixture@127.0.0.1:80',
+      'https://user:fixture@[2001:db8::1]:443',
+    ]) {
+      expect(service.isSingleNodeLink(link), isTrue);
+    }
+    for (final link in [
+      'https://feed.invalid',
+      'https://feed.invalid:443',
+      'https://feed.invalid:443/',
+      'http://feed.invalid:80',
+      'https://feed.invalid:443/subscription',
+      'https://feed.invalid:443/?token=fixture',
+      'http://feed.invalid:80/subscription',
+      'https://user:fixture@feed.invalid:443/subscription',
+    ]) {
+      expect(service.isSingleNodeLink(link), isFalse);
+    }
+  });
+
   test('failed atomic subscription write removes only its temporary file',
       () async {
     final directory =

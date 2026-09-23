@@ -401,6 +401,10 @@ jobs:
       - name: Install locked dependencies
         run: flutter pub get --enforce-lockfile
 
+      - name: Verify imported protocol traffic
+        timeout-minutes: 5
+        run: python3 scripts/check-imported-protocol-traffic.py --restls
+
       - name: Build & Package DMG
         run: cd SSRVPN_MacOS && bash tool/package_macos.sh --dart-define-from-file=../config/ssrvpn-usage-defines.json
 
@@ -519,6 +523,11 @@ jobs:
       - name: Enforce coverage threshold
         shell: bash
         run: bash scripts/check-coverage-thresholds.sh SSRVPN_Windows
+
+      - name: Verify imported protocol traffic
+        shell: bash
+        timeout-minutes: 5
+        run: python3 scripts/check-imported-protocol-traffic.py --core SSRVPN_Windows/assets/mihomo.exe
 
       - name: Build Windows installer
         shell: powershell

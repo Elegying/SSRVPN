@@ -58,11 +58,11 @@ Windows 安装器未签名；Android 使用固定自签名证书谱系支持覆�
 
 支持解析 Mihomo/Clash YAML、Base64 文本和逐行 URI 列表。当前解析器覆盖：
 
-- Shadowsocks（SS）与 ShadowsocksR（SSR）
+- Shadowsocks（SS）与 ShadowsocksR（SSR）；SS 支持 SIP002 插件参数及旧式完整 Base64 分享链接
 - VMess
 - VLESS，包括 TLS、Reality、WebSocket、HTTP/H2、gRPC 和 XHTTP 等常见参数
 - Trojan
-- Hysteria 与 Hysteria2
+- Hysteria 与 Hysteria2；HY2 分享链接支持默认 443 端口和地址中的端口跳跃范围
 - TUIC
 - AnyTLS
 - Snell
@@ -71,6 +71,14 @@ Windows 安装器未签名；Android 使用固定自签名证书谱系支持覆�
 
 订阅内容仍需满足 Mihomo 支持范围和项目的字段、地址、端口、节点数量及数据大小限制；
 “能够解析”不等于服务端、协议组合或目标网络一定可用。
+
+SS 插件按三端随包内核的共同支持范围接收：obfs（含分享链接中的 simple-obfs/obfs-local
+别名）、v2ray-plugin、gost-plugin、shadow-tls、restls、kcptun。未知或仅部分内核支持的
+插件（如 JLS）不导入，以免内核静默取消插件传输。HY2 的 mport/ports 和 hop-interval
+查询参数同样检查合法范围；无效分享链接会被逐条跳过。
+
+HTTP/HTTPS 分享链接支持显式标准端口 80/443。直接输入的匿名标准端口网址仍按订阅地址处理；
+这类无认证代理可从 URI 列表或 YAML 导入，带认证的标准端口代理可以作为单节点链接输入。
 
 ## 节点管理与选择
 

@@ -34,6 +34,7 @@ if [[ "$(uname -s)" == Darwin ]]; then
   run_step "Production routing on real core" python3 scripts/check-routing-core.py
   run_step "Dual-stack forwarding on real core" python3 scripts/check-core-dual-stack.py
   run_step "Dual-stack encrypted protocol paths" python3 scripts/check-core-dual-stack-protocols.py
+  run_step "Imported SS plugin and HY2 traffic" python3 scripts/check-imported-protocol-traffic.py --restls
 fi
 run_step "Android native bridge guards" scripts/check-android-native-bridge-guards.sh
 run_step "Android built-in Kotlin guard" scripts/check-android-built-in-kotlin.sh
@@ -46,6 +47,8 @@ run_step "macOS TUN DNS transaction tests" scripts/test-macos-tun-dns-transactio
 run_step "Windows launcher security" scripts/check-windows-launcher-security.sh
 if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* || \
       "$(uname -s)" == CYGWIN* ]]; then
+  run_step "Imported SS plugin and HY2 traffic" \
+    python3 scripts/check-imported-protocol-traffic.py --core SSRVPN_Windows/assets/mihomo.exe
   run_step "Windows native proxy recovery fault harness" \
     powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File \
     scripts/test_windows_native_proxy_recovery.ps1
