@@ -44,8 +44,19 @@ Future<void> verifyLatencyHistoryAcrossLaunches(
   expect(find.text('42ms'), findsOneWidget);
   expect(find.text('68ms'), findsOneWidget);
   expect(probeCount(), greaterThan(0));
-  final testsBeforeRestart = probeCount();
   final originals = first.subscription.allNodes;
+  final firstTestTime = originals.first.lastLatencyTest;
+  final testsBeforeRefresh = probeCount();
+  await tester.runAsync(
+      () => first.subscription.setRawYaml(first.subscription.rawYaml!));
+  await tester.pumpAndSettle();
+  expect(probeCount(), testsBeforeRefresh);
+  await tester.pump(const Duration(seconds: 1));
+  await tester.tap(find.byTooltip('测试当前分组延迟'));
+  await tester.pumpAndSettle();
+  expect(probeCount(), greaterThan(testsBeforeRefresh));
+  expect(originals.first.lastLatencyTest, isNot(firstTestTime));
+  final testsBeforeRestart = probeCount();
   final timestamps =
       originals.map((node) => node.lastLatencyTest?.toUtc()).toList();
   expect(timestamps, everyElement(isNotNull));
