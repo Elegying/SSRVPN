@@ -50,6 +50,21 @@ class HardRuleDocumentationTests(unittest.TestCase):
                 self.assertTrue(self.check({name: old}))
         self.assertEqual(self.check({name: '双栈路由和三页产品结构保持不变。'}), [])
 
+    def test_pr_template_allows_explicitly_forbidding_the_old_baseline(self):
+        name = '.github/PULL_REQUEST_TEMPLATE.md'
+        for text in (
+            '保持双栈、三页；不得恢复 IPv4-only 路由和两页产品结构。',
+            '保持双栈、三页；禁止回退到两页产品结构，也不得采用 IPv4-only 路由。',
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.check({name: text}), [])
+        for text in (
+            '保持双栈、三页；不得改变 IPv4-only 路由和两页产品结构。',
+            '保持双栈、三页；不得恢复 IPv4-only 路由，但两页产品结构保持不变。',
+        ):
+            with self.subTest(text=text):
+                self.assertTrue(self.check({name: text}))
+
     def test_health_rejects_stale_count_and_unqualified_third_party_claim(self):
         name = 'docs/PROJECT_HEALTH.md'
         for old in ('硬性规则清单已修正为 1..56 连续。',
