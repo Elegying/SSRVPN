@@ -21,6 +21,9 @@ void main() {
     }
     for (final link in [
       'https://feed.invalid',
+      'https://feed.invalid:443',
+      'https://feed.invalid:443/',
+      'http://feed.invalid:80',
       'https://feed.invalid:443/subscription',
       'https://feed.invalid:443/?token=fixture',
       'http://feed.invalid:80/subscription',
