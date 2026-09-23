@@ -50,6 +50,7 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
     _lastDisplayRevision = subService.displayRevision;
     _cancelSingleLatencyTest();
     _cancelLatencyBatch();
+    _latencyController.clear();
     _lastRevision = controller.lastRevision;
     _nodes = controller.nodes;
     if (sync.shouldPromptForImport) return true;

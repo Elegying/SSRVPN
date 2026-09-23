@@ -147,6 +147,8 @@ class HomeScreenState extends State<HomeScreen>
     if (identical(_subscriptionService, subService)) return;
     _subscriptionService?.removeListener(_handleSubscriptionServiceChanged);
     _subscriptionService = subService;
+    _latencyController.onResultsApplied =
+        (nodes) => unawaited(subService.saveLatencyResults(nodes));
     subService.addListener(_handleSubscriptionServiceChanged);
     _onSubscriptionChanged(subService);
   }
@@ -170,6 +172,7 @@ class HomeScreenState extends State<HomeScreen>
     if (revision != _lastRevision || _nodes.length != latestNodes.length) {
       _cancelSingleLatencyTest();
       _cancelLatencyBatch();
+      _latencyController.clear();
       _lastRevision = revision;
       _updateHomeState(() {
         _nodes = latestNodes;

@@ -6,6 +6,7 @@ class HomeLatencyController {
       : latencies = latencies ?? <String, int>{};
 
   final Map<String, int> latencies;
+  void Function(List<ProxyNode>)? onResultsApplied;
   final Map<String, int> _pending = {};
   int _batchGeneration = 0;
 
@@ -73,6 +74,8 @@ class HomeLatencyController {
     _pending.clear();
     HomeNodeController.applyLatenciesTo(nodes, latencies, batch,
         testedAt: testedAt);
+    onResultsApplied
+        ?.call(nodes.where((node) => batch.containsKey(node.name)).toList());
   }
 
   void applyNow(
@@ -87,6 +90,8 @@ class HomeLatencyController {
       {nodeName: latency},
       testedAt: testedAt,
     );
+    onResultsApplied
+        ?.call(nodes.where((node) => node.name == nodeName).toList());
   }
 
   List<ProxyNode> timeoutLast(Iterable<ProxyNode> nodes) {

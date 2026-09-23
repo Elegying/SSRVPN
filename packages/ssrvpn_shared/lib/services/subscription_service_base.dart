@@ -21,6 +21,7 @@ import '../services/subscription_refresh_control.dart';
 import '../services/subscription_refresh_result.dart';
 import '../services/subscription_yaml_merger.dart';
 import 'node_preference_transaction.dart';
+import 'node_latency_cache.dart';
 import 'subscription_undo_record.dart';
 import '../utils/app_logger.dart';
 import '../utils/bounded_yaml.dart';
@@ -738,6 +739,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
       _runtimeProxyText = ClashConfigGenerator.buildProxiesText(_rawYaml!);
       _allNodes = parsed.nodes;
       _allGroups = parsed.groups;
+      _latencyCache?.restore(_allNodes);
     } catch (e) {
       AppLogger.warning('SubscriptionService', 'YAML解析失败: $e');
     }

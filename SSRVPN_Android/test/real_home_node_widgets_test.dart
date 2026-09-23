@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../packages/ssrvpn_shared/test/support/latency_restart.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show Tristate;
@@ -44,6 +45,30 @@ double _contrastRatio(Color foreground, Color background) {
 }
 
 void main() {
+  testWidgets('restores latency history after restart without probing',
+      (tester) async {
+    final clash = _LatencyHistoryAndroidClashService();
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+    await verifyLatencyHistoryAcrossLaunches(tester,
+        first: (widget: fixture.build(), subscription: fixture.subscription),
+        probeCount: () => clash.batchLatencyRuns,
+        replacementYaml: _nodeYaml.replaceFirst('127.0.0.1', '127.0.0.3'),
+        restart: () async {
+          SubscriptionService.resetInstanceForTesting();
+          final subscription =
+              await SubscriptionService.getInstance(fixture.directory.path);
+          addTearDown(subscription.dispose);
+          final restarted = _AndroidHomeFixture(
+              directory: fixture.directory,
+              subscription: subscription,
+              settings: fixture.settings,
+              clash: fixture.clash);
+          return (widget: restarted.build(), subscription: subscription);
+        });
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   tearDown(SubscriptionService.resetInstanceForTesting);
@@ -394,7 +419,13 @@ void main() {
     await tester.pump();
     expect(find.text('美国节点'), findsWidgets);
     expect(find.text('东京节点'), findsNothing);
-    expect(find.bySemanticsLabel('US 国旗'), findsWidgets);
+    // The unchanged Singapore node retains its measured latency and can become
+    // the default. Inspect the renamed row, not the overview's selected flag.
+    await _waitForCountryFlag(
+      tester,
+      find.byKey(const ValueKey('ssrvpn-node-card-美国节点')),
+      'US',
+    );
 
     clash.publishRunning();
     await _pumpUntil(
@@ -409,6 +440,7 @@ void main() {
           .evaluate()
           .isNotEmpty,
     );
+    await flushLatencyHistory(tester, fixture.subscription);
   });
 
   testWidgets(
@@ -1346,6 +1378,25 @@ class _AndroidHomeFixture {
     subscription.dispose();
     settings.dispose();
     if (directory.existsSync()) directory.deleteSync(recursive: true);
+  }
+}
+
+class _LatencyHistoryAndroidClashService extends _RecordingAndroidClashService {
+  int batchLatencyRuns = 0;
+
+  @override
+  Future<void> testAllLatencies(
+    List<ProxyNode> nodes,
+    void Function(String name, int latency) onResult, {
+    int concurrency = 10,
+    int timeoutMs = 5000,
+    bool Function()? shouldContinue,
+  }) async {
+    batchLatencyRuns++;
+    for (var index = 0; index < nodes.length; index++) {
+      if (shouldContinue?.call() == false) return;
+      onResult(nodes[index].name, index == 0 ? 42 : 68);
+    }
   }
 }
 

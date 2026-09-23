@@ -92,6 +92,9 @@ extension _SubscriptionTransaction on _SubscriptionPersistence {
     // Publish both stores in one synchronous turn. No reader may combine a
     // staged preference with the old subscription snapshot.
     _transactionSnapshot = null;
+    // A probe can finish while the subscription write is awaiting disk I/O.
+    // Publish its last accepted result for unchanged nodes with the new state.
+    _latencyCache?.restore(_allNodes);
     _publishPreference?.call();
   }
 
