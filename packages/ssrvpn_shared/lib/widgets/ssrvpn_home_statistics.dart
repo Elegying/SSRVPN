@@ -3,6 +3,7 @@ import '../controllers/account_usage_controller.dart';
 import '../models/proxy_node.dart';
 import '../services/account_usage_client.dart';
 import '../models/vpn_traffic_sample.dart';
+import '../utils/statistics_visibility.dart';
 import 'ssrvpn_home_traffic_panel.dart';
 
 /// Account state owns no part of the local sampler's connection lifecycle.
@@ -48,8 +49,7 @@ class _StatisticsState extends State<SsrvpnHomeStatistics>
     _account.update(
         node: widget.node,
         revision: widget.revision,
-        active: widget.active &&
-            (lifecycle == null || lifecycle == AppLifecycleState.resumed));
+        active: widget.active && statisticsViewIsVisible(lifecycle));
   }
 
   @override

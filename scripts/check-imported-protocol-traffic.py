@@ -159,13 +159,18 @@ class TLSCover(socketserver.BaseRequestHandler):
 
 
 class HopRelay:
-    """Two external UDP ports, one stable upstream QUIC peer, no firewall rule."""
+    """A UDP port pool, one stable upstream QUIC peer, no firewall rule."""
     def __init__(self, target):
         self.target = target
-        self.sockets = [socket.socket(socket.AF_INET, socket.SOCK_DGRAM) for _ in range(3)]
+        # The pinned cores randomly select with replacement every >= 5 seconds.
+        # With two ports, seven valid hops can all select the starting port
+        # (1/128); that is not a broken hop timer. Sixteen ports make that
+        # outcome negligible while packet counters still require real migration.
+        self.sockets = [socket.socket(socket.AF_INET, socket.SOCK_DGRAM) for _ in range(17)]
         for peer in self.sockets:
             peer.bind(('127.0.0.1', 0))
-        self.ports = [peer.getsockname()[1] for peer in self.sockets[:2]]
+        self.upstream = self.sockets[-1]
+        self.ports = [peer.getsockname()[1] for peer in self.sockets[:-1]]
         self.counts = {port: 0 for port in self.ports}
         self.current = None
         self.error = None
@@ -189,13 +194,13 @@ class HopRelay:
                     # Windows reports ICMP from a closed previous test client
                     # on the UDP listener. It must not kill the relay worker.
                     continue
-                if peer is self.sockets[2]:
+                if peer is self.upstream:
                     if self.current:
                         self.current[0].sendto(payload, self.current[1])
                 else:
                     self.counts[peer.getsockname()[1]] += 1
                     self.current = peer, sender
-                    self.sockets[2].sendto(payload, ('127.0.0.1', self.target))
+                    self.upstream.sendto(payload, ('127.0.0.1', self.target))
 
     def close(self):
         self.stopped.set()
@@ -346,7 +351,8 @@ def main():
                         users={'fixture': PASSWORD}, certificate=cert.read_text(), **{'private-key': key.read_text()})
                     hop = HopRelay(entry)
                     run.callback(hop.close)
-                    link = f'hysteria2://{quote(PASSWORD, safe="")}@127.0.0.1:{entry}/?sni=proxy.fixture&pinSHA256={fingerprint}&mport={hop.ports[0]},{hop.ports[1]}&hop-interval=1#fixture'
+                    ports = ','.join(map(str, hop.ports))
+                    link = f'hysteria2://{quote(PASSWORD, safe="")}@127.0.0.1:{entry}/?sni=proxy.fixture&pinSHA256={fingerprint}&mport={ports}&hop-interval=5#fixture'
                 proxy, = parse_links(str(dart), [link])
                 assert proxy and proxy['name'] == 'fixture', (case, 'production parser rejected fixture')
                 _, server_log = launch_server(run, server_core, folder / f'{case}-server', server, health)
@@ -361,10 +367,10 @@ def main():
                         assert websocket.handshakes > 0, 'WebSocket plugin was bypassed'
                     if hop:
                         deadline = time.monotonic() + 35
-                        while not all(hop.counts.values()) and time.monotonic() < deadline:
+                        while sum(count > 0 for count in hop.counts.values()) < 2 and time.monotonic() < deadline:
                             time.sleep(.5)
                             transfer(client['mixed-port'], target)
-                        assert all(hop.counts.values()), ('port hopping did not use both ports', hop.counts)
+                        assert sum(count > 0 for count in hop.counts.values()) >= 2, ('port hopping did not use distinct ports', hop.counts)
                         udp_transfer(client['mixed-port'], udp)
                     assert process.poll() is None, 'client core exited'
                     protocols.stop(process)
@@ -392,7 +398,7 @@ def main():
                     if hop:
                         assert hop.error is None and hop.worker.is_alive(), ('UDP relay failed', hop.error)
                     print(f'PASS: imported {case}, real handshake and payload' +
-                        (', both UDP hop ports and TCP/UDP' if hop else '') +
+                        (', distinct UDP hop ports and TCP/UDP' if hop else '') +
                         ', wrong password rejected without DIRECT fallback', flush=True)
                 except BaseException:
                     for log in (client_log, server_log):

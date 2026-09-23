@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [5.0.16] - 2026-09-23
+## [5.0.16] - 2026-09-24
 
 ### 订阅与连接
 
@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 界面
 
+- macOS、Windows 窗口失焦但仍可见时，继续刷新实时速率、累计流量及账号统计；仅窗口隐藏、
+  最小化或离开首页时暂停可见统计采样。焦点切换保留速率基线，恢复显示立即补采本地流量，
+  隐藏前的晚到结果不能覆盖恢复后的数据。
 - macOS、Windows 保存强制直连／强制代理网站失败时显示明确错误反馈，保留原规则和当前连接，
   避免弹窗关闭后没有提示或产生未处理异常。
 

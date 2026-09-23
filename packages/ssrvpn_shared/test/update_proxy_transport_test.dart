@@ -17,10 +17,11 @@ final _digest = sha256.convert(_assetBytes).toString();
 
 void main({VerifiedUpdateFilePublisher? filePublisher}) {
   filePublisher ??= testVerifiedUpdatePublisher;
-  late UpdateProxyFixture fixture;
-
-  setUp(() async {
-    fixture = await UpdateProxyFixture.create();
+  Future<UpdateProxyFixture> createFixture() async {
+    // Own the fixture in each test's async closure. A timed-out operation can
+    // still finish later; it must never resolve ports or handlers from the
+    // next test's fixture.
+    final fixture = await UpdateProxyFixture.create();
     addTearDown(fixture.dispose);
     fixture.respond = (request) {
       final response = request.response;
@@ -47,10 +48,12 @@ void main({VerifiedUpdateFilePublisher? filePublisher}) {
       }
       unawaited(response.close());
     };
-  });
+    return fixture;
+  }
 
   test('metadata checksum and redirected download use live runtime proxy ports',
       () async {
+    final fixture = await createFixture();
     var activePort = fixture.firstProxyPort;
     final normalResponse = fixture.respond;
     fixture.respond = (request) {
@@ -101,6 +104,7 @@ void main({VerifiedUpdateFilePublisher? filePublisher}) {
 
   test('disconnected checks keep the existing environment proxy policy',
       () async {
+    final fixture = await createFixture();
     fixture.environmentPort = fixture.firstProxyPort;
     await HttpOverrides.runWithHttpOverrides(() async {
       final update = await UpdateChecker.checkLatest(
@@ -115,6 +119,7 @@ void main({VerifiedUpdateFilePublisher? filePublisher}) {
   });
 
   test('a proxy tunnel still rejects an HTTPS hostname mismatch', () async {
+    final fixture = await createFixture();
     final directory =
         await Directory.systemTemp.createTemp('ssrvpn-update-bad-tls-');
     try {
@@ -142,6 +147,7 @@ void main({VerifiedUpdateFilePublisher? filePublisher}) {
   test(
       'cancelling a proxied download closes its socket and leaves no partial file',
       () async {
+    final fixture = await createFixture();
     final started = Completer<void>();
     final closed = Completer<void>();
     fixture.tunnelClosed = closed;
