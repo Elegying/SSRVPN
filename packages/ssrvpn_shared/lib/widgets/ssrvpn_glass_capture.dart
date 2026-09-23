@@ -253,6 +253,10 @@ class _SsrvpnGlassCaptureState extends State<SsrvpnGlassCapture>
         _retire(previous.image);
       }
     }, debugLabel: 'SSRVPN glass capture');
+    // A timer, lifecycle event, or startup retry can arrive with no frame in
+    // flight. Post-frame callbacks alone never wake an idle engine. This is a
+    // no-op during paint, so ordinary source paints do not create a frame loop.
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   /// Arms a single trailing re-raster at the edge of the throttle window.

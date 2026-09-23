@@ -1044,10 +1044,7 @@ function Disable-OwnedSystemProxyEndpoint {
 }
 
 function Test-SystemProxySafeToStop {
-  param(
-    [AllowNull()]$Backup,
-    [bool]$InstalledProcessRunning
-  )
+  param([AllowNull()]$Backup)
 
   try {
     $regPath =
@@ -1069,10 +1066,6 @@ function Test-SystemProxySafeToStop {
     if ($Backup -and $proxyServer -eq [string]$Backup.ownedProxyServer) {
       return $false
     }
-    if (-not $Backup -and $InstalledProcessRunning -and
-        (Test-OwnedProxyServer -Value $proxyServer)) {
-      return $false
-    }
 
     $hasProxyOverride =
       $null -ne $current.PSObject.Properties['ProxyOverride']
@@ -1084,7 +1077,8 @@ function Test-SystemProxySafeToStop {
       ((Test-DwordFlag -Value $current.AutoDetect) -and
         [int]$current.AutoDetect -eq 0)
     # Shape cannot establish ownership (docs/decisions/020-installer-system-
-    # proxy-ownership.md); the recovery-state precondition is what proves ours.
+    # proxy-ownership.md); neither can a same-named process (ADR-021 includes
+    # foreign mihomo copies). Only recovery evidence can establish ownership.
     $hasProxyRecoveryState = Test-ProxyRecoveryStatePresent
     $ownedFingerprint =
       $hasProxyRecoveryState -and
@@ -1215,16 +1209,14 @@ try {
   }
 }
 
-if (-not (Test-SystemProxySafeToStop -Backup $proxyBackup `
-      -InstalledProcessRunning $installedProcessRunning)) {
+if (-not (Test-SystemProxySafeToStop -Backup $proxyBackup)) {
   try {
     Disable-OwnedSystemProxyEndpoint -Backup $proxyBackup
   } catch {
     $proxyRecoveryFailed = $true
     Write-Warning "Could not disable the captured SSRVPN proxy endpoint: $($_.Exception.Message)"
   }
-  if (-not (Test-SystemProxySafeToStop -Backup $proxyBackup `
-        -InstalledProcessRunning $installedProcessRunning)) {
+  if (-not (Test-SystemProxySafeToStop -Backup $proxyBackup)) {
     Set-StopStatus -Status 'PROXY_UNSAFE'
     Write-Warning 'Proxy recovery is not safe; the still-live core was retained.'
     exit 3

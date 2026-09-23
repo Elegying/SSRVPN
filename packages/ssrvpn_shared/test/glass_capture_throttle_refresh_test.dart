@@ -1,52 +1,29 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as glass;
-import 'package:ssrvpn_shared/widgets/ssrvpn_drifting_background.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_glass_capture.dart';
 
-class _CaptureBinding extends AutomatedTestWidgetsFlutterBinding {
-  int capturesQueued = 0;
-
-  @override
-  void addPostFrameCallback(FrameCallback callback,
-      {String debugLabel = 'callback'}) {
-    if (debugLabel == 'SSRVPN glass capture') capturesQueued++;
-    super.addPostFrameCallback(callback, debugLabel: debugLabel);
-  }
-}
-
 void main() {
-  final binding = _CaptureBinding();
-
   testWidgets(
-      'a still wallpaper that changes inside the throttle window is re-rastered',
+      'the trailing refresh wakes an idle frame and captures the latest pixels',
       (tester) async {
-    // Cold start: the first capture rasters the wallpaper before its image has
-    // decoded (a placeholder), setting _lastRasterFrame. The image then
-    // decodes within the 100ms throttle window and repaints exactly once — a
-    // still wallpaper (drift:false) never repaints again. Without a trailing
-    // refresh the glass would hold the placeholder (black) forever.
-    final color = ValueNotifier<Color>(Colors.black);
+    final color = ValueNotifier<Color>(Colors.blue);
     addTearDown(color.dispose);
     SsrvpnGlassFrame? frame;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpWidget(MaterialApp(
       home: glass.LiquidGlassScope(
         child: SsrvpnGlassCapture(
           captureSupported: true,
           child: Stack(fit: StackFit.expand, children: [
             SsrvpnGlassBackgroundSource(
-              child: SsrvpnDriftingBackground(
-                drift: false,
-                child: ValueListenableBuilder<Color>(
-                  valueListenable: color,
-                  builder: (_, value, __) => ColoredBox(color: value),
-                ),
+              child: ValueListenableBuilder<Color>(
+                valueListenable: color,
+                builder: (_, value, __) => ColoredBox(color: value),
               ),
             ),
             Builder(
-                builder: (context) =>
-                    ValueListenableBuilder<SsrvpnGlassFrame?>(
+                builder: (context) => ValueListenableBuilder<SsrvpnGlassFrame?>(
                       valueListenable: SsrvpnGlassFrame.listenableOf(context)!,
                       builder: (_, value, __) {
                         frame = value;
@@ -57,29 +34,39 @@ void main() {
         ),
       ),
     ));
-    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await tester.pump();
-    expect(frame, isNotNull);
-    final first = frame!.image;
-    final count = binding.capturesQueued;
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 200));
 
-    // The image "decodes" within the throttle window: content changes once.
+    // Establish a timestamp after startup has settled. Calling resumed here
+    // would reset the throttle and stop exercising the bug.
+    color.value = Colors.red;
+    await tester.pump();
+    await tester.pump();
+    final first = frame!.image;
+    expect(tester.binding.hasScheduledFrame, isFalse);
+
+    color.value = Colors.yellow;
+    await tester.pump(const Duration(milliseconds: 16));
     color.value = Colors.green;
     await tester.pump(const Duration(milliseconds: 16));
-    // Still inside the 100ms throttle window — the change must not be dropped.
-    expect(binding.capturesQueued, greaterThan(count),
-        reason: 'content change inside the window must arm a deferred refresh');
+    expect(frame!.image, same(first), reason: 'both changes must be throttled');
+    expect(tester.binding.hasScheduledFrame, isFalse,
+        reason: 'only the trailing timer can wake this idle page');
 
-    // Advance past the throttle window: the deferred refresh fires and rasters
-    // the real content.
     await tester.pump(const Duration(milliseconds: 120));
     await tester.pump();
+    expect(frame!.image, isNot(same(first)));
+    final pixels = await tester.runAsync(() => frame!.image.toByteData());
+    expect(pixels!.getUint8(0), (Colors.green.toARGB32() >> 16) & 0xff);
+    expect(pixels.getUint8(1), (Colors.green.toARGB32() >> 8) & 0xff);
+    expect(first.debugDisposed, isTrue);
     final latest = frame!.image;
-    expect(latest, isNot(same(first)),
-        reason: 'the still wallpaper must refresh to the decoded pixels, not '
-            'hold the placeholder forever');
-
+    expect(tester.binding.hasScheduledFrame, isFalse);
+    await tester.pump(const Duration(seconds: 1));
+    expect(frame!.image, same(latest));
+    expect(tester.binding.hasScheduledFrame, isFalse,
+        reason: 'a trailing refresh must not start an idle loop');
     await tester.pumpWidget(const SizedBox());
-    binding.handleAppLifecycleStateChanged(AppLifecycleState.detached);
+    expect(latest.debugDisposed, isTrue);
   });
 }

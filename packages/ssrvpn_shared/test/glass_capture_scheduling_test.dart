@@ -124,7 +124,8 @@ void main() {
                 Builder(
                     builder: (context) =>
                         ValueListenableBuilder<SsrvpnGlassFrame?>(
-                          valueListenable: SsrvpnGlassFrame.listenableOf(context)!,
+                          valueListenable:
+                              SsrvpnGlassFrame.listenableOf(context)!,
                           builder: (_, value, __) {
                             frame = value;
                             return const SizedBox();

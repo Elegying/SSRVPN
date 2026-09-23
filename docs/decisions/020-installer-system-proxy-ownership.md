@@ -68,6 +68,12 @@ SSRVPN 的机器，这两条建议都不成立。Issue #256（Windows 10 22H2，
 > 安装/卸载停进程范围内被 [ADR-021](021-installer-name-based-process-stop.md) 按产品决策
 > 取代（按精确映像名结束随包进程，含其他目录与便携版副本）；系统代理归属判定语义不变。
 
+> 2026-09-23 修正：按名枚举得到的进程不能作为系统代理归属证据。
+> `Test-SystemProxySafeToStop` 移除旧的 `InstalledProcessRunning` 参数与提前拒绝分支，
+> 否则第三方 `mihomo.exe` 仍会让无恢复记录的首次安装误报 `PROXY_UNSAFE`。
+> 原生恢复日志检查、自有端点与恢复记录指纹保护保留；新增隔离行为测试
+> `scripts/test_windows_proxy_ownership.ps1`，覆盖外来代理、损坏记录、未完成恢复和读取失败。
+
 ## 未采用的方案
 
 ### 以「安装成功最高优先」放开进程结束范围

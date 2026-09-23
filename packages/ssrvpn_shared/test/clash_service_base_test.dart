@@ -2634,6 +2634,7 @@ proxies:
       service.requestConnectionIntent(true);
       final newConnection = service.runConnectionTransition(() async {
         service.setRunning(true);
+        service.createConnectionProgressReporter()('正在启动新连接');
       });
 
       service.allowRecovery.complete();
@@ -2644,6 +2645,10 @@ proxies:
       expect(service.connectionDesired, isTrue);
       expect(service.isRunning, isTrue);
       expect(service.stopCalls, 2);
+      expect(service.isAutoRecovering, isFalse);
+      expect(service.connectionProgress, '正在启动新连接',
+          reason:
+              'old recovery cleanup must not clear the replacement progress');
     },
   );
 
