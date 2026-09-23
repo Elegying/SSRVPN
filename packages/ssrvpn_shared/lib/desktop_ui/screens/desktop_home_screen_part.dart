@@ -110,6 +110,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     _subscriptionService?.removeListener(_handleSubscriptionServiceChanged);
     _subscriptionService = subService;
+    _latencyController.onResultsApplied =
+        (nodes) => unawaited(subService.saveLatencyResults(nodes));
     subService.addListener(_handleSubscriptionServiceChanged);
     _onSubscriptionChanged(subService);
   }
@@ -145,6 +147,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     _lastDisplayRevision = subService.displayRevision;
     _cancelLatencyBatch();
+    _latencyController.clear();
     if (_isConnecting) {
       (_clashService ?? context.read<ClashService>()).interruptPendingStart();
     }

@@ -17,6 +17,7 @@ mixin _SubscriptionPersistence on ChangeNotifier {
   final Map<String, String> _fetchedProfileNames = {};
   List<ProxyNode> _allNodes = [];
   List<ProxyGroup> _allGroups = [];
+  NodeLatencyCache? _latencyCache;
   void parseYaml();
 
   @override
@@ -47,12 +48,18 @@ mixin _SubscriptionPersistence on ChangeNotifier {
     _rawYaml = yaml;
     _allNodes = parsed.nodes;
     _allGroups = parsed.groups;
+    _latencyCache?.restore(_allNodes);
   }
   // ── 持久化 ──
 
   Future<void> init(String cacheDir, {NodePreferenceStore? preferences}) async {
     _cacheDir = cacheDir;
     _nodePreferences = preferences;
+    _latencyCache = NodeLatencyCache(
+      directory: cacheDir,
+      writeAtomically: writeStringAtomically,
+    );
+    await _latencyCache!.load();
     await loadFromDisk();
   }
 
@@ -103,6 +110,7 @@ mixin _SubscriptionPersistence on ChangeNotifier {
         _rawYaml = content;
         _allNodes = parsed.parsed.nodes;
         _allGroups = parsed.parsed.groups;
+        _latencyCache?.restore(_allNodes);
         if (parsed.runtimeText != null) _runtimeProxyText = parsed.runtimeText!;
         if (parsed.parseWarning != null) {
           AppLogger.warning(
@@ -132,6 +140,25 @@ mixin _SubscriptionPersistence on ChangeNotifier {
     final file = File('$_cacheDir/subscriptions.json');
     final jsonStr = jsonEncode(_subscriptions.map((s) => s.toJson()).toList());
     await writeStringAtomically(file, jsonStr);
+  }
+
+  Future<void> saveLatencyResults(List<ProxyNode> testedNodes) async {
+    // A refresh may be staging a replacement while the UI still owns the last
+    // committed snapshot. Accept only objects belonging to that visible state.
+    final current = (_transactionSnapshot?.nodes ?? _allNodes).toSet();
+    try {
+      await _latencyCache?.record(testedNodes.where(current.contains));
+    } catch (_) {
+      AppLogger.warning('Latency', '延迟记录保存失败，保留之前的本地记录');
+    }
+  }
+
+  Future<void> flushLatencyResults() async {
+    try {
+      await _latencyCache?.flush();
+    } catch (_) {
+      // Live results remain usable even when optional history cannot be saved.
+    }
   }
 
   Future<void> cacheYaml(String yaml) async {

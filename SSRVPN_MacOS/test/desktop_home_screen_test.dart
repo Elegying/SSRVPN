@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../packages/ssrvpn_shared/test/support/latency_restart.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show Tristate;
@@ -53,6 +54,29 @@ double _contrastRatio(Color foreground, Color background) {
 }
 
 void main() {
+  testWidgets('restores latency history after restart without probing',
+      (tester) async {
+    final fixture =
+        (await tester.runAsync(() => _HomeFixture.create(withNodes: true)))!;
+    addTearDown(fixture.dispose);
+    await verifyLatencyHistoryAcrossLaunches(tester,
+        first: (widget: fixture.build(), subscription: fixture.subscription),
+        probeCount: () => fixture.clash.batchLatencyRuns,
+        replacementYaml: _nodeYaml.replaceFirst('127.0.0.1', '127.0.0.3'),
+        restart: () async {
+          SubscriptionService.resetInstanceForTesting();
+          final subscription =
+              await SubscriptionService.getInstance(fixture.directory.path);
+          addTearDown(subscription.dispose);
+          final restarted = _HomeFixture(
+              directory: fixture.directory,
+              subscription: subscription,
+              settings: fixture.settings,
+              clash: fixture.clash);
+          return (widget: restarted.build(), subscription: subscription);
+        });
+  });
+
   for (final direct in [false, true]) {
     testWidgets('manual IPv6 rule saves through desktop UI direct=$direct',
         (tester) async {
@@ -1445,6 +1469,7 @@ void main() {
           .onPressed,
       isNotNull,
     );
+    await flushLatencyHistory(tester, fixture.subscription);
   });
 
   testWidgets('connection rejects a config built from a stale subscription',
@@ -1968,6 +1993,7 @@ void main() {
       Tristate.isTrue,
     );
     expect(fixture.clash.lastSwitchAttempt, isNull);
+    await flushLatencyHistory(tester, fixture.subscription);
     semantics.dispose();
   });
 }
