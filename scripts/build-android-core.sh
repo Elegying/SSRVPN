@@ -9,6 +9,8 @@ SOURCE_TREE="023ddee8f965c54a263a16df68580585aa12c0f8"
 GO_VERSION="go1.25.11"
 MOBILE_VERSION="v0.0.0-20260602190626-68735029466e"
 NDK_VERSION="28.2.13676358"
+CORE_VERSION="${SOURCE_COMMIT}-ssrvpn.1"
+CORE_LDFLAGS="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$CORE_VERSION"
 
 fail() {
   echo "Android core build failed: $*" >&2
@@ -109,10 +111,11 @@ cd "$SOURCE_DIR"
 "$GO_BIN" mod download all
 GOFLAGS=-trimpath "$GO_BIN" test -p 2 -tags=with_gvisor,cmfa ./bridge ./tunnel/statistic ./adapter/outbound ./hub/route
 GOFLAGS=-trimpath "$GO_BIN" test -p 2 -tags=with_gvisor,cmfa -run TestSSRVPN ./component/resolver ./dns ./config ./tunnel ./hub/executor
+GOFLAGS=-trimpath "$GO_BIN" test -p 2 -ldflags="$CORE_LDFLAGS" -run TestSSRVPNCoreVersion ./constant
 GOFLAGS=-trimpath gomobile bind \
   -target=android/arm64 \
   -androidapi=24 \
-  -ldflags="-s -w -buildid=" \
+  -ldflags="$CORE_LDFLAGS" \
   -tags=with_gvisor,cmfa \
   -o "$BUILD_ROOT/libgojni.aar" \
   ./bridge

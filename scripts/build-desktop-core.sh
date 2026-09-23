@@ -33,6 +33,7 @@ python3 "$ROOT/scripts/core-traffic-source.py" apply "$PLATFORM" "$BUILD_ROOT/co
 cd "$BUILD_ROOT/core"
 "$GO_BIN" test -p 2 -tags=with_gvisor ./tunnel/statistic ./adapter/outbound ./hub/route
 "$GO_BIN" test -p 2 -tags=with_gvisor -run TestSSRVPN ./component/resolver ./dns ./config ./tunnel ./hub/executor
+"$GO_BIN" test -p 2 -ldflags="-X github.com/metacubex/mihomo/constant.Version=$VERSION-ssrvpn.1" -run TestSSRVPNCoreVersion ./constant
 TARGET_OS=darwin
 TARGET_ARCH=arm64
 if [[ "$PLATFORM" == windows ]]; then

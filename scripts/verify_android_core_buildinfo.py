@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -125,6 +126,8 @@ def verify(binary: Path, source_record: Path) -> AndroidCoreBuildInfo:
         "Build tags",
         "Target",
         "Trim path",
+        "Core version",
+        "Link flags",
     )
     missing = [field for field in required if not fields.get(field)]
     if missing:
@@ -132,7 +135,8 @@ def verify(binary: Path, source_record: Path) -> AndroidCoreBuildInfo:
             f"source record is missing build fields: {', '.join(missing)}"
         )
 
-    info = parse_build_info(binary.read_bytes())
+    data = binary.read_bytes()
+    info = parse_build_info(data)
     module = fields["Go module"]
     expected_target = fields["Target"].split("/", maxsplit=1)
     if len(expected_target) != 2:
@@ -167,6 +171,20 @@ def verify(binary: Path, source_record: Path) -> AndroidCoreBuildInfo:
         mismatches.append("Bridge SHA256 must be a lowercase 64-character digest")
 
     repository_root = source_record.resolve().parents[2]
+    sources = json.loads((repository_root / 'native/proxy_traffic/sources.json').read_text())
+    expected_version = sources['android']['version'] + '-ssrvpn.1'
+    if fields['Core version'] != expected_version:
+        mismatches.append('Core version does not match the pinned custom source')
+    expected_flags = (
+        '-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version='
+        + expected_version
+    )
+    if fields['Link flags'] != expected_flags:
+        mismatches.append('Link flags must inject the pinned custom core version')
+    # -trimpath can omit linker flags from Go build info. The embedded identity
+    # supplements (never replaces) the binary SHA-256 check in verify-core-assets.
+    if expected_version.encode('ascii') not in data:
+        mismatches.append('embedded core version is missing from the Android binary')
     bridge_path = repository_root / fields["Bridge source"]
     try:
         bridge_hash = hashlib.sha256(bridge_path.read_bytes()).hexdigest()
