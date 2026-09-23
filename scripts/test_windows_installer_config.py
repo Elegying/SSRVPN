@@ -1490,12 +1490,10 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("$installedApps.Count -gt 0", stopper)
         self.assertIn("$installedLaunchers.Count -gt 0", stopper)
         self.assertIn("$installedCores.Count -gt 0", stopper)
-        self.assertIn("[bool]$InstalledProcessRunning", stopper)
-        self.assertIn(
-            "-not $Backup -and $InstalledProcessRunning -and\n"
-            "        (Test-OwnedProxyServer -Value $proxyServer)",
-            stopper,
-        )
+        # ADR-021 process candidates include foreign mihomo instances. They
+        # must never serve as proof that SSRVPN owns the system proxy.
+        self.assertNotIn("$InstalledProcessRunning", safe_to_stop)
+        self.assertNotIn("-InstalledProcessRunning", runtime_flow)
         enumeration = stopper.index("$installedApps = @()")
         self.assertLess(enumeration, stopper.index("$proxyBackup = Get-ProxyRecoveryState"))
         expected_path_gate = stopper.index(

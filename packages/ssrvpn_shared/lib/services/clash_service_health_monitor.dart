@@ -279,6 +279,7 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
           var recoverySuperseded = false;
           try {
             recovered = await runConnectionTransition(() async {
+              var ownsRecoveryProgress = false;
               try {
                 if (recoveryMonitorEpoch != _healthMonitorEpoch ||
                     recoveryGeneration != captureAutomaticRestartIntent()) {
@@ -293,6 +294,7 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
                   await onStopRequired();
                   return false;
                 }
+                ownsRecoveryProgress = true;
                 setAutoRecoveryInProgress(true);
                 notifyRuntimeNotice(
                   const RuntimeNotice.progress(
@@ -316,6 +318,11 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
                   } catch (_) {}
                 }
                 rethrow;
+              } finally {
+                // Release the progress line before the serial queue admits a
+                // replacement connection. The outer continuation may run only
+                // after that replacement has already published its own step.
+                if (ownsRecoveryProgress) setAutoRecoveryInProgress(false);
               }
             });
           } catch (error) {
@@ -326,16 +333,6 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
               event: 'health_recovery',
             );
           }
-          // The rebuild window is over either way; the outcome notice below
-          // carries the result. This runs unconditionally, including on the
-          // two early returns above that never set the flag. That is only safe
-          // because [setAutoRecoveryInProgress] is idempotent
-          // (`clash_service_connection_progress.dart`): re-setting the same
-          // value returns before touching `_connectionProgress`, so a message
-          // written by another path is never cleared here. Removing that guard
-          // would make this line clobber it.
-          setAutoRecoveryInProgress(false);
-
           final intentCurrent = recoveryGeneration != null &&
               isConnectionIntentCurrent(
                 recoveryGeneration,

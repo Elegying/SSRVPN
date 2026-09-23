@@ -51,7 +51,8 @@ mixin _ClashDataPlaneSupport {
   String? _connectivityOwnershipWarning;
   Timer? _networkChangeWatchTimer;
   String? _networkFingerprint;
-  bool _networkCheckInFlight = false;
+  int _networkWatchEpoch = 0;
+  int? _activeNetworkCheckEpoch;
 
   bool get isRunning;
   AppSettings get settings;
@@ -178,6 +179,7 @@ mixin _ClashDataPlaneSupport {
   }
 
   void _resetDataPlaneObservationSession() {
+    _resetNetworkChangeSession();
     _dataPlaneObservationNotBefore = Duration.zero;
     _dataPlaneObservationEpoch++;
     _coalescedDataPlaneObservationEpoch = null;
@@ -267,8 +269,7 @@ mixin _ClashDataPlaneSupport {
 
   @protected
   void startNetworkChangeWatch() {
-    _networkChangeWatchTimer?.cancel();
-    _networkChangeWatchTimer = null;
+    stopNetworkChangeWatch();
     final interval = networkChangeWatchInterval;
     if (interval == null) return;
     _networkChangeWatchTimer = Timer.periodic(interval, (_) {
@@ -280,6 +281,11 @@ mixin _ClashDataPlaneSupport {
   void stopNetworkChangeWatch() {
     _networkChangeWatchTimer?.cancel();
     _networkChangeWatchTimer = null;
+    _resetNetworkChangeSession();
+  }
+
+  void _resetNetworkChangeSession() {
+    _networkWatchEpoch++;
     _networkFingerprint = null;
   }
 
@@ -301,8 +307,9 @@ mixin _ClashDataPlaneSupport {
   Future<void> runNetworkChangeCheck() => _checkNetworkChange();
 
   Future<void> _checkNetworkChange() async {
-    if (_networkCheckInFlight || !isRunning) return;
-    _networkCheckInFlight = true;
+    final watchEpoch = _networkWatchEpoch;
+    if (_activeNetworkCheckEpoch == watchEpoch || !isRunning) return;
+    _activeNetworkCheckEpoch = watchEpoch;
     try {
       final String? fingerprint;
       try {
@@ -312,7 +319,13 @@ mixin _ClashDataPlaneSupport {
         // and must not be mistaken for a change on the next comparison.
         return;
       }
-      if (fingerprint == null) return;
+      // Interface enumeration can outlive a disconnect or watch restart. It
+      // must neither seed the new baseline nor invalidate its observations.
+      if (watchEpoch != _networkWatchEpoch ||
+          !isRunning ||
+          fingerprint == null) {
+        return;
+      }
       final previous = _networkFingerprint;
       _networkFingerprint = fingerprint;
       if (previous == null || previous == fingerprint) return;
@@ -329,7 +342,9 @@ mixin _ClashDataPlaneSupport {
       _invalidateDataPlaneObservationAndReprobe();
       if (hadWarning) notifyStatusChanged();
     } finally {
-      _networkCheckInFlight = false;
+      if (_activeNetworkCheckEpoch == watchEpoch) {
+        _activeNetworkCheckEpoch = null;
+      }
     }
   }
 

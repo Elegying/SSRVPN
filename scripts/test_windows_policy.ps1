@@ -23,6 +23,7 @@ function Invoke-WindowsPolicyTest {
 
 foreach ($relativePath in @(
     'scripts\test_windows_powershell51_compatibility.ps1',
+    'scripts\test_windows_proxy_ownership.ps1',
     'scripts\test_windows_installer_runtime.ps1',
     'scripts\test_windows_program_files_transaction.ps1',
     'scripts\test_windows_package_payload_guard.ps1'

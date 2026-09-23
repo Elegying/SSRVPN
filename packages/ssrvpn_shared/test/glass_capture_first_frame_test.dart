@@ -23,8 +23,7 @@ void main() {
                 child: SsrvpnDriftingBackground(
                     drift: false, child: const ColoredBox(color: Colors.blue))),
             Builder(
-                builder: (context) =>
-                    ValueListenableBuilder<SsrvpnGlassFrame?>(
+                builder: (context) => ValueListenableBuilder<SsrvpnGlassFrame?>(
                       valueListenable: SsrvpnGlassFrame.listenableOf(context)!,
                       builder: (_, value, __) {
                         frame = value;
