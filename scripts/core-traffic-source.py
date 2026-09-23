@@ -14,6 +14,7 @@ RUNTIME_FILES = ('sources.json', 'proxy_traffic.go', 'route.go',
                  'android.patch', 'macos.patch', 'windows.patch', 'target_address.go',
                  'dns_resolution.go', 'direct_fallback.go', 'tun_startup.go')
 COPIES = {
+    'version_test.go': 'constant/ssrvpn_version_test.go',
     'tun_startup.go': 'hub/executor/ssrvpn_tun_startup.go',
     'tun_startup_test.go': 'hub/executor/ssrvpn_tun_startup_test.go',
     'direct_fallback.go': 'adapter/outbound/ssrvpn_direct_fallback.go',
@@ -72,6 +73,8 @@ def verify():
                     'Source commit': sources[platform]['commit'],
                     'Source tree': sources[platform]['tree'],
                     'Go version': sources[platform]['go']}
+        if platform == 'android':
+            expected['Core version'] = sources[platform]['version'] + '-ssrvpn.1'
         for name, value in expected.items():
             if fields.get(name) != value:
                 raise SystemExit(f'{record}: {name} does not match pinned traffic source')

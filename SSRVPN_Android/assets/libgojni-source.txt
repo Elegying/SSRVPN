@@ -13,7 +13,8 @@ Build mode: c-shared
 Build tags: with_gvisor,cmfa
 Target: android/arm64
 Trim path: true
-Link flags: -s -w -buildid=
+Core version: 7031b7569831677a8d89ad8a8a3347db116ba1a8-ssrvpn.1
+Link flags: -s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=7031b7569831677a8d89ad8a8a3347db116ba1a8-ssrvpn.1
 Android API: 24
 NDK version: 28.2.13676358 (r28c)
 Mirror repo: Elegying/SSRVPN

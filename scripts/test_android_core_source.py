@@ -43,7 +43,10 @@ class AndroidCoreSourceTests(unittest.TestCase):
         self.assertNotIn('GOCACHE_DIR="$BUILD_ROOT/', self.build_recipe)
 
     def test_release_link_removes_host_specific_debug_paths(self) -> None:
-        self.assertIn('-ldflags="-s -w -buildid="', self.build_recipe)
+        self.assertIn('CORE_LDFLAGS="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$CORE_VERSION"', self.build_recipe)
+        self.assertIn('-ldflags="$CORE_LDFLAGS"', self.build_recipe)
+        self.assertIn('CORE_VERSION="${SOURCE_COMMIT}-ssrvpn.1"', self.build_recipe)
+        self.assertIn('-run TestSSRVPNCoreVersion ./constant', self.build_recipe)
         self.assertIn('BUILD_ROOT="/tmp/ssrvpn-android-core-build-v1"', self.build_recipe)
 
     def test_required_mobile_api_is_present(self) -> None:
