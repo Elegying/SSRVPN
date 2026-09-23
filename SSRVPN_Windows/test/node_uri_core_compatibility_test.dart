@@ -6,6 +6,70 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
   final core = File('assets/mihomo.exe').absolute;
+  test('YAML transport validation keeps a loadable mixed subscription',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('ssrvpn-yaml-core-');
+    addTearDown(() => directory.delete(recursive: true));
+    const base = {
+      'type': 'ss',
+      'server': '127.0.0.1',
+      'port': 443,
+      'cipher': 'aes-128-gcm',
+      'password': 'fixture'
+    };
+    final yaml = jsonEncode({
+      'proxies': [
+        {
+          ...base,
+          'name': 'Bad-WS',
+          'plugin': 'v2ray-plugin',
+          'plugin-opts': {'mode': 'websocket', 'host': true}
+        },
+        {
+          ...base,
+          'name': 'Bad-KCP',
+          'plugin': 'kcptun',
+          'plugin-opts': {'mtu': true}
+        },
+        {...base, 'name': 'Bad-HY2', 'type': 'hysteria2', 'ports': 'bad'},
+        {
+          ...base,
+          'name': 'Good-WS',
+          'plugin': 'v2ray-plugin',
+          'plugin-opts': {
+            'mode': 'websocket',
+            'host': 'localhost',
+            'headers': {'Host': 'localhost'},
+            'mux': false,
+            'tls': true
+          }
+        },
+        {
+          ...base,
+          'name': 'Good-KCP',
+          'plugin': 'kcptun',
+          'plugin-opts': {'key': 'fixture', 'mtu': '1350', 'nocomp': false}
+        },
+        {
+          ...base,
+          'name': 'Good-HY2',
+          'type': 'hysteria2',
+          'ports': '443,444',
+          'hop-interval': 5
+        },
+      ]
+    });
+    expect(SubscriptionParser.parseYaml(yaml).nodes.length, 3);
+    final proxies = ClashConfigGenerator.buildProxiesText(yaml);
+    expect(proxies, isNot(contains('Bad-')));
+    final config = File('${directory.path}/config.yaml');
+    await config.writeAsString(
+        'mode: rule\nproxies:\n$proxies\nrules: ["MATCH,DIRECT"]\n');
+    final result = await Process.run(
+        core.path, ['-t', '-d', directory.path, '-f', config.path]);
+    expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+  }, skip: !Platform.isWindows || !core.existsSync());
   const uuid = '00112233-4455-6677-8899-aabbccddeeff';
   final fixtures = <String, String>{
     'ss': 'ss://aes-128-gcm:fixture@127.0.0.1:443',

@@ -5,6 +5,7 @@ import '../models/proxy_group.dart';
 import '../models/proxy_node.dart';
 import '../utils/bounded_yaml.dart';
 import '../utils/proxy_node_usage_policy.dart';
+import '../utils/proxy_transport_validation.dart';
 
 part 'subscription_parser_base64_part.dart';
 part 'subscription_parser_naming_part.dart';

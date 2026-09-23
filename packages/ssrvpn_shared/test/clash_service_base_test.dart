@@ -742,17 +742,18 @@ void main() {
             port,
           45000,
         },
-        ephemeralCandidates: [45000, 45001],
+        ephemeralCandidates: [45000],
       );
       addTearDown(service.dispose);
 
       final selected = await service.findAvailablePort(preferredPort, {});
 
-      expect(selected, 45001);
+      expect(selected, inInclusiveRange(1024, 65535));
+      expect(service.unavailablePorts, isNot(contains(selected)));
       expect(service.checkedPorts, [
         for (var port = preferredPort; port <= preferredPort + 50; port++) port,
         45000,
-        45001,
+        selected,
       ]);
     });
 

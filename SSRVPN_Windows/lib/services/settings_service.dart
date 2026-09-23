@@ -28,6 +28,8 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
     'settings.json',
     'subscriptions.json',
     'subscription_cache.yaml',
+    'node-latencies.json',
+    'node-countries.json',
     'config.yaml',
     'country.mmdb',
     'geoip.metadb',

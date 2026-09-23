@@ -324,21 +324,9 @@ class _SubscriptionUriParser {
     required int minimum,
     required int maximum,
     bool allowList = true,
-  }) {
-    if (!RegExp(r'^\d+(?:[-,]\d+)*$').hasMatch(value) ||
-        (!allowList && value.contains(','))) {
-      return false;
-    }
-    for (final item in value.split(',')) {
-      final range = item.split('-').map(int.tryParse).toList();
-      if (range.length > 2 ||
-          range.any((n) => n == null || n < minimum || n > maximum) ||
-          range.first! > range.last!) {
-        return false;
-      }
-    }
-    return true;
-  }
+  }) =>
+      ProxyTransportValidation.validUnsignedRanges(value,
+          minimum: minimum, maximum: maximum, allowList: allowList);
 
   static Map<String, dynamic>? _parseHysteria2Uri(
     Uri uri, {
