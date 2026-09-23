@@ -9,6 +9,7 @@ import gzip
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
+import random
 import select
 import socket
 import socketserver
@@ -70,17 +71,22 @@ def serve(stack, server):
 def free_port():
     # A mixed listener needs both protocols. Windows can reserve a UDP port
     # even when the same TCP port is available. Keep both probes open together.
-    for _ in range(32):
+    # After one OS-selected port, spread candidates across the unprivileged
+    # range: consecutive ephemeral TCP ports can all be in one UDP exclusion.
+    candidates = [0] + random.SystemRandom().sample(range(1024, 65536), 31)
+    last_error = None
+    for candidate in candidates:
         try:
             with socket.socket() as tcp, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
-                tcp.bind(('127.0.0.1', 0))
+                tcp.bind(('127.0.0.1', candidate))
                 port = tcp.getsockname()[1]
                 udp.bind(('127.0.0.1', port))
                 return port
         except OSError as error:
             if error.errno not in (errno.EACCES, errno.EADDRINUSE, 10013, 10048):
                 raise
-    raise RuntimeError('no loopback port available for both TCP and UDP after 32 attempts')
+            last_error = error
+    raise RuntimeError('no loopback port available for both TCP and UDP after 32 attempts') from last_error
 
 
 def request(port, path, authenticated=True):

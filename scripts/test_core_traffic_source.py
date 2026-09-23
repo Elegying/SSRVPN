@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import random
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -67,6 +68,44 @@ class CoreTrafficReadinessTests(unittest.TestCase):
                         with self.assertRaisesRegex(RuntimeError, '32 attempts'):
                             probe.free_port()
                         self.assertEqual(sock.bind.call_count, 32)
+
+    def test_mixed_port_escapes_contiguous_udp_reservations(self):
+        tcp_attempts, udp_attempts, sockets = [], [], []
+
+        def socket_factory(*args):
+            item = MagicMock()
+            item.__enter__.return_value = item
+            sockets.append(item)
+            is_udp = len(args) > 1 and args[1] == probe.socket.SOCK_DGRAM
+            bound_port = 0
+
+            def bind(address):
+                nonlocal bound_port
+                port = address[1]
+                if is_udp:
+                    udp_attempts.append(port)
+                    if 52000 <= port < 52100 or port == 40001:
+                        raise OSError(errno.EACCES, 'reserved UDP range')
+                else:
+                    tcp_attempts.append(port)
+                    if port == 40000:
+                        raise OSError(errno.EADDRINUSE, 'busy TCP port')
+                    # An OS allocator can repeatedly select TCP ports whose
+                    # UDP counterparts are all reserved on Windows.
+                    port = port or 52000 + tcp_attempts.count(0)
+                bound_port = port
+
+            item.bind.side_effect = bind
+            item.getsockname.side_effect = lambda: ('127.0.0.1', bound_port)
+            return item
+
+        with patch.object(probe.socket, 'socket', side_effect=socket_factory), \
+                patch.object(random.SystemRandom, 'sample', return_value=list(range(40000, 40031))):
+            self.assertEqual(probe.free_port(), 40002)
+        self.assertEqual(tcp_attempts, [0, 40000, 40001, 40002])
+        self.assertEqual(udp_attempts, [52001, 40001, 40002])
+        for item in sockets:
+            item.__exit__.assert_called_once()
 
     def test_api_ready_does_not_skip_waiting_for_proxy_listener(self):
         process = MagicMock()
