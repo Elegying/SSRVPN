@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import '../models/account_usage.dart';
 import '../utils/account_usage_format.dart';
+import '../utils/statistics_visibility.dart';
 import 'ssrvpn_home_text.dart';
 
 import 'package:flutter/material.dart';
@@ -39,6 +40,12 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
   int _total = 0;
   int _epoch = 0;
   bool _unavailable = false;
+  bool _polling = false;
+
+  bool get _shouldPoll =>
+      widget.active &&
+      widget.connected &&
+      statisticsViewIsVisible(WidgetsBinding.instance.lifecycleState);
 
   @override
   void initState() {
@@ -58,7 +65,9 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    setState(_restart);
+    // Focus changes must preserve the running timer, pending read and rate
+    // baseline. Only actual visibility transitions invalidate sampling.
+    if (_shouldPoll != _polling) setState(_restart);
   }
 
   void _restart() {
@@ -67,12 +76,10 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
     _uploadRate = 0;
     _downloadRate = 0;
     _unavailable = false;
+    _polling = _shouldPoll;
     final epoch = ++_epoch;
     if (!widget.connected) _total = 0;
-    final lifecycle = WidgetsBinding.instance.lifecycleState;
-    if (widget.active &&
-        widget.connected &&
-        (lifecycle == null || lifecycle == AppLifecycleState.resumed)) {
+    if (_polling) {
       unawaited(_refresh(epoch));
     }
   }
