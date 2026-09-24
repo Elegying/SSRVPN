@@ -266,6 +266,28 @@ try {
   Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'new-ssrvpn_windows.exe'
   Pass 'Committed cleanup failure never rolls a completed installation back'
 
+  foreach ($arrival in @('file', 'empty-directory')) {
+    $c = New-Case "unknown-recovery-$arrival"
+    Invoke-Case $c Begin
+    Invoke-Case $c Clear
+    Invoke-Case $c Install
+    Seal-Case $c
+    $unknown = Join-Path $c.recovery 'unrelated-arrival'
+    if ($arrival -eq 'file') { Write-FixtureFile $unknown 'unrelated-recovery-content' }
+    else { [void][IO.Directory]::CreateDirectory($unknown) }
+    Invoke-Case $c Commit
+    $state = [IO.File]::ReadAllText((Join-Path $c.recovery 'state.json')) | ConvertFrom-Json
+    if ($state.phase -cne 'committed' -or -not (Test-Path -LiteralPath $unknown)) { throw 'Finalized cleanup removed an unknown arrival.' }
+    Assert-File (Join-Path $c.recovery 'program\ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
+    if ($arrival -eq 'file') { Assert-File $unknown 'unrelated-recovery-content' }
+    Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'new-ssrvpn_windows.exe'
+    Remove-Item -LiteralPath $unknown -Force
+    Invoke-Case $c Recover
+    Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'new-ssrvpn_windows.exe'
+    Assert-UserFiles $c
+  }
+  Pass 'Unknown recovery files and empty directories retain all backups without rolling back committed files'
+
   $c = New-Case 'commit-state-write-failure'
   $registryBefore = Get-CaseRegistry $c
   Invoke-Case $c Begin

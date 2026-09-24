@@ -418,13 +418,28 @@ function Remove-AuthenticatedRecoveryFiles {
   param([string]$Root, $State)
   $entries = @(Read-OwnedFileList -Entries $State.recoveryFiles -Root $Root)
   $known = @{}
-  foreach ($entry in $entries) { $known[$entry.path] = $true }
+  # Only the transaction-created program directory and manifest-derived
+  # ancestors are owned. An unrelated empty directory is still user content.
+  $knownDirectories = @{ (Join-Path $Root 'program') = $true }
+  foreach ($entry in $entries) {
+    $known[$entry.path] = $true
+    $parent = [IO.Path]::GetDirectoryName((Join-Path $Root $entry.path))
+    while ($parent -and $parent -ine $Root) {
+      $knownDirectories[$parent] = $true
+      $parent = [IO.Path]::GetDirectoryName($parent)
+    }
+  }
   # Reject an unexpected child before touching any of the remaining backups.
   # Missing known members are allowed only here: finalized cleanup is resumable.
   $actual = @(Get-ProgramInventory -Root $Root)
   foreach ($entry in $actual) {
     if ($entry.path -cne 'state.json' -and -not $known.ContainsKey($entry.path)) {
       throw "Finalized recovery contains an unknown file; it was preserved: $($entry.path)"
+    }
+  }
+  foreach ($directory in @(Get-ChildItem -LiteralPath $Root -Directory -Recurse -Force)) {
+    if ((Test-ReparsePoint -Item $directory) -or -not $knownDirectories.ContainsKey($directory.FullName)) {
+      throw 'Finalized recovery contains an unknown directory; all remaining material was preserved.'
     }
   }
   # Authenticate the very same pinned state handle that is eventually deleted.
@@ -446,9 +461,12 @@ function Remove-AuthenticatedRecoveryFiles {
     # Keep the authenticated state until all known material has been removed.
     $stateHandle.Delete()
   } finally { $stateHandle.Dispose() }
-  # Empty directories alone have no user content; never recurse-delete a tree.
-  foreach ($directory in @(Get-ChildItem -LiteralPath $Root -Directory -Recurse -Force | Sort-Object { $_.FullName.Length } -Descending)) {
-    if (@(Get-ChildItem -LiteralPath $directory.FullName -Force).Count -eq 0) { [IO.Directory]::Delete($directory.FullName, $false) }
+  foreach ($directory in @($knownDirectories.Keys | Sort-Object Length -Descending)) {
+    $item = Get-PathItem -Path $directory
+    if ($null -eq $item) { continue }
+    if (-not $item.PSIsContainer -or (Test-ReparsePoint -Item $item)) { throw 'Finalized recovery directory changed.' }
+    # Directory.Delete(false) refuses new contents; no recursive cleanup.
+    [IO.Directory]::Delete($directory, $false)
   }
   [IO.Directory]::Delete($Root, $false)
 }
