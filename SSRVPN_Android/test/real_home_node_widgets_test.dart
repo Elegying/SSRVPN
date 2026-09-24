@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../packages/ssrvpn_shared/test/support/home_probe_notice.dart';
 import '../../packages/ssrvpn_shared/test/support/latency_restart.dart';
 import 'dart:convert';
 import 'dart:io';
@@ -45,6 +46,34 @@ double _contrastRatio(Color foreground, Color background) {
 }
 
 void main() {
+  for (final preloaded in [false, true]) {
+    testWidgets(
+        'home separates external probes from failures preloaded=$preloaded',
+        (tester) async {
+      final clash = _RecordingAndroidClashService()
+        ..setRunning(true)
+        ..requestConnectionIntent(true);
+      final fixture =
+          (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+      addTearDown(fixture.dispose);
+      if (preloaded) clash.publishConnectivityWarning('已缓存的外部探测未通过');
+      await tester.pumpWidget(fixture.build());
+      await _waitForWidget(tester, find.byType(SsrvpnHomeOverview));
+      await tester.pumpAndSettle();
+      await verifyHomeProbeNoticePolicy(tester,
+          publishExternalWarning: clash.publishConnectivityWarning,
+          publishOwnershipWarning: clash.publishOwnershipWarning,
+          publishStopped: () {
+        clash.requestConnectionIntent(false);
+        clash.setRunning(false);
+        clash.notifyStatusChanged();
+        clash
+            .publishRuntimeNotice(const RuntimeNotice.error('连接服务已停止，请点击连接重试'));
+      });
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
   testWidgets('restores latency history after restart without probing',
       (tester) async {
     final clash = _LatencyHistoryAndroidClashService();
@@ -1422,6 +1451,10 @@ class _LatencyHistoryAndroidClashService extends _RecordingAndroidClashService {
 }
 
 class _RecordingAndroidClashService extends ClashService {
+  void publishConnectivityWarning(String? warning) =>
+      setConnectivityWarning(warning);
+  void publishOwnershipWarning(String? warning) =>
+      setConnectivityOwnershipWarning(warning);
   @override
   Future<VpnTrafficSample?> readTrafficSample() async => null;
 

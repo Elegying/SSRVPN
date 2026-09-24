@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../packages/ssrvpn_shared/test/support/home_probe_notice.dart';
 import 'package:ssrvpn_windows/services/tray_manager.dart';
 import 'package:ssrvpn_windows/startup/startup_flags.dart';
 import 'package:ssrvpn_windows/startup/startup_status.dart';
@@ -42,6 +43,42 @@ proxies:
 ''';
 
 void main() {
+  for (final preloaded in [false, true]) {
+    testWidgets(
+        'home separates external probes from failures preloaded=$preloaded',
+        (tester) async {
+      final fixture = (await tester.runAsync(
+          () => _HomeFixture.create(withNodes: true, running: true)))!;
+      addTearDown(fixture.dispose);
+      fixture.clash.runtimeSelectedNodeName = '东京节点';
+      if (preloaded) fixture.clash.publishConnectivityWarning('已缓存的外部探测未通过');
+      final status = StartupStatus.instance;
+      status.prepareCoreRetry();
+      status.setServices(
+        settings: fixture.settings,
+        clash: fixture.clash,
+        subscription: fixture.subscription,
+      );
+      addTearDown(status.prepareCoreRetry);
+      await tester.pumpWidget(desktop_app.SSRVpnApp(
+          startupFlags: StartupFlags.parse(const ['--safe-mode'])));
+      await tester.pumpAndSettle();
+      await verifyHomeProbeNoticePolicy(tester,
+          failureTitle: '操作未完成',
+          publishExternalWarning: fixture.clash.publishConnectivityWarning,
+          publishOwnershipWarning: fixture.clash.publishOwnershipWarning,
+          publishStopped: () {
+        fixture.clash.requestConnectionIntent(false);
+        fixture.clash.publishRunning(false);
+        fixture.clash.onRuntimeNotice
+            ?.call(const RuntimeNotice.error('连接服务已停止，请点击连接重试'));
+      });
+      expect(fixture.clash.startCalls, 0);
+      expect(fixture.clash.stopCalls, 0);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
   testWidgets('late tray preference completion preserves a newer notice',
       (tester) async {
     final writeStarted = Completer<void>();
@@ -1401,9 +1438,15 @@ class _FakeClashService extends ClashService {
   }
 
   void publishRunning(bool running) {
+    // Publish real service warnings without overriding the home policy getter.
     _running = running;
     notifyStatusChanged();
   }
+
+  void publishConnectivityWarning(String? warning) =>
+      setConnectivityWarning(warning);
+  void publishOwnershipWarning(String? warning) =>
+      setConnectivityOwnershipWarning(warning);
 
   @override
   Future<void> observeDataPlaneHealth() async {}

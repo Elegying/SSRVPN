@@ -40,7 +40,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
     if (statusIsCurrent && wasRunning) {
       setState(() {
         _isConnected = true;
-        _connectivityWarning = clashService.connectivityWarning;
+        _connectivityWarning = clashService.connectionStatusWarning;
       });
       _schedulePublicIpRefresh();
       _checkUpdateDelayed();
@@ -57,7 +57,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
     if (clashService == null || !_canUpdateUi) return;
     final running = clashService.isRunning;
     final connectivityWarning =
-        running ? clashService.connectivityWarning : null;
+        running ? clashService.connectionStatusWarning : null;
     final cancelledWhileConnecting =
         _isConnecting && !clashService.connectionDesired;
     if (!desktopStatusNotificationChangesState(

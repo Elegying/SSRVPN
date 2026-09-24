@@ -242,7 +242,7 @@ void main() {
 
       final dataPlane = AppFailure.fromMessage('TUN 数据通道验证失败');
       expect(dataPlane.code, AppErrorCode.dataPlaneDegraded);
-      expect(dataPlane.userMessage, contains('检查实际使用情况'));
+      expect(dataPlane.userMessage, '外部探测未通过，实际访问情况尚未确认');
       expect(dataPlane.userMessage, isNot(contains('自动切换')));
     });
 

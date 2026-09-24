@@ -136,6 +136,7 @@ void main() {
       );
       final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
       await config.writeAsString(_testProxies);
+      var available = false;
       messenger.setMockMethodCallHandler(channel, (call) async {
         if (call.method == 'getConnectionState') {
           return <String, Object?>{
@@ -144,7 +145,7 @@ void main() {
             'protectedConfigPath': config.path,
             'protectedConfigTrusted': true,
             'sessionGeneration': 3,
-            'underlyingNetworkAvailable': false,
+            'underlyingNetworkAvailable': available,
             'underlyingNetworkValidated': false,
           };
         }
@@ -161,6 +162,12 @@ void main() {
       expect(await service.refreshNativeConnectionState(), isTrue);
       expect(service.isRunning, isTrue);
       expect(service.underlyingNetworkNotice, '无可用网络，VPN 正在等待恢复');
+      available = true;
+      expect(await service.refreshNativeConnectionState(), isTrue);
+      expect(service.isRunning, isTrue);
+      expect(service.underlyingNetworkNotice, isNull,
+          reason:
+              'A failed Android validation probe does not prove VPN failure');
     },
   );
 

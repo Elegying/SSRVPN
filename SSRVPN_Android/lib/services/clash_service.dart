@@ -63,11 +63,9 @@ class ClashService extends ClashServiceBase
     if (_underlyingNetworkAvailable == false) {
       return '无可用网络，VPN 正在等待恢复';
     }
-    if (_underlyingNetworkAvailable == true &&
-        _underlyingNetworkValidated == false) {
-      return '网络尚未验证，VPN 正在等待恢复';
-    }
-    return connectivityWarning;
+    // Android's validation is also an external probe, not VPN liveness.
+    // Its result remains available through the native diagnostic snapshot.
+    return connectionStatusWarning;
   }
 
   void setCorePath(String path) => _corePath = path;

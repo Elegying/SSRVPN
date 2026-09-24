@@ -3056,9 +3056,11 @@ proxies:
 
     expect(service.connectivityWarning, contains('当前节点外部联网观察未通过'));
     expect(service.connectivityWarning, contains('系统代理所有权暂时无法确认'));
+    expect(service.connectionStatusWarning, '系统代理所有权暂时无法确认');
 
     service.publishOwnershipWarning(null);
     expect(service.connectivityWarning, '当前节点外部联网观察未通过');
+    expect(service.connectionStatusWarning, isNull);
 
     service.publishOwnershipWarning('系统代理所有权暂时无法确认');
     service.publishDataPlaneWarning(null);
@@ -3343,7 +3345,7 @@ proxies:
 
         expect(runtime.status, AppDiagnosticStatus.passed);
         expect(dataPlane.status, AppDiagnosticStatus.warning);
-        expect(dataPlane.summary, '外部网络观察暂未通过；核心、系统服务和运行配置仍保持连接');
+        expect(dataPlane.summary, '外部探测未通过，实际访问情况尚未确认');
         expect(dataPlane.summary, isNot(contains('恢复状态')));
       },
     );
@@ -3425,6 +3427,40 @@ proxies:
         ),
         isNot(contains('秒前')),
       );
+    });
+
+    test(
+        'external failure stays in diagnostics and logs without a home warning',
+        () async {
+      final service = _DiagnosticClashService()
+        ..requestConnectionIntent(true)
+        ..setRunning(true);
+      addTearDown(service.dispose);
+      await service.verifyUserConnectivity(
+        maxAttempts: 1,
+        request: (_) async => http.Response('', 503),
+      );
+      expect(service.isRunning, isTrue);
+      expect(service.connectionDesired, isTrue);
+      expect(service.connectionStatusWarning, isNull);
+      expect(service.connectivityWarning, contains('503'));
+      expect(service.recentLogs, contains('HTTP 503'));
+      final report = await service.runDiagnostics();
+      final check = report.checks.singleWhere((c) => c.id == 'data_plane');
+      expect(check.status, AppDiagnosticStatus.warning);
+      expect(check.summary, '外部探测未通过，实际访问情况尚未确认');
+      expect(
+          report.readableLogs
+              .any((entry) => entry.message == '外部探测未通过，实际访问情况尚未确认'),
+          isTrue);
+      await service.verifyUserConnectivity(
+        maxAttempts: 1,
+        request: (_) async => http.Response('', 204),
+      );
+      final recovered = await service.runDiagnostics();
+      expect(recovered.checks.singleWhere((c) => c.id == 'data_plane').status,
+          AppDiagnosticStatus.passed);
+      expect(service.connectivityWarning, isNull);
     });
 
     test(

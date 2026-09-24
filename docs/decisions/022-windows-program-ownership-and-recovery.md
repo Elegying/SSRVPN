@@ -51,6 +51,19 @@ HMAC 密钥认证；密钥也在受保护注册表键内。状态经独占临时
 7. prepared/cleared 时 Inno 尚未执行图标/注册阶段，Recover 不重放共享元数据，避免把目录 A
    后来的卸载撤销；validated 阶段恢复已记录的注册表/快捷方式。重复恢复可继续未完成工作。
 
+共享元数据另以卸载 AppId、hive/view 绑定受保护的事务代际。Begin 快照保存原代际；生产
+Install 与显式 Validate 共用一个验证入口，在 Inno 写注册表/快捷方式前认领当前 UUID。
+Seal、Commit 和 validated Recover 必须仍持有该代际；后来的安装或卸载已接管时，旧事务
+在文件变更前拒绝恢复并保留材料。恢复成功且 restored 持久化后才恢复原代际，允许后一次
+安装回滚后继续恢复前一次事务；后来已经成功提交或卸载则不能被旧事务撤销。
+对未实现代际的旧客户端，还核对卸载记录的安装目录、卸载器路径、版本身份；已消失的旧
+卸载目标不能凭快照重新注册。完整旧值与类型仍来自认证的注册表备份，不从身份字段重建。
+
+schema 4 的 state 认证覆盖 previousMetadataGeneration 和 registry snapshot 身份。
+首个正式 schema 4 为 5.0.19；缺少新增字段的开发期 state 同样拒绝猜测，保留材料，不能
+借“不支持的 schema”扩大清理范围。结束事务清理异常时，只有确认自己已删除原 state，
+才允许以 CreateNew 重新发布原认证状态；后到或被改写的 state 不覆盖。
+
 自有恢复根为 `%LOCALAPPDATA%\SSRVPN\installer-recovery-v4\<目录哈希>`，避免旧卸载器
 仍认识的共享根被用于新事务。Discard 先校验目录、hive/view、事务认证，只清理已结束事务。
 尚未认证的 staging、未知子项、无效 state 均保留，不用递归删除作为容错策略。
@@ -58,6 +71,9 @@ HMAC 密钥认证；密钥也在受保护注册表键内。状态经独占临时
 空目录与未知文件一样阻止清理，保留全部剩余材料，不回滚已经提交的新程序。
 已知空目录的最终删除也固定父目录并通过已验证原生句柄执行；内核拒绝后到内容，不再次
 按路径解析删除目标，防止校验后父目录被替换为重解析点。
+父目录句柄必须包含实际参与 Windows 共享检查的 FILE_LIST_DIRECTORY 权限；仅使用
+READ_ATTRIBUTES 即使未允许 FILE_SHARE_DELETE 也不能阻止重命名。元数据原子写入复用
+同一父目录固定机制，并拒绝穿过重解析点创建缺失目录。
 
 ## 旧 schema 2/3 与不可恢复状态
 
@@ -85,6 +101,10 @@ Inno 6.7.1 的 ssPostInstall 异常本身不会触发其完整文件回滚，也
 日志为准。`/SUPPRESSMSGBOXES` 下错误提示可被抑制，仍返回失败，不能静默挂在确认框。
 
 ## 验证入口
+
+- 最新加固矩阵：[Maintenance 35997094665](https://github.com/Elegying/SSRVPN/actions/runs/35997094665)，
+  HKCU/HKLM 各 46 组、真实 Inno 10 组通过。包含过期共享元数据拒绝、后续安装回滚后再次
+  恢复、旧卸载目标不复活、未知 state 红/绿复现和真实目录交换拒绝。
 
 - 历史资产采集：[Maintenance 35979092156](https://github.com/Elegying/SSRVPN/actions/runs/35979092156)。
 - N03/N04 真实旧行为及 N04 成功恢复：[Maintenance 35982923479](https://github.com/Elegying/SSRVPN/actions/runs/35982923479)。
