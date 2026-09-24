@@ -103,6 +103,8 @@ function New-TrustedPayloadManifest {
       'tun_ownership.ps1',
       'name_based_process_sweep.ps1',
       'post_install_cleanup.ps1',
+      'program_file_ownership.ps1',
+      'program_file_handles.cs',
       'program_files_transaction.ps1'
     )) {
     Add-TrustedPayloadFile `

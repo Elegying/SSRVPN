@@ -13,7 +13,7 @@ $output = Join-Path $env:RUNNER_TEMP 'legacy-installer-evidence'
 New-Item -ItemType Directory -Path $output -ErrorAction Stop | Out-Null
 $uninstallKey = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{299A3A12-B4A8-4120-9A62-CB274F328FE6}_is1'
 if (Test-Path -LiteralPath $uninstallKey) { throw 'Runner already contains SSRVPN.' }
-$sources = Get-Content (Join-Path $PSScriptRoot 'windows_legacy_installer_sources.json') -Raw | ConvertFrom-Json
+$sources = Get-Content (Join-Path $PSScriptRoot 'windows_legacy_installer_sources.json') -Encoding UTF8 -Raw | ConvertFrom-Json
 $catalogs = @()
 foreach ($source in $sources) {
   $caseRoot = Join-Path $output $source.tag
