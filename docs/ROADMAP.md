@@ -22,6 +22,10 @@ Android 应用模块内置 Kotlin、Windows 中文每用户目录安装与核心
 
 ### 2. 按变更风险执行 Windows 发布烟雾测试
 
+5.0.19 发布后发现默认 `LongPathsEnabled=0` 环境的备份路径过长。5.0.20 候选已缩短
+staging，必须以真实旧公开包失败、候选成功的对照及最终公开 EXE 验收关闭此阻断。
+不得让用户打开系统长路径策略或删除恢复材料作为正常安装前提。
+
 N03/N04 已实现可信文件归属及 HKLM64 恢复修复，协议和旧版迁移见
 [ADR-022](decisions/022-windows-program-ownership-and-recovery.md)，真实红测/绿测见
 [当前项目健康状态](PROJECT_HEALTH.md)。完整隔离安装矩阵已覆盖数据哨兵、首次/升级/卸载、
