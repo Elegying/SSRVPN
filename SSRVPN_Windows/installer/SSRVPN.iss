@@ -222,8 +222,8 @@ begin
   if not Result then
   begin
     Log('SSRVPN could not initialize the Windows PowerShell module path.');
-    MsgBox('无法准备安装所需的 Windows 组件，尚未修改程序文件。请重试。',
-      mbError, MB_OK);
+    SuppressibleMsgBox('无法准备安装所需的 Windows 组件，尚未修改程序文件。请重试。',
+      mbError, MB_OK, IDOK);
   end;
 end;
 
@@ -830,9 +830,9 @@ begin
   if not Result then exit;
   if not HoldInstallGateHandles then
   begin
-    MsgBox('无法建立 SSRVPN 卸载期进程保护，卸载尚未删除程序文件。' + #13#10 +
+    SuppressibleMsgBox('无法建立 SSRVPN 卸载期进程保护，卸载尚未删除程序文件。' + #13#10 +
       '请关闭其他安装程序后重试；如果仍然失败，请重启 Windows。',
-      mbError, MB_OK);
+      mbError, MB_OK, IDOK);
     Result := False;
     exit;
   end;
@@ -845,11 +845,11 @@ begin
     if not RunInstalledProgramFilesTransaction('CheckUninstall') then
     begin
       ReleaseInstallGates;
-      MsgBox('无法安全清理上次中断安装留下的程序文件副本，' +
+      SuppressibleMsgBox('无法安全清理上次中断安装留下的程序文件副本，' +
         '卸载尚未删除程序文件。' + #13#10 +
         '诊断阶段码：' + LastProgramFilesTransactionStatus + '。' + #13#10 +
         '请重试卸载；如果仍然失败，请重启 Windows 后再次卸载。',
-        mbError, MB_OK);
+        mbError, MB_OK, IDOK);
       Result := False;
     end;
     exit;
@@ -858,33 +858,33 @@ begin
   begin
     ReleaseInstallGates;
     if LastStopStatus = 'APP_INSTANCE_ACTIVE' then
-      MsgBox('仍有 SSRVPN 同名进程无法自动结束（含其他目录或便携版副本），' +
+      SuppressibleMsgBox('仍有 SSRVPN 同名进程无法自动结束（含其他目录或便携版副本），' +
         '卸载尚未删除程序文件。' + #13#10 +
         StopStatusDiagnostic + #13#10 +
         '请退出所有 SSRVPN 窗口和托盘实例后重试；如果仍然失败，' +
-        '请重启 Windows 后再次卸载。', mbError, MB_OK)
+        '请重启 Windows 后再次卸载。', mbError, MB_OK, IDOK)
     else if LastStopStatus = 'TUN_OWNERSHIP_UNVERIFIED' then
-      MsgBox('无法解析或确认 SSRVPN 虚拟网卡状态，卸载尚未删除程序文件。' + #13#10 +
+      SuppressibleMsgBox('无法解析或确认 SSRVPN 虚拟网卡状态，卸载尚未删除程序文件。' + #13#10 +
         StopStatusDiagnostic + #13#10 +
         '请先在客户端断开连接并退出后重试。若仍失败，请保留诊断阶段码反馈，' +
-        '不要手动删除网络恢复记录。', mbError, MB_OK)
+        '不要手动删除网络恢复记录。', mbError, MB_OK, IDOK)
     else if LastStopStatus = 'TUN_TEARDOWN_PENDING' then
-      MsgBox('SSRVPN 虚拟网卡的 IP 或路由尚未确认释放，卸载尚未删除程序文件。' + #13#10 +
+      SuppressibleMsgBox('SSRVPN 虚拟网卡的 IP 或路由尚未确认释放，卸载尚未删除程序文件。' + #13#10 +
         StopStatusDiagnostic + #13#10 +
-        '请稍后重试；如果仍然失败，请重启 Windows 后再次卸载。', mbError, MB_OK)
+        '请稍后重试；如果仍然失败，请重启 Windows 后再次卸载。', mbError, MB_OK, IDOK)
     else if StopResult = 3 then
-      MsgBox('无法确认 SSRVPN 进程归属或安全恢复系统代理，卸载尚未删除程序文件。' + #13#10 +
+      SuppressibleMsgBox('无法确认 SSRVPN 进程归属或安全恢复系统代理，卸载尚未删除程序文件。' + #13#10 +
         StopStatusDiagnostic + #13#10 +
         '请退出 SSRVPN，确认 Windows 系统代理和网络正常后重试；' +
-        '如果仍然失败，请重启 Windows 后再次卸载。', mbError, MB_OK)
+        '如果仍然失败，请重启 Windows 后再次卸载。', mbError, MB_OK, IDOK)
     else if StopResult <> 0 then
-      MsgBox('无法关闭正在运行的 SSRVPN，卸载尚未删除程序文件。' + #13#10 +
+      SuppressibleMsgBox('无法关闭正在运行的 SSRVPN，卸载尚未删除程序文件。' + #13#10 +
         StopStatusDiagnostic + #13#10 +
         '请退出 SSRVPN 后重试；如果仍然失败，请重启 Windows 后再次卸载。',
-        mbError, MB_OK)
+        mbError, MB_OK, IDOK)
     else
-      MsgBox('无法取得 SSRVPN 卸载期启动保护，卸载尚未删除程序文件。' + #13#10 +
-        '请稍后重试；如果仍然失败，请重启 Windows。', mbError, MB_OK);
+      SuppressibleMsgBox('无法取得 SSRVPN 卸载期启动保护，卸载尚未删除程序文件。' + #13#10 +
+        '请稍后重试；如果仍然失败，请重启 Windows。', mbError, MB_OK, IDOK);
   end;
 end;
 

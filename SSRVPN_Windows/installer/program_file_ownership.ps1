@@ -350,7 +350,14 @@ function Test-OwnedUninstall {
     throw 'Uninstall requires this installation directory''s committed ownership manifest.'
   }
   $entries = @(Get-OldOwnedInventory)
-  $opened = Open-OwnedFiles -Root $script:installDir -Entries $entries -AllowMissing -ForRemoval
+  # Inno deliberately holds unins000.dat open with read sharing only during
+  # uninstall. Verify its full hash without requesting deletion access; Inno
+  # owns its final removal. Payload files still require deletion preflight.
+  $metadata = @($entries | Where-Object { $_.path -match '^installer-state\\[0-9a-f]{32}\\unins000\.(exe|dat|msg)$' })
+  $payload = @($entries | Where-Object { $_.path -notmatch '^installer-state\\[0-9a-f]{32}\\unins000\.(exe|dat|msg)$' })
+  $opened = Open-OwnedFiles -Root $script:installDir -Entries $metadata -AllowMissing
+  foreach ($item in $opened) { $item.handle.Dispose() }
+  $opened = Open-OwnedFiles -Root $script:installDir -Entries $payload -AllowMissing -ForRemoval
   foreach ($item in $opened) { $item.handle.Dispose() }
   # Inno's automatic key deletion is unconditional. Do not let this uninstall
   # erase an entry currently pointing to a different installation directory.
