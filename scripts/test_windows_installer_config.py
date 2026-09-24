@@ -871,7 +871,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("'validated'", helper)
         self.assertIn("'committed'", helper)
         self.assertIn("'restored'", helper)
-        self.assertIn(".cleanup.", helper)
+        self.assertIn(".cleanup-", helper)
+        self.assertIn(".staging-", helper)
         self.assertNotIn(
             "if ($null -eq $installItem) { return 'NO_PROGRAM_FILES' }",
             helper,
