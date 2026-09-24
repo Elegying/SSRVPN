@@ -65,6 +65,7 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
       final subscriptionRevision = subscriptionService!.revision;
 
       connectionGeneration = core.requestConnectionIntent(true);
+      String? blockedReason;
       if (core.hasPendingSystemProxyRecovery) {
         final recovered = await core.recoverPendingSystemProxy();
         if (!core.isConnectionIntentCurrent(
@@ -74,20 +75,17 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
           return;
         }
         if (!recovered) {
-          core.requestConnectionIntent(false);
-          core.interruptPendingStart();
-          final reason = core.lastStartError ?? '系统代理旧状态恢复失败';
-          StartupLogger.warning(reason);
-          await _presentTrayFailure(reason);
-          return;
+          blockedReason = core.lastStartError ?? '系统代理旧状态恢复失败';
         }
       }
-      if (core.isStartupDisabled) {
+      blockedReason ??= core.isStartupDisabled
+          ? core.startupDisabledReason ?? '核心初始化失败'
+          : null;
+      if (blockedReason != null) {
         core.requestConnectionIntent(false);
         core.interruptPendingStart();
-        final reason = core.startupDisabledReason ?? '核心初始化失败';
-        StartupLogger.warning(reason);
-        await _presentTrayFailure(reason);
+        StartupLogger.warning(blockedReason);
+        await _presentTrayFailure(blockedReason);
         return;
       }
       final preferredNodeName = _defaultNodeName();
