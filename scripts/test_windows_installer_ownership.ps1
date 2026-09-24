@@ -398,6 +398,18 @@ try {
   Assert-UserFiles $c
   Pass 'Source junctions stop preparation and never touch their external target'
 
+  $c = New-Case 'recovery-parent-junction'
+  $foreign = Join-Path $c.root 'foreign'
+  Write-FixtureFile (Join-Path $foreign 'keep.txt') 'unrelated-recovery-target'
+  $alias = Join-Path $c.root 'alias'
+  New-Item -ItemType Junction -Path $alias -Target $foreign | Out-Null
+  $c.recovery = Join-Path $alias 'recovery'
+  Invoke-Case $c Begin -Failure
+  if (@(Get-ChildItem -LiteralPath $foreign -Force).Count -ne 1) { throw 'Preparation wrote through a recovery ancestor junction.' }
+  Assert-File (Join-Path $foreign 'keep.txt') 'unrelated-recovery-target'
+  Assert-UserFiles $c
+  Pass 'Recovery ancestor junctions are rejected before publishing any transaction material'
+
   $c = New-Case 'owned-hard-link'
   $original = Join-Path $c.install 'bin\app.dll'
   New-Item -ItemType HardLink -Path (Join-Path $c.root 'alias.dll') -Target $original | Out-Null

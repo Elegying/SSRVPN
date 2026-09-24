@@ -13,6 +13,9 @@ $installDir = Join-Path $root 'installed'
 $sourcePayload = Join-Path $root 'verified-payload'
 $registryPath = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{299A3A12-B4A8-4120-9A62-CB274F328FE6}_is1'
 $otherRegistryPath = $registryPath.Replace('HKLM:', 'HKCU:')
+$machine32 = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry32)
+$registrySubkey = $registryPath.Substring(6)
+if ($null -ne $machine32.OpenSubKey($registrySubkey)) { throw 'Runner has a non-isolated HKLM32 installation.' }
 $desktop = Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) 'SSRVPN.lnk'
 $menu = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'SSRVPN.lnk'
 foreach ($path in @($registryPath, $otherRegistryPath, $desktop, $menu)) {
@@ -109,10 +112,22 @@ function Build-Candidate([string]$Name, [switch]$Legacy, [switch]$Fault) {
   return (Join-Path $buildRoot 'SSRVPN_Setup.exe')
 }
 function Assert-UserFiles {
+  $hasher = [Security.Cryptography.SHA256]::Create()
+  try {
   foreach ($relative in @('unrelated.txt', 'personal\notes.txt', 'bin\ssrvpn\settings.json', 'bin\ssrvpn\subscriptions.json')) {
     $path = Join-Path $installDir $relative
-    if (-not (Test-Path -LiteralPath $path) -or [IO.File]::ReadAllText($path) -cne ('sentinel-' + $relative)) { throw "User file changed: $relative" }
+    $expected = [BitConverter]::ToString($hasher.ComputeHash($utf8.GetBytes('sentinel-' + $relative))).Replace('-', '')
+    if (-not (Test-Path -LiteralPath $path) -or (Get-FileHash -LiteralPath $path).Hash -cne $expected) { throw "User file hash changed: $relative" }
   }
+  } finally { $hasher.Dispose() }
+}
+function Assert-NonTargetScopes {
+  if ((Get-ItemProperty -LiteralPath $otherRegistryPath).NonTargetSentinel -cne 'preserve-hkcu') { throw 'Installer changed non-target HKCU64.' }
+  $key = $machine32.OpenSubKey($registrySubkey)
+  if ($null -eq $key) { throw 'Installer removed non-target HKLM32.' }
+  try {
+    if ($key.GetValueKind('NonTargetSentinel') -ne [Microsoft.Win32.RegistryValueKind]::DWord -or $key.GetValue('NonTargetSentinel') -ne 3242) { throw 'Installer changed non-target HKLM32 type/data.' }
+  } finally { $key.Dispose() }
 }
 function Assert-Committed([string]$Phase) {
   $log = [IO.File]::ReadAllText((Join-Path $root "$Phase.log"))
@@ -204,22 +219,41 @@ try {
   foreach ($relative in @('unrelated.txt', 'personal\notes.txt', 'bin\ssrvpn\settings.json', 'bin\ssrvpn\subscriptions.json')) {
     Write-Text (Join-Path $installDir $relative) ('sentinel-' + $relative)
   }
+  if (Test-Path -LiteralPath $otherRegistryPath) { throw 'Non-target registry fixture unexpectedly exists.' }
+  New-Item -Path $otherRegistryPath -Force | Out-Null
+  Set-ItemProperty -LiteralPath $otherRegistryPath -Name 'NonTargetSentinel' -Value 'preserve-hkcu'
+  $key32 = $machine32.CreateSubKey($registrySubkey)
+  try { $key32.SetValue('NonTargetSentinel', [int]3242, [Microsoft.Win32.RegistryValueKind]::DWord) } finally { $key32.Dispose() }
+  [void](Snapshot 'n03-green-before')
   $candidate = Build-Candidate 'candidate'
   if ((Run-Installer $candidate 'legacy-to-candidate') -ne 0) { throw 'Verified v5.0.18 migration failed.' }
   Assert-Committed 'legacy-to-candidate'
   Assert-UserFiles
+  Assert-NonTargetScopes
   [void](Snapshot 'legacy-to-candidate')
   Pass 'Verified v5.0.18 migration preserves root/nested sentinels and user data'
   if ((Run-Installer $candidate 'normal-upgrade') -ne 0) { throw 'Owned candidate upgrade failed.' }
   Assert-Committed 'normal-upgrade'
   Assert-UserFiles
+  Assert-NonTargetScopes
+  [void](Snapshot 'normal-upgrade-after')
   Pass 'Normal owned upgrade preserves every user sentinel'
+
+  $modifiedPath = Join-Path $installDir 'bin\flutter_windows.dll'
+  $originalBytes = [IO.File]::ReadAllBytes($modifiedPath)
+  $append = [IO.File]::Open($modifiedPath, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::None)
+  try { $append.WriteByte(0x42) } finally { $append.Dispose() }
+  $before = Snapshot 'third-party-modified-before'
+  if ((Run-Installer $candidate 'third-party-modified-upgrade') -eq 0) { throw 'A modified owned DLL was accepted.' }
+  $after = Snapshot 'third-party-modified-after'
+  foreach ($part in @('files', 'registry', 'shortcuts')) {
+    if (($before[$part] | ConvertTo-Json -Depth 5 -Compress) -cne ($after[$part] | ConvertTo-Json -Depth 5 -Compress)) { throw 'Rejected modification changed installation state.' }
+  }
+  [IO.File]::WriteAllBytes($modifiedPath, $originalBytes)
+  Pass 'Real installer rejects a third-party modified DLL before any program or metadata changes'
 
   $fault = Build-Candidate 'candidate-fault' -Fault
   $before = Snapshot 'n04-green-before'
-  if (Test-Path -LiteralPath $otherRegistryPath) { throw 'Non-target registry fixture unexpectedly exists.' }
-  New-Item -Path $otherRegistryPath -Force | Out-Null
-  Set-ItemProperty -LiteralPath $otherRegistryPath -Name 'NonTargetSentinel' -Value 'preserve-hkcu'
   [void](Run-Installer $fault 'n04-green-precommit')
   $greenLog = [IO.File]::ReadAllText((Join-Path $root 'n04-green-precommit.log'))
   $after = Snapshot 'n04-green-after'
@@ -228,17 +262,19 @@ try {
     if (($before[$part] | ConvertTo-Json -Depth 5 -Compress) -cne ($after[$part] | ConvertTo-Json -Depth 5 -Compress)) { throw "N04 green did not restore $part exactly." }
   }
   if ((Get-ItemProperty -LiteralPath $otherRegistryPath).NonTargetSentinel -cne 'preserve-hkcu') { throw 'Recovery modified non-target HKCU.' }
-  Remove-Item -LiteralPath $otherRegistryPath -Recurse
+  Assert-NonTargetScopes
   Assert-UserFiles
   Pass 'N04 green: real post-HKLM pre-commit failure restores all files, HKLM64 and shortcuts; HKCU untouched'
 
   Uninstall-Current 'candidate-uninstall'
+  Assert-NonTargetScopes
   Assert-UserFiles
   if (Test-Path -LiteralPath (Join-Path $installDir 'ssrvpn_windows.exe')) { throw 'Uninstall left the owned launcher.' }
   if ((Run-Installer $candidate 'candidate-reinstall') -ne 0) { throw 'Reinstall failed.' }
   Assert-Committed 'candidate-reinstall'
   Assert-UserFiles
   Uninstall-Current 'final-uninstall'
+  Assert-NonTargetScopes
   Assert-UserFiles
   Pass 'Real uninstall and reinstall preserve user data and unrelated files'
 
@@ -283,7 +319,9 @@ try {
   if ((Run-Installer $uninstallerB 'directory-b-final-uninstall' $directoryB) -ne 0) { throw 'B cleanup uninstall failed.' }
   if ([IO.File]::ReadAllText((Join-Path $directoryB 'unrelated.txt')) -cne 'directory-b-sentinel') { throw 'B uninstall deleted its unrelated file.' }
   Pass 'Two real installation directories: uninstall A preserves all B state and backup; later B recovery succeeds'
+  Assert-NonTargetScopes
 } finally {
+  $machine32.Dispose()
   [ordered]@{ windows = [Environment]::OSVersion.VersionString; powershell = $PSVersionTable.PSVersion.ToString(); commit = $env:GITHUB_SHA; results = @($results.ToArray()) } |
     ConvertTo-Json -Depth 6 | Set-Content (Join-Path $root 'results.json') -Encoding UTF8
 }

@@ -64,6 +64,14 @@ function Get-SafeDirectoryPath {
   if ($trimmedPath -ieq $trimmedRoot) {
     throw "$Name must not be a filesystem root."
   }
+  $ancestor = $trimmedPath
+  while ($ancestor) {
+    $entry = Get-PathItem -Path $ancestor
+    if ($null -ne $entry -and (-not $entry.PSIsContainer -or (Test-ReparsePoint -Item $entry))) {
+      throw "$Name has a non-directory or reparse-point ancestor."
+    }
+    $ancestor = [IO.Path]::GetDirectoryName($ancestor)
+  }
   return $trimmedPath
 }
 
@@ -81,6 +89,7 @@ function Get-SafeMetadataFilePath {
   if ([System.IO.Path]::GetFileName($fullPath) -ine 'SSRVPN.lnk') {
     throw "$Name must identify the SSRVPN.lnk shortcut."
   }
+  [void](Get-SafeDirectoryPath -Path ([IO.Path]::GetDirectoryName($fullPath)) -Name $Name)
   return $fullPath
 }
 
