@@ -10,6 +10,14 @@ class ProxyOptionTypes {
     final result = _canonicalMap(options, 'BasicOption');
     result.addAll(_canonicalMap(result, _protocols[type] ?? 'unknown'));
     result['type'] = type == 'socks' ? 'socks5' : type;
+    // UI, latency probes and edits interpret ports as decimal integers. Emit
+    // that same endpoint, avoiding the core's octal decoding of quoted ports.
+    if (result['port'] case final String port) {
+      result['port'] = int.tryParse(port) ?? port;
+    }
+    if (result['server'] case final String server) {
+      result['server'] = server.trim();
+    }
     if (type == 'vmess') {
       result['cipher'] ??= 'auto';
       result['alterId'] ??= options['alter-id'] ?? 0;

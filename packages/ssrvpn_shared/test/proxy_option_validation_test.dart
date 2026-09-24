@@ -6,6 +6,44 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_shared/services/subscription_node_editor.dart';
 
 void main() {
+  for (final port in ['012345', '01080', ' 1080 ']) {
+    test('display and runtime keep the same decimal port $port', () {
+      final input = jsonEncode({
+        'proxies': [
+          {
+            'name': 'probe',
+            'type': 'socks5',
+            'server': '127.0.0.1',
+            'port': port,
+          }
+        ]
+      });
+      final node = SubscriptionParser.parseYaml(input).nodes.single;
+      final emitted = jsonDecode(
+              ClashConfigGenerator.buildProxiesText(input).trim().substring(2))
+          as Map<String, dynamic>;
+      expect(node.port, int.parse(port));
+      expect(emitted['port'], node.port);
+    });
+  }
+  test('display and runtime use the same trimmed server', () {
+    final input = jsonEncode({
+      'proxies': [
+        {
+          'name': 'probe',
+          'type': 'socks5',
+          'server': ' 127.0.0.1 ',
+          'port': 1080,
+        }
+      ]
+    });
+    final node = SubscriptionParser.parseYaml(input).nodes.single;
+    final emitted = jsonDecode(
+            ClashConfigGenerator.buildProxiesText(input).trim().substring(2))
+        as Map<String, dynamic>;
+    expect(node.server, '127.0.0.1');
+    expect(emitted['server'], node.server);
+  });
   test('very long numeric options stay bounded and preserve leading zeroes',
       () {
     final vmess = {

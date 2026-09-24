@@ -1,12 +1,12 @@
 # Proxy option compatibility fixtures
 
-`proxy_option_cases.json` contains 143 synthetic cases checked independently
+`proxy_option_cases.json` contains 147 synthetic cases checked independently
 against the shipped Windows core using `mihomo.exe -t` on 2026-09-24.
 `accepted` means that the application should retain the node. It is not proof
 of a successful remote handshake.
 
 The raw core verdict supplies the expectation except for application-supported
-VMess defaults, `alter-id`, and `socks`, which require canonical runtime output.
+VMess defaults, `alter-id`, `socks`, and endpoint normalization, which require canonical runtime output.
 `expect_fields` records that output. The Windows integration test loads every
 generated configuration using the real packaged core, with a healthy sibling
 that must survive rejection of a malformed node.

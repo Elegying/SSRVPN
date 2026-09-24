@@ -1861,5 +1861,61 @@
       }
     },
     "accepted": false
+  },
+  {
+    "id": "endpoint-canonical-0",
+    "node": {
+      "name": "probe",
+      "type": "socks5",
+      "server": "127.0.0.1",
+      "port": "012345"
+    },
+    "accepted": true,
+    "expect_fields": {
+      "port": 12345,
+      "server": "127.0.0.1"
+    }
+  },
+  {
+    "id": "endpoint-canonical-1",
+    "node": {
+      "name": "probe",
+      "type": "socks5",
+      "server": "127.0.0.1",
+      "port": "01080"
+    },
+    "accepted": true,
+    "expect_fields": {
+      "port": 1080,
+      "server": "127.0.0.1"
+    }
+  },
+  {
+    "id": "endpoint-canonical-2",
+    "node": {
+      "name": "probe",
+      "type": "socks5",
+      "server": "127.0.0.1",
+      "port": " 1080 "
+    },
+    "accepted": true,
+    "expect_fields": {
+      "port": 1080,
+      "server": "127.0.0.1"
+    }
+  },
+  {
+    "id": "endpoint-canonical-3",
+    "node": {
+      "name": "probe",
+      "type": "socks5",
+      "server": " 127.0.0.1 ",
+      "port": 1080
+    },
+    "accepted": true,
+    "expect_fields": {
+      "port": 1080,
+      "server": "127.0.0.1"
+    }
   }
 ]
