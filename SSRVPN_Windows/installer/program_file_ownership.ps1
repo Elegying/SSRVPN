@@ -13,8 +13,35 @@ function Get-OwnershipRegistryKey {
   $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, [Microsoft.Win32.RegistryView]::Registry64)
   try {
     $subkey = "Software\SSRVPN\InstallerOwnership\$identity"
-    if ($Create) { return $base.CreateSubKey($subkey) }
-    return $base.OpenSubKey($subkey, $true)
+    $key = $base.OpenSubKey($subkey, $true)
+    if ($null -eq $key -and $Create) {
+      $key = $base.CreateSubKey($subkey)
+      # The authentication key must not inherit HKLM Software's public read
+      # permission. Only elevated administrators and SYSTEM can read/write it.
+      $acl = New-Object Security.AccessControl.RegistrySecurity
+      $acl.SetAccessRuleProtection($true, $false)
+      foreach ($sidText in @('S-1-5-18', 'S-1-5-32-544')) {
+        $sid = New-Object Security.Principal.SecurityIdentifier -ArgumentList $sidText
+        $rule = New-Object Security.AccessControl.RegistryAccessRule -ArgumentList @(
+          $sid, [Security.AccessControl.RegistryRights]::FullControl,
+          [Security.AccessControl.InheritanceFlags]::ContainerInherit,
+          [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow)
+        $acl.AddAccessRule($rule)
+      }
+      $key.SetAccessControl($acl)
+    }
+    if ($null -ne $key) {
+      $acl = $key.GetAccessControl()
+      $rules = @($acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
+      if (-not $acl.AreAccessRulesProtected -or @($rules | Where-Object {
+          $_.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
+          @('S-1-5-18', 'S-1-5-32-544') -notcontains $_.IdentityReference.Value
+        }).Count -gt 0) {
+        $key.Dispose()
+        throw 'Program ownership registry permissions are not private to administrators and SYSTEM.'
+      }
+    }
+    return $key
   } finally { $base.Dispose() }
 }
 
@@ -175,7 +202,7 @@ function Remove-OwnedFiles {
 function Get-ExistingOwnedFiles {
   param([AllowEmptyCollection()][object[]]$Entries)
   $opened = Open-OwnedFiles -Root $script:installDir -Entries $Entries -AllowMissing
-  try { return @($opened | ForEach-Object { $_.entry }) }
+  try { return @($opened | ForEach-Object { $_.entry } | Sort-Object path) }
   finally { foreach ($item in $opened) { $item.handle.Dispose() } }
 }
 
@@ -342,4 +369,42 @@ function Remove-OwnedInstallation {
   Remove-OwnedFiles -Entries $entries
   Set-OwnershipValue -Name 'Manifest' -Value $null
   return 'OWNED_PROGRAM_FILES_REMOVED'
+}
+
+function Remove-AuthenticatedRecoveryFiles {
+  param([string]$Root, $State)
+  $entries = @(Read-OwnedFileList -Entries $State.recoveryFiles -Root $Root)
+  $known = @{}
+  foreach ($entry in $entries) { $known[$entry.path] = $true }
+  # Reject an unexpected child before touching any of the remaining backups.
+  # Missing known members are allowed only here: finalized cleanup is resumable.
+  $actual = @(Get-ProgramInventory -Root $Root)
+  foreach ($entry in $actual) {
+    if ($entry.path -cne 'state.json' -and -not $known.ContainsKey($entry.path)) {
+      throw "Finalized recovery contains an unknown file; it was preserved: $($entry.path)"
+    }
+  }
+  $opened = Open-OwnedFiles -Root $Root -Entries $entries -AllowMissing -ForRemoval
+  try { foreach ($item in $opened) { $item.handle.Delete() } }
+  finally { foreach ($item in $opened) { $item.handle.Dispose() } }
+  # Keep the authenticated state until all known material has been removed.
+  $statePath = Join-Path $Root 'state.json'
+  $onDisk = Read-BoundedJsonDocument -Path $statePath -Name 'Finalized recovery state'
+  if ($onDisk.authentication -cne (Get-StateAuthentication -State $onDisk) -or
+      $onDisk.authentication -cne $State.authentication) {
+    throw 'Finalized recovery state changed during cleanup.'
+  }
+  $identity = Get-BoundedFileMetadata -Path $statePath -MaxBytes $script:maxMetadataDocumentBytes -Name 'Finalized state'
+  $stateHandle = [SsrvpnInstaller.ProgramFile]::Open($statePath, $true)
+  try {
+    if ($stateHandle.Sha256 -cne $identity.sha256) {
+      throw 'Finalized recovery state changed during cleanup.'
+    }
+    $stateHandle.Delete()
+  } finally { $stateHandle.Dispose() }
+  # Empty directories alone have no user content; never recurse-delete a tree.
+  foreach ($directory in @(Get-ChildItem -LiteralPath $Root -Directory -Recurse -Force | Sort-Object { $_.FullName.Length } -Descending)) {
+    if (@(Get-ChildItem -LiteralPath $directory.FullName -Force).Count -eq 0) { [IO.Directory]::Delete($directory.FullName, $false) }
+  }
+  [IO.Directory]::Delete($Root, $false)
 }

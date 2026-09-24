@@ -990,7 +990,7 @@ function Read-TransactionState {
     $requiredStateProperties += @('uninstallRegistryRoot', 'uninstallRegistryView')
   }
   if ($state.schemaVersion -eq 4) {
-    $requiredStateProperties += @('transactionId', 'recoveryRoot', 'documents', 'oldOwnership', 'metadataPath', 'metadataFiles', 'authentication')
+    $requiredStateProperties += @('transactionId', 'recoveryRoot', 'documents', 'recoveryFiles', 'oldOwnership', 'metadataPath', 'metadataFiles', 'authentication')
   }
   Assert-ExactObjectSchema -Value $state -Name 'Program-file recovery state' `
     -RequiredProperties $requiredStateProperties
@@ -1031,7 +1031,7 @@ function Read-TransactionState {
     }
     $script:transactionRegistryRoot = 'HKCU'
   }
-  if ($state.schemaVersion -lt 4 -and @('committed', 'restored') -cnotcontains [string]$state.phase) {
+  if ($state.schemaVersion -lt 4) {
     throw 'Legacy recovery does not prove file ownership or the original machine registry state. All recovery material was retained; archive it before using a separate empty installation directory.'
   }
   if ($state.schemaVersion -eq 4) {
@@ -1201,16 +1201,7 @@ function Remove-FinalizedTree {
       (Test-ReparsePoint -Item $rootItem)) {
     throw 'Finalized program-file cleanup root is not a real directory.'
   }
-  $statePath = Join-Path $Path $script:stateFileName
-  foreach ($child in @(
-      Get-ChildItem -LiteralPath $Path -Force | Sort-Object Name
-    )) {
-    if ($child.FullName -ine $statePath) {
-      Remove-SafeTree -Path $child.FullName
-    }
-  }
-  Remove-SafeTree -Path $statePath
-  Remove-Item -LiteralPath $Path -Force
+  Remove-AuthenticatedRecoveryFiles -Root $Path -State $script:activeState
 }
 
 function Remove-CommittedTransaction {
@@ -1335,6 +1326,7 @@ function Begin-ProgramFilesTransaction {
       $identity = Get-BoundedFileMetadata -Path (Join-Path $stageRoot $name) -MaxBytes $script:maxMetadataDocumentBytes -Name 'Recovery document'
       [pscustomobject][ordered]@{ path = $name; sha256 = $identity.sha256 }
     })
+    $recoveryFiles = @(Get-ProgramInventory -Root $stageRoot)
     Write-AuthenticatedState -Root $stageRoot `
       -State ([pscustomobject][ordered]@{
         schemaVersion = $script:schemaVersion
@@ -1348,6 +1340,7 @@ function Begin-ProgramFilesTransaction {
         transactionId = $transactionId
         recoveryRoot = $script:recoveryRoot
         documents = $documents
+        recoveryFiles = $recoveryFiles
         oldOwnership = (Get-OwnershipValue -Name 'Manifest')
         metadataPath = $metadataPath
         metadataFiles = @()
