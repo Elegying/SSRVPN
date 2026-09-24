@@ -22,6 +22,8 @@ GitHub Actions 与 Dart workspace 更新；合并前仍必须经过完整门禁�
 - `uuid` 4 当前被桌面托盘依赖 `system_tray 2.0.3` 的 `uuid ^3.0.6` 约束阻塞。只有托盘插件
   升级或替换并通过 macOS/Windows 托盘重建、退出和资源管理器恢复测试后，才迁移该主版本。
 - analyzer、test 等由 Flutter SDK 约束的传递依赖跟随受支持的 stable 工具链，不强行覆盖。
+- `tray_manager 0.7.0` 要求 Dart `^3.13.0`；当前 Flutter 3.44.1 携带 Dart 3.12.1。
+  后续随工具链迁移，并补充 macOS 托盘菜单、关闭与退出的原生验证。
 
 ## 2026-09-16 依赖 PR 复核
 
@@ -38,6 +40,10 @@ GitHub Actions 与 Dart workspace 更新；合并前仍必须经过完整门禁�
 
 这些限制不表示新版依赖自身存在缺陷。保留当前已验证工具链，后续迁移需重新检查插件、
 原生测试、APK 构建和覆盖安装；不通过跳过门禁或取消依赖校验接纳升级。
+
+2026-09-25 再次核对自动更新 PR：#261 的 `meta` 约束和 #262 的 Dart SDK 约束导致依赖解析失败；
+#263 未同步 AGP/Kotlin 工具链约定，#264 混入不符合当前 AGP 固定约定的 Gradle wrapper，均未通过预检。
+这些 PR 关闭后，兼容性迁移仍按上述边界跟踪，Dependabot 和漏洞检查继续运行。
 
 ## 维护命令
 

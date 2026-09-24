@@ -1,6 +1,6 @@
 ## 变更摘要
 
--
+<!-- 用 1–3 句话说明具体问题、触发场景，以及修改后的行为。 -->
 
 ## 影响范围
 
@@ -12,11 +12,14 @@
 
 ## 验证
 
-- [ ] `scripts/check-quality-hygiene.sh`
-- [ ] `scripts/check-shared-barrel-imports.sh`
-- [ ] `scripts/workspace.sh analyze`
-- [ ] `scripts/workspace.sh test`
-- [ ] `make verify` before merge, or the PR explains why a target-platform gate must run in CI
+<!-- 列出实际运行的命令、结果和 CI 链接。未执行项请注明原因与替代验证，不要将检查计划写成已通过。 -->
+
+| 检查 / 环境 | 结果或证据 |
+| --- | --- |
+| `make verify` 或本次适用的门禁 | |
+| 受影响平台的测试 / 构建 | |
+
+<!-- UI 变化附截图；原生生命周期、系统代理、TUN、安装器或发布变化附目标平台行为证据。 -->
 
 ## 安全与兼容性
 
@@ -26,8 +29,8 @@
 
 ## 用户可见说明
 
--
+<!-- 写明 CHANGELOG 或文档位置；不影响用户行为时写“不适用”。 -->
 
 ## 风险与回滚
 
--
+<!-- 说明兼容性、数据迁移、尚未验证的边界和恢复方式。 -->

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 项目维护
+
+- 整理项目首页、三端构建指南、安全政策与贡献入口，修正文档中的旧版 IPv4-only、核心来源和 Windows 安装范围说明；补齐安装器 ADR 索引。
+- 历史 Windows 安装回归改用原包 SHA-256 固定的不可变归档，保留原始 GitHub 来源，支持清理旧客户端 Release 展示而不中断升级与恢复测试。
+- 更新经过验证并以完整提交 SHA 固定的缓存 Action；应用版本及正式 5.0.20 安装包保持不变。
+
 ## [5.0.20] - 2026-09-24
 
 ### Windows 安装修复

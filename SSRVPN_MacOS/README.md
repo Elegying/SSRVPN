@@ -1,28 +1,25 @@
 # SSRVPN macOS
 
-[![CI](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml/badge.svg)](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml)
-
-
 SSRVPN macOS 版，基于 Flutter 和 Mihomo/Clash Meta 核心的桌面客户端。
-
-> 主动开发已迁移到 `Elegying/SSRVPN` Monorepo。本目录是该工作区内的 macOS 应用。
 
 [下载正式版](https://github.com/Elegying/SSRVPN/releases/latest) · [用户指南](USER_GUIDE.md) · [获取帮助](../SUPPORT.md) · [返回主项目](../README.md)
 
 ## 支持范围
 
 - macOS 11 或更高版本，正式包仅支持 Apple M 系列芯片。
-- 永久使用 IPv4-only Mihomo 运行配置；不请求 DNS AAAA，不通过核心建立 IPv6 连接。客户端不会修改 macOS 的全局 IPv6 开关。
+- 支持 IPv4 / IPv6 双栈，遵循统一分流规则；客户端不修改 macOS 的全局 IPv6 开关。详见[双栈规范](../docs/IPV6_DUAL_STACK_SPEC.zh-CN.md)。
 - TUN 每次连接由 macOS 系统管理员授权窗口确认，SSRVPN 不读取或保存管理员密码。
 - Release 使用 AOT 与最小化 entitlement，不包含调试、JIT、未签名可执行内存或禁用库校验权限；免费 ad-hoc、未公证分发边界不变。
 
 ## 构建要求
 
-- 安装 Xcode Command Line Tools 的 macOS
+- 安装 Xcode、Command Line Tools 与 CocoaPods 的 macOS
 - Flutter SDK **3.44.1**；其他 stable 版本不能替代
 - 用于 DMG 打包的 `hdiutil`
 
 ## 验证
+
+先在仓库根目录运行 `make assets`，获取并校验固定资源，再进入 `SSRVPN_MacOS`：
 
 ```bash
 flutter pub get
@@ -56,17 +53,11 @@ flutter build macos --release --dart-define-from-file=../config/ssrvpn-usage-def
 
 ## Mihomo 核心
 
-应用内置 `assets/AtlasCore.gz`，当前为 MetaCubeX/mihomo `v1.19.29`
-darwin arm64 构建。来源、版本和 SHA256 记录在
-`assets/AtlasCore-source.txt`。
+应用内置 `assets/AtlasCore.gz`，为基于 Mihomo `v1.19.29`、带 SSRVPN 流量统计扩展的
+`v1.19.29-ssrvpn.1` arm64 构建。源码提交、补丁和压缩包/可执行文件 SHA-256 固定在
+[`assets/AtlasCore-source.txt`](assets/AtlasCore-source.txt)，由 `make assets` 获取。
 
-自行更新时，从 GitHub Releases 下载同版本 darwin arm64 资产：
-
-```text
-https://github.com/MetaCubeX/mihomo/releases
-```
-
-下载后可保留官方 gzip，或将解压后的可执行文件重新压缩为
-`AtlasCore.gz`；验证时优先比对解压后的可执行文件 SHA256。
+不能直接用上游原版核心替换，否则会缺少代理流量统计接口。更新和重建遵循
+[核心资产说明](../docs/CORE_ASSETS.md)，与三端行为测试一起审查。
 
 完整验证、贡献规则和路线图请从仓库根目录的[贡献指南](../CONTRIBUTING.md)与[文档中心](../docs/README.md)进入。

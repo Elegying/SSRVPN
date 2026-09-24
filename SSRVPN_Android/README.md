@@ -1,17 +1,12 @@
 # SSRVPN Android
 
-[![CI](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml/badge.svg)](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml)
-
-
 SSRVPN Android 版是基于 Flutter、Kotlin 和 Mihomo 的系统 VPN 客户端。
-
-> 主动开发已迁移到 `Elegying/SSRVPN` Monorepo。本目录是该工作区内的 Android 应用。
 
 [下载正式版](https://github.com/Elegying/SSRVPN/releases/latest) · [用户指南](USER_GUIDE.md) · [获取帮助](../SUPPORT.md) · [返回主项目](../README.md)
 
 ## 界面预览
 
-以下为 5.0.0 Android 实机截图，展示已连接主页与节点选择界面；公网 IPv4 已遮挡。可下载版本以 GitHub Release 为准。
+以下为 5.0.1 Android 实机截图，展示已连接主页与节点选择界面；公网 IPv4 已遮挡。可下载版本以 GitHub Release 为准。
 
 <p align="center">
   <img src="../docs/assets/ssrvpn-product-preview.jpg" alt="SSRVPN Android 已连接主页与流量统计" width="360">
@@ -21,11 +16,11 @@ SSRVPN Android 版是基于 Flutter、Kotlin 和 Mihomo 的系统 VPN 客户端�
 ## 支持范围
 
 - Android 7.0 或更高版本，正式安装包仅支持 **arm64-v8a** 设备。
-- 永久使用 IPv4-only 运行配置；不请求 DNS AAAA，不建立 IPv6 连接。系统 VPN 仍捕获并拒绝 IPv6，防止流量绕过 VPN。
+- 支持 IPv4 / IPv6 双栈，两类流量使用同一套分流规则；直连依赖本地网络，代理 IPv6 依赖节点出口。详见[双栈规范](../docs/IPV6_DUAL_STACK_SPEC.zh-CN.md)。
 
 ## 功能特性
 
-- 液态玻璃连接按钮、卡片、导航与弹窗，当前使用统一深色主题和简化的“主页 + 订阅”两页流程。
+- 首页、订阅、设置三个入口，支持四档玻璃特效和自定义背景。
 - 主页集中展示连接状态、当前节点、公网 IPv4 与代理流量统计。
 - 支持 Mihomo/Clash YAML、Base64 订阅、常见节点 URI 和受控客户端标识兼容协商。
 - Android `VpnService`、前台通知和快捷设置磁贴。
@@ -42,6 +37,8 @@ SSRVPN Android 版是基于 Flutter、Kotlin 和 Mihomo 的系统 VPN 客户端�
 - JDK 17（AGP 9.0.1 与应用源码均使用 JVM 17）
 
 ### 构建步骤
+
+先在仓库根目录运行 `make assets`，获取并校验固定的定制核心和 GeoIP，再进入 `SSRVPN_Android`：
 
 ```bash
 # 1. 获取依赖
@@ -64,7 +61,7 @@ ORG_GRADLE_PROJECT_ssrvpnPreview=true flutter build apk --release --target-platf
 
 ### 签名配置
 
-推荐从仓库根目录生成免费自签名 keystore：
+官方发布始终使用已有的固定签名，不重新生成或替换 keystore。独立分叉首次建立自己的签名时，可从仓库根目录运行：
 
 ```bash
 scripts/create-android-release-keystore.sh

@@ -68,8 +68,34 @@ Current personal releases use the free path:
 
 - Android self-signed release keystore,
 - macOS ad-hoc signing without notarization,
-- Windows unsigned per-user installer only.
+- Windows unsigned installer in administrator mode, with a default program path under the current user's LocalAppData and uninstall registration in HKLM64.
 
 Paid Apple Developer ID notarization and Windows Authenticode signing are intentionally out of scope. Do not add certificate secrets or optional paid-signing branches unless this product decision is explicitly replaced.
 
 See [ADR-014](decisions/014-manual-only-geoip-updates.md), the [release checklist](RELEASE_CHECKLIST.zh-CN.md), and [release signing](RELEASE_SIGNING.md).
+
+## Public Release Retention
+
+The public download list keeps the current stable client release. The
+`core-assets-v1` prerelease is retained separately as required build infrastructure;
+it is not a client download or an update candidate. Historical version tags and
+source history remain intact.
+
+Retiring old Release listings requires an explicit maintainer decision, a complete
+local backup of their metadata and assets, and verified durable copies of any
+artifacts still used by regression tests. Never delete the current client, move a
+published tag, or recreate an immutable release under the same tag.
+
+Windows legacy catalog sources are pinned in
+[`scripts/windows_legacy_installer_sources.json`](../scripts/windows_legacy_installer_sources.json).
+Their original GitHub URL, release ID, asset ID and SHA-256 remain provenance;
+`url` points to the byte-identical, versioned OSS archive used by tests. These
+historical installers are test fixtures, not supported update candidates.
+
+`Maintenance > windows-installer-archive`, dispatched from `main`, fills only
+missing EXE archives after verifying the original bytes. Existing objects must
+match; uploads use `--ignore-existing` and anonymous full-file readback. The task
+does not delete Releases, overwrite archives, promote fixed download URLs or
+modify `latest.json`. Before retiring listings, verify all baseline hashes and
+run the Windows catalog/ownership and public-installer checks in disposable CI.
+OSS remains outside the client updater's trust path.

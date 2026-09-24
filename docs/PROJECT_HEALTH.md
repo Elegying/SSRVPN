@@ -1,10 +1,31 @@
 # SSRVPN 项目健康与发布状态
 
-最近更新：2026-09-24
+最近更新：2026-09-25
 
 当前应用版本：`v5.0.20`
 
 最新正式版本：[GitHub Releases 当前正式版](https://github.com/Elegying/SSRVPN/releases/latest)
+
+## v5.0.20 正式发布结果
+
+正式 [v5.0.20](https://github.com/Elegying/SSRVPN/releases/tag/v5.0.20) 已公开，非 draft、非 prerelease，
+latest 指向正确。源码为 `97ca130ef7222d777974feef8eefaa5e83368167`，经
+[PR #275](https://github.com/Elegying/SSRVPN/pull/275)、
+[main CI](https://github.com/Elegying/SSRVPN/actions/runs/36018913130)、
+[Prepare](https://github.com/Elegying/SSRVPN/actions/runs/36018935786) 和
+[Release](https://github.com/Elegying/SSRVPN/actions/runs/36024695092) 发布。
+
+三端公开产物在 GitHub、OSS 版本化目录和固定下载地址独立完整下载，SHA-256、sidecar、
+API digest、provenance 一致，GitHub attestation 绑定精确标签、源码提交与正式工作流。
+公开 Windows EXE 的 SHA-256 为
+`55e9fb79939042b2d2f1aaa03c469ba1ba44134361f50903d9f324904d6ffa93`。
+[公开包隔离验收](https://github.com/Elegying/SSRVPN/actions/runs/36032015673) 在 Windows Server 2025、
+PowerShell 5.1、Inno 6.7.1、`LongPathsEnabled=0` 下完成旧版首装、升级、再次升级、卸载、
+重装、最终卸载，逐项核对程序、用户数据、无关文件、HKLM64 与快捷方式。
+
+main CI 首次尝试出现过进程身份瞬态失败；相同代码及断言重跑通过，确切原因尚未定位，
+原失败日志继续保留。没有新增个人设备手工验收、Windows Authenticode 或 Apple 公证，
+也不承诺所有 Windows 环境都能安装成功。下节保留发布前专项证据，不替代本节正式产物结果。
 
 ## v5.0.20 Windows 默认路径兼容性修复
 

@@ -7,7 +7,7 @@
 - 从 [GitHub Releases](https://github.com/Elegying/SSRVPN/releases/latest) 安装最新正式版。
 - 确认平台受支持：Android 7.0+ arm64、Apple M 系列 macOS 11+、Windows 10/11 x64。
 - SSRVPN 不提供节点或订阅服务；订阅账号、套餐、流量和服务端可用性问题请联系服务商。
-- 暂时退出其他 VPN、代理、网络过滤或安全软件，再复现一次。
+- 确认是否同时启用了其他 VPN 或代理，并记录复现时的网络环境；无需关闭安全软件或删除原有配置。
 
 ## 2. 按文档排查
 
