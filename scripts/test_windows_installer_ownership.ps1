@@ -86,6 +86,21 @@ function Get-CaseRegistry($Case) {
     }) | ConvertTo-Json -Depth 5 -Compress)
   } finally { $key.Dispose() }
 }
+function Get-CrossDirectoryEvidence($Pending, $Later) {
+  $paths = [ordered]@{
+    launcher = (Join-Path $Pending.install 'ssrvpn_windows.exe')
+    state = (Join-Path $Pending.recovery 'state.json')
+    backup = (Join-Path $Pending.recovery 'program\ssrvpn_windows.exe')
+    desktop = $Later.desktop; menu = $Later.menu
+  }
+  $files = [ordered]@{}
+  foreach ($name in $paths.Keys) {
+    $files[$name] = if (Test-Path -LiteralPath $paths[$name] -PathType Leaf) {
+      (Get-FileHash -LiteralPath $paths[$name]).Hash.ToLowerInvariant()
+    } else { 'ABSENT' }
+  }
+  return [ordered]@{ registration = (Get-CaseRegistry $Later); files = $files }
+}
 function Invoke-Case($Case, [string]$Action, [switch]$Failure, [switch]$Legacy, [string]$Scope = $UninstallRegistryRoot, [string]$View = '64', [string]$Script = $helper, [string]$StatusOverride = '') {
   $Case.count++
   $prefix = Join-Path $Case.root ("$($Case.count)-$Action")
@@ -429,7 +444,9 @@ try {
     Seal-Case $later
     $laterRegistry = Get-CaseRegistry $later
     $pendingStateHash = (Get-FileHash -LiteralPath (Join-Path $pending.recovery 'state.json')).Hash
-    Invoke-Case $pending Recover -Failure
+    Write-FixtureFile (Join-Path $pending.root 'metadata-before.json') ((Get-CrossDirectoryEvidence $pending $later) | ConvertTo-Json -Depth 8)
+    try { Invoke-Case $pending Recover -Failure }
+    finally { Write-FixtureFile (Join-Path $pending.root 'metadata-after.json') ((Get-CrossDirectoryEvidence $pending $later) | ConvertTo-Json -Depth 8) }
     if ((Get-CaseRegistry $later) -cne $laterRegistry -or
         (Get-FileHash -LiteralPath (Join-Path $pending.recovery 'state.json')).Hash -cne $pendingStateHash) {
       throw 'An older recovery changed the later installation metadata or its own evidence.'

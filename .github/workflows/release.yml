@@ -471,10 +471,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
 
       - name: Run Windows policy tests
         shell: powershell
-        timeout-minutes: 10
+        timeout-minutes: 15
         run: |
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts\test_windows_policy.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

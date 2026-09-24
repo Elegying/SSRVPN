@@ -133,8 +133,18 @@ function Assert-RecoveryRegistrationOwner {
     # A legacy uninstaller does not advance our protected generation. Do not
     # recreate a different directory's old entry if its uninstaller is gone.
     if ($null -ne $old -and ([string]$old.InstallLocation).TrimEnd('\') -ine $script:installDir) {
-      if ($old.UninstallString -notmatch '^"([^"]+)"$' -or
-          -not (Test-Path -LiteralPath $matches[1] -PathType Leaf)) {
+      if ($old.InstallLocation -notmatch '^[A-Za-z]:\\' -or
+          $old.UninstallString -notmatch '^"([A-Za-z]:\\[^"\r\n]+)"$') {
+        throw 'The previous uninstall target cannot be safely verified; recovery material was retained.'
+      }
+      $previousUninstaller = $matches[1]
+      $previousDirectory = Get-SafeDirectoryPath -Path $old.InstallLocation -Name 'Previous installation'
+      if (-not (Test-PathWithin -Candidate $previousUninstaller -Parent $previousDirectory)) {
+        throw 'The previous uninstall target escaped its installation directory.'
+      }
+      [void](Get-SafeDirectoryPath -Path ([IO.Path]::GetDirectoryName($previousUninstaller)) -Name 'Previous uninstaller parent')
+      $previousItem = Get-PathItem -Path $previousUninstaller
+      if ($null -eq $previousItem -or $previousItem.PSIsContainer -or (Test-ReparsePoint -Item $previousItem)) {
         throw 'The previous installation was removed after this transaction; stale metadata was retained without restoring it.'
       }
     }
@@ -406,8 +416,7 @@ function Install-OwnedProgramFiles {
   $entries = @(Read-TransactionPayload)
   Assert-NewTargetConflicts -Old @() -New $entries
   Copy-OwnedFiles -SourceRoot $PayloadSourceRoot -DestinationRoot $script:installDir -Entries $entries
-  [void](Test-InstalledPayload)
-  Write-FinalizedState -Phase validated
+  [void](Validate-ProgramFilesTransaction)
   return 'INSTALLED_AND_VALIDATED'
 }
 
