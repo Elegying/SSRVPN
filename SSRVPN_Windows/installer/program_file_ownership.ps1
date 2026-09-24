@@ -276,21 +276,21 @@ function Restore-OwnedProgramFiles {
   try {
     foreach ($relative in @(@($oldPaths.Keys) + @($newPaths.Keys) | Sort-Object -Unique)) {
       $path = Join-Path $script:installDir $relative
-      $old = $oldPaths[$relative]
-      $new = $newPaths[$relative]
+      $oldEntry = $oldPaths[$relative]
+      $newEntry = $newPaths[$relative]
       $current = Get-PathItem -Path $path
       if ($null -eq $current) {
-        if ($null -ne $old) { [void]$restore.Add($relative) }
+        if ($null -ne $oldEntry) { [void]$restore.Add($relative) }
         continue
       }
       $handle = [SsrvpnInstaller.ProgramFile]::Open($path, $true)
       [void]$held.Add($handle)
-      if ($null -ne $old -and $handle.Sha256 -ceq $old.sha256 -and $handle.Length -eq $old.length) { continue }
-      if ($null -eq $new -or $handle.Sha256 -cne $new.sha256 -or $handle.Length -ne $new.length) {
+      if ($null -ne $oldEntry -and $handle.Sha256 -ceq $oldEntry.sha256 -and $handle.Length -eq $oldEntry.length) { continue }
+      if ($null -eq $newEntry -or $handle.Sha256 -cne $newEntry.sha256 -or $handle.Length -ne $newEntry.length) {
         throw "Recovery target was modified or is unowned; all material was retained: $relative"
       }
       [void]$remove.Add($handle)
-      if ($null -ne $old) { [void]$restore.Add($relative) }
+      if ($null -ne $oldEntry) { [void]$restore.Add($relative) }
     }
     foreach ($handle in $remove) { $handle.Delete(); $handle.Dispose() }
     foreach ($source in $sources) {
