@@ -65,13 +65,12 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
       final subscriptionRevision = subscriptionService!.revision;
 
       connectionGeneration = core.requestConnectionIntent(true);
+      bool isCurrentIntent() => core
+          .isConnectionIntentCurrent(connectionGeneration!, connected: true);
       String? blockedReason;
       if (core.hasPendingSystemProxyRecovery) {
         final recovered = await core.recoverPendingSystemProxy();
-        if (!core.isConnectionIntentCurrent(
-          connectionGeneration,
-          connected: true,
-        )) {
+        if (!isCurrentIntent()) {
           return;
         }
         if (!recovered) {
@@ -104,10 +103,7 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
           isRevisionCurrent: () =>
               identical(_subscriptionService, subscriptionService) &&
               subscriptionService.revision == subscriptionRevision,
-          isIntentCurrent: () => core.isConnectionIntentCurrent(
-            connectionGeneration!,
-            connected: true,
-          ),
+          isIntentCurrent: isCurrentIntent,
           shouldRollbackStaleIntent: () => !core.connectionDesired,
           cancelIntent: () {
             core.requestConnectionIntent(false);
@@ -139,11 +135,7 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
         );
         return;
       }
-      if (core.isRunning &&
-          core.isConnectionIntentCurrent(
-            connectionGeneration,
-            connected: true,
-          )) {
+      if (core.isRunning && isCurrentIntent()) {
         core.rememberDesktopConnectionRecoveryPlan(
           preferredSettings: settings.settings,
           generateConfig: (runtimeSettings, recoveryNodeName) =>
@@ -159,10 +151,7 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
       }
       if (preferredNodeName != null &&
           connectionResult.preferredNodeSwitchSucceeded == true &&
-          core.isConnectionIntentCurrent(
-            connectionGeneration,
-            connected: true,
-          )) {
+          isCurrentIntent()) {
         try {
           await settings.updateLastSelectedNodeName(preferredNodeName);
         } catch (error, stack) {
@@ -172,6 +161,9 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
             stack,
           );
         }
+      }
+      if (!mounted || _isQuitting || !isCurrentIntent()) {
+        return;
       }
       final preferredNodeWarning = connectionResult.preferredNodeSwitchWarning(
         preferredNodeName: preferredNodeName,

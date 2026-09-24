@@ -2,8 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ssrvpn_shared/services/subscription_fetch_policy.dart';
 import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
 import 'package:ssrvpn_shared/services/subscription_service_base.dart';
+import 'package:ssrvpn_shared/utils/bounded_yaml.dart';
 
 const _metadata = 'subscriptions.json';
 const _cache = 'subscription_cache.yaml';
@@ -216,6 +218,63 @@ void main() {
             .timeout(const Duration(seconds: 1)),
         throwsFormatException);
   });
+
+  for (final cumulativeUtf8 in [false, true]) {
+    test(
+        'oversized metadata cannot commit an undeletable source, '
+        'cumulative UTF-8=$cumulativeUtf8', () async {
+      final old = await service.addSubscription('Old', _oldLink);
+      final suffix = cumulativeUtf8
+          ? 'é' * (BoundedYaml.maxInputBytes ~/ 4)
+          : 'x' * BoundedYaml.maxInputBytes;
+      if (cumulativeUtf8) {
+        await service.addSubscription(
+            'First', 'https://first.invalid/sub?data=$suffix');
+      }
+      final metadata =
+          await File('${directory.path}/$_metadata').readAsString();
+      final yaml = service.rawYaml;
+      final sources = service.subscriptions.map((sub) => sub.id).toList();
+      final revision = service.revision;
+      final displayRevision = service.displayRevision;
+      Object? addFailure;
+      Object? deleteFailure;
+      String? admittedId;
+      try {
+        final admitted = await service.addSubscription(
+            'Oversized', 'https://last.invalid/sub?data=$suffix');
+        admittedId = admitted.id;
+      } catch (error) {
+        addFailure = error;
+      }
+      // On the broken implementation, exercise the ordinary delete API too:
+      // its recovery journal rejects the metadata the preceding add accepted.
+      if (admittedId != null) {
+        try {
+          await service.removeSubscription(admittedId);
+        } catch (error) {
+          deleteFailure = error;
+        }
+      }
+      expect(addFailure, isA<SubscriptionContentException>(),
+          reason: 'oversized source was admitted; next delete: $deleteFailure');
+      expect(service.subscriptions.map((sub) => sub.id), sources);
+      expect(service.rawYaml, yaml);
+      expect(service.revision, revision);
+      expect(service.displayRevision, displayRevision);
+      expect(
+          await File('${directory.path}/$_metadata').readAsString(), metadata);
+      expect(await File('${directory.path}/$_cache').readAsString(), yaml);
+      expect(await File('${directory.path}/$_journal').exists(), isFalse);
+      final restarted = _FaultService();
+      addTearDown(restarted.dispose);
+      await restarted.init(directory.path);
+      expect(restarted.subscriptions.map((sub) => sub.id), sources);
+      expect(restarted.rawYaml, yaml);
+      await service.removeSubscription(old.id);
+      expect(service.subscriptions.any((sub) => sub.id == old.id), isFalse);
+    });
+  }
 }
 
 class _FaultService extends SubscriptionServiceBase {

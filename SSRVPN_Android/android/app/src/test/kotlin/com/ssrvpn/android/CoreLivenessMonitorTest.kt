@@ -8,6 +8,89 @@ import org.junit.Test
 
 class CoreLivenessMonitorTest {
     @Test
+    fun `late monitor exit and failure cannot stop a replacement session`() {
+        for (failObservation in listOf(false, true)) {
+            val gate = StartGenerationGate()
+            val oldToken = gate.beginStart()
+            var activeConfig = "old-config"
+            var connected = true
+            var recoveryAttempts = 0
+            var failureNotices = 0
+
+            CoreLivenessMonitor.observeSession(
+                startToken = oldToken,
+                gate = gate,
+                waitForExit = {
+                    val outcome = CoreLivenessMonitor.waitForUnexpectedExit(
+                        startToken = oldToken,
+                        currentGeneration = gate::current,
+                        isRunning = { connected },
+                        isBridgeRunning = { false }
+                    )
+                    assertTrue(outcome.unexpectedExit)
+                    // The old worker is suspended after its final observation.
+                    // Disconnect and connect finish before that worker resumes.
+                    gate.invalidate { connected = false }
+                    gate.beginStart {
+                        activeConfig = "replacement-config"
+                        connected = true
+                    }
+                    if (failObservation) throw IllegalStateException("late monitor failure")
+                    outcome
+                },
+                onUnexpectedExit = {
+                    connected = false
+                    activeConfig = "old-config"
+                    recoveryAttempts++
+                },
+                onFailure = {
+                    connected = false
+                    failureNotices++
+                }
+            )
+
+            assertTrue("replacement connection must remain active", connected)
+            assertEquals("replacement-config", activeConfig)
+            assertEquals(0, recoveryAttempts)
+            assertEquals(0, failureNotices)
+        }
+    }
+
+    @Test
+    fun `current monitor exit and failure retain recovery behavior`() {
+        for (failObservation in listOf(false, true)) {
+            val gate = StartGenerationGate()
+            val token = gate.beginStart()
+            var connected = true
+            var recoveryAttempts = 0
+            var failureNotices = 0
+
+            CoreLivenessMonitor.observeSession(
+                startToken = token,
+                gate = gate,
+                waitForExit = {
+                    if (failObservation) throw IllegalStateException("current monitor failure")
+                    CoreLivenessOutcome(true, 1)
+                },
+                onUnexpectedExit = {
+                    connected = false
+                    recoveryAttempts = it.recoveryAttempt + 1
+                    gate.invalidate()
+                },
+                onFailure = {
+                    connected = false
+                    failureNotices++
+                    gate.invalidate()
+                }
+            )
+
+            assertFalse(connected)
+            assertEquals(if (failObservation) 0 else 2, recoveryAttempts)
+            assertEquals(if (failObservation) 1 else 0, failureNotices)
+        }
+    }
+
+    @Test
     fun `stable native health makes the next recovery start at attempt one`() {
         var monotonicNow = 0L
         var bridgeChecks = 0

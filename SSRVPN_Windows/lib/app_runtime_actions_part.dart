@@ -155,6 +155,12 @@ extension _WindowsAppRuntimeActions on _SSRVpnAppState {
           );
         }
       }
+      if (!mounted ||
+          _isQuitting ||
+          !core.isConnectionIntentCurrent(connectionGeneration,
+              connected: true)) {
+        return;
+      }
       final preferredNodeWarning = connectionResult.preferredNodeSwitchWarning(
         preferredNodeName: preferredNodeName,
       );

@@ -164,6 +164,60 @@ void main() {
     },
   );
 
+  test(
+    'a running native replacement retires old observations without disconnecting',
+    () async {
+      const channel = MethodChannel('com.ssrvpn/native');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      var sessionGeneration = 8;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'getConnectionState') {
+          return <String, Object?>{
+            'running': true,
+            'transitioning': false,
+            'protectedConfigPath': null,
+            'sessionGeneration': sessionGeneration,
+          };
+        }
+        return null;
+      });
+      final service =
+          _ConnectivityRecoveryObservationService(blockFirstObservation: true)
+            ..requestConnectionIntent(true);
+      addTearDown(() {
+        messenger.setMockMethodCallHandler(channel, null);
+        service.dispose();
+      });
+      expect(await service.refreshNativeConnectionState(), isTrue);
+      final publishedStates = <bool>[];
+      service.addStatusListener(() => publishedStates.add(service.isRunning));
+      service.scheduleUserConnectivityObservation();
+      await service.firstObservationStarted.future.timeout(
+        const Duration(seconds: 1),
+      );
+      // Dart missed the brief stopped snapshot while the native service
+      // recovered. Its next authoritative snapshot is already running again.
+      sessionGeneration++;
+      expect(await service.refreshNativeConnectionState(), isTrue);
+      service.releaseFirstObservation.complete();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(service.connectivityWarning, isNull);
+      expect(service.observedAt, isNull);
+      expect(service.isRunning, isTrue);
+      expect(service.connectionDesired, isTrue);
+      expect(publishedStates, [true]);
+      service.scheduleUserConnectivityObservation();
+      await service.secondObservationStarted.future.timeout(
+        const Duration(seconds: 1),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(service.observationCount, 2);
+      expect(service.observedAt, isNotNull);
+    },
+  );
+
   test('manual diagnostics reports a real Android offline snapshot', () async {
     const channel = MethodChannel('com.ssrvpn/native');
     final messenger =

@@ -1,0 +1,2587 @@
+{
+  "schema_version": 2,
+  "audit_date": "2026-09-24",
+  "recorded_at_utc": "2026-09-24T06:03:39.964196+00:00",
+  "baseline": {
+    "commit": "741ea3c1296ade164124301ff6a9647f4bf09ddf",
+    "tag": "v5.0.17",
+    "version": "5.0.17+5017",
+    "branch": "codex/stability-audit-5017",
+    "working_tree_has_uncommitted_fixes": true,
+    "github_ci": "https://github.com/Elegying/SSRVPN/actions/runs/35950001143",
+    "github_release_run": "https://github.com/Elegying/SSRVPN/actions/runs/35951529964",
+    "remote_evidence_scope": "只证明基线提交，不证明本轮差异"
+  },
+  "environment": {
+    "repository": "$AUDIT_WORKTREE",
+    "flutter": "3.44.1",
+    "dart": "3.12.1",
+    "flutter_bin": "$FLUTTER_3_44_1/bin",
+    "xcode": "27.0 (27A266a)",
+    "host": "macOS",
+    "temporary_logs": [
+      "/tmp/ssrvpn-5017-audit",
+      "/tmp/ssrvpn-5017-audit-round2"
+    ]
+  },
+  "scope": {
+    "confirmed_findings": 10,
+    "fixed_findings": [
+      "N01",
+      "N02",
+      "CONN01",
+      "SUB01",
+      "UI01",
+      "UI02",
+      "SUB02",
+      "MAC01"
+    ],
+    "unresolved_findings": [
+      "N03",
+      "N04"
+    ],
+    "native_device_tests": false,
+    "install_or_network_settings_changes": false,
+    "committed_pushed_or_released": false,
+    "full_make_verify_executed": false,
+    "round2_new_findings": [
+      "UI02",
+      "SUB02",
+      "MAC01",
+      "N04"
+    ],
+    "round2_fixed_findings": [
+      "UI02",
+      "SUB02",
+      "MAC01"
+    ]
+  },
+  "final_source_fingerprints": {
+    "SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreLivenessMonitor.kt": "b59ac6961300d6f118fe96e525fc1a5a03a276335a9dc0c93ee2a4b236a7dff1",
+    "SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/SsrvpnVpnService.kt": "3baaf780eb1d81a9368cca32eb4a947fe230218bf215d2b2cf49014f5700900c",
+    "SSRVPN_Android/android/app/src/test/kotlin/com/ssrvpn/android/CoreLivenessMonitorTest.kt": "63692ef42e72dcd09ddffae234ecfb09a57f305cf69167925097400708183f9f",
+    "SSRVPN_Android/lib/services/clash_service_native_bridge.dart": "f23d1911f8f050aa1d5e646b6e9de8619219ca6fa4642a56f1c34637bfb9da33",
+    "SSRVPN_Android/lib/services/update_service.dart": "08caf1e8170ac3cdff913ed20ac83afb050635c46799021a2c1999b12899fd19",
+    "SSRVPN_Android/test/clash_service_test.dart": "69e5ee183889646701510dbfa5ab71fd8007a9e17ce8f2cf63c430a6f2b0f51c",
+    "SSRVPN_Android/test/services/update_service_test.dart": "970b3ea0a393c828b17b6d1705ba3fafa759344dad996a8c30994f00c961e510",
+    "SSRVPN_MacOS/assets/macos_tun_runner.sh": "d052d812d2170ba3467321f607a6f2521c1b4898136a402e88728f35329d890d",
+    "SSRVPN_MacOS/lib/app_runtime_actions_part.dart": "e0f948105e8830ba7e0e6b06676575a1d0e2665bbaceb1ff23c640827bebc0c3",
+    "SSRVPN_MacOS/lib/services/macos_tun_session.dart": "b827c2a55dd34b734330e02bbccd55578b0b7db9d2e3acd3d9ba276e1558988e",
+    "SSRVPN_MacOS/test/desktop_home_screen_test.dart": "d0801a84a2f1cf951498759f28c360bbb912bb7c7f57b91a3d8affd729c20a2e",
+    "SSRVPN_MacOS/test/macos_tun_session_test.dart": "4fbff82263854bdd23bd665f5a4b684c63ae35f05d86d1f73339e9b04981b924",
+    "SSRVPN_Windows/lib/app_runtime_actions_part.dart": "bfd9c58708d89e9215f016bafb917cd75038c3c0a19a3db256ee2c7be59639d6",
+    "SSRVPN_Windows/test/desktop_home_screen_test.dart": "dd838291bee948b4845f01a5ba8875829e280dee63f81f49a2d9a10c292d2568",
+    "packages/ssrvpn_shared/lib/services/clash_service_base.dart": "0d886a5ef9bc8843403133b2f8d04125a4bee70e41336b96fa5ffd75ba84b867",
+    "packages/ssrvpn_shared/lib/services/subscription_service_persistence.dart": "6a2922ec82d6b11f646599225eaed638c8be194b5a098faecf8f17209616b791",
+    "packages/ssrvpn_shared/lib/services/subscription_yaml_merger.dart": "ab0cc88df6a43ff3293120249cb8123f3ade77ac064ee71520ba3899c7ed65c2",
+    "packages/ssrvpn_shared/lib/services/update_service.dart": "36534b0355a0c7b6f3e628bc425fd05f5ea0c1fbc4783173e429239580e23f83",
+    "packages/ssrvpn_shared/lib/widgets/ssrvpn_glass_dialog_route.dart": "cb3cdfd037a98c8f47ebe38171536659b1dab35670af01feac86eb1db110c438",
+    "packages/ssrvpn_shared/test/clash_service_base_test.dart": "3d3d8bf31d18eeae0c9525b26070c89f2b5f7de8c6806c29ab0797d942f0bf27",
+    "packages/ssrvpn_shared/test/subscription_service_base_test.dart": "0817f7e6cd86e02c3cac0c7ca551007e3aa935a48eaef1ba45e3c4384da202d3",
+    "packages/ssrvpn_shared/test/subscription_transaction_test.dart": "a41556df0490ce4dfe7a399c7030b87ae34c4a823e4e48adb5ae42258abc2dc2",
+    "packages/ssrvpn_shared/test/verified_update_dialog_test.dart": "1472241e4d70364e8d28769b9a4b274f32f9a8a64f072e6237659c62b263cabc",
+    "scripts/test-macos-tun-dns-transaction.sh": "520330fe7b8d771ce8920dd9f08710238e46863b437da9eb305274d0c741039d"
+  },
+  "source_diff_sha256": "9d74e534b61836c9dbb2289e4d5da271db55ff5f40e61499feff48d7ac6521bb",
+  "flutter_suite_counts": {
+    "shared": {
+      "passed": 1692,
+      "skipped": 1,
+      "summary": "03:11 +1692 ~1: All tests passed!",
+      "skip_reason": "frame_diagnostics_test.dart 前台帧诊断用例要求未启用的 SSRVPN_FRAME_DIAGNOSTICS 编译开关。",
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/final-shared-coverage.log",
+        "sha256": "01c73d3295d97794b0bfa70bf06b68d7ff1ede3da8a152018e039d11a2a04df4",
+        "bytes": 362739
+      }
+    },
+    "android": {
+      "passed": 364,
+      "skipped": 0,
+      "summary": "01:55 +364: All tests passed!",
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/SSRVPN_Android-coverage.log",
+        "sha256": "b68ec8e1aae4cba8f99505560cb083cda2f5d103ae2e873e87047ed0f84242b1",
+        "bytes": 147014
+      }
+    },
+    "macos": {
+      "passed": 367,
+      "skipped": 0,
+      "summary": "02:46 +367: All tests passed!",
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/SSRVPN_MacOS-coverage.log",
+        "sha256": "0281c19398baa216ac697dc4a71b38e213dc22d333ae953582d995c47ac4abf0",
+        "bytes": 186395
+      }
+    },
+    "windows": {
+      "passed": 329,
+      "skipped": 230,
+      "summary": "00:59 +329 ~230: All tests passed!",
+      "skip_reason": "非Windows宿主及Windows运行资产环境门禁；包括Known Folder、网络cmdlet、IP Helper、真实Windows内核等。不能把跳过项计为通过。",
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/SSRVPN_Windows-coverage.log",
+        "sha256": "23f0e0a9fe729ab2177122956135a09868a3b84a7e6a9d5a5594f179bbb6b1a4",
+        "bytes": 159328
+      }
+    }
+  },
+  "coverage_threshold_summaries": {
+    "ssrvpn_shared": "coverage: packages/ssrvpn_shared 90.07% (11182/12415), threshold 65.00%",
+    "SSRVPN_Android": "coverage: SSRVPN_Android 72.47% (2640/3643), threshold 30.00%",
+    "SSRVPN_MacOS": "coverage: SSRVPN_MacOS 76.41% (3936/5151), threshold 30.00%\ncoverage: SSRVPN_MacOS/lib/services/clash_service_lifecycle.dart 76.48% (644/842), floor 60.00%\ncoverage: SSRVPN_MacOS/lib/services/system_proxy_service.dart 89.46% (416/465), floor 80.00%",
+    "SSRVPN_Windows": "coverage: SSRVPN_Windows 65.00% (3770/5800), threshold 30.00%\ncoverage: SSRVPN_Windows/lib/services/clash_service_lifecycle.dart 51.21% (360/703), floor 51.00%"
+  },
+  "runs": [
+    {
+      "name": "ssrvpn_shared-coverage",
+      "command": [
+        "bash",
+        "scripts/run-flutter-coverage.sh",
+        "packages/ssrvpn_shared",
+        "--no-pub",
+        "--concurrency=2",
+        "--reporter",
+        "expanded"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 184.6,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/ssrvpn_shared-coverage.log",
+        "sha256": "c471ff257b2f43d859ab5397341e5c7f255bab0850c521dc7d6f590753a40465",
+        "bytes": 363768
+      }
+    },
+    {
+      "name": "ssrvpn_shared-threshold",
+      "command": [
+        "bash",
+        "scripts/check-coverage-thresholds.sh",
+        "packages/ssrvpn_shared"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 0.73,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/ssrvpn_shared-threshold.log",
+        "sha256": "df8dd53c193749834d8a1e8ad9564bd9d30f963cc6a3d57982e6225938059b9f",
+        "bytes": 72
+      }
+    },
+    {
+      "name": "SSRVPN_Android-coverage",
+      "command": [
+        "bash",
+        "scripts/run-flutter-coverage.sh",
+        "SSRVPN_Android",
+        "--no-pub",
+        "--concurrency=2",
+        "--reporter",
+        "expanded"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 119.87,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/SSRVPN_Android-coverage.log",
+        "sha256": "b68ec8e1aae4cba8f99505560cb083cda2f5d103ae2e873e87047ed0f84242b1",
+        "bytes": 147014
+      }
+    },
+    {
+      "name": "SSRVPN_Android-threshold",
+      "command": [
+        "bash",
+        "scripts/check-coverage-thresholds.sh",
+        "SSRVPN_Android"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 0.23,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/SSRVPN_Android-threshold.log",
+        "sha256": "75c3428d55e3f9d76d8d0c58fb27a955e42fa42aa51ddd04a86c9103701310c5",
+        "bytes": 62
+      }
+    },
+    {
+      "name": "android-debug-build",
+      "command": [
+        "flutter",
+        "build",
+        "apk",
+        "--debug",
+        "--target-platform",
+        "android-arm64",
+        "--no-pub"
+      ],
+      "cwd": "SSRVPN_Android",
+      "exit_code": 0,
+      "seconds": 19.18,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/android-debug-build.log",
+        "sha256": "0465c7aaaa1282b44bff9809b7e803d8e4459cc0826968eed538e75c9c2f205d",
+        "bytes": 467
+      }
+    },
+    {
+      "name": "SSRVPN_MacOS-coverage",
+      "command": [
+        "bash",
+        "scripts/run-flutter-coverage.sh",
+        "SSRVPN_MacOS",
+        "--no-pub",
+        "--concurrency=2",
+        "--reporter",
+        "expanded"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 171.33,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/SSRVPN_MacOS-coverage.log",
+        "sha256": "0281c19398baa216ac697dc4a71b38e213dc22d333ae953582d995c47ac4abf0",
+        "bytes": 186395
+      }
+    },
+    {
+      "name": "SSRVPN_MacOS-threshold",
+      "command": [
+        "bash",
+        "scripts/check-coverage-thresholds.sh",
+        "SSRVPN_MacOS"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 0.31,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/SSRVPN_MacOS-threshold.log",
+        "sha256": "0a67b11b653ef282092cd2edc751a8b63f921e6d988a8c511f0eb88f4c1da161",
+        "bytes": 249
+      }
+    },
+    {
+      "name": "SSRVPN_Windows-coverage",
+      "command": [
+        "bash",
+        "scripts/run-flutter-coverage.sh",
+        "SSRVPN_Windows",
+        "--no-pub",
+        "--concurrency=2",
+        "--reporter",
+        "expanded"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 63.14,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/SSRVPN_Windows-coverage.log",
+        "sha256": "23f0e0a9fe729ab2177122956135a09868a3b84a7e6a9d5a5594f179bbb6b1a4",
+        "bytes": 159328
+      }
+    },
+    {
+      "name": "SSRVPN_Windows-threshold",
+      "command": [
+        "bash",
+        "scripts/check-coverage-thresholds.sh",
+        "SSRVPN_Windows"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 0.33,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/SSRVPN_Windows-threshold.log",
+        "sha256": "9b7f7fa1cfedee3af869cde79cc1ec91dea50589029434c48b16baa6ee46af59",
+        "bytes": 160
+      }
+    },
+    {
+      "name": "final-workspace-analyze",
+      "command": [
+        "bash",
+        "scripts/workspace.sh",
+        "analyze"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 21.05,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/final-workspace-analyze.log",
+        "sha256": "2a08d76d9aa2f6cc73671c5a4addf9f398df72454ba2c11766f481b0d6988184",
+        "bytes": 7718
+      }
+    },
+    {
+      "name": "final-quality-hygiene",
+      "command": [
+        "bash",
+        "scripts/check-quality-hygiene.sh"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 6.31,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/final-quality-hygiene.log",
+        "sha256": "c9338812e6c599d3901fbbd65c42f983cfdbf864f91ef58bbefcbc52fa597dbd",
+        "bytes": 388
+      }
+    },
+    {
+      "name": "sub02-metadata-red",
+      "command": [
+        "$FLUTTER_3_44_1/bin/flutter",
+        "test",
+        "--no-pub",
+        "test/subscription_transaction_test.dart",
+        "--plain-name",
+        "oversized metadata cannot commit",
+        "-r",
+        "expanded"
+      ],
+      "cwd": "packages/ssrvpn_shared",
+      "exit_code": 1,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/subscription-metadata-before.log",
+        "sha256": "ea78a008dd86da18c84b3a85b2a5ef28b7f8299a3843fb2a83357273ed9cad87",
+        "bytes": 1892
+      },
+      "classification": "expected_behavioral_red",
+      "executed_by": "/root/subscription_audit",
+      "source": "亲自执行；工具退出码与日志核验。",
+      "summary": "修复前 2 项均失败：正常 add 接受超限 metadata，随后正常 remove 被恢复记录大小上限阻断；覆盖单条 ASCII 与累计 Unicode URL。",
+      "counts": {
+        "passed": 0,
+        "failed": 2,
+        "skipped": 0
+      }
+    },
+    {
+      "name": "sub02-related-green",
+      "command": [
+        "$FLUTTER_3_44_1/bin/flutter",
+        "test",
+        "--no-pub",
+        "test/subscription_transaction_test.dart",
+        "test/subscription_service_base_test.dart",
+        "test/subscription_source_cache_test.dart",
+        "test/subscription_refresh_control_test.dart",
+        "test/node_preference_undo_record_test.dart",
+        "-r",
+        "expanded"
+      ],
+      "cwd": "packages/ssrvpn_shared",
+      "exit_code": 0,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/subscription-final.log",
+        "sha256": "cf9ffdabe1b45831aa5160c5836512ece180006163a2d954807e5b61976f6648",
+        "bytes": 28544
+      },
+      "classification": "regression_green",
+      "executed_by": "/root/subscription_audit",
+      "source": "亲自执行；工具退出码与日志核验。",
+      "summary": "修复后 5 个相关文件共 110 项通过，含 SUB02 的 2 项新回归；验证旧 metadata/cache/内存保留、重启读取与后续删除不受失败污染。",
+      "counts": {
+        "passed": 110,
+        "failed": 0,
+        "skipped": 0
+      }
+    },
+    {
+      "name": "sub02-targeted-analyze",
+      "command": [
+        "$FLUTTER_3_44_1/bin/dart",
+        "analyze",
+        "lib/services/subscription_service_base.dart",
+        "lib/services/subscription_service_persistence.dart",
+        "test/subscription_transaction_test.dart"
+      ],
+      "cwd": "packages/ssrvpn_shared",
+      "exit_code": 0,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/subscription-analyze.log",
+        "sha256": "528f894a21ea147f44196c4b26b38f4a84beb6f6dda0965b30a88cd091e58c8a",
+        "bytes": 136
+      },
+      "classification": "static_analysis",
+      "executed_by": "/root/subscription_audit",
+      "source": "亲自执行；工具退出码与日志核验。",
+      "summary": "三个指定文件静态分析 No issues found。",
+      "counts": {
+        "issues": 0
+      }
+    },
+    {
+      "name": "subscription-macos-preferences-regression",
+      "command": [
+        "$FLUTTER_3_44_1/bin/flutter",
+        "test",
+        "--no-pub",
+        "test/node_preference_transaction_test.dart",
+        "-r",
+        "expanded"
+      ],
+      "cwd": "SSRVPN_MacOS",
+      "exit_code": 0,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/subscription-preferences.log",
+        "sha256": "dae32c60ef5bb0f3a0f63ce5a8f8606829e518263de1b2ccf32d85e2d8095161",
+        "bytes": 915
+      },
+      "classification": "regression_green",
+      "executed_by": "/root/subscription_audit",
+      "source": "亲自执行；工具退出码与日志核验。",
+      "summary": "macOS 既有联合节点首选项事务 10 项通过；只使用临时文件，未运行真实客户端或原生网络操作。",
+      "counts": {
+        "passed": 10,
+        "failed": 0,
+        "skipped": 0
+      }
+    },
+    {
+      "name": "ui02-independent-probe-setup-failure",
+      "command": [
+        "$FLUTTER_3_44_1/bin/flutter",
+        "test",
+        "--no-pub",
+        "--concurrency=1",
+        "/tmp/ssrvpn-5017-audit-round2/ui02_route_probe_test.dart"
+      ],
+      "cwd": "packages/ssrvpn_shared",
+      "exit_code": 1,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/ui02-route-probe-setup-failed.log",
+        "sha256": "3ec30c90d284f8e7283f43091107834f098b7746fc612958b00bb8bc1bf3da34",
+        "bytes": 4655
+      },
+      "classification": "test_fixture_compile_failure",
+      "executed_by": "/root/native_audit",
+      "source": "native_audit 明确确认亲自执行相同 argv；本代理只读核验日志。",
+      "summary": "首次临时探针 Future<void?> 语法笔误导致加载编译失败；未执行用例，不是生产缺陷红灯。Flutter 将加载失败记为 1 项失败。",
+      "counts": {
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "load_failures": 1,
+        "executed_test_cases": 0
+      }
+    },
+    {
+      "name": "ui02-independent-route-probe",
+      "command": [
+        "$FLUTTER_3_44_1/bin/flutter",
+        "test",
+        "--no-pub",
+        "--concurrency=1",
+        "/tmp/ssrvpn-5017-audit-round2/ui02_route_probe_test.dart"
+      ],
+      "cwd": "packages/ssrvpn_shared",
+      "exit_code": 0,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/ui02-route-probe.log",
+        "sha256": "2e9e84d091c6d60cf5661b3abd5c7b70a8613b856fc2d540034ef0c1b7c0c438",
+        "bytes": 366
+      },
+      "classification": "helper_boundary_probe",
+      "executed_by": "/root/native_audit",
+      "source": "native_audit 明确确认亲自执行 argv/cwd/exit/counts；本代理只读核验日志。",
+      "summary": "修正临时探针后 current/covered/removed/before_build/twice 共 5 项通过；约束 route helper 与 Future 完成，仅为给定路由状态的行为证据。",
+      "counts": {
+        "passed": 5,
+        "failed": 0,
+        "skipped": 0
+      }
+    },
+    {
+      "name": "windows-update-adapter-regression",
+      "command": [
+        "$FLUTTER_3_44_1/bin/flutter",
+        "test",
+        "--no-pub",
+        "--concurrency=2",
+        "test/update_service_dialog_test.dart"
+      ],
+      "cwd": "SSRVPN_Windows",
+      "exit_code": 0,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/windows-update-adapter.log",
+        "sha256": "f61d3dd01d67608c612164a6102a2387e9a525fa132d3c14823d3e204ecc02c1",
+        "bytes": 1655
+      },
+      "classification": "regression_green_with_platform_skip",
+      "executed_by": "/root/native_audit",
+      "source": "native_audit 明确确认亲自执行 argv/cwd/exit/counts；本代理只读核验日志及 native-verification.json。",
+      "summary": "Windows 更新 Dart 适配 18 项通过，real Windows verified installer publication completes atomically 因非 Windows 跳过 1 项；不证明 Windows 安装器、NTFS、HKLM 或 N04 行为。",
+      "counts": {
+        "passed": 18,
+        "failed": 0,
+        "skipped": 1
+      }
+    },
+    {
+      "phase": "red",
+      "cwd": ".",
+      "command": [
+        "$FLUTTER_3_44_1/bin/cache/dart-sdk/bin/dart",
+        "--packages=.dart_tool/package_config.json",
+        "/tmp/ssrvpn-5017-audit-round2/tun_stale_status_probe.dart"
+      ],
+      "passed": null,
+      "failed": null,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/tun-stale-status-red.log",
+        "sha256": "0b4766629aed69a3a8dbe6a3e8f6f492d011f933d63344c1ddbf0a0a9d3c91d8",
+        "bytes": 215
+      },
+      "classification": "expected_behavioral_red",
+      "note": "修复前生产session+临时文件/授权替身，旧error尚未新runner写状态即返回false；不是测试框架计数。",
+      "name": "mac01-independent-red",
+      "exit_code": 1
+    },
+    {
+      "phase": "red",
+      "cwd": "SSRVPN_MacOS",
+      "command": [
+        "$FLUTTER_3_44_1/bin/flutter",
+        "test",
+        "test/macos_tun_session_test.dart",
+        "--plain-name",
+        "new TUN authorization ignores",
+        "--concurrency=1"
+      ],
+      "passed": 0,
+      "failed": 3,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/tun-session-generation-red.log",
+        "sha256": "2fac0e3888e131438098fcb8052af8395a7391d0024c23b33197d847aed8ca95",
+        "bytes": 3706
+      },
+      "classification": "expected_red_with_protocol_requirement",
+      "note": "旧error提前false/旧running提前true为行为红灯；第三条旧nonce后写新版状态超时是新协议需求，不单独作为旧缺陷证明。",
+      "name": "mac01-session-red",
+      "exit_code": 1
+    },
+    {
+      "phase": "green",
+      "cwd": "SSRVPN_MacOS",
+      "command": [
+        "$FLUTTER_3_44_1/bin/flutter",
+        "test",
+        "test/macos_tun_session_test.dart",
+        "--concurrency=1"
+      ],
+      "passed": 40,
+      "failed": 0,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/tun-session-generation-green.log",
+        "sha256": "dec8b40523a0da48c5101b804eae257950286b354eda2e5156a22652d80e45de",
+        "bytes": 4888
+      },
+      "name": "mac01-initial-green",
+      "exit_code": 0
+    },
+    {
+      "phase": "regression",
+      "cwd": "SSRVPN_MacOS",
+      "command": [
+        "$FLUTTER_3_44_1/bin/flutter",
+        "test",
+        "test/macos_tun_session_test.dart",
+        "test/macos_tun_request_store_test.dart",
+        "test/clash_service_test.dart",
+        "test/system_proxy_service_test.dart",
+        "--concurrency=2"
+      ],
+      "passed": 187,
+      "failed": 0,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/macos-lifecycle-regression.log",
+        "sha256": "f253db6f0572c1496138905a3daa1e21b6109ef16c699391ee2c732d2895283e",
+        "bytes": 135235
+      },
+      "note": "最终生产代码；最后增加部分session断言后在final42再次通过，不重复累计。",
+      "name": "mac01-lifecycle-green",
+      "exit_code": 0
+    },
+    {
+      "phase": "final",
+      "cwd": "SSRVPN_MacOS",
+      "command": [
+        "$FLUTTER_3_44_1/bin/flutter",
+        "test",
+        "test/macos_tun_session_test.dart",
+        "--concurrency=1"
+      ],
+      "passed": 42,
+      "failed": 0,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/macos-session-final.log",
+        "sha256": "9d171488f6a44ffea22313599902c1c4bc35b5b98ee46c1d24fe379f2b510ea5",
+        "bytes": 5043
+      },
+      "name": "mac01-final-green",
+      "exit_code": 0
+    },
+    {
+      "phase": "final",
+      "cwd": ".",
+      "command": [
+        "$FLUTTER_3_44_1/bin/cache/dart-sdk/bin/dart",
+        "analyze",
+        "SSRVPN_MacOS/lib/services/macos_tun_session.dart",
+        "SSRVPN_MacOS/test/macos_tun_session_test.dart"
+      ],
+      "issues": 0,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/macos-session-analyze.log",
+        "sha256": "6a04fb0548f5ffe535e56d8daee5f7c763ebbb8e73253b448ad8a6d39224d06a",
+        "bytes": 82
+      },
+      "name": "mac01-analyze",
+      "exit_code": 0
+    },
+    {
+      "phase": "final",
+      "cwd": ".",
+      "command": [
+        "bash",
+        "scripts/check-macos-core-privileges.sh"
+      ],
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/macos-privilege-guard.log",
+        "sha256": "103a2d072248b0bd30fd9215f40017fd6f14d45ae22feec14d8bcbfe0a4b4782",
+        "bytes": 214
+      },
+      "name": "mac01-privilege-guards",
+      "exit_code": 0
+    },
+    {
+      "phase": "final",
+      "cwd": ".",
+      "command": [
+        "bash",
+        "scripts/test-macos-tun-dns-transaction.sh"
+      ],
+      "passed": 28,
+      "failed": 0,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/macos-dns-status-protocol.log",
+        "sha256": "2a3809d8d668d3dd9aa6b1ce4b36717840781f1811546ebc2a80954503a2241f",
+        "bytes": 1491
+      },
+      "note": "另有提取真实write_status函数的格式/字节/legacy协议断言；不计入28项DNS TAP计数。",
+      "name": "mac01-dns-status-protocol",
+      "exit_code": 0
+    },
+    {
+      "phase": "final",
+      "cwd": ".",
+      "command": [
+        "shellcheck",
+        "SSRVPN_MacOS/assets/macos_tun_runner.sh",
+        "scripts/test-macos-tun-dns-transaction.sh"
+      ],
+      "issues": 0,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/macos-shellcheck.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      "name": "mac01-shellcheck",
+      "exit_code": 0
+    },
+    {
+      "phase": "final",
+      "cwd": ".",
+      "command": [
+        "bash",
+        "-n",
+        "SSRVPN_MacOS/assets/macos_tun_runner.sh",
+        "scripts/test-macos-tun-dns-transaction.sh"
+      ],
+      "log": null,
+      "name": "mac01-bash-syntax",
+      "exit_code": 0
+    },
+    {
+      "phase": "final",
+      "cwd": ".",
+      "command": [
+        "$FLUTTER_3_44_1/bin/dart",
+        "format",
+        "SSRVPN_MacOS/lib/services/macos_tun_session.dart",
+        "SSRVPN_MacOS/test/macos_tun_session_test.dart"
+      ],
+      "changedFiles": 0,
+      "log": null,
+      "name": "mac01-format",
+      "exit_code": 0
+    },
+    {
+      "phase": "final",
+      "cwd": ".",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "log": null,
+      "name": "mac01-diff-check",
+      "exit_code": 0
+    },
+    {
+      "name": "update-background-android-final",
+      "command": [
+        "flutter",
+        "test",
+        "--no-pub",
+        "test/services/update_service_test.dart",
+        "--reporter",
+        "expanded"
+      ],
+      "cwd": "SSRVPN_Android",
+      "exit_code": 0,
+      "seconds": 8.53,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/update-background-android-final.log",
+        "sha256": "eab658f95d6978a24ed61104a6a08a1cb7bcfd874f21b0645f72b056cdd63caa",
+        "bytes": 3816
+      }
+    },
+    {
+      "name": "update-background-shared-red",
+      "command": [
+        "$FLUTTER_3_44_1/bin/flutter",
+        "test",
+        "--no-pub",
+        "--packages",
+        ".dart_tool/package_config.json",
+        "test/verified_update_dialog_test.dart",
+        "--plain-name",
+        "background import preview",
+        "--concurrency=1"
+      ],
+      "cwd": "/private/tmp/ssrvpn-5017-audit-round2/ui02-background-red",
+      "exit_code": 1,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/update-background-shared-red.log",
+        "sha256": "8bdfb4c10efaf4684ae4a3b343442789806888ceb4bdda33f3dbdd1c7b8aa329",
+        "bytes": 2148
+      },
+      "passed": 0,
+      "failed": 1,
+      "classification": "expected_behavioral_red",
+      "note": "真实设置页/图片导入/底部更新确认链：下载完成后背景预览被错误pop，findsOneWidget实际0。仅共享update_service.dart与ssrvpn_glass_dialog_route.dart恢复741ea3c1，其余复制当时工作区，非全基线测试。"
+    },
+    {
+      "name": "update-background-shared-green",
+      "command": [
+        "$FLUTTER_3_44_1/bin/flutter",
+        "test",
+        "--no-pub",
+        "test/verified_update_dialog_test.dart",
+        "--plain-name",
+        "background import preview",
+        "--concurrency=1"
+      ],
+      "cwd": "packages/ssrvpn_shared",
+      "exit_code": 0,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/update-background-shared-green.log",
+        "sha256": "2a14cf73cea4267a62e88c722019696a23e591a5a516db021959ff4f31154506",
+        "bytes": 241
+      },
+      "passed": 1,
+      "failed": 0,
+      "note": "真实SsrvpnSettingsPage、BackgroundImageStore、HomeShell、BottomNavigation及共享更新确认。仅在XFile.readAsBytes控制完成时刻；未直接show测试覆盖弹窗。此后只删除3个冗余import。"
+    },
+    {
+      "name": "update-background-shared-analyze",
+      "command": [
+        "$FLUTTER_3_44_1/bin/cache/dart-sdk/bin/dart",
+        "analyze",
+        "packages/ssrvpn_shared/test/verified_update_dialog_test.dart"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/ui02-settings-preview-analyze.log",
+        "sha256": "3f788f64fb10a4bfc791507a43dac3b21e81dcf03cd0421c67d62cf7dbcbbe12",
+        "bytes": 63
+      },
+      "issues": 0
+    },
+    {
+      "name": "macos-native-gate-unit",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "scripts/test_macos_native_gate.py"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 10.28,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/macos-native-gate-unit.log",
+        "sha256": "470acad97e85400c0085c0d129fbb0ce54318bdbc46fb2408caf0dc564576da2",
+        "bytes": 125
+      },
+      "scope": "原生门禁脚本替身/结构测试，不是RunnerTests或真实原生构建"
+    },
+    {
+      "name": "final-shared-coverage",
+      "command": [
+        "bash",
+        "scripts/run-flutter-coverage.sh",
+        "packages/ssrvpn_shared",
+        "--no-pub",
+        "--concurrency=2",
+        "--reporter",
+        "expanded"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 194.76,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/final-shared-coverage.log",
+        "sha256": "01c73d3295d97794b0bfa70bf06b68d7ff1ede3da8a152018e039d11a2a04df4",
+        "bytes": 362739
+      }
+    },
+    {
+      "name": "final-shared-threshold",
+      "command": [
+        "bash",
+        "scripts/check-coverage-thresholds.sh",
+        "packages/ssrvpn_shared"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 0.69,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/final-shared-threshold.log",
+        "sha256": "df8dd53c193749834d8a1e8ad9564bd9d30f963cc6a3d57982e6225938059b9f",
+        "bytes": 72
+      }
+    },
+    {
+      "name": "final-workspace-analyze-rechecked",
+      "command": [
+        "bash",
+        "scripts/workspace.sh",
+        "analyze"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 18.84,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/final-workspace-analyze-rechecked.log",
+        "sha256": "e89cb7c10f11babf7166f335f3e0096a57d376c233c411e8483f5b5874c2ac1c",
+        "bytes": 7718
+      }
+    },
+    {
+      "name": "final-quality-hygiene-rechecked",
+      "command": [
+        "bash",
+        "scripts/check-quality-hygiene.sh"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 6.17,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/final-quality-hygiene-rechecked.log",
+        "sha256": "8513ffac1d404d285d86d29953b183119d095f5621936bb33a7e8fad383ef32d",
+        "bytes": 388
+      }
+    },
+    {
+      "name": "final-doc-consistency",
+      "command": [
+        "bash",
+        "scripts/check-doc-consistency.sh"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 0.71,
+      "log": {
+        "path": "/tmp/ssrvpn-5017-audit-round2/final-doc-consistency.log",
+        "sha256": "8c71587b2a79c46953515a0922bb89c4c555d93df8c014f9cb003624d74a1926",
+        "bytes": 243
+      }
+    }
+  ],
+  "regressions": [
+    {
+      "finding": "N01",
+      "cwd": ".",
+      "reproduction_command": [
+        "bash",
+        "scripts/test-android-native.sh"
+      ],
+      "red": {
+        "exit_code": 1,
+        "stage": "先等价提取旧分发逻辑以便受控测试；不是完全未改基线直接调用新增helper。",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/android-native-red.log",
+          "sha256": "92993386d6095f12724c1e484ec999cdffe0f0e4357e5c5f447e33d64a03e972",
+          "bytes": 26948
+        },
+        "evidence": "CoreLivenessMonitorTest > late monitor exit and failure cannot stop a replacement session FAILED；替代会话应保持活动的断言失败。"
+      },
+      "green": {
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/android-native-final.log",
+          "sha256": "ef48dca8a77c4c3ee4a0c62537931f6f7d699ba675521a715789b8ddfef6ea83",
+          "bytes": 24028
+        },
+        "evidence": "最终JVM 200通过、0失败、0跳过；过期正常结果与异常均不能停止新连接。"
+      }
+    },
+    {
+      "finding": "N02",
+      "cwd": "SSRVPN_Android",
+      "reproduction_command": [
+        "flutter",
+        "test",
+        "--no-pub",
+        "test/clash_service_test.dart",
+        "--plain-name",
+        "a running native replacement retires old observations without disconnecting"
+      ],
+      "red": {
+        "exit_code": 1,
+        "stage": "基线生产逻辑加回归测试",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/android-reattach-red.log",
+          "sha256": "6098d11e342d07a0384a8f6a09f9f857d4e02bc6905762ce3e7a148fb9d5cfe2",
+          "bytes": 917
+        },
+        "evidence": "Expected: null; Actual: 旧探测在网络恢复后返回失败"
+      },
+      "green": {
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/android-adapter-green.log",
+          "sha256": "8528febff392ed35c3766748046f3f36c58b04623dea8ff1433a57e271e74441",
+          "bytes": 56576
+        },
+        "evidence": "111通过；相同running状态的新原生会话丢弃旧观察且不发布假断开。"
+      }
+    },
+    {
+      "finding": "CONN01",
+      "cwd": "packages/ssrvpn_shared",
+      "reproduction_command": [
+        "flutter",
+        "test",
+        "--no-pub",
+        "test/clash_service_base_test.dart",
+        "--plain-name",
+        "session replacement during guard",
+        "--reporter",
+        "expanded"
+      ],
+      "red": {
+        "exit_code": 1,
+        "stage": "基线生产逻辑加回归测试",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/connection-guard-red.log",
+          "sha256": "8895659580d558bad2d20a5328fb1801b6663fa3f5aa1bdfae958fdc5d496c93",
+          "bytes": 1505
+        },
+        "evidence": "2失败；Expected Replacement node / Actual Node B；Expected 0 DELETE / Actual 1"
+      },
+      "green": {
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/connection-final-regression.log",
+          "sha256": "b40fc3407ea66eb9fb65be4dc442c830f41e052e3eab37d5394598dcd1b37eea",
+          "bytes": 3662
+        },
+        "evidence": "33通过；覆盖PUT前与DELETE前guard暂停以及共享新会话失效。"
+      }
+    },
+    {
+      "finding": "SUB01",
+      "cwd": "packages/ssrvpn_shared",
+      "reproduction_command": [
+        "flutter",
+        "test",
+        "--no-pub",
+        "test/subscription_service_base_test.dart",
+        "--name",
+        "refresh (accepts valid YAML|retains every valid node)",
+        "-r",
+        "expanded"
+      ],
+      "red": {
+        "exit_code": 1,
+        "stage": "基线生产逻辑加回归测试",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/subscription-yaml-before.log",
+          "sha256": "75fa8f6dd18809b410c99a6b826b985fcbb56c4c8e3dbf193438f3ac8256c525",
+          "bytes": 4327
+        },
+        "evidence": "5失败；合法文档报无节点，跨节点锚点成功刷新却仅保存First，期望First和Second。"
+      },
+      "green": {
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/subscription-final.log",
+          "sha256": "48b611bfe75a0052ed8e836b21015fba82ba40bc37eae65666192feaae8dded5",
+          "bytes": 34215
+        },
+        "evidence": "130通过；含10项新增格式、展开预算与无效节点隔离回归。"
+      }
+    },
+    {
+      "finding": "UI01-macos",
+      "cwd": "SSRVPN_MacOS",
+      "reproduction_command": [
+        "flutter",
+        "test",
+        "--no-pub",
+        "test/desktop_home_screen_test.dart",
+        "--plain-name",
+        "late tray preference completion preserves a newer notice",
+        "--reporter",
+        "expanded"
+      ],
+      "red": {
+        "exit_code": 1,
+        "stage": "基线生产逻辑加回归测试",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/tray-macos-red.log",
+          "sha256": "41660b1b6b3328a43ad7986eb3770bb62bcdf0380e84b835cedc1efc20b35333",
+          "bytes": 2313
+        },
+        "evidence": "释放旧偏好写入后，新的连接失败提示已不再可见；释放前已断言可见。"
+      },
+      "green": {
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/tray-macos-green.log",
+          "sha256": "9d317ccd481af1f2e1ae757014890d10de8effa32c5107b1956b4aacefcfe337",
+          "bytes": 293
+        },
+        "evidence": "新增组件/托盘回归1通过；保留新错误，不显示旧连接成功。"
+      }
+    },
+    {
+      "finding": "UI01-windows",
+      "cwd": "SSRVPN_Windows",
+      "reproduction_command": [
+        "flutter",
+        "test",
+        "--no-pub",
+        "test/desktop_home_screen_test.dart",
+        "--plain-name",
+        "late tray preference completion preserves a newer notice",
+        "--reporter",
+        "expanded"
+      ],
+      "red": {
+        "exit_code": 1,
+        "stage": "基线生产逻辑加回归测试",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/tray-windows-red.log",
+          "sha256": "87e5a0decb61893eca59443b35669be964bf909764b05a2cda53c3afe5258e33",
+          "bytes": 2254
+        },
+        "evidence": "释放旧偏好写入后，新的连接失败提示已不再可见；释放前已断言可见。"
+      },
+      "green": {
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/tray-windows-green.log",
+          "sha256": "734e344a7d528aff2333867fbfab93e1dd2c06539707a50e1332d9b4ff627caa",
+          "bytes": 228
+        },
+        "evidence": "新增组件/托盘回归1通过；保留新错误，不显示旧连接成功。"
+      }
+    },
+    {
+      "finding": "SUB01-review-regression",
+      "classification": "本轮修复中间回归，已关闭，不计基线原有发现",
+      "red": {
+        "exit_code": 1,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/subscription-nonnode-before.log",
+          "sha256": "c4d9b69150c6a1e3ba9869001f48d145242c8cdd65e4ad50133c4b970c15edbe",
+          "bytes": 3451
+        },
+        "evidence": "新增4个服务回归均失败；应跳过的NaN/Inf或缺名条目使整来源失败。"
+      },
+      "green": {
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/subscription-final.log",
+          "sha256": "48b611bfe75a0052ed8e836b21015fba82ba40bc37eae65666192feaae8dded5",
+          "bytes": 34215
+        },
+        "evidence": "最终130项通过；跳过无效项时保留计数和Map资源预算。"
+      },
+      "independent_comparison": {
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/subscription-independent-probe-final.log",
+          "sha256": "f5e225172fbb857b52531cda99d04a5c223a303b4a6e73e094311cbc09c7b18e",
+          "bytes": 669
+        },
+        "evidence": "9类生产normalize后的HEAD/最终merger对照一致。"
+      }
+    },
+    {
+      "finding": "SUB02",
+      "red": {
+        "exit_code": 1,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit-round2/subscription-metadata-before.log",
+          "sha256": "ea78a008dd86da18c84b3a85b2a5ef28b7f8299a3843fb2a83357273ed9cad87",
+          "bytes": 1892
+        }
+      },
+      "green": {
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit-round2/subscription-final.log",
+          "sha256": "cf9ffdabe1b45831aa5160c5836512ece180006163a2d954807e5b61976f6648",
+          "bytes": 28544
+        }
+      },
+      "evidence": "公开add接受超大UTF-8 metadata，后续remove被undo预算拒绝；2红，相关110绿；保旧、重启和后续删除断言。",
+      "limitations": "仅防新超限写入，历史超限文件未自动迁移。"
+    },
+    {
+      "finding": "MAC01",
+      "red": {
+        "exit_code": 1,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit-round2/tun-stale-status-red.log",
+          "sha256": "0b4766629aed69a3a8dbe6a3e8f6f492d011f933d63344c1ddbf0a0a9d3c91d8",
+          "bytes": 215
+        }
+      },
+      "green": {
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit-round2/macos-session-final.log",
+          "sha256": "9d171488f6a44ffea22313599902c1c4bc35b5b98ee46c1d24fe379f2b510ea5",
+          "bytes": 5043
+        }
+      },
+      "evidence": "旧error新鲜度窗口内被新start误收；复用nonce后旧状态忽略，本轮42绿和联合187绿。",
+      "limitations": "纯生产服务+文件/授权替身；coordinator会cancelIntent，不支持长期孤儿说法。旧running只是防线回归。"
+    },
+    {
+      "finding": "UI02-android-adapter",
+      "red": {
+        "exit_code": 1,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit-round2/update-covered-android-red.log",
+          "sha256": "1ac1ccbf78ab010dfa54c9077817f3b6661660fd4b8de99937a13cf8322c7cab",
+          "bytes": 2347
+        }
+      },
+      "green": {
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit-round2/update-background-android-final.log",
+          "sha256": "eab658f95d6978a24ed61104a6a08a1cb7bcfd874f21b0645f72b056cdd63caa",
+          "bytes": 3816
+        }
+      },
+      "evidence": "初始covered路由红灯（旧名称为订阅刷新错误）；最终以背景预览路由模拟通过26项。",
+      "limitations": "Android用例验证对应适配行为，第二popup是模拟；生产可达性由共享真实设置页导入测试及三端入口核对支持。原订阅错误触发已撤回。"
+    },
+    {
+      "finding": "UI02-shared-production-flow",
+      "red": {
+        "exit_code": 1,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit-round2/update-background-shared-red.log",
+          "sha256": "8bdfb4c10efaf4684ae4a3b343442789806888ceb4bdda33f3dbdd1c7b8aa329",
+          "bytes": 2148
+        },
+        "scope": {
+          "baseline": "741ea3c1",
+          "package": "ssrvpn_shared",
+          "restored": [
+            "lib/services/update_service.dart",
+            "lib/widgets/ssrvpn_glass_dialog_route.dart"
+          ],
+          "test": "actual settings page + image import + footer update",
+          "note": "Other copied shared sources retain current workspace; only UI02 shared production files restored. Android service not imported by this desktop test."
+        },
+        "scope_fingerprint": {
+          "path": "/tmp/ssrvpn-5017-audit-round2/ui02-background-red/scope.json",
+          "sha256": "20899343f96e53f287399e1883a584b700f1b9646cef6ff52029dea66531609a",
+          "bytes": 396
+        },
+        "evidence": "Expected exactly one 背景预览; Actual Found 0 after download completion; earlier assertion established it was present."
+      },
+      "green": {
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit-round2/update-background-shared-green.log",
+          "sha256": "2a14cf73cea4267a62e88c722019696a23e591a5a516db021959ff4f31154506",
+          "bytes": 241
+        }
+      },
+      "evidence": "真实SsrvpnSettingsPage选图完成后，在XFile读取pending时开始更新；导入完成的真实背景预览覆盖进度，旧生产关闭误pop且busy未结束，修复后正确完成。",
+      "limitations": "受控本地图片/下载替身；未测真实设备时间与发生频率。"
+    }
+  ],
+  "android_debug_artifact": {
+    "path": "$AUDIT_WORKTREE/SSRVPN_Android/build/app/outputs/flutter-apk/app-debug.apk",
+    "sha256": "f2a6980e0a98525429c56cf50143b109186657849de027e0eb2ace70969d1a4c",
+    "bytes": 85282625,
+    "abi": [
+      "arm64-v8a"
+    ],
+    "installed": false,
+    "release_artifact": false
+  },
+  "performance_smoke": {
+    "schema_version": 1,
+    "mode": "smoke",
+    "fixture": {
+      "nodes_per_source": 240,
+      "source_count": 4,
+      "merged_nodes": 960,
+      "merged_bytes": 140587,
+      "generated_config_bytes": 170081
+    },
+    "results": {
+      "parse_yaml": {
+        "iterations": 2,
+        "min_us": 8919,
+        "median_us": 10820,
+        "max_us": 10820
+      },
+      "merge_yaml": {
+        "iterations": 2,
+        "min_us": 34007,
+        "median_us": 39019,
+        "max_us": 39019
+      },
+      "generate_config": {
+        "iterations": 2,
+        "min_us": 78617,
+        "median_us": 83889,
+        "max_us": 83889
+      }
+    },
+    "notes": [
+      "Durations are observational and are not pass/fail thresholds.",
+      "Compare results only on comparable hardware and Flutter versions."
+    ]
+  },
+  "review": {
+    "production_diff": "首轮各修复及第二轮UI02路由、SUB02预算/回滚、MAC01状态nonce均经非作者复核；N04由两人核对官方提交顺序并收窄触发。",
+    "intermediate_regression": "SUB01无效项过早序列化已通过红绿回归和独立对照关闭。",
+    "exploratory_probe_not_counted_as_bug": "guard后微任务探针的失败发生于伪服务器晚处理已构造请求；附加请求构造时序反证不支持新增跨会话请求缺陷。",
+    "withdrawn_trigger": "UI02普通订阅刷新错误弹窗路径被批量错误处理反证，已撤回。最终改以同屏背景图片异步导入→迟到预览路径，使用真实设置页回归；不把原假设计独立缺陷。",
+    "independent_records": {
+      "ssrvpn-5017-ui02-independent.md": {
+        "path": "/tmp/ssrvpn-5017-ui02-independent.md",
+        "sha256": "d7286b7ca59bb18a615e381b244a30a5c227c2c48572d39c7aad31d9956e8399",
+        "bytes": 8521
+      },
+      "ssrvpn-5017-sub02-independent.md": {
+        "path": "/tmp/ssrvpn-5017-sub02-independent.md",
+        "sha256": "375cace4fbff962439425606716320ff13d0dea138caddf61583fd7921a34c7f",
+        "bytes": 2751
+      },
+      "ssrvpn-5017-mac01-independent.md": {
+        "path": "/tmp/ssrvpn-5017-mac01-independent.md",
+        "sha256": "9f8bb5d5ca1f5716309ea83f12fb70839159701009480213960719a584dec81b",
+        "bytes": 6353
+      },
+      "ssrvpn-5017-n04-independent.md": {
+        "path": "/tmp/ssrvpn-5017-n04-independent.md",
+        "sha256": "ede547a0e23560107b8027c759225734c81204a5881ad8dffe2aa32a54ebfc2a",
+        "bytes": 10059
+      },
+      "ssrvpn-5017-round2-report-review.md": {
+        "path": "/tmp/ssrvpn-5017-round2-report-review.md",
+        "sha256": "e2ff687804dac6a70f482e38b0e224c01692243d2ccbf73968ddb5821629fb41",
+        "bytes": 7899
+      }
+    }
+  },
+  "unresolved": [
+    {
+      "id": "N03",
+      "severity": "P1",
+      "status": "未修复",
+      "evidence": "代码路径已证明",
+      "trigger": "正常安装目录额外放入unrelated.txt或子目录后覆盖升级，程序库存/清理/成功提交没有区分其应用归属。",
+      "blocker": "没有Windows/PowerShell5.1/Inno行为环境；无法可靠验证涉及数据删除和失败恢复的修复。",
+      "plan": "可信新旧payload归属、legacy清单或可恢复迁移；Clear/Recover/Commit/Discard/InstallDelete同步约束，保留未知/第三方改写/其他事务；Windows哨兵真实回归。",
+      "static_checks_are_not_behavioral_acceptance": true,
+      "additional_round2_evidence": "Recover全目录清除可删Begin后未知文件；A卸载Discard不校验state可删B待恢复材料；正常Recover有安装根匹配保护。"
+    },
+    {
+      "id": "N04",
+      "severity": "P2",
+      "status": "未修复",
+      "evidence": "管理员安装HKLM与恢复HKCU错位、条件性生产路径静态确认；Windows未复现",
+      "trigger": "committed标志生效前暂时失败，最终退出时Recover材料有效且恢复成功，旧程序与新HKLM可能不一致。",
+      "counterevidence": "committed后清理失败、Replace成功后finally失败、仅status失败均不足以触发回退；ssPostInstall异常被引擎捕获，不是即时Inno回滚。",
+      "blocker": "无Windows/PowerShell5.1/Inno目标行为环境。",
+      "plan": "明确封闭root/view并贯穿snapshot/state/recover，兼容schema2缺旧HKLM证据的安全失败；真实安装器注入committed前故障，核对HKLM64/非目标HKCU/文件/快捷方式。",
+      "official_sources": [
+        "https://jrsoftware.org/ishelp/topic_admininstallmode.htm",
+        "https://jrsoftware.org/ishelp/topic_installorder.htm",
+        "https://github.com/jrsoftware/issrc/blob/is-6_5_0/Projects/Src/Setup.Install.pas#L3508",
+        "https://github.com/jrsoftware/issrc/blob/is-6_5_0/Projects/Src/Setup.MainForm.pas#L59"
+      ]
+    }
+  ],
+  "limitations": [
+    "macOS原生构建退出65；不修改macOS11最低目标来制造通过。",
+    "Windows C++/PowerShell5.1/注册表/安装器和原生构建未执行。",
+    "核心回环通信未启用TUN；Restls外部TLS伪装握手场景未运行。",
+    "无真实授权、切网、长后台、最低系统、实际渲染/帧率/RSS/电量或三端实机验收。",
+    "全套与专项计数重叠，不能相加宣称独立测试总量；共享最终重跑对应最终解析器。",
+    "原始日志位于执行机临时目录；本文件保留摘要和hash，不包含用户订阅或凭据。",
+    "SUB02仅防新的超限提交；未读真实订阅，历史超限文件不自动迁移。",
+    "MAC01必须将Dart、runner脚本、SHA同步交付或回退；真实授权/网络行为尚未验证。",
+    "UI02背景图片读取/处理受控交错可达，未测真实设备触发概率；原订阅弹窗例子已撤回。"
+  ],
+  "non_product_failures": [
+    "初次隔离树缺固定资产，复制并验hash后解决。",
+    "Service中间超过行数护栏，未改门槛，修正并重跑通过。",
+    "开发回归夹具曾因文本精确匹配、工作目录或package_config路径失败，未计产品红灯；采用修正后行为证据。",
+    "UI02临时五边界探针首次因Future<void?>夹具语法编译失败，修正为Future<void>?后5绿，不记产品红灯。",
+    {
+      "classification": "tool_invocation_path",
+      "detail": "首个format误在MacOS子目录使用根相对路径，输出No file；随后根目录显式format成功。该次随后的40项flutter测试仍退出0，不是产品测试失败。"
+    },
+    {
+      "classification": "lint_fixture_style",
+      "detail": "初次analyze测试helper if缺花括号报1条info、退出0；修正后最终No issues found。"
+    },
+    {
+      "classification": "shellcheck_fixture_scope",
+      "detail": "初次shellcheck发现测试script子shell变量SC2030/SC2031；该调用与bash-n串行复合执行只采集到整体退出0，未单独记录shellcheck退出码。改为局部变量函数后单独shellcheck退出0。"
+    },
+    {
+      "classification": "fixture_animation_wait",
+      "exit_code": 1,
+      "log": "/tmp/ssrvpn-5017-audit-round2/ui02-settings-preview-fixture-animation.log",
+      "note": "图片导入期间LinearProgressIndicator持续动画，测试finally使用pumpAndSettle超时。改定量pump；不是产品红灯。"
+    },
+    {
+      "classification": "fixture_debug_cleanup",
+      "exit_code": 1,
+      "log": "/tmp/ssrvpn-5017-audit-round2/ui02-settings-preview-fixture-debug-cleanup.log",
+      "note": "临时调试输出插入单行if改变测试finally控制范围，造成Completer重复complete。调试语句全部撤掉；不是产品红灯。"
+    },
+    {
+      "classification": "temporary_project_native_assets_config",
+      "exit_code": 1,
+      "logs": [
+        "/tmp/ssrvpn-5017-audit-round2/ui02-preview-red-tool-crash.log",
+        "/tmp/ssrvpn-5017-audit-round2/ui02-preview-red-tool-canonical-path.log",
+        "/tmp/ssrvpn-5017-audit-round2/ui02-preview-red-tool-packagegraph.log"
+      ],
+      "note": "隔离scratch的cwd与package root URI不一致、/tmp与/private/tmp规范化，以及缺失package_graph导致Flutter工具启动失败；均在测试加载前，不作为缺陷证据。准备脚本已补临时pubspec/assets、canonical root、package graph；正式red正常运行至产品断言失败。"
+    },
+    {
+      "classification": "lint_cleanup",
+      "exit_code": 0,
+      "note": "初次analyze有3条冗余import info，移除后No issues found。工作区测试文件已冻结。"
+    }
+  ],
+  "final_review_checks": {
+    "source_fingerprints_verified": true,
+    "git_diff_check_exit_code": 0,
+    "original_main_clean": true,
+    "original_main_commit": "741ea3c1296ade164124301ff6a9647f4bf09ddf",
+    "report_review": "第二轮非作者复核，保留反证与验证分界；具体最终检查在runs中记录。",
+    "doc_consistency_exit_code": 0,
+    "log_fingerprints_verified": 81,
+    "regression_log_fingerprints_verified": true,
+    "ui02_real_settings_red_green_verified": true
+  },
+  "round1_snapshot": {
+    "schema_version": 1,
+    "audit_date": "2026-09-24",
+    "recorded_at_utc": "2026-09-24T05:24:57.028277+00:00",
+    "baseline": {
+      "commit": "741ea3c1296ade164124301ff6a9647f4bf09ddf",
+      "tag": "v5.0.17",
+      "version": "5.0.17+5017",
+      "branch": "codex/stability-audit-5017",
+      "working_tree_has_uncommitted_fixes": true,
+      "github_ci": "https://github.com/Elegying/SSRVPN/actions/runs/35950001143",
+      "github_release_run": "https://github.com/Elegying/SSRVPN/actions/runs/35951529964",
+      "remote_evidence_scope": "只证明基线提交，不证明本轮差异"
+    },
+    "environment": {
+      "repository": "$AUDIT_WORKTREE",
+      "flutter": "3.44.1",
+      "dart": "3.12.1",
+      "flutter_bin": "$FLUTTER_3_44_1/bin",
+      "xcode": "27.0 (27A266a)",
+      "host": "macOS",
+      "temporary_logs": "/tmp/ssrvpn-5017-audit"
+    },
+    "scope": {
+      "confirmed_findings": 6,
+      "fixed_findings": [
+        "N01",
+        "N02",
+        "CONN01",
+        "SUB01",
+        "UI01"
+      ],
+      "unresolved_findings": [
+        "N03"
+      ],
+      "native_device_tests": false,
+      "install_or_network_settings_changes": false,
+      "committed_pushed_or_released": false,
+      "full_make_verify_executed": false
+    },
+    "final_source_fingerprints": {
+      "SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreLivenessMonitor.kt": "b59ac6961300d6f118fe96e525fc1a5a03a276335a9dc0c93ee2a4b236a7dff1",
+      "SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/SsrvpnVpnService.kt": "3baaf780eb1d81a9368cca32eb4a947fe230218bf215d2b2cf49014f5700900c",
+      "SSRVPN_Android/android/app/src/test/kotlin/com/ssrvpn/android/CoreLivenessMonitorTest.kt": "63692ef42e72dcd09ddffae234ecfb09a57f305cf69167925097400708183f9f",
+      "SSRVPN_Android/lib/services/clash_service_native_bridge.dart": "f23d1911f8f050aa1d5e646b6e9de8619219ca6fa4642a56f1c34637bfb9da33",
+      "SSRVPN_Android/test/clash_service_test.dart": "69e5ee183889646701510dbfa5ab71fd8007a9e17ce8f2cf63c430a6f2b0f51c",
+      "SSRVPN_MacOS/lib/app_runtime_actions_part.dart": "e0f948105e8830ba7e0e6b06676575a1d0e2665bbaceb1ff23c640827bebc0c3",
+      "SSRVPN_MacOS/test/desktop_home_screen_test.dart": "d0801a84a2f1cf951498759f28c360bbb912bb7c7f57b91a3d8affd729c20a2e",
+      "SSRVPN_Windows/lib/app_runtime_actions_part.dart": "bfd9c58708d89e9215f016bafb917cd75038c3c0a19a3db256ee2c7be59639d6",
+      "SSRVPN_Windows/test/desktop_home_screen_test.dart": "dd838291bee948b4845f01a5ba8875829e280dee63f81f49a2d9a10c292d2568",
+      "packages/ssrvpn_shared/lib/services/clash_service_base.dart": "0d886a5ef9bc8843403133b2f8d04125a4bee70e41336b96fa5ffd75ba84b867",
+      "packages/ssrvpn_shared/lib/services/subscription_yaml_merger.dart": "ab0cc88df6a43ff3293120249cb8123f3ade77ac064ee71520ba3899c7ed65c2",
+      "packages/ssrvpn_shared/test/clash_service_base_test.dart": "3d3d8bf31d18eeae0c9525b26070c89f2b5f7de8c6806c29ab0797d942f0bf27",
+      "packages/ssrvpn_shared/test/subscription_service_base_test.dart": "0817f7e6cd86e02c3cac0c7ca551007e3aa935a48eaef1ba45e3c4384da202d3"
+    },
+    "source_diff_sha256": "288cb54b2a6493c3303bac3d7f862a295aeef386f16b0472053c90a47b3faa66",
+    "flutter_suite_counts": {
+      "shared": {
+        "passed": 1689,
+        "skipped": 1,
+        "summary": "02:34 +1689 ~1: All tests passed!",
+        "skip_reason": "frame_diagnostics_test.dart 前台帧诊断用例要求未启用的 SSRVPN_FRAME_DIAGNOSTICS 编译开关。"
+      },
+      "android": {
+        "passed": 363,
+        "skipped": 0,
+        "summary": "01:46 +363: All tests passed!"
+      },
+      "macos": {
+        "passed": 362,
+        "skipped": 0,
+        "summary": "02:41 +362: All tests passed!"
+      },
+      "windows": {
+        "passed": 329,
+        "skipped": 230,
+        "summary": "00:49 +329 ~230: All tests passed!",
+        "skip_reason": "非Windows宿主及Windows运行资产环境门禁；包括Known Folder、网络cmdlet、IP Helper、真实Windows内核等。不能把跳过项计为通过。"
+      }
+    },
+    "coverage_threshold_summaries": {
+      "final-shared": "coverage: packages/ssrvpn_shared 90.06% (11173/12406), threshold 65.00%",
+      "SSRVPN_Android": "coverage: SSRVPN_Android 72.30% (2634/3643), threshold 30.00%",
+      "SSRVPN_MacOS": "coverage: SSRVPN_MacOS 76.30% (3922/5140), threshold 30.00%\ncoverage: SSRVPN_MacOS/lib/services/clash_service_lifecycle.dart 76.48% (644/842), floor 60.00%\ncoverage: SSRVPN_MacOS/lib/services/system_proxy_service.dart 89.46% (416/465), floor 80.00%",
+      "SSRVPN_Windows": "coverage: SSRVPN_Windows 65.00% (3770/5800), threshold 30.00%\ncoverage: SSRVPN_Windows/lib/services/clash_service_lifecycle.dart 51.21% (360/703), floor 51.00%"
+    },
+    "runs": [
+      {
+        "name": "flutter-version",
+        "command": [
+          "bash",
+          "scripts/check-flutter-version.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.53,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/flutter-version.log",
+          "sha256": "f2ede9aeabd9edb3c6a1f3a05ad156dd13b27eedaae13de7eec438ff1ce35191",
+          "bytes": 43
+        },
+        "cwd": "."
+      },
+      {
+        "name": "shared-imports",
+        "command": [
+          "bash",
+          "scripts/check-shared-barrel-imports.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.04,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/shared-imports.log",
+          "sha256": "c1476f803ddb1c46788f862c664c5f7e2b92ab87c964457c41241c16cac74220",
+          "bytes": 42
+        },
+        "cwd": "."
+      },
+      {
+        "name": "version-sync",
+        "command": [
+          "bash",
+          "scripts/check-version-sync.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.03,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/version-sync.log",
+          "sha256": "5dd71e9cb72be879e99d664844c56ce32ab256a2a1fe96b1105492528d41a6e5",
+          "bytes": 39
+        },
+        "cwd": "."
+      },
+      {
+        "name": "smart-rules",
+        "command": [
+          "python3",
+          "scripts/verify-smart-rules.py"
+        ],
+        "exit_code": 0,
+        "seconds": 1.06,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/smart-rules.log",
+          "sha256": "771f1985a31a0ba39b910643be2b47b9b18de325322dd4dcb79da0f7bbc7f2b7",
+          "bytes": 44
+        },
+        "cwd": "."
+      },
+      {
+        "name": "rule-publication",
+        "command": [
+          "python3",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "rule-channel",
+          "-p",
+          "test_publish.py"
+        ],
+        "exit_code": 0,
+        "seconds": 0.8,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/rule-publication.log",
+          "sha256": "4b02a157c3defc4066412c34197cf807c1215d4be6c84fd94469dbdd2e585ece",
+          "bytes": 4730
+        },
+        "cwd": "."
+      },
+      {
+        "name": "package-guides",
+        "command": [
+          "bash",
+          "scripts/check-package-guides.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.04,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/package-guides.log",
+          "sha256": "8d196d2bd843a68d217bed478453deeae17f0abcfccb4d3a755359a1104d8276",
+          "bytes": 29
+        },
+        "cwd": "."
+      },
+      {
+        "name": "core-bootstrap-model",
+        "command": [
+          "bash",
+          "scripts/check-core-asset-bootstrap.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.17,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/core-bootstrap-model.log",
+          "sha256": "52ff434e13fb6a81f47397e4ff55fafbda76668a31f0278c951019af632d61ba",
+          "bytes": 36
+        },
+        "cwd": "."
+      },
+      {
+        "name": "android-bridge",
+        "command": [
+          "bash",
+          "scripts/check-android-native-bridge-guards.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 3.22,
+        "previous_exit_code": 1,
+        "previous_log": {
+          "path": "/tmp/ssrvpn-5017-audit/android-bridge.log",
+          "sha256": "f2f528ee77d9b640a04e660ee23d9e4b782d43fa312705a7223659c3f47e1c13",
+          "bytes": 386
+        },
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/android-bridge-native-final.log",
+          "sha256": "fe1379206e606f823d66c2078f5dc6ff0e5a199359adf362f6c714230da315d0",
+          "bytes": 250
+        },
+        "note": "中间实现超出 Service 既有行数护栏；保持原门槛修正为995行后重跑通过，19项检查。seconds为首次运行时长。",
+        "cwd": "."
+      },
+      {
+        "name": "android-kotlin-guard",
+        "command": [
+          "bash",
+          "scripts/check-android-built-in-kotlin.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.09,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/android-kotlin-guard.log",
+          "sha256": "326ddb39cf31b3a0b80edf2f9965a5a15eb3c271e052bf42994a65446dcf1c93",
+          "bytes": 42
+        },
+        "cwd": "."
+      },
+      {
+        "name": "product-surface",
+        "command": [
+          "bash",
+          "scripts/check-product-surface-guards.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.25,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/product-surface.log",
+          "sha256": "a13fa792bcf0db24b5eebcd5a1c070ff3ad715d67d391847e141ce1edaf89aaa",
+          "bytes": 49
+        },
+        "cwd": "."
+      },
+      {
+        "name": "desktop-startup",
+        "command": [
+          "bash",
+          "scripts/check-desktop-startup-guards.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.1,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/desktop-startup.log",
+          "sha256": "4e61b52d906ff54b4df5951727aba171523a7b9ed8b19c97944467945d149681",
+          "bytes": 639
+        },
+        "cwd": "."
+      },
+      {
+        "name": "service-boundaries",
+        "command": [
+          "bash",
+          "scripts/check-clash-service-boundaries.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.09,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/service-boundaries.log",
+          "sha256": "b7c8632cadbc6a5a203a41e69b83739596439642054a9f65792f616fdd26c45f",
+          "bytes": 48
+        },
+        "cwd": "."
+      },
+      {
+        "name": "desktop-storage",
+        "command": [
+          "bash",
+          "scripts/check-desktop-secure-storage.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.13,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/desktop-storage.log",
+          "sha256": "deb05a061fb3e7ec9f4a110fa890285f016f2f2bb567dfa4ef59f658908593d6",
+          "bytes": 38
+        },
+        "cwd": "."
+      },
+      {
+        "name": "macos-privilege",
+        "command": [
+          "bash",
+          "scripts/check-macos-core-privileges.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.48,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/macos-privilege.log",
+          "sha256": "103a2d072248b0bd30fd9215f40017fd6f14d45ae22feec14d8bcbfe0a4b4782",
+          "bytes": 214
+        },
+        "cwd": "."
+      },
+      {
+        "name": "macos-dns-transaction",
+        "command": [
+          "bash",
+          "scripts/test-macos-tun-dns-transaction.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 3.13,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/macos-dns-transaction.log",
+          "sha256": "2a3809d8d668d3dd9aa6b1ce4b36717840781f1811546ebc2a80954503a2241f",
+          "bytes": 1491
+        },
+        "cwd": "."
+      },
+      {
+        "name": "windows-launcher",
+        "command": [
+          "bash",
+          "scripts/check-windows-launcher-security.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.12,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/windows-launcher.log",
+          "sha256": "276862576f43642550e459c11a5b5ee63ca8e483c0a662c5a39aac6d59ec1235",
+          "bytes": 41
+        },
+        "cwd": "."
+      },
+      {
+        "name": "secret-tls",
+        "command": [
+          "bash",
+          "scripts/check-secrets.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 1.23,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/secret-tls.log",
+          "sha256": "66cdcdca5914fcb0fab888d1491639f7fe3326b2246cc2660561fdfc441061e5",
+          "bytes": 35
+        },
+        "cwd": "."
+      },
+      {
+        "name": "release-tooling",
+        "command": [
+          "bash",
+          "scripts/test-release-tooling.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 281.51,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/release-tooling.log",
+          "sha256": "3d9abb7e80a5e00146c4d618d2fb21ff529679935f15960b21999409a708bb2a",
+          "bytes": 2102
+        },
+        "cwd": "."
+      },
+      {
+        "name": "check-routing-core.py",
+        "command": [
+          "python3",
+          "scripts/check-routing-core.py"
+        ],
+        "exit_code": 0,
+        "seconds": 19.65,
+        "cwd": ".",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/check-routing-core.py.log",
+          "sha256": "378ec9e3f800a06af659104c67e7eab783457b27c7995ecf793bbee629650121",
+          "bytes": 311
+        }
+      },
+      {
+        "name": "check-core-dual-stack.py",
+        "command": [
+          "python3",
+          "scripts/check-core-dual-stack.py"
+        ],
+        "exit_code": 0,
+        "seconds": 14.03,
+        "cwd": ".",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/check-core-dual-stack.py.log",
+          "sha256": "1265a241a61422d1484bcd1e101956d1470a6f5775fca5f1517681eae443ee3f",
+          "bytes": 180
+        }
+      },
+      {
+        "name": "check-core-dual-stack-protocols.py",
+        "command": [
+          "python3",
+          "scripts/check-core-dual-stack-protocols.py"
+        ],
+        "exit_code": 0,
+        "seconds": 6.37,
+        "cwd": ".",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/check-core-dual-stack-protocols.py.log",
+          "sha256": "77820f64023b121b36780f234c619775d8e81ecf86123c96eff735843f8cde5e",
+          "bytes": 1053
+        }
+      },
+      {
+        "name": "check-imported-protocol-traffic.py",
+        "command": [
+          "python3",
+          "scripts/check-imported-protocol-traffic.py"
+        ],
+        "exit_code": 0,
+        "seconds": 50.91,
+        "cwd": ".",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/check-imported-protocol-traffic.py.log",
+          "sha256": "3740a9a91531ba21d45042d24d4b87b2650f32686b5b3d4b3edff599f4bb2762",
+          "bytes": 761
+        }
+      },
+      {
+        "name": "SSRVPN_Android-coverage",
+        "command": [
+          "bash",
+          "scripts/run-flutter-coverage.sh",
+          "SSRVPN_Android",
+          "--no-pub",
+          "--concurrency=2",
+          "--reporter",
+          "expanded"
+        ],
+        "exit_code": 0,
+        "seconds": 111.04,
+        "cwd": ".",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/SSRVPN_Android-coverage.log",
+          "sha256": "f723c12b3773e3ad79c20fd97df83202e5328b9e437065c6a40d77c40e474d30",
+          "bytes": 144940
+        }
+      },
+      {
+        "name": "SSRVPN_Android-threshold",
+        "command": [
+          "bash",
+          "scripts/check-coverage-thresholds.sh",
+          "SSRVPN_Android"
+        ],
+        "exit_code": 0,
+        "seconds": 0.22,
+        "cwd": ".",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/SSRVPN_Android-threshold.log",
+          "sha256": "aa4ee23789892342efcfc6f652c7c3cf241abe98f5382fc68bb3cd0d8325b372",
+          "bytes": 62
+        }
+      },
+      {
+        "name": "SSRVPN_MacOS-coverage",
+        "command": [
+          "bash",
+          "scripts/run-flutter-coverage.sh",
+          "SSRVPN_MacOS",
+          "--no-pub",
+          "--concurrency=2",
+          "--reporter",
+          "expanded"
+        ],
+        "exit_code": 0,
+        "seconds": 164.72,
+        "cwd": ".",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/SSRVPN_MacOS-coverage.log",
+          "sha256": "d3ec0319d20096a588145e4dafe6a1dfd33a8d3608de7e00f5c4a1a855d7a291",
+          "bytes": 186638
+        }
+      },
+      {
+        "name": "SSRVPN_MacOS-threshold",
+        "command": [
+          "bash",
+          "scripts/check-coverage-thresholds.sh",
+          "SSRVPN_MacOS"
+        ],
+        "exit_code": 0,
+        "seconds": 0.26,
+        "cwd": ".",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/SSRVPN_MacOS-threshold.log",
+          "sha256": "d877e9233c4bb13f8f1ddab322a91e79dff8dfa700bb50a1d5f280c6da4bf84d",
+          "bytes": 249
+        }
+      },
+      {
+        "name": "SSRVPN_Windows-coverage",
+        "command": [
+          "bash",
+          "scripts/run-flutter-coverage.sh",
+          "SSRVPN_Windows",
+          "--no-pub",
+          "--concurrency=2",
+          "--reporter",
+          "expanded"
+        ],
+        "exit_code": 0,
+        "seconds": 52.77,
+        "cwd": ".",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/SSRVPN_Windows-coverage.log",
+          "sha256": "58538d70e7c049f9d2e136de88b94fedeb9602f04108b989b9a5ab8ded728e25",
+          "bytes": 159495
+        }
+      },
+      {
+        "name": "SSRVPN_Windows-threshold",
+        "command": [
+          "bash",
+          "scripts/check-coverage-thresholds.sh",
+          "SSRVPN_Windows"
+        ],
+        "exit_code": 0,
+        "seconds": 0.33,
+        "cwd": ".",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/SSRVPN_Windows-threshold.log",
+          "sha256": "9b7f7fa1cfedee3af869cde79cc1ec91dea50589029434c48b16baa6ee46af59",
+          "bytes": 160
+        }
+      },
+      {
+        "name": "final-shared-coverage",
+        "command": [
+          "bash",
+          "scripts/run-flutter-coverage.sh",
+          "packages/ssrvpn_shared",
+          "--no-pub",
+          "--concurrency=2",
+          "--reporter",
+          "expanded"
+        ],
+        "exit_code": 0,
+        "seconds": 157.8,
+        "cwd": ".",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/final-shared-coverage.log",
+          "sha256": "02f29856377da8ab8ffdde14124f8729392ca7a2f90e3b593d34100fa11d8f93",
+          "bytes": 363585
+        }
+      },
+      {
+        "name": "final-shared-threshold",
+        "command": [
+          "bash",
+          "scripts/check-coverage-thresholds.sh",
+          "packages/ssrvpn_shared"
+        ],
+        "exit_code": 0,
+        "seconds": 0.57,
+        "cwd": ".",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/final-shared-threshold.log",
+          "sha256": "6475bd66846256535de21e7bd81bfccd4529471b899e7232bb3c1333ba8c6a66",
+          "bytes": 72
+        }
+      },
+      {
+        "name": "final-workspace-analyze",
+        "command": [
+          "bash",
+          "scripts/workspace.sh",
+          "analyze"
+        ],
+        "exit_code": 0,
+        "seconds": 19.06,
+        "cwd": ".",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/final-workspace-analyze.log",
+          "sha256": "97fb062ebbc9b243e5d36e2dda27bcc084456054f96d81f158388cd81055a1ec",
+          "bytes": 7718
+        }
+      },
+      {
+        "name": "final-performance-smoke",
+        "command": [
+          "bash",
+          "scripts/check-performance-baseline.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 1.71,
+        "cwd": ".",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/final-performance-smoke.log",
+          "sha256": "b179f4083d03e4db06ba800a01e20fb45c3a1c352e6795c731ccc098cb271d28",
+          "bytes": 752
+        }
+      },
+      {
+        "name": "final-quality-hygiene",
+        "command": [
+          "bash",
+          "scripts/check-quality-hygiene.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 6.08,
+        "cwd": ".",
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/final-quality-hygiene.log",
+          "sha256": "9a068950a7198787e1fd302cec7d7a5225113007e42e38724801a956f24d8210",
+          "bytes": 388
+        }
+      },
+      {
+        "name": "locked-dependencies",
+        "command": [
+          "flutter",
+          "pub",
+          "get",
+          "--enforce-lockfile"
+        ],
+        "cwd": ".",
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/pub-get.log",
+          "sha256": "291d17269cccf9d5d5066da02c27a91bd3589c6fac2b279f131664779d0c5282",
+          "bytes": 1644
+        }
+      },
+      {
+        "name": "fixed-core-assets",
+        "command": [
+          "bash",
+          "scripts/verify-core-assets.sh"
+        ],
+        "cwd": ".",
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/core-assets.log",
+          "sha256": "ac6c4e0f67ba3a9bbf3f3685e7e7efc129aa204f377efc573ea09e8293566aeb",
+          "bytes": 543
+        }
+      },
+      {
+        "name": "android-native-jvm",
+        "command": [
+          "bash",
+          "scripts/test-android-native.sh"
+        ],
+        "cwd": ".",
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/android-native-final.log",
+          "sha256": "ef48dca8a77c4c3ee4a0c62537931f6f7d699ba675521a715789b8ddfef6ea83",
+          "bytes": 24028
+        },
+        "counts": {
+          "passed": 200,
+          "failed": 0,
+          "skipped": 0,
+          "classes": 40
+        }
+      },
+      {
+        "name": "android-adapter",
+        "command": [
+          "flutter",
+          "test",
+          "--no-pub",
+          "--concurrency=2",
+          "test/clash_service_test.dart",
+          "test/vpn_traffic_bridge_test.dart",
+          "test/connection_orchestrator_test.dart"
+        ],
+        "cwd": "SSRVPN_Android",
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/android-adapter-green.log",
+          "sha256": "8528febff392ed35c3766748046f3f36c58b04623dea8ff1433a57e271e74441",
+          "bytes": 56576
+        },
+        "counts": {
+          "passed": 111
+        }
+      },
+      {
+        "name": "windows-installer-static",
+        "command": [
+          "python3",
+          "-m",
+          "unittest",
+          "scripts/test_windows_installer_config.py"
+        ],
+        "cwd": ".",
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/windows-installer-static-readonly.log",
+          "sha256": "3c1d65f24d1142732f052c8ba8b1a2e4e3d60b4508461a0ebc7624dc68df5184",
+          "bytes": 136
+        },
+        "counts": {
+          "passed": 37
+        },
+        "note": "只读源码结构检查；不是安装/文件保留行为验收。"
+      },
+      {
+        "name": "subscription-regressions",
+        "command": [
+          "flutter",
+          "test",
+          "--no-pub",
+          "test/subscription_service_base_test.dart",
+          "test/subscription_yaml_merger_test.dart",
+          "test/subscription_source_cache_test.dart",
+          "test/subscription_transaction_test.dart",
+          "test/subscription_processing_test.dart",
+          "test/node_latency_persistence_test.dart",
+          "-r",
+          "expanded"
+        ],
+        "cwd": "packages/ssrvpn_shared",
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/subscription-final.log",
+          "sha256": "48b611bfe75a0052ed8e836b21015fba82ba40bc37eae65666192feaae8dded5",
+          "bytes": 34215
+        },
+        "counts": {
+          "passed": 130,
+          "new_cases": 10
+        }
+      },
+      {
+        "name": "connection-and-recovery",
+        "command": [
+          "flutter",
+          "test",
+          "--no-pub",
+          "test/connection_intent_tracker_test.dart",
+          "test/connection_transition_queue_test.dart",
+          "test/desktop_connection_coordinator_test.dart",
+          "test/core_recovery_policy_test.dart",
+          "test/home_node_controller_test.dart",
+          "--reporter",
+          "expanded"
+        ],
+        "cwd": "packages/ssrvpn_shared",
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/connection-state-regression.log",
+          "sha256": "203e12ae56092ec2e299a171530d11384d3fb729610a410b1ccd8433f2d55853",
+          "bytes": 8549
+        },
+        "counts": {
+          "passed": 38
+        }
+      },
+      {
+        "name": "final-android-debug-build",
+        "command": [
+          "flutter",
+          "build",
+          "apk",
+          "--debug",
+          "--target-platform",
+          "android-arm64",
+          "--no-pub"
+        ],
+        "cwd": "SSRVPN_Android",
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/android-debug-apk-final-build.log",
+          "sha256": "fb54f4cb08c83dfc3297227534b76d93ed3daf4fc8fafacda79070f49f71bb51",
+          "bytes": 467
+        },
+        "note": "共享代码最终冻结后增量构建；未安装。"
+      },
+      {
+        "name": "macos-debug-config",
+        "command": [
+          "flutter",
+          "build",
+          "macos",
+          "--debug",
+          "--config-only",
+          "--no-pub"
+        ],
+        "cwd": "SSRVPN_MacOS",
+        "exit_code": 0,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/macos-config.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0
+        }
+      },
+      {
+        "name": "macos-build-for-testing",
+        "command": [
+          "xcodebuild",
+          "build-for-testing",
+          "-quiet",
+          "-workspace",
+          "macos/Runner.xcworkspace",
+          "-scheme",
+          "Runner",
+          "-configuration",
+          "Debug",
+          "-destination",
+          "platform=macOS",
+          "-derivedDataPath",
+          "/tmp/ssrvpn-5017-audit/macos-build",
+          "-only-testing:RunnerTests",
+          "CODE_SIGNING_ALLOWED=NO"
+        ],
+        "cwd": "SSRVPN_MacOS",
+        "exit_code": 65,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/macos-build-for-testing.log",
+          "sha256": "223b31c8a1472a37ec3bad61c14fae35bcfe1cfaa662140c9f61da1d10fe22fa",
+          "bytes": 1706
+        },
+        "classification": "环境受限：Xcode27不支持macOS11部署目标；未调高项目目标，未启动测试宿主。"
+      },
+      {
+        "name": "final-doc-consistency",
+        "command": [
+          "bash",
+          "scripts/check-doc-consistency.sh"
+        ],
+        "cwd": ".",
+        "exit_code": 0,
+        "seconds": 0.61,
+        "log": {
+          "path": "/tmp/ssrvpn-5017-audit/final-doc-consistency.log",
+          "sha256": "8c71587b2a79c46953515a0922bb89c4c555d93df8c014f9cb003624d74a1926",
+          "bytes": 243
+        }
+      }
+    ],
+    "regressions": [
+      {
+        "finding": "N01",
+        "cwd": ".",
+        "reproduction_command": [
+          "bash",
+          "scripts/test-android-native.sh"
+        ],
+        "red": {
+          "exit_code": 1,
+          "stage": "先等价提取旧分发逻辑以便受控测试；不是完全未改基线直接调用新增helper。",
+          "log": {
+            "path": "/tmp/ssrvpn-5017-audit/android-native-red.log",
+            "sha256": "92993386d6095f12724c1e484ec999cdffe0f0e4357e5c5f447e33d64a03e972",
+            "bytes": 26948
+          },
+          "evidence": "CoreLivenessMonitorTest > late monitor exit and failure cannot stop a replacement session FAILED；替代会话应保持活动的断言失败。"
+        },
+        "green": {
+          "exit_code": 0,
+          "log": {
+            "path": "/tmp/ssrvpn-5017-audit/android-native-final.log",
+            "sha256": "ef48dca8a77c4c3ee4a0c62537931f6f7d699ba675521a715789b8ddfef6ea83",
+            "bytes": 24028
+          },
+          "evidence": "最终JVM 200通过、0失败、0跳过；过期正常结果与异常均不能停止新连接。"
+        }
+      },
+      {
+        "finding": "N02",
+        "cwd": "SSRVPN_Android",
+        "reproduction_command": [
+          "flutter",
+          "test",
+          "--no-pub",
+          "test/clash_service_test.dart",
+          "--plain-name",
+          "a running native replacement retires old observations without disconnecting"
+        ],
+        "red": {
+          "exit_code": 1,
+          "stage": "基线生产逻辑加回归测试",
+          "log": {
+            "path": "/tmp/ssrvpn-5017-audit/android-reattach-red.log",
+            "sha256": "6098d11e342d07a0384a8f6a09f9f857d4e02bc6905762ce3e7a148fb9d5cfe2",
+            "bytes": 917
+          },
+          "evidence": "Expected: null; Actual: 旧探测在网络恢复后返回失败"
+        },
+        "green": {
+          "exit_code": 0,
+          "log": {
+            "path": "/tmp/ssrvpn-5017-audit/android-adapter-green.log",
+            "sha256": "8528febff392ed35c3766748046f3f36c58b04623dea8ff1433a57e271e74441",
+            "bytes": 56576
+          },
+          "evidence": "111通过；相同running状态的新原生会话丢弃旧观察且不发布假断开。"
+        }
+      },
+      {
+        "finding": "CONN01",
+        "cwd": "packages/ssrvpn_shared",
+        "reproduction_command": [
+          "flutter",
+          "test",
+          "--no-pub",
+          "test/clash_service_base_test.dart",
+          "--plain-name",
+          "session replacement during guard",
+          "--reporter",
+          "expanded"
+        ],
+        "red": {
+          "exit_code": 1,
+          "stage": "基线生产逻辑加回归测试",
+          "log": {
+            "path": "/tmp/ssrvpn-5017-audit/connection-guard-red.log",
+            "sha256": "8895659580d558bad2d20a5328fb1801b6663fa3f5aa1bdfae958fdc5d496c93",
+            "bytes": 1505
+          },
+          "evidence": "2失败；Expected Replacement node / Actual Node B；Expected 0 DELETE / Actual 1"
+        },
+        "green": {
+          "exit_code": 0,
+          "log": {
+            "path": "/tmp/ssrvpn-5017-audit/connection-final-regression.log",
+            "sha256": "b40fc3407ea66eb9fb65be4dc442c830f41e052e3eab37d5394598dcd1b37eea",
+            "bytes": 3662
+          },
+          "evidence": "33通过；覆盖PUT前与DELETE前guard暂停以及共享新会话失效。"
+        }
+      },
+      {
+        "finding": "SUB01",
+        "cwd": "packages/ssrvpn_shared",
+        "reproduction_command": [
+          "flutter",
+          "test",
+          "--no-pub",
+          "test/subscription_service_base_test.dart",
+          "--name",
+          "refresh (accepts valid YAML|retains every valid node)",
+          "-r",
+          "expanded"
+        ],
+        "red": {
+          "exit_code": 1,
+          "stage": "基线生产逻辑加回归测试",
+          "log": {
+            "path": "/tmp/ssrvpn-5017-audit/subscription-yaml-before.log",
+            "sha256": "75fa8f6dd18809b410c99a6b826b985fcbb56c4c8e3dbf193438f3ac8256c525",
+            "bytes": 4327
+          },
+          "evidence": "5失败；合法文档报无节点，跨节点锚点成功刷新却仅保存First，期望First和Second。"
+        },
+        "green": {
+          "exit_code": 0,
+          "log": {
+            "path": "/tmp/ssrvpn-5017-audit/subscription-final.log",
+            "sha256": "48b611bfe75a0052ed8e836b21015fba82ba40bc37eae65666192feaae8dded5",
+            "bytes": 34215
+          },
+          "evidence": "130通过；含10项新增格式、展开预算与无效节点隔离回归。"
+        }
+      },
+      {
+        "finding": "UI01-macos",
+        "cwd": "SSRVPN_MacOS",
+        "reproduction_command": [
+          "flutter",
+          "test",
+          "--no-pub",
+          "test/desktop_home_screen_test.dart",
+          "--plain-name",
+          "late tray preference completion preserves a newer notice",
+          "--reporter",
+          "expanded"
+        ],
+        "red": {
+          "exit_code": 1,
+          "stage": "基线生产逻辑加回归测试",
+          "log": {
+            "path": "/tmp/ssrvpn-5017-audit/tray-macos-red.log",
+            "sha256": "41660b1b6b3328a43ad7986eb3770bb62bcdf0380e84b835cedc1efc20b35333",
+            "bytes": 2313
+          },
+          "evidence": "释放旧偏好写入后，新的连接失败提示已不再可见；释放前已断言可见。"
+        },
+        "green": {
+          "exit_code": 0,
+          "log": {
+            "path": "/tmp/ssrvpn-5017-audit/tray-macos-green.log",
+            "sha256": "9d317ccd481af1f2e1ae757014890d10de8effa32c5107b1956b4aacefcfe337",
+            "bytes": 293
+          },
+          "evidence": "新增组件/托盘回归1通过；保留新错误，不显示旧连接成功。"
+        }
+      },
+      {
+        "finding": "UI01-windows",
+        "cwd": "SSRVPN_Windows",
+        "reproduction_command": [
+          "flutter",
+          "test",
+          "--no-pub",
+          "test/desktop_home_screen_test.dart",
+          "--plain-name",
+          "late tray preference completion preserves a newer notice",
+          "--reporter",
+          "expanded"
+        ],
+        "red": {
+          "exit_code": 1,
+          "stage": "基线生产逻辑加回归测试",
+          "log": {
+            "path": "/tmp/ssrvpn-5017-audit/tray-windows-red.log",
+            "sha256": "87e5a0decb61893eca59443b35669be964bf909764b05a2cda53c3afe5258e33",
+            "bytes": 2254
+          },
+          "evidence": "释放旧偏好写入后，新的连接失败提示已不再可见；释放前已断言可见。"
+        },
+        "green": {
+          "exit_code": 0,
+          "log": {
+            "path": "/tmp/ssrvpn-5017-audit/tray-windows-green.log",
+            "sha256": "734e344a7d528aff2333867fbfab93e1dd2c06539707a50e1332d9b4ff627caa",
+            "bytes": 228
+          },
+          "evidence": "新增组件/托盘回归1通过；保留新错误，不显示旧连接成功。"
+        }
+      },
+      {
+        "finding": "SUB01-review-regression",
+        "classification": "本轮修复中间回归，已关闭，不计基线原有发现",
+        "red": {
+          "exit_code": 1,
+          "log": {
+            "path": "/tmp/ssrvpn-5017-audit/subscription-nonnode-before.log",
+            "sha256": "c4d9b69150c6a1e3ba9869001f48d145242c8cdd65e4ad50133c4b970c15edbe",
+            "bytes": 3451
+          },
+          "evidence": "新增4个服务回归均失败；应跳过的NaN/Inf或缺名条目使整来源失败。"
+        },
+        "green": {
+          "exit_code": 0,
+          "log": {
+            "path": "/tmp/ssrvpn-5017-audit/subscription-final.log",
+            "sha256": "48b611bfe75a0052ed8e836b21015fba82ba40bc37eae65666192feaae8dded5",
+            "bytes": 34215
+          },
+          "evidence": "最终130项通过；跳过无效项时保留计数和Map资源预算。"
+        },
+        "independent_comparison": {
+          "exit_code": 0,
+          "log": {
+            "path": "/tmp/ssrvpn-5017-audit/subscription-independent-probe-final.log",
+            "sha256": "f5e225172fbb857b52531cda99d04a5c223a303b4a6e73e094311cbc09c7b18e",
+            "bytes": 669
+          },
+          "evidence": "9类生产normalize后的HEAD/最终merger对照一致。"
+        }
+      }
+    ],
+    "android_debug_artifact": {
+      "path": "$AUDIT_WORKTREE/SSRVPN_Android/build/app/outputs/flutter-apk/app-debug.apk",
+      "sha256": "cd13e4faa40f8b0fee75039f1aa951f7d7f73e099026aec0f71dff4110fd9a79",
+      "bytes": 85282625,
+      "abi": [
+        "arm64-v8a"
+      ],
+      "installed": false,
+      "release_artifact": false
+    },
+    "performance_smoke": {
+      "schema_version": 1,
+      "mode": "smoke",
+      "fixture": {
+        "nodes_per_source": 240,
+        "source_count": 4,
+        "merged_nodes": 960,
+        "merged_bytes": 140587,
+        "generated_config_bytes": 170081
+      },
+      "results": {
+        "parse_yaml": {
+          "iterations": 2,
+          "min_us": 8919,
+          "median_us": 10820,
+          "max_us": 10820
+        },
+        "merge_yaml": {
+          "iterations": 2,
+          "min_us": 34007,
+          "median_us": 39019,
+          "max_us": 39019
+        },
+        "generate_config": {
+          "iterations": 2,
+          "min_us": 78617,
+          "median_us": 83889,
+          "max_us": 83889
+        }
+      },
+      "notes": [
+        "Durations are observational and are not pass/fail thresholds.",
+        "Compare results only on comparable hardware and Flutter versions."
+      ]
+    },
+    "review": {
+      "production_diff": "共享切换、原生代际锁、Android会话接线、桌面反馈及订阅解析已由非作者交叉复核。",
+      "intermediate_regression": "SUB01无效项过早序列化已通过红绿回归和独立对照关闭。",
+      "exploratory_probe_not_counted_as_bug": "guard后微任务探针的失败发生于伪服务器晚处理已构造请求；附加请求构造时序反证不支持新增跨会话请求缺陷。"
+    },
+    "unresolved": {
+      "id": "N03",
+      "severity": "P1",
+      "status": "未修复",
+      "evidence": "代码路径已证明",
+      "trigger": "正常安装目录额外放入unrelated.txt或子目录后覆盖升级，程序库存/清理/成功提交没有区分其应用归属。",
+      "blocker": "没有Windows/PowerShell5.1/Inno行为环境；无法可靠验证涉及数据删除和失败恢复的修复。",
+      "plan": "同步收窄程序事务与InstallDelete，可信新旧payload清单限制文件归属；未知文件保留，无可信旧清单时破坏操作前拒绝覆盖；隔离Windows哨兵检查成功、失败回滚、旧版迁移和卸载。",
+      "static_checks_are_not_behavioral_acceptance": true
+    },
+    "limitations": [
+      "macOS原生构建退出65；不修改macOS11最低目标来制造通过。",
+      "Windows C++/PowerShell5.1/注册表/安装器和原生构建未执行。",
+      "核心回环通信未启用TUN；Restls外部TLS伪装握手场景未运行。",
+      "无真实授权、切网、长后台、最低系统、实际渲染/帧率/RSS/电量或三端实机验收。",
+      "全套与专项计数重叠，不能相加宣称独立测试总量；共享最终重跑对应最终解析器。",
+      "原始日志位于执行机临时目录；本文件保留摘要和hash，不包含用户订阅或凭据。"
+    ],
+    "non_product_failures": [
+      "初次隔离树缺固定资产，复制并验hash后解决。",
+      "Service中间超过行数护栏，未改门槛，修正并重跑通过。",
+      "开发回归夹具曾因文本精确匹配、工作目录或package_config路径失败，未计产品红灯；采用修正后行为证据。"
+    ],
+    "final_review_checks": {
+      "source_fingerprints_verified": true,
+      "git_diff_check_exit_code": 0,
+      "original_main_clean": true,
+      "original_main_commit": "741ea3c1296ade164124301ff6a9647f4bf09ddf",
+      "report_review": "独立复核后收紧N02同端口保护和服务监听器证据表述，并校正N02/N03基线行号。",
+      "doc_consistency_exit_code": 0
+    }
+  },
+  "round1_snapshot_note": "首轮执行时的不可变证据快照；其中source指纹及APK hash是首轮产物，不指代第二轮最终状态。",
+  "runs_scope": "此数组只含第二轮实际运行；第一轮完整44项命令保留于round1_snapshot.runs。专项/全套重复覆盖不可相加。",
+  "inherited_checks": {
+    "source": "round1_snapshot.runs",
+    "reason": "第二轮无Kotlin/核心协议和配置/性能热路径变更，不重复已通过的未受影响检查。",
+    "android_jvm": "200通过，40类，0失败/跳过",
+    "core_loopback": "路由、双栈、加密协议、导入7场景；无TUN/Restls",
+    "native_builds": "首轮macOS exit65环境阻塞仍有效；Windows原生未执行；没有本轮原生验收。"
+  },
+  "validation_source_binding": {
+    "production": "全部第二轮生产改动在各模块最终全套与APK构建前已冻结；UI02后续仅将测试替换为真实设置流程，最终共享全套及分析再过。",
+    "android_adapter": "Android最终仅调整回归覆盖路由的文字和注释，26项专项再过；生产代码与364项全套/APK构建一致。",
+    "android_apk": "debug arm64包未安装，最终SHA取自第二轮构建，首轮SHA仅保留于快照。"
+  },
+  "publication_export": {
+    "path_aliases": {
+      "$AUDIT_WORKTREE": "isolated audit checkout",
+      "$ORIGINAL_WORKTREE": "original main checkout",
+      "$FLUTTER_3_44_1": "installed Flutter 3.44.1 SDK"
+    },
+    "note": "Publication export replaces local user-specific absolute prefixes with named aliases. Recorded commands retain their argument structure; source/log hashes and original audit results are unchanged. This is the pre-version-bump audit snapshot, not v5.0.18 release or CI evidence."
+  }
+}

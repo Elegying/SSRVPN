@@ -18,6 +18,25 @@ internal object CoreLivenessMonitor {
     private const val PORT_MISSES_BEFORE_RESTART = 2
     private const val POLL_INTERVAL_MILLIS = 3_000L
 
+    // Keep observation outside the generation lock; only its lifecycle effects
+    // belong to the originating session's atomic publication boundary.
+    fun observeSession(
+        startToken: Long,
+        gate: StartGenerationGate,
+        waitForExit: () -> CoreLivenessOutcome,
+        onUnexpectedExit: (CoreLivenessOutcome) -> Unit,
+        onFailure: (Exception) -> Unit
+    ) {
+        try {
+            val outcome = waitForExit()
+            if (outcome.unexpectedExit) {
+                gate.runIfCurrent(startToken) { onUnexpectedExit(outcome) }
+            }
+        } catch (error: Exception) {
+            gate.runIfCurrent(startToken) { onFailure(error) }
+        }
+    }
+
     fun waitForUnexpectedExit(
         startToken: Long,
         currentGeneration: () -> Long,

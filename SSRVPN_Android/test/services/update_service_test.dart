@@ -12,6 +12,7 @@ import 'package:http/io_client.dart';
 import 'package:http/testing.dart';
 import 'package:ssrvpn_android/services/update_service.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 
 void main() {
   group('UpdateChecker.compareVersions', () {
@@ -692,6 +693,83 @@ void main() {
       );
     });
 
+    testWidgets('completed update closes its own covered progress dialog',
+        (tester) async {
+      final navigator = GlobalKey<NavigatorState>();
+      final observer = _PopupObserver();
+      late BuildContext context;
+      await tester.pumpWidget(MaterialApp(
+        navigatorKey: navigator,
+        navigatorObservers: [observer],
+        home: Builder(builder: (value) {
+          context = value;
+          return const Scaffold(body: Text('主页面'));
+        }),
+      ));
+      final bytes = utf8.encode('verified-covered-apk');
+      final response = Completer<http.StreamedResponse>();
+      var requested = false;
+      var installed = false;
+      var completed = false;
+      final task = UpdateService.downloadAndInstallUpdate(
+        context,
+        AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN.apk',
+          changelog: '',
+          sha256: sha256.convert(bytes).toString(),
+        ),
+        outputDirectory: tempDir,
+        client: _StreamClient((_) {
+          requested = true;
+          return response.future;
+        }),
+        installApk: (_) async {
+          installed = true;
+          return {'status': 'started'};
+        },
+      );
+      unawaited(task.then((_) => completed = true));
+      try {
+        for (var i = 0; i < 200 && !requested; i++) {
+          await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 10)));
+          await tester.pump(const Duration(milliseconds: 20));
+        }
+        expect(requested, isTrue);
+        expect(find.text('正在更新'), findsOneWidget);
+        // Mirror a late background-image preview from the shared settings
+        // page; the full settings/import flow is covered by the shared test.
+        unawaited(showSsrvpnGlassDialog<void>(
+          context: context,
+          builder: (_) => const AlertDialog(content: Text('背景预览')),
+        ));
+        await tester.pump(const Duration(seconds: 1));
+        response.complete(http.StreamedResponse(
+          Stream<List<int>>.value(bytes),
+          HttpStatus.ok,
+          contentLength: bytes.length,
+        ));
+        for (var i = 0; i < 200 && !completed; i++) {
+          await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 10)));
+          await tester.pump(const Duration(milliseconds: 20));
+          if (find.text('背景预览').evaluate().isEmpty) break;
+        }
+        expect(find.text('背景预览'), findsOneWidget);
+        expect(find.text('正在更新', skipOffstage: false), findsNothing);
+        expect(installed, isTrue);
+        expect(completed, isTrue);
+        expect(UpdateService.isUpdateUiBusy, isFalse);
+      } finally {
+        for (final route in observer.routes.reversed) {
+          if (route.isActive) navigator.currentState!.removeRoute(route);
+        }
+        await tester.pumpAndSettle();
+        await task;
+      }
+    });
+
     testWidgets('download dialog can cancel a stalled update', (tester) async {
       final response = Completer<http.StreamedResponse>();
       BuildContext? capturedContext;
@@ -869,6 +947,15 @@ class _StreamedResponseWithUrl extends http.StreamedResponse
 }
 
 class _RealHttpOverrides extends HttpOverrides {}
+
+class _PopupObserver extends NavigatorObserver {
+  final routes = <Route<dynamic>>[];
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (route is PopupRoute) routes.add(route);
+  }
+}
 
 class _OversizedByteList extends ListBase<int> {
   _OversizedByteList(this._length);

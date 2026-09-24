@@ -1434,6 +1434,46 @@ void main() {
       },
     );
 
+    for (final guardPhase in [2, 4]) {
+      test(
+          'session replacement during guard $guardPhase cannot mutate the core',
+          () async {
+        final api = await _ProxyApiServer.start(proxyNow: 'Node A');
+        addTearDown(api.close);
+        final service = _ApiClashService()
+          ..initHttpClient()
+          ..updateSettings(AppSettings(apiPort: api.port))
+          ..publishRunning();
+        addTearDown(service.dispose);
+        final guardEntered = Completer<void>();
+        final guardResult = Completer<bool>();
+        addTearDown(() {
+          if (!guardResult.isCompleted) guardResult.complete(false);
+        });
+        var guardCalls = 0;
+        final switching = service.switchSelectedProxy(
+          'Node B',
+          isSwitchContextCurrent: () {
+            if (++guardCalls != guardPhase) return true;
+            guardEntered.complete();
+            return guardResult.future;
+          },
+        );
+        await guardEntered.future;
+        service.setRunning(false);
+        service.setRunning(true);
+        api.proxyNow = 'Replacement node';
+        guardResult.complete(true);
+        await switching;
+
+        expect(api.proxyNow, 'Replacement node');
+        expect(api.putTargets, guardPhase == 2 ? isEmpty : ['PROXY:Node B']);
+        expect(api.closeConnectionCalls, 0);
+        expect(service.isRunning, isTrue);
+        expect(service.isProxySelectionInProgress, isFalse);
+      });
+    }
+
     test(
       'confirms PROXY now before reporting a selected-node switch',
       () async {
@@ -2684,6 +2724,46 @@ proxies:
     expect(await pending, isNull);
     expect(replacementRequests, 0);
     expect(await service.currentSelectedProxyName(), 'New Node');
+  });
+
+  test(
+      'a running session replacement discards old controller and probe results',
+      () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final oldRequest = Completer<HttpRequest>();
+    server.listen((request) {
+      if (!oldRequest.isCompleted) {
+        oldRequest.complete(request);
+      } else {
+        request.response.write('{"mixed-port":17891}');
+        unawaited(request.response.close());
+      }
+    });
+    final service = _RouteDataPlaneClashService()
+      ..requestConnectionIntent(true)
+      ..setRunning(true)
+      ..initHttpClient()
+      ..updateSettings(AppSettings(apiPort: server.port));
+    addTearDown(service.dispose);
+    service.scheduleObservationForTest();
+    await service.firstObservationStarted.future;
+    final pendingConfig = service.getConfigs();
+    final request = await oldRequest.future;
+
+    service.setRunning(true, newSession: true);
+    service.scheduleObservationForTest();
+    await service.secondObservationStarted.future;
+    request.response.write('{"mixed-port":17890}');
+    await request.response.close();
+    service.firstObservation.complete();
+
+    expect(await pendingConfig, isNull);
+    expect(await service.getConfigs(), {'mixed-port': 17891});
+    expect(service.connectivityWarning, '当前节点外部联网告警');
+    expect(service.observationCalls, 2);
+    expect(service.isRunning, isTrue);
+    expect(service.connectionDesired, isTrue);
   });
 
   test(

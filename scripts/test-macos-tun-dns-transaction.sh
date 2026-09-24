@@ -37,6 +37,30 @@ done
 # shellcheck source=/dev/null
 source "$LIBRARY"
 
+# Verify the actual status writer separately from the DNS command substitutes.
+# Only a temporary file is touched; the privileged runner entrypoint never runs.
+awk '
+  /^write_status\(\) \{/ { capture = 1 }
+  capture { print }
+  capture && /^\}/ { exit }
+' "$RUNNER" > "$TEST_ROOT/status-writer.sh"
+# shellcheck source=/dev/null
+source "$TEST_ROOT/status-writer.sh"
+test_status_protocol() {
+  local status_path="$TEST_ROOT/status-protocol"
+  local status_nonce=0123456789abcdef0123456789abcdef
+  local state
+  for state in starting running error:network-change error:dns-recovery; do
+    write_status "$state"
+    [[ $(cat "$status_path") == "$state:$status_nonce" ]] || return 1
+    [[ $(wc -c < "$status_path") -le 64 ]] || return 1
+  done
+  status_nonce=
+  write_status error:dns-recovery
+  [[ $(cat "$status_path") == error:dns-recovery ]]
+}
+test_status_protocol
+
 tun_dns_server=114.114.114.114
 legacy_tun_dns_server=127.0.0.1
 

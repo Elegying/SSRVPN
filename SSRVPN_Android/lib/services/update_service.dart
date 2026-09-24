@@ -396,6 +396,7 @@ class UpdateService {
     var progressDialogOpen = false;
     Future<void>? progressDialogFuture;
     Future<void>? progressDialogCloseFuture;
+    PopupRoute<void>? progressDialogRoute;
     var userCancelled = false;
     final cancellation = UpdateDownloadCancellation();
 
@@ -406,9 +407,7 @@ class UpdateService {
         if (!progressDialogOpen) return;
         progressDialogOpen = false;
         updateDialogState = null;
-        if (context.mounted) {
-          Navigator.of(context, rootNavigator: true).pop();
-        }
+        closeSsrvpnDialogRoute(progressDialogRoute);
         await progressDialogFuture;
       }();
       progressDialogCloseFuture = close;
@@ -426,6 +425,7 @@ class UpdateService {
           progressDialogFuture = showSsrvpnGlassDialog<void>(
             context: context,
             barrierDismissible: false,
+            onRouteCreated: (route) => progressDialogRoute = route,
             builder: (dialogContext) => StatefulBuilder(
               builder: (dialogContext, setDialogState) {
                 updateDialogState = setDialogState;

@@ -431,7 +431,10 @@ abstract class ClashServiceBase
     final generation = _trafficSessionGeneration;
     Future<bool> isCurrent() async =>
         generation == _trafficSessionGeneration &&
-        await _isSwitchContextCurrent(isSwitchContextCurrent);
+        await _isSwitchContextCurrent(isSwitchContextCurrent) &&
+        // Native session validation may await a platform reply. Recheck our
+        // session before allowing that reply to authorize a mutation.
+        generation == _trafficSessionGeneration;
     final publishBusy = _pendingProxySelections++ == 0;
     final operation = _proxySelectionTail.then(
       (_) async {
@@ -672,8 +675,10 @@ abstract class ClashServiceBase
 
   // ── 状态管理 ──
 
-  void setRunning(bool running) {
-    if (_isRunning != running) {
+  /// A native runtime can replace its session without reporting a stopped
+  /// state. Invalidate observations even when its running flag stays true.
+  void setRunning(bool running, {bool newSession = false}) {
+    if (_isRunning != running || (running && newSession)) {
       _healthFailures.reset();
       _trafficSessionGeneration++;
       _invalidateHealthMonitorSession();
