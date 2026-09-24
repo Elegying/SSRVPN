@@ -88,8 +88,9 @@ namespace SsrvpnInstaller {
       while (stack.Count > 0) {
         parent = stack.Pop();
         if (create && !Directory.Exists(parent)) Directory.CreateDirectory(parent);
-        // No FILE_SHARE_DELETE: a pinned directory cannot be exchanged for a junction.
-        var handle = CreateFile(parent, 0x80, 3, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
+        // FILE_LIST_DIRECTORY participates in sharing checks; READ_ATTRIBUTES
+        // alone does not prevent rename even without FILE_SHARE_DELETE.
+        var handle = CreateFile(parent, 0x81, 3, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
         parents.Add(handle);
         Check(handle, parent, true);
       }

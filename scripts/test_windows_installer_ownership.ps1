@@ -17,6 +17,18 @@ $baseline = Join-Path $suite 'baseline.ps1'
 $baselineText = & git -C $repo show 'v5.0.18:SSRVPN_Windows/installer/program_files_transaction.ps1'
 if ($LASTEXITCODE -ne 0) { throw 'Could not retrieve the exact historical production helper.' }
 [IO.File]::WriteAllText($baseline, ($baselineText -join "`n"), $utf8)
+$historicalCleanupCommit = 'dd36e8dc9d359397813d8af6c4e1869b5827487f'
+# Protected main requires squash/linear history. Retrieve this immutable review
+# baseline explicitly when it is not an ancestor of the final merge commit.
+$previousPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+  & git -C $repo cat-file -e ($historicalCleanupCommit + '^{commit}') 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    & git -C $repo fetch --no-tags https://github.com/Elegying/SSRVPN.git $historicalCleanupCommit
+    if ($LASTEXITCODE -ne 0) { throw 'Could not retrieve the pinned pre-fix cleanup source.' }
+  }
+} finally { $ErrorActionPreference = $previousPreference }
 
 function Write-FixtureFile([string]$Path, [string]$Text) {
   [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($Path)) | Out-Null
@@ -315,7 +327,7 @@ try {
       Seal-Case $c
       $injectedRoot = Join-Path $c.root 'injected-helper'
       [void][IO.Directory]::CreateDirectory($injectedRoot)
-      $historicalCommit = 'dd36e8dc9d359397813d8af6c4e1869b5827487f'
+      $historicalCommit = $historicalCleanupCommit
       foreach ($name in @('program_files_transaction.ps1', 'program_file_ownership.ps1', 'program_file_handles.cs')) {
         if ($sourceKind -eq 'historical-red') {
           $source = & git -C $repo show ($historicalCommit + ':SSRVPN_Windows/installer/' + $name)
