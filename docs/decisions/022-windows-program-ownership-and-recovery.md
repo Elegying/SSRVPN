@@ -85,6 +85,9 @@ Inno 6.7.1 的 ssPostInstall 异常本身不会触发其完整文件回滚，也
 - 历史资产采集：[Maintenance 35979092156](https://github.com/Elegying/SSRVPN/actions/runs/35979092156)。
 - N03/N04 真实旧行为及 N04 成功恢复：[Maintenance 35982923479](https://github.com/Elegying/SSRVPN/actions/runs/35982923479)。
   此轮后续卸载暴露 DAT 锁冲突，不能把该 run 标成整体通过。
+- 修复后完整矩阵：[Maintenance 35987784213](https://github.com/Elegying/SSRVPN/actions/runs/35987784213)，
+  HKCU/HKLM 各 36 组生产事务场景及 10 组真实 Inno 场景全部通过，包含中文路径、真实状态
+  写失败和当前/历史 A 卸载器对 B 材料的保护。Windows Server 2025 / PS 5.1 / Inno 6.7.1。
 - `test_windows_installer_ownership.ps1`：PS 5.1 真实 helper 故障/冲突/跨目录/提交边界矩阵。
 - `test_windows_installer_ownership_package.ps1`：固定官方 v5.0.18 和临时故障包的真实 Inno 矩阵；
   候选包复用已验证 v5.0.18 应用字节，验证安装器行为，不能冒充正式候选应用构建。

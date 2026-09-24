@@ -8,6 +8,26 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WindowsInstallerConfigTest(unittest.TestCase):
+    def test_formal_package_acceptance_keeps_isolation_and_exact_asset_identity(self):
+        acceptance = (ROOT / "scripts/test_windows_public_installer.ps1").read_text(encoding="utf-8-sig")
+        for required in (
+            "$env:GITHUB_ACTIONS -cne 'true'",
+            "$env:RUNNER_OS -cne 'Windows'",
+            "$env:GITHUB_REPOSITORY -cne 'Elegying/SSRVPN'",
+            "$PSVersionTable.PSVersion.Major -ne 5",
+            "curl.exe -q",
+            "--source-ref", "--source-digest", "--signer-digest",
+            "--deny-self-hosted-runners", "--signer-workflow Elegying/SSRVPN/.github/workflows/release.yml",
+            "public-upgrade-from-5018", "public-normal-upgrade", "public-final-uninstall",
+        ):
+            self.assertIn(required, acceptance)
+        self.assertNotIn("build_installer", acceptance)
+        workflow = (ROOT / ".github/workflows/maintenance.yml").read_text(encoding="utf-8")
+        self.assertIn("windows-public-installer-acceptance", workflow)
+        for path in (ROOT / "SSRVPN_Windows/installer").iterdir():
+            if path.suffix in {".iss", ".ps1", ".cs"}:
+                self.assertNotIn("TEST_ONLY_PRE_COMMIT", path.read_text(encoding="utf-8-sig"))
+
     def test_historical_catalogs_match_verified_public_package_pins(self):
         installer = ROOT / "SSRVPN_Windows/installer"
         document = json.loads((installer / "legacy-program-catalogs.json").read_text(encoding="utf-8-sig"))
