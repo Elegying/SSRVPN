@@ -431,7 +431,7 @@ begin
   { Separate roots also protect a new B transaction from an older A uninstaller
     whose helper still discards the legacy shared installer-recovery path. }
   Result := ExpandConstant('{localappdata}\SSRVPN\installer-recovery-v4\') +
-    GetSHA256OfString(Lowercase(ExpandConstant('{app}')));
+    GetSHA256OfString(UTF8Encode(Lowercase(ExpandConstant('{app}'))));
 end;
 
 function GetUninstallMetadataDir(Param: String): String;
@@ -605,7 +605,7 @@ begin
       'Install', 'ssrvpn_expected_payload.sha256')) then
     RaiseException(
       'SSRVPN 新程序文件未通过完整性校验，无法继续更新。' +
-      '旧程序将自动恢复。诊断阶段码：' +
+      '安装器将尝试恢复旧程序；请以安装日志中的恢复结果为准。诊断阶段码：' +
       LastProgramFilesTransactionStatus + '。');
 end;
 
@@ -669,7 +669,7 @@ begin
         RecoverPendingProgramFilesTransaction;
       ReleaseInstallGates;
       Result := '无法建立 SSRVPN 程序文件回滚点，安装尚未开始覆盖。' + #13#10 +
-        '旧程序已尽力恢复；恢复副本会保留到后续安装完成处理。' + #13#10 +
+        '请以日志中的恢复结果为准；不要删除仍在的恢复材料或个人文件。' + #13#10 +
         '诊断阶段码：' + BeginFailureStatus + '。';
       exit;
     end;
@@ -680,7 +680,7 @@ begin
         RecoverPendingProgramFilesTransaction;
       ReleaseInstallGates;
       Result := '无法在回滚点保护下清理旧版程序文件，安装尚未写入新版本。' + #13#10 +
-        '旧程序已尽力恢复；恢复副本会保留到后续安装完成处理。' + #13#10 +
+        '请以日志中的恢复结果为准；不要删除仍在的恢复材料或个人文件。' + #13#10 +
         '诊断阶段码：' + BeginFailureStatus + '。';
       exit;
     end;

@@ -1235,6 +1235,19 @@ try {
           "SSRVPN uninstaller exited with code $uninstallExitCode. " +
           "Log: $uninstallLog"
       } else {
+        $uninstallDeadline = [DateTime]::UtcNow.AddSeconds(30)
+        while ([DateTime]::UtcNow -lt $uninstallDeadline -and
+            ((Test-Path -LiteralPath $uninstaller) -or
+             (Test-Path -LiteralPath $currentUninstallRegistryPath) -or
+             (Test-Path -LiteralPath $desktopShortcutPath) -or
+             (Test-Path -LiteralPath $startMenuShortcutPath))) {
+          Start-Sleep -Milliseconds 100
+        }
+        foreach ($ownedPath in @($uninstaller, $currentUninstallRegistryPath,
+            $desktopShortcutPath, $startMenuShortcutPath)) {
+          if (Test-Path -LiteralPath $ownedPath) { throw "Uninstall second phase left an owned resource: $ownedPath" }
+        }
+        Assert-OppositeScopeUninstallEntryPreserved
         if (Test-Path -LiteralPath $programRecoveryRoot) {
           throw 'SSRVPN uninstall left old program recovery binaries behind.'
         }
@@ -1320,8 +1333,8 @@ foreach ($cacheRoot in $cacheRoots) {
     throw "Uninstaller left WebView cache behind: $cacheRoot"
   }
 }
-if (Test-Path -LiteralPath $uninstallRegistryPath) {
-  throw "Uninstaller left its registry entry behind: $uninstallRegistryPath"
+if (Test-Path -LiteralPath $currentUninstallRegistryPath) {
+  throw "Uninstaller left its registry entry behind: $currentUninstallRegistryPath"
 }
 
 Write-Host "Windows installer install/uninstall smoke test passed. Logs: $logDir"

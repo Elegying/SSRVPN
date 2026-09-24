@@ -116,6 +116,14 @@ namespace SsrvpnInstaller {
       if (!SetFileInformationByHandle(stream.SafeFileHandle, 4, ref value, 1))
         throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot remove verified program file.");
     }
+    public string ReadUtf8Text(long maxBytes) {
+      if (stream.Length > maxBytes) throw new IOException("Verified metadata exceeds its size limit.");
+      stream.Position = 0;
+      try {
+        using (var reader = new StreamReader(stream, new UTF8Encoding(false, true), false, 4096, true))
+          return reader.ReadToEnd();
+      } finally { stream.Position = 0; }
+    }
     public void CopyNew(string path) {
       using (var target = new ProgramFile()) {
         target.PinParents(path, true);

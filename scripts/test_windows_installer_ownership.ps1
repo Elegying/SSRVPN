@@ -83,7 +83,7 @@ function Get-CaseRegistry($Case) {
     }) | ConvertTo-Json -Depth 5 -Compress)
   } finally { $key.Dispose() }
 }
-function Invoke-Case($Case, [string]$Action, [switch]$Failure, [switch]$Legacy, [string]$Scope = $UninstallRegistryRoot, [string]$Script = $helper, [string]$StatusOverride = '') {
+function Invoke-Case($Case, [string]$Action, [switch]$Failure, [switch]$Legacy, [string]$Scope = $UninstallRegistryRoot, [string]$View = '64', [string]$Script = $helper, [string]$StatusOverride = '') {
   $Case.count++
   $prefix = Join-Path $Case.root ("$($Case.count)-$Action")
   $status = if ($StatusOverride) { $StatusOverride } else { "$prefix.status" }
@@ -94,7 +94,7 @@ function Invoke-Case($Case, [string]$Action, [switch]$Failure, [switch]$Legacy, 
     '-DesktopShortcutPath', ('"' + $Case.desktop + '"'), '-StartMenuShortcutPath', ('"' + $Case.menu + '"'),
     '-ExpectedPayloadManifestPath', ('"' + $Case.expected + '"'))
   if (-not $Legacy) {
-    $args += @('-UninstallRegistryRoot', $Scope, '-LegacyCatalogPath', ('"' + $Case.catalog + '"'),
+    $args += @('-UninstallRegistryRoot', $Scope, '-UninstallRegistryView', $View, '-LegacyCatalogPath', ('"' + $Case.catalog + '"'),
       '-PayloadSourceRoot', ('"' + $Case.payload + '"'), '-UninstallMetadataRelativePath', $Case.metadata)
   }
   $process = Start-Process powershell.exe -WindowStyle Hidden -PassThru -Wait -ArgumentList $args `
@@ -186,7 +186,7 @@ try {
   Assert-UserFiles $c
   Pass 'First install failure restores absent registry and shortcut state'
 
-  foreach ($damage in @('state', 'manifest', 'plan', 'backup', 'missing-state', 'missing-manifest')) {
+  foreach ($damage in @('state', 'manifest', 'plan', 'backup', 'registry-export', 'shortcut-backup', 'missing-state', 'missing-manifest')) {
     $c = New-Case ("damaged-$damage")
     Invoke-Case $c Begin
     $path = switch ($damage) {
@@ -194,6 +194,8 @@ try {
       manifest { Join-Path $c.recovery 'manifest.json' }
       plan { Join-Path $c.recovery 'new-payload.json' }
       backup { Join-Path $c.recovery 'program\ssrvpn_windows.exe' }
+      registry-export { Join-Path $c.recovery 'uninstall-registry.reg' }
+      shortcut-backup { Join-Path $c.recovery 'external-files\desktop.lnk' }
       missing-state { Join-Path $c.recovery 'state.json' }
       missing-manifest { Join-Path $c.recovery 'manifest.json' }
     }
@@ -264,10 +266,28 @@ try {
   Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'new-ssrvpn_windows.exe'
   Pass 'Committed cleanup failure never rolls a completed installation back'
 
+  $c = New-Case 'commit-state-write-failure'
+  $registryBefore = Get-CaseRegistry $c
+  Invoke-Case $c Begin
+  Invoke-Case $c Clear
+  Invoke-Case $c Install
+  Seal-Case $c
+  Set-CaseRegistry $c 'new-before-commit'
+  $lock = [IO.File]::Open((Join-Path $c.recovery 'state.json'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+  try { Invoke-Case $c Commit -Failure } finally { $lock.Dispose() }
+  $state = [IO.File]::ReadAllText((Join-Path $c.recovery 'state.json')) | ConvertFrom-Json
+  if ($state.phase -cne 'validated') { throw 'Failed committed publication changed the durable boundary.' }
+  Invoke-Case $c Recover
+  Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
+  if ((Get-CaseRegistry $c) -cne $registryBefore) { throw 'Failed commit did not recover the exact old registry values.' }
+  Assert-UserFiles $c
+  Pass 'Actual committed-state write failure restores old files, registry and previous ownership'
+
   $c = New-Case 'scope-mismatch'
   Invoke-Case $c Begin
   $other = if ($UninstallRegistryRoot -eq 'HKLM') { 'HKCU' } else { 'HKLM' }
   Invoke-Case $c Recover -Failure -Scope $other
+  Invoke-Case $c Recover -Failure -View '32'
   Invoke-Case $c Recover
   Pass 'Registry hive mismatch is rejected without mutation'
 
@@ -350,11 +370,13 @@ try {
   $path = Join-Path $c.install 'bin\app.dll'
   $handle = [SsrvpnInstaller.ProgramFile]::Open($path, $true)
   try {
+    if ($handle.ReadUtf8Text(1024) -cne 'old-bin\app.dll') { throw 'Pinned metadata was not read from the verified handle.' }
     $denied = 0
     try { [IO.File]::WriteAllText($path, 'racing-writer') } catch { $denied++ }
     try { [IO.Directory]::Move((Join-Path $c.install 'bin'), (Join-Path $c.install 'exchanged-bin')) } catch { $denied++ }
     try { $handle.CopyNew((Join-Path $c.install 'unrelated.txt')) } catch { $denied++ }
-    if ($denied -ne 3) { throw 'Pinned file/parent or exclusive-copy protection was bypassed.' }
+    try { [void]$handle.ReadUtf8Text(1) } catch { $denied++ }
+    if ($denied -ne 4) { throw 'Pinned file/parent, bounded metadata or exclusive-copy protection was bypassed.' }
   } finally { $handle.Dispose() }
   Assert-File $path 'old-bin\app.dll'
   Assert-UserFiles $c

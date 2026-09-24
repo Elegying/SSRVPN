@@ -427,22 +427,23 @@ function Remove-AuthenticatedRecoveryFiles {
       throw "Finalized recovery contains an unknown file; it was preserved: $($entry.path)"
     }
   }
-  $opened = Open-OwnedFiles -Root $Root -Entries $entries -AllowMissing -ForRemoval
-  try { foreach ($item in $opened) { $item.handle.Delete() } }
-  finally { foreach ($item in $opened) { $item.handle.Dispose() } }
-  # Keep the authenticated state until all known material has been removed.
+  # Authenticate the very same pinned state handle that is eventually deleted.
+  # A separate path read followed by a hash/open leaves a replacement window.
   $statePath = Join-Path $Root 'state.json'
-  $onDisk = Read-BoundedJsonDocument -Path $statePath -Name 'Finalized recovery state'
-  if ($onDisk.authentication -cne (Get-StateAuthentication -State $onDisk) -or
-      $onDisk.authentication -cne $State.authentication) {
-    throw 'Finalized recovery state changed during cleanup.'
+  if (-not ('SsrvpnInstaller.ProgramFile' -as [type])) {
+    Add-Type -Path (Join-Path $PSScriptRoot 'program_file_handles.cs')
   }
-  $identity = Get-BoundedFileMetadata -Path $statePath -MaxBytes $script:maxMetadataDocumentBytes -Name 'Finalized state'
   $stateHandle = [SsrvpnInstaller.ProgramFile]::Open($statePath, $true)
   try {
-    if ($stateHandle.Sha256 -cne $identity.sha256) {
+    $onDisk = $stateHandle.ReadUtf8Text($script:maxMetadataDocumentBytes) | ConvertFrom-Json
+    if ($onDisk.authentication -cne (Get-StateAuthentication -State $onDisk) -or
+        $onDisk.authentication -cne $State.authentication) {
       throw 'Finalized recovery state changed during cleanup.'
     }
+    $opened = Open-OwnedFiles -Root $Root -Entries $entries -AllowMissing -ForRemoval
+    try { foreach ($item in $opened) { $item.handle.Delete() } }
+    finally { foreach ($item in $opened) { $item.handle.Dispose() } }
+    # Keep the authenticated state until all known material has been removed.
     $stateHandle.Delete()
   } finally { $stateHandle.Dispose() }
   # Empty directories alone have no user content; never recurse-delete a tree.

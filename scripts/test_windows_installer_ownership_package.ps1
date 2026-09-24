@@ -297,7 +297,7 @@ try {
   if ((Run-Installer $candidate 'directory-a-install') -ne 0) { throw 'Directory A install failed.' }
   Assert-Committed 'directory-a-install'
   $directoryA = $installDir
-  $installDir = Join-Path $root 'directory-b'
+  $installDir = Join-Path $root ('directory-b ' + [char]0x4E2D + [char]0x6587)
   Write-Text (Join-Path $installDir 'unrelated.txt') 'directory-b-sentinel'
   $before = Snapshot 'changed-directory-before'
   [void](Run-Installer $fault 'changed-directory-precommit')
@@ -336,6 +336,9 @@ try {
   Invoke-Transaction $directoryB Recover 'directory-b-recover-after-legacy-a'
   if ((Get-TreeHashes $directoryB) -cne $beforeB -or (Test-Path $registryPath) -or (Test-Path $desktop) -or (Test-Path $menu)) { throw 'B recovery recreated stale historical A metadata.' }
   if ((Run-Installer $uninstallerB 'directory-b-final-uninstall' $directoryB) -ne 0) { throw 'B cleanup uninstall failed.' }
+  $deadline = [DateTime]::UtcNow.AddSeconds(30)
+  while ((Test-Path -LiteralPath $uninstallerB) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
+  if ((Test-Path -LiteralPath $uninstallerB) -or (Test-Path -LiteralPath (Join-Path $directoryB 'ssrvpn_windows.exe'))) { throw 'B second-phase uninstall did not finish.' }
   if ([IO.File]::ReadAllText((Join-Path $directoryB 'unrelated.txt')) -cne 'directory-b-sentinel') { throw 'B uninstall deleted its unrelated file.' }
   Pass 'Two real installation directories: uninstall A preserves all B state and backup; later B recovery succeeds'
   Assert-NonTargetScopes

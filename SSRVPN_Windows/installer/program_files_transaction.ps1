@@ -706,11 +706,13 @@ function New-ExternalFilesSnapshot {
       }
       New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
       $backupPath = Join-Path $backupRoot $spec.backupName
-      [System.IO.File]::Copy($item.FullName, $backupPath, $true)
-      $backupItem = Get-Item -LiteralPath $backupPath -Force
-      $length = [long]$backupItem.Length
-      $sha256 = (Get-FileHash -LiteralPath $backupPath `
-        -Algorithm SHA256).Hash.ToLowerInvariant()
+      $source = [SsrvpnInstaller.ProgramFile]::Open($item.FullName, $false)
+      try {
+        $length = $source.Length
+        if ($length -gt 16MB) { throw 'External installer metadata exceeds its size limit.' }
+        $sha256 = $source.Sha256
+        $source.CopyNew($backupPath)
+      } finally { $source.Dispose() }
     }
     [void]$entries.Add([pscustomobject][ordered]@{
       name = $spec.name
@@ -821,15 +823,15 @@ function Restore-ExternalFilesSnapshot {
           (Test-ReparsePoint -Item $currentItem)) {
         throw "External installer metadata path is unsafe: $($entry.path)"
       }
-      Remove-Item -LiteralPath $currentItem.FullName -Force
+      $target = [SsrvpnInstaller.ProgramFile]::Open($currentItem.FullName, $true)
+      try { $target.Delete() } finally { $target.Dispose() }
     }
     if ([bool]$entry.exists) {
-      $parent = [System.IO.Path]::GetDirectoryName([string]$entry.path)
-      New-Item -ItemType Directory -Path $parent -Force | Out-Null
-      [System.IO.File]::Copy(
-        [string]$entry.backupPath,
-        [string]$entry.path,
-        $true)
+      $source = [SsrvpnInstaller.ProgramFile]::Open([string]$entry.backupPath, $false)
+      try {
+        if ($source.Sha256 -cne [string]$entry.sha256) { throw 'External installer metadata source changed.' }
+        $source.CopyNew([string]$entry.path)
+      } finally { $source.Dispose() }
       $actualHash = (Get-FileHash -LiteralPath ([string]$entry.path) `
         -Algorithm SHA256).Hash.ToLowerInvariant()
       if ($actualHash -cne [string]$entry.sha256) {
