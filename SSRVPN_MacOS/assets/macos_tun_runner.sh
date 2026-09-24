@@ -8,10 +8,15 @@ export LC_ALL
 umask 077
 
 status_path=
+status_nonce=
 
 write_status() {
   [[ -n ${status_path:-} ]] || return 0
-  /usr/bin/printf '%s\n' "$1" > "$status_path"
+  if [[ -n ${status_nonce:-} ]]; then
+    /usr/bin/printf '%s:%s\n' "$1" "$status_nonce" > "$status_path"
+  else
+    /usr/bin/printf '%s\n' "$1" > "$status_path"
+  fi
   /bin/chmod 644 "$status_path"
 }
 
@@ -32,6 +37,9 @@ if [[ $# -eq 6 && $1 == "--app-pid" && $2 =~ ^[0-9]+$ && $2 -gt 1 && \
   app_pid=$2
   staged_config=$4
   expected_request_value=$6
+  [[ $expected_request_value =~ ^v2:active:[0-9]+:([0-9a-f]{32})$ ]] || \
+    die "invalid request token"
+  status_nonce=${BASH_REMATCH[1]}
 elif [[ $# -eq 3 && $1 == "--recover-dns" && $2 == "--app-pid" && \
         $3 =~ ^[0-9]+$ && $3 -gt 1 ]]; then
   recovery_only=true

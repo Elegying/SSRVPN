@@ -224,6 +224,7 @@ class SharedUpdateService {
     var progressDialogOpen = false;
     Future<void>? progressDialogFuture;
     Future<void>? progressDialogCloseFuture;
+    PopupRoute<void>? progressDialogRoute;
     var cancelledByUser = false;
     StateSetter? updateDialogState;
 
@@ -234,9 +235,7 @@ class SharedUpdateService {
         if (!progressDialogOpen) return;
         progressDialogOpen = false;
         updateDialogState = null;
-        if (context.mounted) {
-          Navigator.of(context, rootNavigator: true).pop();
-        }
+        closeSsrvpnDialogRoute(progressDialogRoute);
         await progressDialogFuture;
       }();
       progressDialogCloseFuture = close;
@@ -250,6 +249,7 @@ class SharedUpdateService {
           progressDialogFuture = showSsrvpnGlassDialog<void>(
             context: context,
             barrierDismissible: false,
+            onRouteCreated: (route) => progressDialogRoute = route,
             builder: (dialogContext) => StatefulBuilder(
               builder: (dialogContext, setDialogState) {
                 updateDialogState = setDialogState;

@@ -68,7 +68,7 @@ class MacosTunSession {
 
   static const _osascriptPath = '/usr/bin/osascript';
   static const _runnerSha256 =
-      '9c09d33f7a3e353863949f7f7c923c300624ec5b914a5cb81830398e4a9cadb5';
+      'd052d812d2170ba3467321f607a6f2521c1b4898136a402e88728f35329d890d';
   static const _coreArchiveSha256 =
       '7418adb74d7743b36f6714a2623995f9ad067d7d829914f21df0762841b5fdaf';
   static const _coreManifestSha256 =
@@ -182,7 +182,11 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
       return false;
     }
     if (await status.length() > 64) return false;
-    return (await status.readAsString()).trim() == 'error:dns-recovery';
+    final value = _runnerStatusForNonce(
+      await status.readAsString(),
+      requestNonce,
+    );
+    return _requestNonce == requestNonce && value == 'error:dns-recovery';
   }
 
   List<String> get _recoveryRequestPaths => _requestStore.recoveryRequestPaths;
@@ -511,7 +515,8 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
       final stat = await status.stat();
       if ((notBefore != null && stat.modified.isBefore(notBefore)) ||
           await status.length() > 64 ||
-          (await status.readAsString()).trim() != 'error:network-change') {
+          _runnerStatusForNonce(await status.readAsString(), requestNonce) !=
+              'error:network-change') {
         return false;
       }
     }
@@ -703,6 +708,8 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
   }
 
   Future<MacosTunStartupState> _readRunnerStatus() async {
+    final requestNonce = _requestNonce;
+    final startEpoch = _startEpoch;
     try {
       if (await FileSystemEntity.type(statusPath, followLinks: false) !=
           FileSystemEntityType.file) {
@@ -715,7 +722,13 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
         return MacosTunStartupState.pending;
       }
       if (await file.length() > 64) return MacosTunStartupState.pending;
-      final value = (await file.readAsString()).trim();
+      final value = _runnerStatusForNonce(
+        await file.readAsString(),
+        requestNonce,
+      );
+      if (_requestNonce != requestNonce || _startEpoch != startEpoch) {
+        return MacosTunStartupState.pending;
+      }
       switch (value) {
         case 'starting':
           return MacosTunStartupState.starting;
@@ -759,6 +772,18 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
       }
     } catch (_) {}
     return MacosTunStartupState.pending;
+  }
+
+  String? _runnerStatusForNonce(String contents, String? requestNonce) {
+    final value = contents.trim();
+    // Recovery-only runners and diagnostics without an active request retain
+    // the legacy words. An active launch must prove its exact request nonce;
+    // a recent status for the same application PID is not that proof.
+    if (requestNonce == null) return value;
+    final suffix = ':$requestNonce';
+    return value.endsWith(suffix)
+        ? value.substring(0, value.length - suffix.length)
+        : null;
   }
 
   Future<void> _removeRequest() => _requestStore.remove();

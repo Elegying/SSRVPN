@@ -57,6 +57,7 @@ class SubscriptionYamlMerger {
     final usedSourceNames = <String>{};
     final nextSourceSuffixByBase = <String, int>{};
     var proxyCount = 0;
+    var expandedProxyBytes = 0;
 
     for (var yamlIndex = 0; yamlIndex < yamls.length; yamlIndex++) {
       final yaml = yamls[yamlIndex];
@@ -69,16 +70,15 @@ class SubscriptionYamlMerger {
             )
           : null;
       final sourceProxies = <Map<String, dynamic>>[];
-      for (final item in _proxyItemsFromYaml(yaml)) {
+      for (final (proxy, itemBytes) in _proxiesFromYaml(yaml)) {
         proxyCount++;
         if (proxyCount > maxMergedProxyNodes) {
           throw const _MergeLimitException(
             '订阅节点数量超过上限 (10000)',
           );
         }
-        _checkItemSize(item);
-
-        final proxy = parseProxyItem(item);
+        expandedProxyBytes += itemBytes;
+        _checkExpandedSize(expandedProxyBytes);
         final originalName = RuntimeConfigNamePolicy.canonicalName(
           proxy?['name'],
         );
@@ -190,12 +190,10 @@ class SubscriptionYamlMerger {
       _validateMergeEnvelope([previousYaml], null, sourceKey, '');
       var count = 0;
       final previousProxies = <Map<String, dynamic>>[];
-      for (final item in _proxyItemsFromYaml(previousYaml)) {
+      for (final (old, _) in _proxiesFromYaml(previousYaml)) {
         if (++count > maxMergedProxyNodes) {
           throw const _MergeLimitException('历史缓存节点数量超过上限');
         }
-        _checkItemSize(item);
-        final old = parseProxyItem(item);
         if (old == null) continue;
         previousProxies.add(old);
       }
@@ -299,8 +297,37 @@ class SubscriptionYamlMerger {
     return _proxyItemsFromLines(_lines(proxiesText)).toList();
   }
 
-  static Iterable<String> _proxyItemsFromYaml(String yaml) {
-    return _proxyItemsFromLines(_normalizedSectionLines(yaml, 'proxies'));
+  static Iterable<(Map<String, dynamic>?, int)> _proxiesFromYaml(
+      String yaml) sync* {
+    // Parse the complete document so flow lists, quoted keys, comments and
+    // aliases retain the same meaning as the subscription format detector.
+    // Keep the existing per-node limits after resolving bounded YAML aliases.
+    final document = BoundedYaml.load(yaml);
+    if (document is! Map || document['proxies'] is! List) return;
+    var expandedBytes = 0;
+    for (final value in document['proxies'] as List) {
+      final proxy =
+          value is Map ? _jsonValue(value) as Map<String, dynamic> : null;
+      if (proxy == null ||
+          RuntimeConfigNamePolicy.canonicalName(proxy['name']).isEmpty) {
+        // Invalid entries still count toward the node limit, but cannot
+        // poison usable nodes with values JSON cannot represent (e.g. .nan).
+        yield (null, 0);
+        continue;
+      }
+      final encoded = jsonEncode(proxy);
+      _checkItemSize(encoded);
+      final itemBytes = utf8.encode(encoded).length + 5;
+      expandedBytes += itemBytes;
+      _checkExpandedSize(expandedBytes);
+      yield (proxy, itemBytes);
+    }
+  }
+
+  static void _checkExpandedSize(int bytes) {
+    if (bytes > maxMergedInputBytes) {
+      throw const _MergeLimitException('订阅节点展开大小超过上限 (20MB)');
+    }
   }
 
   static Iterable<String> _proxyItemsFromLines(Iterable<String> lines) sync* {

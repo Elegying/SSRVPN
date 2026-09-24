@@ -6,6 +6,151 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_macos/services/macos_tun_session.dart';
 
 void main() {
+  for (final staleStatus in [
+    'error:network-change',
+    'running',
+    'error:network-change:0123456789abcdef0123456789abcdef',
+  ]) {
+    test('new TUN authorization ignores a prior status: $staleStatus',
+        () async {
+      final dataDir =
+          await Directory.systemTemp.createTemp('ssrvpn_tun_stale_');
+      final runner = _writeTunAssets(dataDir);
+      File('${dataDir.path}/config.yaml').writeAsStringSync('proxies: []\n');
+      final status = File('${dataDir.path}/status');
+      await status.writeAsString('$staleStatus\n', flush: true);
+      final launched = Completer<void>();
+      final authorizationExit = Completer<int>();
+      var terminated = false;
+      final session = MacosTunSession(
+        dataDir: dataDir.path,
+        resolvedExecutable: '/Applications/SSRVPN.app/Contents/MacOS/SSRVPN',
+        runnerPath: runner.path,
+        statusPath: status.path,
+        appPid: 123,
+        routeProbe: (_, __) async =>
+            ProcessResult(1, 0, '  interface: en0\n', ''),
+        authorizationLauncher: (_, __) async {
+          launched.complete();
+          return TunAuthorizationHandle(
+            exitCode: authorizationExit.future,
+            terminate: () => terminated = true,
+          );
+        },
+      );
+      addTearDown(() async {
+        session.interruptPendingStart();
+        if (!authorizationExit.isCompleted) authorizationExit.complete(1);
+        await _deleteTempDirectoryIgnoringMissing(dataDir);
+      });
+      bool? result;
+      final starting = session.start().then((value) => result = value);
+      await launched.future;
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(result, isNull,
+          reason: 'old status must not finish new authorization');
+      expect(session.lastError, isNull);
+      expect(session.isRequested, isFalse);
+      expect(terminated, isFalse);
+
+      // Rewriting the old generation after launch must not grant it ownership.
+      await status.writeAsString('$staleStatus\n', flush: true);
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(result, isNull);
+      await _writeCurrentStatus(status, 'starting');
+      expect(await starting.timeout(const Duration(seconds: 1)), isTrue);
+      await _writeCurrentStatus(status, 'running');
+      expect(await session.startupState(), MacosTunStartupState.running);
+      await status.setLastModified(
+        DateTime.now().subtract(const Duration(hours: 1)),
+      );
+      expect(await session.startupState(), MacosTunStartupState.pending);
+      await _writeCurrentStatus(status, 'running');
+      final currentStatus = await status.readAsString();
+      await status.writeAsString('${' ' * 65}$currentStatus', flush: true);
+      expect(await session.startupState(), MacosTunStartupState.pending);
+      await _writeCurrentStatus(status, 'error:network-change');
+      expect(await session.startupState(), MacosTunStartupState.failed);
+      expect(session.lastError, contains('物理网络已切换'));
+
+      await File(session.requestPath).delete();
+      authorizationExit.complete(1);
+      await session.stop();
+      expect(session.isRequested, isFalse);
+    });
+  }
+
+  test('an early runner exit ignores legacy status and retires its request',
+      () async {
+    final dataDir = await Directory.systemTemp.createTemp('ssrvpn_tun_early_');
+    addTearDown(() => dataDir.delete(recursive: true));
+    final runner = _writeTunAssets(dataDir);
+    File('${dataDir.path}/config.yaml').writeAsStringSync('proxies: []\n');
+    final status = File('${dataDir.path}/status');
+    final session = MacosTunSession(
+      dataDir: dataDir.path,
+      resolvedExecutable: '/Applications/SSRVPN.app/Contents/MacOS/SSRVPN',
+      runnerPath: runner.path,
+      statusPath: status.path,
+      appPid: 123,
+      routeProbe: (_, __) async =>
+          ProcessResult(1, 0, '  interface: en0\n', ''),
+      authorizationLauncher: (_, __) async {
+        // A pre-token failure, or an old process finishing after this launch,
+        // must be handled by this authorization's exit rather than its word.
+        await status.writeAsString('error:runner\n', flush: true);
+        return TunAuthorizationHandle(
+          exitCode: Future<int>.value(1),
+          terminate: () {},
+        );
+      },
+    );
+    expect(await session.start().timeout(const Duration(seconds: 1)), isFalse);
+    expect(session.lastError, contains('已取消'));
+    expect(session.isRequested, isFalse);
+    expect(await File(session.requestPath).exists(), isFalse);
+  });
+
+  test('cancel while a prior status remains terminates the pending handle',
+      () async {
+    final dataDir = await Directory.systemTemp.createTemp('ssrvpn_tun_cancel_');
+    final runner = _writeTunAssets(dataDir);
+    File('${dataDir.path}/config.yaml').writeAsStringSync('proxies: []\n');
+    final status = File('${dataDir.path}/status')
+      ..writeAsStringSync('error:network-change\n');
+    final launched = Completer<void>();
+    final authorizationExit = Completer<int>();
+    var terminated = false;
+    final session = MacosTunSession(
+      dataDir: dataDir.path,
+      resolvedExecutable: '/Applications/SSRVPN.app/Contents/MacOS/SSRVPN',
+      runnerPath: runner.path,
+      statusPath: status.path,
+      appPid: 123,
+      routeProbe: (_, __) async =>
+          ProcessResult(1, 0, '  interface: en0\n', ''),
+      authorizationLauncher: (_, __) async {
+        launched.complete();
+        return TunAuthorizationHandle(
+          exitCode: authorizationExit.future,
+          terminate: () => terminated = true,
+        );
+      },
+    );
+    addTearDown(() async {
+      authorizationExit.complete(1);
+      await _deleteTempDirectoryIgnoringMissing(dataDir);
+    });
+    final starting = session.start();
+    await launched.future;
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    session.interruptPendingStart();
+    expect(await starting.timeout(const Duration(seconds: 1)), isFalse);
+    expect(terminated, isTrue);
+    expect(session.lastError, contains('已取消'));
+    expect(await File(session.requestPath).exists(), isFalse);
+  });
+
   test('missing versioned rules fail before requesting administrator access',
       () async {
     final dataDir =
@@ -57,7 +202,7 @@ rule-providers:
       authorizationLauncher: (path, args) async {
         executable = path;
         arguments = args;
-        await status.writeAsString('starting\n', flush: true);
+        await _writeCurrentStatus(status, 'starting');
         return TunAuthorizationHandle(
           exitCode: authorizationExit.future,
           terminate: () {
@@ -122,7 +267,7 @@ rule-providers:
       routeProbe: (_, __) async =>
           ProcessResult(1, 0, '  interface: en0\n', ''),
       authorizationLauncher: (_, __) async {
-        await status.writeAsString('starting\n', flush: true);
+        await _writeCurrentStatus(status, 'starting');
         return TunAuthorizationHandle(
           exitCode: authorizationExit.future,
           terminate: () {},
@@ -131,11 +276,16 @@ rule-providers:
     );
 
     expect(await session.start(), isTrue);
-    await status.writeAsString('error:dns-recovery\n', flush: true);
+    await _writeCurrentStatus(status, 'error:dns-recovery');
     authorizationExit.complete(1);
 
     await expectLater(session.stop(), throwsA(isA<StateError>()));
     expect(session.lastError, contains('DNS'));
+    expect(await session.hasDurableDnsRecoveryHandoff(), isTrue);
+    await status.writeAsString('error:dns-recovery\n', flush: true);
+    expect(await session.hasDurableDnsRecoveryHandoff(), isFalse);
+    await _writeCurrentStatus(status, 'error:dns-recovery');
+    expect(await session.hasDurableDnsRecoveryHandoff(), isTrue);
     expect(
       (await File(session.requestPath).readAsString()).trim(),
       matches(RegExp(r'^v2:recovery:123:[0-9a-f]{32}$')),
@@ -160,7 +310,7 @@ rule-providers:
       routeProbe: (_, __) async =>
           ProcessResult(1, 0, '  interface: en0\n', ''),
       authorizationLauncher: (_, __) async {
-        await status.writeAsString('starting\n', flush: true);
+        await _writeCurrentStatus(status, 'starting');
         return TunAuthorizationHandle(
           exitCode: authorizationExit.future,
           terminate: () {},
@@ -173,7 +323,7 @@ rule-providers:
     // A network-change exit preserves its trusted terminal status after the
     // privileged runner has restored DNS and retired its request marker.
     await File(session.requestPath).delete();
-    await status.writeAsString('error:network-change\n', flush: true);
+    await _writeCurrentStatus(status, 'error:network-change');
     authorizationExit.complete(1);
     await Future<void>.delayed(Duration.zero);
 
@@ -203,7 +353,7 @@ rule-providers:
       routeProbe: (_, __) async =>
           ProcessResult(1, 0, '  interface: en0\n', ''),
       authorizationLauncher: (_, __) async {
-        await status.writeAsString('starting\n', flush: true);
+        await _writeCurrentStatus(status, 'starting');
         return TunAuthorizationHandle(
           exitCode: authorizationExit.future,
           terminate: () {},
@@ -213,7 +363,7 @@ rule-providers:
 
     expect(await session.start(), isTrue);
     await File(session.requestPath).delete();
-    await status.writeAsString('error:network-change\n', flush: true);
+    await _writeCurrentStatus(status, 'error:network-change');
     unawaited(
       Future<void>.delayed(const Duration(milliseconds: 700), () {
         authorizationExit.complete(1);
@@ -245,7 +395,7 @@ rule-providers:
       routeProbe: (_, __) async =>
           ProcessResult(1, 0, '  interface: en0\n', ''),
       authorizationLauncher: (_, __) async {
-        await status.writeAsString('starting\n', flush: true);
+        await _writeCurrentStatus(status, 'starting');
         return TunAuthorizationHandle(
           exitCode: authorizationExit.future,
           terminate: () {},
@@ -255,7 +405,7 @@ rule-providers:
 
     expect(await session.start(), isTrue);
     await File(session.requestPath).delete();
-    await status.writeAsString('error:dns-recovery\n', flush: true);
+    await _writeCurrentStatus(status, 'error:dns-recovery');
     authorizationExit.complete(1);
 
     await expectLater(session.stop(), throwsA(isA<StateError>()));
@@ -282,7 +432,7 @@ rule-providers:
       routeProbe: (_, __) async =>
           ProcessResult(1, 0, '  interface: en0\n', ''),
       authorizationLauncher: (_, __) async {
-        await status.writeAsString('starting\n', flush: true);
+        await _writeCurrentStatus(status, 'starting');
         return TunAuthorizationHandle(
           exitCode: authorizationExit.future,
           terminate: () {},
@@ -322,7 +472,7 @@ rule-providers:
       routeProbe: (_, __) async =>
           ProcessResult(1, 0, '  interface: en0\n', ''),
       authorizationLauncher: (_, __) async {
-        await status.writeAsString('starting\n', flush: true);
+        await _writeCurrentStatus(status, 'starting');
         return TunAuthorizationHandle(
           exitCode: authorizationExit.future,
           terminate: () {},
@@ -368,7 +518,7 @@ rule-providers:
       routeProbe: (_, __) async =>
           ProcessResult(1, 0, '  interface: en0\n', ''),
       authorizationLauncher: (_, __) async {
-        await status.writeAsString('starting\n', flush: true);
+        await _writeCurrentStatus(status, 'starting');
         return TunAuthorizationHandle(
           exitCode: authorizationExit.future,
           terminate: () {},
@@ -416,7 +566,7 @@ rule-providers:
       routeProbe: (_, __) async =>
           ProcessResult(1, 0, '  interface: en0\n', ''),
       authorizationLauncher: (_, __) async {
-        await status.writeAsString('starting\n', flush: true);
+        await _writeCurrentStatus(status, 'starting');
         return TunAuthorizationHandle(
           exitCode: authorizationExit.future,
           terminate: () {},
@@ -434,12 +584,12 @@ rule-providers:
       matches(_tunRequestPattern('recovery', 123)),
     );
     expect(await session.hasDurableDnsRecoveryHandoff(), isFalse);
-    await status.writeAsString('error:dns-recovery\n', flush: true);
+    await _writeCurrentStatus(status, 'error:dns-recovery');
     expect(await session.hasDurableDnsRecoveryHandoff(), isTrue);
 
     final retryingStop = session.stop();
     await Future<void>.delayed(const Duration(milliseconds: 20));
-    await status.writeAsString('running\n', flush: true);
+    await _writeCurrentStatus(status, 'running');
     await File(session.requestPath).delete();
     authorizationExit.complete(0);
     await retryingStop;
@@ -470,7 +620,7 @@ rule-providers:
       routeProbe: (_, __) async =>
           ProcessResult(1, 0, '  interface: en0\n', ''),
       authorizationLauncher: (_, __) async {
-        await status.writeAsString('error:port\n', flush: true);
+        await _writeCurrentStatus(status, 'error:port');
         return TunAuthorizationHandle(
           exitCode: authorizationExit.future,
           terminate: () => terminated = true,
@@ -517,7 +667,7 @@ rule-providers:
       routeProbe: (_, __) async =>
           ProcessResult(1, 0, '  interface: en0\n', ''),
       authorizationLauncher: (_, __) async {
-        await status.writeAsString('starting\n', flush: true);
+        await _writeCurrentStatus(status, 'starting');
         return TunAuthorizationHandle(
           exitCode: authorizationExit.future,
           terminate: () {},
@@ -526,7 +676,7 @@ rule-providers:
     );
 
     expect(await session.start(), isTrue);
-    await status.writeAsString('error:port\n', flush: true);
+    await _writeCurrentStatus(status, 'error:port');
     final stopping = session.stop();
     expect(await _waitForRequestPhase(session.requestPath, 'recovery'), isTrue);
     await File(session.requestPath).delete();
@@ -556,7 +706,7 @@ rule-providers:
       routeProbe: (_, __) async =>
           ProcessResult(1, 0, '  interface: en0\n', ''),
       authorizationLauncher: (_, __) async {
-        await status.writeAsString('starting\n', flush: true);
+        await _writeCurrentStatus(status, 'starting');
         return TunAuthorizationHandle(
           exitCode: authorizationExit.future,
           terminate: () {},
@@ -751,7 +901,7 @@ rule-providers:
             terminate: () {},
           );
         }
-        await status.writeAsString('starting\n', flush: true);
+        await _writeCurrentStatus(status, 'starting');
         return TunAuthorizationHandle(
           exitCode: activeAuthorizationExit.future,
           terminate: () {},
@@ -820,7 +970,7 @@ rule-providers:
             },
           );
         }
-        await status.writeAsString('starting\n', flush: true);
+        await _writeCurrentStatus(status, 'starting');
         return TunAuthorizationHandle(
           exitCode: activeAuthorizationExit.future,
           terminate: () {},
@@ -829,7 +979,7 @@ rule-providers:
     );
 
     expect(await session.start(), isTrue);
-    await status.writeAsString('error:marker\n', flush: true);
+    await _writeCurrentStatus(status, 'error:marker');
     final stopping = session.stop();
     expect(await _waitForRequestPhase(session.requestPath, 'recovery'), isTrue);
     activeAuthorizationExit.complete(0);
@@ -1106,7 +1256,7 @@ rule-providers:
       routeProbe: (_, __) async =>
           ProcessResult(1, 0, '  interface: en0\n', ''),
       authorizationLauncher: (_, __) async {
-        await status.writeAsString('starting\n', flush: true);
+        await _writeCurrentStatus(status, 'starting');
         return TunAuthorizationHandle(
           exitCode: newAuthorizationExit.future,
           terminate: () {},
@@ -1161,7 +1311,7 @@ rule-providers:
       authorizationLauncher: (_, __) async {
         launches++;
         if (launches == 1) return oldLaunch.future;
-        await status.writeAsString('starting\n', flush: true);
+        await _writeCurrentStatus(status, 'starting');
         return TunAuthorizationHandle(
           exitCode: newAuthorizationExit.future,
           terminate: () {},
@@ -1262,7 +1412,7 @@ rule-providers:
       routeProbe: (_, __) async =>
           ProcessResult(1, 0, '  interface: en0\n', ''),
       authorizationLauncher: (_, __) async {
-        await status.writeAsString('running\n', flush: true);
+        await _writeCurrentStatus(status, 'running');
         return TunAuthorizationHandle(
           exitCode:
               authorizationExit.future.whenComplete(exitObserved.complete),
@@ -1283,7 +1433,7 @@ rule-providers:
     expect(session.lastError, contains('17'));
 
     // A terminal runner reason is more useful than its generic exit status.
-    await status.writeAsString('error:network-change\n', flush: true);
+    await _writeCurrentStatus(status, 'error:network-change');
     expect(await session.startupState(), MacosTunStartupState.failed);
     expect(session.lastError, contains('物理网络已切换'));
   });
@@ -1384,7 +1534,7 @@ rule-providers:
       routeProbe: (_, __) async =>
           ProcessResult(1, 0, '  interface: en0\n', ''),
       authorizationLauncher: (_, __) async {
-        await status.writeAsString('error:dns-recovery\n', flush: true);
+        await _writeCurrentStatus(status, 'error:dns-recovery');
         return TunAuthorizationHandle(
           exitCode: authorizationExit.future,
           terminate: () {},
@@ -1526,6 +1676,18 @@ File _writeTunAssets(
   File('${directory.path}/AtlasCore-source.txt').writeAsStringSync('test\n');
   return File('${directory.path}/$runnerName')
     ..writeAsStringSync('#!/bin/bash\n');
+}
+
+Future<void> _writeCurrentStatus(File status, String value) async {
+  final request = File('${status.parent.path}/.tun-session-request');
+  final source = await request.exists()
+      ? (await request.readAsString()).trim()
+      : (await status.readAsString()).trim();
+  final nonce = RegExp(r':([0-9a-f]{32})$').firstMatch(source)?.group(1);
+  if (nonce == null) {
+    throw StateError('test runner status has no request nonce');
+  }
+  await status.writeAsString('$value:$nonce\n', flush: true);
 }
 
 Future<bool> _waitForRequestPhase(String path, String phase) async {

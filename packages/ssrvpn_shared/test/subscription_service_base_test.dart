@@ -242,6 +242,96 @@ void main() {
     });
 
     for (final entry in <String, String>{
+      'flow sequence': '''
+proxies: [{name: New Node, type: socks5, server: new.example.com, port: 443}]
+''',
+      'quoted top-level key': '''
+"proxies":
+  - {name: New Node, type: socks5, server: new.example.com, port: 443}
+''',
+      'unindented comment within sequence': '''
+proxies:
+  - {name: New Node, type: socks5, server: new.example.com, port: 443}
+# Comments do not terminate a YAML sequence.
+''',
+      'document anchor': '''
+endpoint: &endpoint new.example.com
+proxies:
+  - {name: New Node, type: socks5, server: *endpoint, port: 443}
+''',
+    }.entries) {
+      test('refresh accepts valid YAML with ${entry.key}', () async {
+        service.response = entry.value;
+
+        final result = await service.refreshAllSubscriptionsDetailed();
+
+        expect(result.status, SubscriptionBatchRefreshStatus.success);
+        expect(service.allNodes.single.name, 'New Node');
+        expect(service.allNodes.single.server, 'new.example.com');
+        expect(service.cachedYaml, service.rawYaml);
+      });
+    }
+
+    test('refresh retains every valid node that uses a shared YAML anchor',
+        () async {
+      service.response = '''
+proxies:
+  - {name: First, type: socks5, server: &endpoint new.example.com, port: 443}
+  - {name: Second, type: socks5, server: *endpoint, port: 8443}
+''';
+
+      final result = await service.refreshAllSubscriptionsDetailed();
+
+      expect(result.status, SubscriptionBatchRefreshStatus.success);
+      expect(service.allNodes.map((node) => node.name), ['First', 'Second']);
+      expect(service.allNodes.map((node) => node.port), [443, 8443]);
+      expect(service.cachedYaml, service.rawYaml);
+    });
+
+    test('oversized YAML alias expansion preserves the last valid state',
+        () async {
+      final scalar = 'x' * 64000;
+      service.response = '''
+proxies:
+  - &node
+    name: New Node
+    type: socks5
+    server: new.example.com
+    port: 443
+    payload: &payload "$scalar"
+    copies: [*payload, *payload, *payload, *payload]
+${List.filled(70, '  - *node').join('\n')}
+''';
+
+      await expectLater(service.refreshAllSubscriptionsDetailed(),
+          throwsA(isA<SubscriptionBatchRefreshException>()));
+
+      originalState.expectUnchanged(service);
+      expect(service.cachedYaml, originalState.rawYaml);
+    });
+
+    for (final invalidNode in [
+      '.nan',
+      '.inf',
+      '{invalid: .nan}',
+      '{name: " ", invalid: .inf}',
+    ]) {
+      test('refresh skips non-node YAML value $invalidNode', () async {
+        service.response = '''
+proxies:
+  - {name: Good, type: socks5, server: good.example.com, port: 443}
+  - $invalidNode
+''';
+
+        final result = await service.refreshAllSubscriptionsDetailed();
+
+        expect(result.status, SubscriptionBatchRefreshStatus.success);
+        expect(service.allNodes.single.name, 'Good');
+        expect(service.cachedYaml, service.rawYaml);
+      });
+    }
+
+    for (final entry in <String, String>{
       'empty response': '   ',
       'malformed YAML response': 'proxies:\n  - [unterminated',
       'response without runnable nodes': '''

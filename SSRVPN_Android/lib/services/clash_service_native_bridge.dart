@@ -436,7 +436,9 @@ extension AndroidNativeBridge on ClashService {
         !_intentionalReloadInProgress &&
         (nativeWasRunning || recoveryWasObserved);
     if (state.running) {
-      setRunning(true);
+      // A restored native session may skip its brief stopped snapshot while
+      // Flutter is suspended. Retire observations from the previous core.
+      setRunning(true, newSession: sessionChanged);
       startStatusMonitor();
     } else {
       stopStatusMonitor();

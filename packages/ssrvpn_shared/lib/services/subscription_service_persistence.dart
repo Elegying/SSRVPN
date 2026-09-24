@@ -29,8 +29,6 @@ mixin _SubscriptionPersistence on ChangeNotifier {
     }
   }
 
-  // ── 持久化 ──
-
   Future<void> init(String cacheDir, {NodePreferenceStore? preferences}) async {
     _cacheDir = cacheDir;
     _nodePreferences = preferences;
@@ -50,7 +48,6 @@ mixin _SubscriptionPersistence on ChangeNotifier {
     _fetchedProfileNames.clear();
     if (_cacheDir == null) return;
     await _recoverDiskTransaction();
-
     final subsFile = File('$_cacheDir/subscriptions.json');
     if (await subsFile.exists()) {
       try {
@@ -70,7 +67,6 @@ mixin _SubscriptionPersistence on ChangeNotifier {
         _subscriptions = [];
       }
     }
-
     final cacheFile = File('$_cacheDir/subscription_cache.yaml');
     if (await cacheFile.exists()) {
       try {
@@ -115,9 +111,14 @@ mixin _SubscriptionPersistence on ChangeNotifier {
 
   Future<void> saveToDisk() async {
     if (_cacheDir == null) return;
+    final jsonStr = jsonEncode(_subscriptions.map((s) => s.toJson()).toList());
+    // The UTF-8 state must fit the next mutation's undo record.
+    if (jsonStr.length > BoundedYaml.maxInputBytes ||
+        utf8.encode(jsonStr).length > BoundedYaml.maxInputBytes) {
+      throw const SubscriptionContentException('订阅列表超过 20 MB 存储上限，请减少订阅或缩短链接');
+    }
     await _prepareDiskTransaction();
     final file = File('$_cacheDir/subscriptions.json');
-    final jsonStr = jsonEncode(_subscriptions.map((s) => s.toJson()).toList());
     await writeStringAtomically(file, jsonStr);
   }
 

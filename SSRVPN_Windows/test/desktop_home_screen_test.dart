@@ -1,4 +1,9 @@
 import 'dart:async';
+import 'package:ssrvpn_windows/services/tray_manager.dart';
+import 'package:ssrvpn_windows/startup/startup_flags.dart';
+import 'package:ssrvpn_windows/startup/startup_status.dart';
+import 'package:ssrvpn_windows/app.dart' as desktop_app;
+import 'package:ssrvpn_shared/runtime_notice.dart';
 import '../../packages/ssrvpn_shared/test/support/latency_restart.dart';
 import 'dart:convert';
 import 'dart:io';
@@ -37,6 +42,73 @@ proxies:
 ''';
 
 void main() {
+  testWidgets('late tray preference completion preserves a newer notice',
+      (tester) async {
+    final writeStarted = Completer<void>();
+    final releaseWrite = Completer<void>();
+    final base =
+        (await tester.runAsync(() => _HomeFixture.create(withNodes: true)))!;
+    base.settings.dispose();
+    final settings = await SettingsService.createForTesting(
+      settings: AppSettings(),
+      dataDir: base.directory.path,
+      settingsPath: '${base.directory.path}/settings.json',
+      writeSettings: (candidate) {
+        if (candidate.lastSelectedNodeName != null &&
+            !writeStarted.isCompleted) {
+          writeStarted.complete();
+          return releaseWrite.future;
+        }
+        return SynchronousFuture<void>(null);
+      },
+      readApiSecret: () async => '',
+      writeApiSecret: (_) async {},
+    );
+    final fixture = _HomeFixture(
+      directory: base.directory,
+      subscription: base.subscription,
+      settings: settings,
+      clash: base.clash,
+    );
+    addTearDown(fixture.dispose);
+    addTearDown(() {
+      if (!releaseWrite.isCompleted) releaseWrite.complete();
+    });
+    fixture.clash
+      ..switchResult = true
+      ..runtimeSelectedNodeName = '东京节点'
+      ..runtimePortNotice = '已连接，本次使用临时运行端口';
+    final status = StartupStatus.instance;
+    status.prepareCoreRetry();
+    status.setServices(
+      settings: settings,
+      clash: fixture.clash,
+      subscription: fixture.subscription,
+    );
+    addTearDown(status.prepareCoreRetry);
+    await tester.pumpWidget(desktop_app.SSRVpnApp(
+        startupFlags: StartupFlags.parse(const ['--safe-mode'])));
+    await tester.pump();
+    TrayManager().onConnectToggle!();
+    await _pumpUntil(tester, () => writeStarted.isCompleted);
+    expect(fixture.clash.isRunning, isTrue);
+    TrayManager().onConnectToggle!();
+    await _pumpUntil(tester, () => !fixture.clash.isRunning);
+    fixture.clash.onRuntimeNotice?.call(
+      const RuntimeNotice.error('新的连接失败，请重试'),
+    );
+    await tester.pump();
+    expect(find.textContaining('新的连接失败，请重试'), findsWidgets);
+    releaseWrite.complete();
+    await tester.pumpAndSettle();
+    expect(fixture.clash.connectionDesired, isFalse);
+    expect(find.textContaining('新的连接失败，请重试'), findsWidgets);
+    expect(find.textContaining('已连接，本次使用临时运行端口'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
   testWidgets('restores latency history after restart without probing',
       (tester) async {
     final fixture =
@@ -1234,6 +1306,11 @@ class _FakeClashService extends ClashService {
 
   final bool recordBatchLatencyResults;
   bool _running;
+  String? runtimePortNotice;
+
+  @override
+  String? get lastRuntimePortAdjustmentMessage => runtimePortNotice;
+
   String? lastSwitchAttempt;
   String? lastPreferredNodeName;
   String? runtimeSelectedNodeName;

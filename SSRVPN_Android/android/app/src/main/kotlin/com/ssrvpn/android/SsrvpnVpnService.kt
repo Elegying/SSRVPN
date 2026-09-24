@@ -681,45 +681,45 @@ class SsrvpnVpnService : VpnService() {
         return result ?: ""
     }
 
-    private fun monitorCoreRunning(
-        startToken: Long,
-        request: CoreRecoveryRequest
-    ) {
-        try {
-            // 核心意外退出：必须关闭 VPN 接口并停止前台服务，
-            // 否则全局流量仍被路由进无人读取的 TUN，导致整机断网
-            val liveness = CoreLivenessMonitor.waitForUnexpectedExit(
-                startToken = startToken,
-                currentGeneration = startGeneration::current,
-                isRunning = { isRunning },
-                recoveryAttempt = request.attempt,
-                isBridgeRunning = ::isBridgeRunningWithTimeout,
-                isProtectMonitorRunning = {
-                    VpnRuntimeHealth.hasProtectMonitor(protectMonitor?.thread)
-                },
-                isApiHealthy = { VpnRuntimeHealth.isApiHealthy(request.apiPort, request.apiSecret) },
-                isApiPortReachable = { CorePortReleaseVerifier.isPortListening(request.apiPort) }
-            )
-            if (liveness.unexpectedExit) {
+    private fun monitorCoreRunning(startToken: Long, request: CoreRecoveryRequest) =
+        CoreLivenessMonitor.observeSession(
+            startToken = startToken,
+            gate = startGeneration,
+            waitForExit = {
+                // 核心意外退出时关闭本会话的 VPN 接口，避免流量进入无人读取的 TUN。
+                CoreLivenessMonitor.waitForUnexpectedExit(
+                    startToken = startToken,
+                    currentGeneration = startGeneration::current,
+                    isRunning = { isRunning },
+                    recoveryAttempt = request.attempt,
+                    isBridgeRunning = ::isBridgeRunningWithTimeout,
+                    isProtectMonitorRunning = {
+                        VpnRuntimeHealth.hasProtectMonitor(protectMonitor?.thread)
+                    },
+                    isApiHealthy = { VpnRuntimeHealth.isApiHealthy(request.apiPort, request.apiSecret) },
+                    isApiPortReachable = { CorePortReleaseVerifier.isPortListening(request.apiPort) }
+                )
+            },
+            onUnexpectedExit = { liveness ->
                 Log.e(TAG, "Mihomo stopped unexpectedly")
                 CoreRecoveryCoordinator.recoverFromUnexpectedCoreExit(
                     this,
                     request.copy(attempt = liveness.recoveryAttempt)
                 )
-            }
-        } catch (e: Exception) {
-            val category = NativeCoreStartFailureCategory.from(e).logValue
-            Log.e(TAG, "event=core_monitor_failed cause=$category")
-            stopAll {
-                try {
-                    showCoreRecoveryFailedNotification()
-                } catch (notificationError: Exception) {
-                    val category = NativeCoreStartFailureCategory.from(notificationError).logValue
-                    Log.e(TAG, "event=recovery_notification_failed cause=$category")
+            },
+            onFailure = { error ->
+                val category = NativeCoreStartFailureCategory.from(error).logValue
+                Log.e(TAG, "event=core_monitor_failed cause=$category")
+                stopAll {
+                    try {
+                        showCoreRecoveryFailedNotification()
+                    } catch (notificationError: Exception) {
+                        val category = NativeCoreStartFailureCategory.from(notificationError).logValue
+                        Log.e(TAG, "event=recovery_notification_failed cause=$category")
+                    }
                 }
             }
-        }
-    }
+        )
 
     internal fun publishCoreRecovery(
         attempt: Int,

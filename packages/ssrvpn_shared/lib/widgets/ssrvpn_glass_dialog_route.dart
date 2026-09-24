@@ -13,6 +13,18 @@ bool dismissSsrvpnDialog<T>(BuildContext context, [T? result]) {
   return true;
 }
 
+/// Complete an asynchronous operation's own popup even when another dialog
+/// covers it. Never pop whichever route happens to be on top instead.
+void closeSsrvpnDialogRoute<T>(PopupRoute<T>? route, [T? result]) {
+  final navigator = route?.navigator;
+  if (route == null || navigator == null || !route.isActive) return;
+  if (route.isCurrent) {
+    navigator.pop<T>(result);
+  } else {
+    navigator.removeRoute<T>(route, result);
+  }
+}
+
 /// Fade the glass material itself, never an offscreen layer containing a
 /// backdrop filter. Material's default FadeTransition can desynchronize the
 /// sampled background from its content during rapid dialog transitions.
@@ -20,6 +32,7 @@ Future<T?> showSsrvpnGlassDialog<T>({
   required BuildContext context,
   required WidgetBuilder builder,
   bool barrierDismissible = true,
+  void Function(PopupRoute<T> route)? onRouteCreated,
 }) async {
   final navigator = Navigator.of(context, rootNavigator: true);
   final frames = SsrvpnGlassFrame.listenableOf(context);
@@ -34,6 +47,7 @@ Future<T?> showSsrvpnGlassDialog<T>({
     barrierColor: DialogTheme.of(context).barrierColor ?? Colors.black54,
     traversalEdgeBehavior: TraversalEdgeBehavior.closedLoop,
   );
+  onRouteCreated?.call(route);
   final result = await navigator.push<T>(route);
   // Keep callers' re-entry guards held until the outgoing glass is removed.
   await route.completed;
