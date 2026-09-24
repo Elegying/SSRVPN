@@ -65,6 +65,9 @@ function Set-CaseRegistry($Case, [string]$Value) {
   try {
     $key.SetValue('DisplayVersion', $Value, [Microsoft.Win32.RegistryValueKind]::String)
     $key.SetValue('InstallLocation', $Case.install, [Microsoft.Win32.RegistryValueKind]::String)
+    $uninstaller = if ($Value -eq 'old') { Join-Path $Case.install 'unins000.exe' }
+      else { Join-Path $Case.install ($Case.metadata + '\unins000.exe') }
+    $key.SetValue('UninstallString', ('"' + $uninstaller + '"'), [Microsoft.Win32.RegistryValueKind]::String)
     $key.SetValue('Binary', [byte[]]@(1, 2, 255), [Microsoft.Win32.RegistryValueKind]::Binary)
     $key.SetValue('Dword', [int]42, [Microsoft.Win32.RegistryValueKind]::DWord)
     $key.SetValue('Qword', [long]5000000000, [Microsoft.Win32.RegistryValueKind]::QWord)
@@ -455,6 +458,44 @@ try {
     Assert-UserFiles $later
     Pass "Metadata ownership protects later cross-directory actions: $laterOutcome"
   }
+
+  $c = New-Case 'foreign-legacy-registration'
+  Invoke-Case $c Begin
+  Invoke-Case $c Clear
+  Invoke-Case $c Install
+  Set-CaseRegistry $c 'pending-B'
+  Seal-Case $c
+  $foreign = $c.Clone()
+  $foreign.install = Join-Path $c.root 'foreign-legacy-C'
+  Set-CaseRegistry $foreign 'legacy-C'
+  Write-FixtureFile $c.desktop 'foreign-legacy-C-desktop'
+  $foreignRegistry = Get-CaseRegistry $c
+  Invoke-Case $c Recover -Failure
+  if ((Get-CaseRegistry $c) -cne $foreignRegistry) { throw 'Recovery changed a foreign legacy uninstall entry.' }
+  Assert-File $c.desktop 'foreign-legacy-C-desktop'
+  Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'new-ssrvpn_windows.exe'
+  Assert-File (Join-Path $c.recovery 'program\ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
+  Assert-UserFiles $c
+  Pass 'A legacy installer without generation support cannot lend its foreign registry record to recovery'
+
+  $c = New-Case 'removed-legacy-registration-target'
+  $previous = $c.Clone()
+  $previous.install = Join-Path $c.root 'previous-A'
+  Write-FixtureFile (Join-Path $previous.install 'unins000.exe') 'previous-A-uninstaller'
+  Set-CaseRegistry $previous 'old'
+  Invoke-Case $c Begin
+  Invoke-Case $c Clear
+  Invoke-Case $c Install
+  Set-CaseRegistry $c 'pending-B'
+  Seal-Case $c
+  $registry.DeleteSubKeyTree($c.subkey, $false)
+  Remove-Item -LiteralPath (Join-Path $previous.install 'unins000.exe') -Force
+  Invoke-Case $c Recover -Failure
+  if ((Get-CaseRegistry $c) -cne 'ABSENT') { throw 'Recovery recreated a missing previous installation record.' }
+  Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'new-ssrvpn_windows.exe'
+  Assert-File (Join-Path $c.recovery 'program\ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
+  Assert-UserFiles $c
+  Pass 'A removed legacy registration target is not resurrected by stale recovery'
 
   $c = New-Case 'verified-empty-directory-cleanup'
   $empty = Join-Path $c.root 'empty'

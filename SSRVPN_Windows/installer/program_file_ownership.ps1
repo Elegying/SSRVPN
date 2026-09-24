@@ -1,11 +1,11 @@
 # Dot-sourced only by program_files_transaction.ps1. Transaction ordering stays
 # in that entry point; this file owns trusted inventories and exact file I/O.
 function Get-OwnershipRegistryKey {
-  param([switch]$Create)
+  param([switch]$Create, [string]$IdentityText = $script:installDir)
   $hasher = [Security.Cryptography.SHA256]::Create()
   try {
     $identity = [BitConverter]::ToString($hasher.ComputeHash(
-      $script:utf8NoBom.GetBytes($script:installDir.ToLowerInvariant()))).Replace('-', '').ToLowerInvariant()
+      $script:utf8NoBom.GetBytes($IdentityText.ToLowerInvariant()))).Replace('-', '').ToLowerInvariant()
   } finally { $hasher.Dispose() }
   $hive = if ($UninstallRegistryRoot -eq 'HKLM') {
     [Microsoft.Win32.RegistryHive]::LocalMachine
@@ -46,21 +46,106 @@ function Get-OwnershipRegistryKey {
 }
 
 function Get-OwnershipValue {
-  param([string]$Name)
-  $key = Get-OwnershipRegistryKey
+  param([string]$Name, [string]$IdentityText = $script:installDir)
+  $key = Get-OwnershipRegistryKey -IdentityText $IdentityText
   if ($null -eq $key) { return $null }
   try { return ,($key.GetValue($Name, $null)) } finally { $key.Dispose() }
 }
 
 function Set-OwnershipValue {
-  param([string]$Name, [AllowNull()]$Value)
-  $key = Get-OwnershipRegistryKey -Create
+  param([string]$Name, [AllowNull()]$Value, [string]$IdentityText = $script:installDir)
+  $key = Get-OwnershipRegistryKey -Create -IdentityText $IdentityText
   try {
     if ($null -eq $Value) { $key.DeleteValue($Name, $false) }
     elseif ($Value -is [byte[]]) { $key.SetValue($Name, $Value, [Microsoft.Win32.RegistryValueKind]::Binary) }
     else { $key.SetValue($Name, [string]$Value, [Microsoft.Win32.RegistryValueKind]::String) }
     $key.Flush()
   } finally { $key.Dispose() }
+}
+
+function Get-InstallerMetadataGeneration {
+  $identity = 'metadata/64/' + $script:uninstallRegistrySubkey
+  $value = Get-OwnershipValue -Name 'Generation' -IdentityText $identity
+  if ($null -eq $value) { return '' }
+  if ($value -isnot [string] -or $value -cnotmatch '^[0-9a-f]{32}$') {
+    throw 'The protected installer metadata generation is invalid; all recovery material was retained.'
+  }
+  return $value
+}
+
+function Set-InstallerMetadataGeneration {
+  param([AllowEmptyString()][string]$Expected, [AllowEmptyString()][string]$Value)
+  if ((Get-InstallerMetadataGeneration) -cne $Expected) {
+    throw 'Another installation changed the shared installer metadata; recovery material was retained.'
+  }
+  $stored = if ($Value -eq '') { $null } else { $Value }
+  Set-OwnershipValue -Name 'Generation' -Value $stored -IdentityText ('metadata/64/' + $script:uninstallRegistrySubkey)
+}
+
+function Assert-InstallerMetadataGeneration {
+  param($State)
+  if ((Get-InstallerMetadataGeneration) -cne $State.transactionId) {
+    throw 'A later installation or uninstall owns the shared metadata. Stale recovery was stopped before changing any files, registry or shortcuts; all material was retained.'
+  }
+}
+
+function Restore-PreviousMetadataGeneration {
+  param($State)
+  # A prepared/cleared transaction never replays shared metadata. If a later
+  # operation already owns it, completing this file-only rollback leaves it alone.
+  $current = Get-InstallerMetadataGeneration
+  if ($current -ceq $State.transactionId) {
+    Set-InstallerMetadataGeneration -Expected $State.transactionId -Value $State.previousMetadataGeneration
+  } elseif ($current -ceq $State.previousMetadataGeneration) {
+    # Retry a possibly failed registry Flush even when the in-memory value was
+    # already replaced. Durable restored state must precede cleanup.
+    Set-InstallerMetadataGeneration -Expected $current -Value $current
+  }
+}
+
+function Get-InstallerRegistrationIdentity {
+  $hive = if ($script:transactionRegistryRoot -ceq 'HKLM') {
+    [Microsoft.Win32.RegistryHive]::LocalMachine
+  } else { [Microsoft.Win32.RegistryHive]::CurrentUser }
+  $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, [Microsoft.Win32.RegistryView]::Registry64)
+  try {
+    $key = $base.OpenSubKey($script:uninstallRegistrySubkey, $false)
+    if ($null -eq $key) { return $null }
+    try {
+      $identity = [ordered]@{}
+      foreach ($name in @('InstallLocation', 'UninstallString', 'DisplayVersion')) {
+        $value = $key.GetValue($name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        if ($null -ne $value -and ($value -isnot [string] -or $value.Length -gt 32768)) {
+          throw 'Uninstall registration identity is invalid; it was preserved.'
+        }
+        $identity[$name] = $value
+      }
+      return [pscustomobject]$identity
+    } finally { $key.Dispose() }
+  } finally { $base.Dispose() }
+}
+
+function Assert-RecoveryRegistrationOwner {
+  param($State, $Snapshot)
+  $current = Get-InstallerRegistrationIdentity
+  $old = $Snapshot.registration
+  if ($null -eq $current) {
+    # A legacy uninstaller does not advance our protected generation. Do not
+    # recreate a different directory's old entry if its uninstaller is gone.
+    if ($null -ne $old -and ([string]$old.InstallLocation).TrimEnd('\') -ine $script:installDir) {
+      if ($old.UninstallString -notmatch '^"([^"]+)"$' -or
+          -not (Test-Path -LiteralPath $matches[1] -PathType Leaf)) {
+        throw 'The previous installation was removed after this transaction; stale metadata was retained without restoring it.'
+      }
+    }
+    return
+  }
+  if ($null -ne $old -and (ConvertTo-BoundedJsonText $current) -ceq (ConvertTo-BoundedJsonText $old)) { return }
+  $expectedUninstaller = '"' + (Join-Path $script:installDir ($State.metadataPath + '\unins000.exe')) + '"'
+  if (([string]$current.InstallLocation).TrimEnd('\') -ine $script:installDir -or
+      $current.UninstallString -ine $expectedUninstaller) {
+    throw 'The uninstall record belongs to another installation; files, registry, shortcuts and recovery material were preserved.'
+  }
 }
 
 function Get-TransactionAuthenticator {
@@ -329,6 +414,7 @@ function Install-OwnedProgramFiles {
 function Seal-UninstallMetadata {
   $state = Read-TransactionState
   if ($null -eq $state -or $state.phase -cne 'validated') { throw 'Uninstall metadata requires a validated transaction.' }
+  Assert-InstallerMetadataGeneration -State $state
   $metadataRoot = Join-Path $script:installDir $state.metadataPath
   $files = @(Get-ProgramInventory -Root $metadataRoot)
   if ($files.Count -lt 2 -or $files.Count -gt 3 -or
@@ -406,6 +492,10 @@ function Test-OwnedUninstall {
 
 function Remove-OwnedInstallation {
   [void](Test-OwnedUninstall)
+  # An explicit later uninstall must not be undone by another directory's
+  # earlier validated recovery, even after Inno removes the shared HKLM key.
+  $generation = Get-InstallerMetadataGeneration
+  Set-InstallerMetadataGeneration -Expected $generation -Value ([Guid]::NewGuid().ToString('N'))
   # Inno removes only its own currently running uninstaller. It has no payload
   # [Files] deletion records, so unknown and third-party files stay untouched.
   $entries = @(Get-OldOwnedInventory | Where-Object { $_.path -notmatch '^installer-state\\[0-9a-f]{32}\\unins000\.(exe|dat|msg)$' })

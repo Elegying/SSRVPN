@@ -517,6 +517,7 @@ function New-UninstallRegistrySnapshot {
 
   $exportPath = Join-Path $StageRoot $script:uninstallRegistryExportFileName
   $exists = Test-UninstallRegistryKeyExists
+  $registration = Get-InstallerRegistrationIdentity
   $length = [long]0
   $sha256 = ''
   if ($exists) {
@@ -544,6 +545,7 @@ function New-UninstallRegistrySnapshot {
       view = '64'
       subkey = $script:uninstallRegistrySubkey
       exists = [bool]$exists
+      registration = $registration
       exportFile = $script:uninstallRegistryExportFileName
       length = $length
       sha256 = $sha256
@@ -558,7 +560,7 @@ function Read-UninstallRegistrySnapshot {
   Assert-ExactObjectSchema -Value $snapshot `
     -Name 'The uninstall registry snapshot' `
     -RequiredProperties @(
-      'schemaVersion', 'root', 'view', 'subkey', 'exists', 'exportFile', 'length', 'sha256'
+      'schemaVersion', 'root', 'view', 'subkey', 'exists', 'registration', 'exportFile', 'length', 'sha256'
     )
   if ($snapshot.schemaVersion -isnot [int] -or
       [int]$snapshot.schemaVersion -ne $script:transactionSchemaVersion -or
@@ -582,11 +584,18 @@ function Read-UninstallRegistrySnapshot {
     $script:uninstallRegistryExportFileName
   $exportItem = Get-PathItem -Path $exportPath
   if (-not [bool]$snapshot.exists) {
-    if ($null -ne $exportItem -or [long]$snapshot.length -ne 0 -or
+    if ($null -ne $snapshot.registration -or $null -ne $exportItem -or [long]$snapshot.length -ne 0 -or
         -not [string]::IsNullOrEmpty([string]$snapshot.sha256)) {
       throw 'The absent uninstall registry snapshot has unexpected data.'
     }
     return $snapshot
+  }
+  Assert-ExactObjectSchema -Value $snapshot.registration -Name 'The original uninstall identity' `
+    -RequiredProperties @('InstallLocation', 'UninstallString', 'DisplayVersion')
+  foreach ($property in $snapshot.registration.PSObject.Properties) {
+    if ($null -ne $property.Value -and ($property.Value -isnot [string] -or $property.Value.Length -gt 32768)) {
+      throw 'The original uninstall identity is invalid.'
+    }
   }
   if ($null -eq $exportItem -or $exportItem.PSIsContainer -or
       (Test-ReparsePoint -Item $exportItem) -or
@@ -864,7 +873,7 @@ function Read-TransactionState {
     $requiredStateProperties += @('uninstallRegistryRoot', 'uninstallRegistryView')
   }
   if ($state.schemaVersion -eq 4) {
-    $requiredStateProperties += @('transactionId', 'recoveryRoot', 'documents', 'recoveryFiles', 'oldOwnership', 'metadataPath', 'metadataFiles', 'authentication')
+    $requiredStateProperties += @('transactionId', 'previousMetadataGeneration', 'recoveryRoot', 'documents', 'recoveryFiles', 'oldOwnership', 'metadataPath', 'metadataFiles', 'authentication')
   }
   Assert-ExactObjectSchema -Value $state -Name 'Program-file recovery state' `
     -RequiredProperties $requiredStateProperties
@@ -910,6 +919,7 @@ function Read-TransactionState {
   }
   if ($state.schemaVersion -eq 4) {
     if ($state.transactionId -cnotmatch '^[0-9a-f]{32}$' -or $state.recoveryRoot -ine $script:recoveryRoot -or
+        $state.previousMetadataGeneration -isnot [string] -or $state.previousMetadataGeneration -cnotmatch '^([0-9a-f]{32})?$' -or
         $state.authentication -cnotmatch '^[0-9a-f]{64}$' -or
         $state.authentication -cne (Get-StateAuthentication -State $state)) {
       throw 'Recovery transaction identity/authentication failed; material was retained.'
@@ -1085,6 +1095,7 @@ function Remove-CommittedTransaction {
     [string]$Phase
   )
 
+  if ($Phase -ceq 'restored') { Restore-PreviousMetadataGeneration -State $script:activeState }
   $rootItem = Get-PathItem -Path $script:recoveryRoot
   if ($null -eq $rootItem) { return }
   if (-not $rootItem.PSIsContainer -or (Test-ReparsePoint -Item $rootItem)) {
@@ -1148,6 +1159,7 @@ function Get-VerifiedRecoveryMaterial {
 function Begin-ProgramFilesTransaction {
   Clear-StaleStagingDirectories
   Assert-NoLegacyRecoveryConflict
+  $previousMetadataGeneration = Get-InstallerMetadataGeneration
   if (Test-Path -LiteralPath $script:recoveryRoot) {
     throw 'A previous program-file transaction must be recovered first.'
   }
@@ -1197,6 +1209,9 @@ function Begin-ProgramFilesTransaction {
     }
     New-UninstallRegistrySnapshot -StageRoot $stageRoot
     New-ExternalFilesSnapshot -StageRoot $stageRoot
+    if ((Get-InstallerMetadataGeneration) -cne $previousMetadataGeneration) {
+      throw 'Shared installer metadata changed during preparation; original files and staging were retained.'
+    }
     $documents = @(foreach ($name in @('manifest.json', 'new-payload.json', 'uninstall-registry.json', 'external-files.json')) {
       $identity = Get-BoundedFileMetadata -Path (Join-Path $stageRoot $name) -MaxBytes $script:maxMetadataDocumentBytes -Name 'Recovery document'
       [pscustomobject][ordered]@{ path = $name; sha256 = $identity.sha256 }
@@ -1213,6 +1228,7 @@ function Begin-ProgramFilesTransaction {
         desktopShortcutPath = $script:desktopShortcutPath
         startMenuShortcutPath = $script:startMenuShortcutPath
         transactionId = $transactionId
+        previousMetadataGeneration = $previousMetadataGeneration
         recoveryRoot = $script:recoveryRoot
         documents = $documents
         recoveryFiles = $recoveryFiles
@@ -1243,6 +1259,7 @@ function Recover-ProgramFilesTransaction {
     Remove-CommittedTransaction -Phase restored
     return 'RECOVERED_CLEANED'
   }
+  if ($state.phase -ceq 'validated') { Assert-InstallerMetadataGeneration -State $state }
 
   # Keep verified sources and their parent directories pinned until all file
   # and registry replay completes, including reg.exe's later read of the .reg.
@@ -1250,6 +1267,7 @@ function Recover-ProgramFilesTransaction {
   try {
     $material = Get-VerifiedRecoveryMaterial
     $expectedInventory = @($material.expectedInventory)
+    if ($state.phase -ceq 'validated') { Assert-RecoveryRegistrationOwner -State $state -Snapshot $material.registrySnapshot }
     Restore-OwnedProgramFiles -Old $expectedInventory -New @(@(Read-TransactionPayload) + @($state.metadataFiles))
   # Inno processes [Icons] and uninstall registration only after the payload's
   # AfterInstall callback has durably published validated. Prepared/cleared
@@ -1297,6 +1315,10 @@ function Validate-ProgramFilesTransaction {
     throw 'Program files must be transactionally cleared before validation.'
   }
   [void](Test-InstalledPayload)
+  # Claim shared metadata before Inno is allowed to write icons/registration.
+  # If the phase write fails, cleared recovery restores this claim without
+  # replaying metadata which Inno has not yet changed.
+  Set-InstallerMetadataGeneration -Expected $state.previousMetadataGeneration -Value $state.transactionId
   Write-FinalizedState -Phase validated
   return 'VALIDATED'
 }
@@ -1311,6 +1333,7 @@ function Commit-ProgramFilesTransaction {
     if ([string]$state.phase -cne 'validated') {
       throw 'Cannot commit a program-file transaction before validation.'
     }
+    Assert-InstallerMetadataGeneration -State $state
     [void](Test-InstalledPayload)
     $owned = @(@(Read-TransactionPayload) + @($state.metadataFiles))
     if ($state.metadataFiles.Count -lt 2) { throw 'Inno uninstall metadata has not been sealed.' }
