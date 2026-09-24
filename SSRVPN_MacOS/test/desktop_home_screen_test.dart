@@ -55,6 +55,41 @@ double _contrastRatio(Color foreground, Color background) {
 }
 
 void main() {
+  for (final recoverySucceeds in [true, false]) {
+    testWidgets('tray recovery completes with success=$recoverySucceeds',
+        (tester) async {
+      final fixture =
+          (await tester.runAsync(() => _HomeFixture.create(withNodes: true)))!;
+      addTearDown(fixture.dispose);
+      final status = StartupStatus.instance;
+      status.prepareCoreRetry();
+      status.setServices(
+        settings: fixture.settings,
+        clash: fixture.clash,
+        subscription: fixture.subscription,
+      );
+      addTearDown(status.prepareCoreRetry);
+      final release = fixture.clash.proxyRecoveryRelease = Completer<bool>();
+      await tester.pumpWidget(desktop_app.SSRVpnApp(
+          startupFlags: StartupFlags.parse(const ['--safe-mode'])));
+      await tester.pump();
+      TrayManager().onConnectToggle!();
+      await _pumpUntil(tester, () => fixture.clash.proxyRecoveryCalls == 1);
+      expect(fixture.clash.connectionDesired, isTrue);
+      release.complete(recoverySucceeds);
+      await _pumpUntil(
+          tester,
+          () => recoverySucceeds
+              ? fixture.clash.startCalls == 1
+              : !fixture.clash.connectionDesired);
+      await tester.pumpAndSettle();
+      expect(fixture.clash.startCalls, recoverySucceeds ? 1 : 0);
+      expect(fixture.clash.connectionDesired, recoverySucceeds);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+  }
   for (final cancelFromTray in [false, true]) {
     testWidgets('tray recovery respects cancellation from tray=$cancelFromTray',
         (tester) async {
