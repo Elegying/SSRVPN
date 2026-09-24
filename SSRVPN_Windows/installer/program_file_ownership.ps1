@@ -161,6 +161,15 @@ function Get-OldOwnedInventory {
   throw 'This launcher is modified or has no verified historical catalog. Existing files were preserved; install into a new empty directory or restore the official old program files before retrying.'
 }
 
+function Assert-NoLegacyRecoveryConflict {
+  if (-not $LegacyRecoveryRoot -or -not (Test-Path -LiteralPath $LegacyRecoveryRoot)) { return }
+  $legacyRoot = Get-SafeDirectoryPath -Path $LegacyRecoveryRoot -Name 'LegacyRecoveryRoot'
+  $state = Read-BoundedJsonDocument -Path (Join-Path $legacyRoot 'state.json') -Name 'Legacy recovery state'
+  if ($state.installDir -isnot [string] -or $state.installDir -ieq $script:installDir) {
+    throw 'An old recovery transaction may belong to this directory. Its original machine registry information cannot be reconstructed. Preserve the old directory and recovery material; select a separate empty installation directory for a clean install.'
+  }
+}
+
 function Open-OwnedFiles {
   param([string]$Root, [AllowEmptyCollection()][object[]]$Entries, [switch]$AllowMissing, [switch]$ForRemoval)
   if (-not ('SsrvpnInstaller.ProgramFile' -as [type])) {

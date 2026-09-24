@@ -474,7 +474,8 @@ begin
       ' -RecoveryRoot ' + AddQuotes(ProgramFilesRecoveryRoot) +
       ' -StatusPath ' + AddQuotes(StatusPath) +
       ' -UninstallRegistrySubkey ' + AddQuotes(UninstallRegistryKey) +
-      ' -UninstallRegistryRoot HKLM' +
+      ' -UninstallRegistryRoot HKLM -UninstallRegistryView 64' +
+      ' -LegacyRecoveryRoot ' + AddQuotes(ExpandConstant('{localappdata}\SSRVPN\installer-recovery')) +
       ' -PayloadSourceRoot ' + AddQuotes(ExpandConstant('{tmp}\payload')) +
       ' -DesktopShortcutPath ' +
         AddQuotes(ExpandConstant('{commondesktop}\SSRVPN.lnk')) +

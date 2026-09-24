@@ -21,6 +21,30 @@ permissions:
   contents: read
 
 jobs:
+  windows-installer-ownership-package:
+    name: Real Windows installer ownership and rollback
+    if: github.event_name == 'workflow_dispatch' && inputs.task == 'windows-installer-ownership'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Exercise official old installers and isolated fault packages
+        shell: powershell
+        run: |
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/test_windows_installer_ownership_package.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Archive real installer behavior evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-installer-ownership-package
+          path: |
+            ${{ runner.temp }}/installer-ownership-package/*.json
+            ${{ runner.temp }}/installer-ownership-package/**/*.log
+          retention-days: 90
+
   windows-installer-ownership:
     name: Windows installer ownership behavior
     if: github.event_name == 'workflow_dispatch' && inputs.task == 'windows-installer-ownership'

@@ -8,11 +8,13 @@ param(
   [Parameter(Mandatory = $true)][string]$StatusPath,
   [Parameter(Mandatory = $true)][string]$UninstallRegistrySubkey,
   [ValidateSet('HKCU', 'HKLM')][string]$UninstallRegistryRoot = 'HKCU',
+  [ValidateSet('64')][string]$UninstallRegistryView = '64',
   [Parameter(Mandatory = $true)][string]$DesktopShortcutPath,
   [Parameter(Mandatory = $true)][string]$StartMenuShortcutPath,
   [string]$ExpectedPayloadManifestPath = '',
   [string]$LegacyCatalogPath = '',
   [string]$PayloadSourceRoot = '',
+  [string]$LegacyRecoveryRoot = '',
   [string]$UninstallMetadataRelativePath = ''
 )
 
@@ -1017,7 +1019,7 @@ function Read-TransactionState {
         @('HKCU', 'HKLM') -cnotcontains $state.uninstallRegistryRoot -or
         $state.uninstallRegistryRoot -ine $UninstallRegistryRoot -or
         $state.uninstallRegistryView -isnot [string] -or
-        $state.uninstallRegistryView -cne '64') {
+        $state.uninstallRegistryView -cne $UninstallRegistryView) {
       throw 'Program-file recovery registry root does not match this installer.'
     }
     $script:transactionRegistryRoot = $state.uninstallRegistryRoot
@@ -1273,6 +1275,7 @@ function Get-VerifiedRecoveryMaterial {
 
 function Begin-ProgramFilesTransaction {
   Clear-StaleStagingDirectories
+  Assert-NoLegacyRecoveryConflict
   if (Test-Path -LiteralPath $script:recoveryRoot) {
     throw 'A previous program-file transaction must be recovered first.'
   }
