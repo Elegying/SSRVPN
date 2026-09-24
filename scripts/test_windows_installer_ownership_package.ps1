@@ -26,6 +26,7 @@ function Write-Text([string]$Path, [string]$Value) {
 }
 function Run-Installer([string]$Exe, [string]$Phase, [string]$Directory = $installDir) {
   $log = Join-Path $root "$Phase.log"
+  $executableHash = (Get-FileHash -LiteralPath $Exe).Hash.ToLowerInvariant()
   $process = Start-Process -FilePath $Exe -WindowStyle Hidden -PassThru -ArgumentList @(
     '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', ('/DIR="' + $Directory + '"'), ('/LOG="' + $log + '"'))
   try {
@@ -35,7 +36,7 @@ function Run-Installer([string]$Exe, [string]$Phase, [string]$Directory = $insta
   } finally { $process.Dispose() }
   Write-Host "$Phase exit=$code log=$log"
   Write-Text (Join-Path $root "$Phase.process.json") ([ordered]@{
-    phase = $Phase; exitCode = $code; executableSha256 = (Get-FileHash -LiteralPath $Exe).Hash.ToLowerInvariant(); directory = $Directory
+    phase = $Phase; exitCode = $code; executableSha256 = $executableHash; directory = $Directory
   } | ConvertTo-Json)
   return $code
 }

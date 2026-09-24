@@ -21,6 +21,36 @@ namespace SsrvpnInstaller {
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool SetFileInformationByHandle(SafeFileHandle handle, int kind,
       ref byte data, uint size);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool DuplicateHandle(IntPtr process, IntPtr source, IntPtr target,
+      out SafeFileHandle duplicate, uint access, bool inherit, uint options);
+    [DllImport("kernel32.dll")] static extern uint GetFileType(SafeFileHandle handle);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool QueryFullProcessImageName(IntPtr process, uint flags, StringBuilder name, ref uint size);
+    [DllImport("kernel32.dll")] static extern bool GetProcessTimes(IntPtr process,
+      out long created, out long exited, out long kernel, out long user);
+    [DllImport("kernel32.dll")] static extern uint PssCaptureSnapshot(IntPtr process, uint flags, uint context, out IntPtr snapshot);
+    [DllImport("kernel32.dll")] static extern uint PssFreeSnapshot(IntPtr process, IntPtr snapshot);
+    [DllImport("kernel32.dll")] static extern uint PssWalkMarkerCreate(IntPtr allocator, out IntPtr marker);
+    [DllImport("kernel32.dll")] static extern uint PssWalkMarkerFree(IntPtr marker);
+    [DllImport("kernel32.dll")] static extern uint PssWalkSnapshot(IntPtr snapshot, int kind, IntPtr marker, out HandleEntry entry, uint size);
+    [StructLayout(LayoutKind.Explicit, Size = 48)] struct HandleSpecific { }
+    [StructLayout(LayoutKind.Sequential)] struct HandleEntry {
+      public IntPtr Handle;
+      public uint Flags, Type;
+      public System.Runtime.InteropServices.ComTypes.FILETIME Captured;
+      public uint Attributes, Access, Handles, Pointers, Paged, NonPaged;
+      public System.Runtime.InteropServices.ComTypes.FILETIME Created;
+      public ushort TypeLength;
+      public IntPtr TypeName;
+      public ushort NameLength;
+      public IntPtr Name;
+      public HandleSpecific Specific;
+    }
     [StructLayout(LayoutKind.Sequential)]
     struct Info {
       public uint Attributes;
@@ -102,6 +132,58 @@ namespace SsrvpnInstaller {
             if (digest != Sha256) throw new IOException("Copied program file did not verify.");
           }
         } catch { target.Delete(); throw; }
+      }
+    }
+    // Inno holds its DAT exclusively while synchronously waiting for this
+    // helper. Read a read-only duplicate of that same verified caller's handle;
+    // never close its handle, relax sharing/ACLs, inject code or write data.
+    // Duplicate handles share a file position, so restore it before returning.
+    public static void VerifyInnoData(int pid, string image, long created,
+      string path, long length, string sha256) {
+      if (IntPtr.Size != 8) throw new IOException("64-bit metadata verification is required.");
+      var process = OpenProcess(0x440, false, pid); // query information + duplicate handle
+      if (process == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+      IntPtr snapshot = IntPtr.Zero, marker = IntPtr.Zero;
+      try {
+        var name = new StringBuilder(32768); uint size = (uint)name.Capacity;
+        long birth, end, kernel, user;
+        if (!QueryFullProcessImageName(process, 0, name, ref size) ||
+            !GetProcessTimes(process, out birth, out end, out kernel, out user) ||
+            birth != created || !String.Equals(name.ToString(), image, StringComparison.OrdinalIgnoreCase))
+          throw new IOException("The active Inno caller changed.");
+        uint error = PssCaptureSnapshot(process, 4, 0, out snapshot); // handles only, no memory/threads
+        if (error != 0) throw new Win32Exception((int)error);
+        error = PssWalkMarkerCreate(IntPtr.Zero, out marker);
+        if (error != 0) throw new Win32Exception((int)error);
+        for (int count = 0; count < 8192; count++) {
+          HandleEntry entry;
+          error = PssWalkSnapshot(snapshot, 2, marker, out entry, (uint)Marshal.SizeOf(typeof(HandleEntry)));
+          if (error == 259) break;
+          if (error != 0) throw new Win32Exception((int)error);
+          SafeFileHandle duplicate;
+          if (!DuplicateHandle(process, entry.Handle, GetCurrentProcess(), out duplicate, 0x100081, false, 0)) continue;
+          using (duplicate) {
+            if (GetFileType(duplicate) != 1) continue;
+            try { Check(duplicate, path, false); } catch (IOException) { continue; } catch (Win32Exception) { continue; }
+            using (var input = new FileStream(duplicate, FileAccess.Read)) {
+              long position = input.Position;
+              try {
+                if (input.Length != length) throw new IOException("Inno DAT length changed.");
+                input.Position = 0;
+                using (var hash = SHA256.Create()) {
+                  var digest = BitConverter.ToString(hash.ComputeHash(input)).Replace("-", "").ToLowerInvariant();
+                  if (digest != sha256) throw new IOException("Inno DAT failed its committed SHA-256.");
+                }
+              } finally { input.Position = position; }
+            }
+            return;
+          }
+        }
+        throw new IOException("The verified Inno caller does not own this DAT handle.");
+      } finally {
+        if (marker != IntPtr.Zero) PssWalkMarkerFree(marker);
+        if (snapshot != IntPtr.Zero) PssFreeSnapshot(GetCurrentProcess(), snapshot);
+        CloseHandle(process);
       }
     }
     public void Dispose() {

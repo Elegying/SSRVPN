@@ -344,19 +344,46 @@ function Seal-UninstallMetadata {
   return 'UNINSTALL_METADATA_SEALED'
 }
 
+function Test-ActiveInnoData {
+  param($Entry, [object[]]$Metadata)
+  $self = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$PID"
+  $parent = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$($self.ParentProcessId)"
+  if ($null -eq $parent -or $parent.Name -ine '_unins.tmp' -or
+      $parent.CommandLine -notmatch '(?i)(?:^|\s)/SECONDPHASE="([^"]+)"(?:\s|$)') {
+    throw 'Exclusive uninstall metadata is not held by this helper''s active Inno caller.'
+  }
+  $originalExe = [IO.Path]::ChangeExtension((Join-Path $script:installDir $Entry.path), '.exe')
+  if ($matches[1] -ine $originalExe) { throw 'The active Inno caller belongs to another uninstall directory.' }
+  $expected = @($Metadata | Where-Object { (Join-Path $script:installDir $_.path) -ieq $originalExe })
+  if ($expected.Count -ne 1) { throw 'The committed uninstall engine identity is missing.' }
+  $actual = Get-BoundedFileMetadata -Path $parent.ExecutablePath -MaxBytes $script:maxProgramFileBytes -Name 'Active Inno engine'
+  if ($actual.sha256 -cne $expected[0].sha256 -or $actual.length -ne $expected[0].length) { throw 'The active Inno engine is not the committed uninstaller.' }
+  $process = Get-Process -Id $parent.ProcessId -ErrorAction Stop
+  try {
+    [SsrvpnInstaller.ProgramFile]::VerifyInnoData($parent.ProcessId, $parent.ExecutablePath,
+      $process.StartTime.ToUniversalTime().ToFileTimeUtc(), (Join-Path $script:installDir $Entry.path), $Entry.length, $Entry.sha256)
+  } finally { $process.Dispose() }
+}
+
 function Test-OwnedUninstall {
   [void](Discard-ProgramFilesTransaction)
   if ($null -eq (Get-OwnershipValue -Name 'Manifest')) {
     throw 'Uninstall requires this installation directory''s committed ownership manifest.'
   }
   $entries = @(Get-OldOwnedInventory)
-  # Inno deliberately holds unins000.dat open with read sharing only during
-  # uninstall. Verify its full hash without requesting deletion access; Inno
-  # owns its final removal. Payload files still require deletion preflight.
+  # Inno exclusively holds its DAT while waiting for this helper. The native
+  # verifier hashes a read-only duplicate of that verified parent's handle.
   $metadata = @($entries | Where-Object { $_.path -match '^installer-state\\[0-9a-f]{32}\\unins000\.(exe|dat|msg)$' })
   $payload = @($entries | Where-Object { $_.path -notmatch '^installer-state\\[0-9a-f]{32}\\unins000\.(exe|dat|msg)$' })
-  $opened = Open-OwnedFiles -Root $script:installDir -Entries $metadata -AllowMissing
+  $readable = @($metadata | Where-Object { $_.path -notmatch '\.dat$' })
+  $opened = Open-OwnedFiles -Root $script:installDir -Entries $readable -AllowMissing
   foreach ($item in $opened) { $item.handle.Dispose() }
+  foreach ($entry in @($metadata | Where-Object { $_.path -match '\.dat$' })) {
+    try {
+      $opened = Open-OwnedFiles -Root $script:installDir -Entries @($entry)
+      foreach ($item in $opened) { $item.handle.Dispose() }
+    } catch { Test-ActiveInnoData -Entry $entry -Metadata $metadata }
+  }
   $opened = Open-OwnedFiles -Root $script:installDir -Entries $payload -AllowMissing -ForRemoval
   foreach ($item in $opened) { $item.handle.Dispose() }
   # Inno's automatic key deletion is unconditional. Do not let this uninstall

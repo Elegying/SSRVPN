@@ -360,6 +360,35 @@ try {
   Assert-UserFiles $c
   Pass 'Production handles prevent byte mutation, parent exchange and overwrite after verification'
 
+  $c = New-Case 'exclusive-inno-data-hash'
+  $path = Join-Path $c.root 'exclusive.dat'
+  Write-FixtureFile $path 'exclusive-engine-owned-metadata'
+  $digest = (Get-FileHash -LiteralPath $path).Hash.ToLowerInvariant()
+  $lock = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+  $process = Get-Process -Id $PID
+  try {
+    $lock.Position = 7
+    [SsrvpnInstaller.ProgramFile]::VerifyInnoData($PID, $process.Path, $process.StartTime.ToUniversalTime().ToFileTimeUtc(), $path, $lock.Length, $digest)
+    $rejected = $false
+    try { [SsrvpnInstaller.ProgramFile]::VerifyInnoData($PID, $process.Path, $process.StartTime.ToUniversalTime().ToFileTimeUtc(), $path, $lock.Length, ('0' * 64)) }
+    catch { $rejected = $true }
+    if (-not $rejected -or $lock.Position -ne 7) { throw 'Exclusive DAT verification skipped SHA-256 or changed the engine file position.' }
+  } finally { $lock.Dispose(); $process.Dispose() }
+  Assert-File $path 'exclusive-engine-owned-metadata'
+  Pass 'Exclusive engine DAT is fully hashed; wrong hashes fail and the original handle position is retained'
+
+  $c = New-Case 'foreign-locked-uninstall-data'
+  Invoke-Case $c Begin
+  Invoke-Case $c Clear
+  Invoke-Case $c Install
+  Seal-Case $c
+  Invoke-Case $c Commit
+  $lock = [IO.File]::Open((Join-Path $c.install "$($c.metadata)\unins000.dat"), [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+  try { Invoke-Case $c CheckUninstall -Failure } finally { $lock.Dispose() }
+  Invoke-Case $c CheckUninstall
+  Assert-UserFiles $c
+  Pass 'An unrelated process holding DAT cannot impersonate the active Inno caller'
+
   $c = New-Case 'source-junction'
   $foreign = Join-Path $c.root 'foreign'
   Write-FixtureFile (Join-Path $foreign 'keep.txt') 'unrelated-junction-target'
