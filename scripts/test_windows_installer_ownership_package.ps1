@@ -73,7 +73,15 @@ function Uninstall-Current([string]$Phase) {
   $exe = $matches[1]
   if (-not $exe.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Uninstaller escaped the disposable test root.' }
   $code = Run-Installer $exe $Phase
-  if ($code -ne 0 -or (Test-Path -LiteralPath $registryPath)) { throw 'Real uninstall failed.' }
+  # Inno's first phase exits before the copied second phase finishes its final
+  # DAT/EXE deletion. Wait for actual resources, not merely the first exit code.
+  $deadline = [DateTime]::UtcNow.AddSeconds(30)
+  while ([DateTime]::UtcNow -lt $deadline -and ((Test-Path -LiteralPath $exe) -or
+      (Test-Path -LiteralPath $registryPath) -or (Test-Path -LiteralPath $desktop) -or (Test-Path -LiteralPath $menu))) {
+    Start-Sleep -Milliseconds 100
+  }
+  if ($code -ne 0 -or (Test-Path -LiteralPath $exe) -or (Test-Path -LiteralPath $registryPath) -or
+      (Test-Path -LiteralPath $desktop) -or (Test-Path -LiteralPath $menu)) { throw 'Real uninstall failed.' }
 }
 function Build-Candidate([string]$Name, [switch]$Legacy, [switch]$Fault) {
   $buildRoot = Join-Path $root $Name
@@ -316,6 +324,17 @@ try {
   Write-Text (Join-Path $root 'directory-b-recovery-after-a-uninstall.json') (Get-TreeHashes $recoveryB)
   Invoke-Transaction $directoryB Recover 'directory-b-recover-after-a-uninstall'
   if ((Get-TreeHashes $directoryB) -cne $beforeB -or (Test-Path $registryPath) -or (Test-Path $desktop) -or (Test-Path $menu)) { throw 'B recovery changed files or recreated stale A metadata.' }
+
+  # The shipped v5.0.18 uninstaller still uses the old shared recovery root.
+  # Exercise that exact old binary against a new B transaction as well.
+  $installDir = Join-Path $root 'legacy-directory-a'
+  if ((Run-Installer $official 'legacy-directory-a-install') -ne 0) { throw 'Legacy directory A install failed.' }
+  Invoke-Transaction $directoryB Begin 'directory-b-pending-with-legacy-a'
+  $beforeRecovery = Get-TreeHashes $recoveryB
+  Uninstall-Current 'legacy-directory-a-uninstall-with-b-pending'
+  if ((Get-TreeHashes $recoveryB) -cne $beforeRecovery -or (Get-TreeHashes $directoryB) -cne $beforeB) { throw 'The historical A uninstaller damaged B.' }
+  Invoke-Transaction $directoryB Recover 'directory-b-recover-after-legacy-a'
+  if ((Get-TreeHashes $directoryB) -cne $beforeB -or (Test-Path $registryPath) -or (Test-Path $desktop) -or (Test-Path $menu)) { throw 'B recovery recreated stale historical A metadata.' }
   if ((Run-Installer $uninstallerB 'directory-b-final-uninstall' $directoryB) -ne 0) { throw 'B cleanup uninstall failed.' }
   if ([IO.File]::ReadAllText((Join-Path $directoryB 'unrelated.txt')) -cne 'directory-b-sentinel') { throw 'B uninstall deleted its unrelated file.' }
   Pass 'Two real installation directories: uninstall A preserves all B state and backup; later B recovery succeeds'

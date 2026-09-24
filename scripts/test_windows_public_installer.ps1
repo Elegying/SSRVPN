@@ -77,7 +77,12 @@ function Uninstall([string]$Phase) {
   $exe = $matches[1]
   if (-not $exe.StartsWith($installDir + '\installer-state\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Uninstaller escaped the disposable installation.' }
   Invoke-RealInstaller $exe $Phase
-  foreach ($path in @($registryPath, $desktop, $menu, (Join-Path $installDir 'ssrvpn_windows.exe'))) {
+  $deadline = [DateTime]::UtcNow.AddSeconds(30)
+  while ([DateTime]::UtcNow -lt $deadline -and ((Test-Path -LiteralPath $exe) -or
+      (Test-Path -LiteralPath $registryPath) -or (Test-Path -LiteralPath $desktop) -or (Test-Path -LiteralPath $menu))) {
+    Start-Sleep -Milliseconds 100
+  }
+  foreach ($path in @($exe, $registryPath, $desktop, $menu, (Join-Path $installDir 'ssrvpn_windows.exe'))) {
     if (Test-Path -LiteralPath $path) { throw "Uninstall left an owned resource: $path" }
   }
   Assert-Sentinels $Phase
