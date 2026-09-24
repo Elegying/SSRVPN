@@ -62,7 +62,11 @@ namespace SsrvpnInstaller {
     public long Length { get { return stream.Length; } }
     public string Sha256 { get; private set; }
     static void Check(SafeFileHandle handle, string path, bool directory) {
-      if (handle.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(), path);
+      if (handle.IsInvalid) {
+        var error = Marshal.GetLastWin32Error();
+        throw new Win32Exception(error, "Win32 " + error + ": " +
+          new Win32Exception(error).Message + " [" + path + "]");
+      }
       Info info;
       if (!GetFileInformationByHandle(handle, out info)) throw new Win32Exception();
       if ((info.Attributes & 0x400) != 0 || (((info.Attributes & 0x10) != 0) != directory) ||

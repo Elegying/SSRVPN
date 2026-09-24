@@ -492,7 +492,7 @@ begin
     Started := Exec(PowerShellPath, Parameters, '', SW_HIDE,
       ewWaitUntilTerminated, ResultCode);
     if LoadStringFromFile(StatusPath, RawStatus) then
-      LastProgramFilesTransactionStatus := Trim(String(RawStatus));
+      LastProgramFilesTransactionStatus := Trim(Utf8Decode(RawStatus));
     Result := Started and (ResultCode = 0);
     Log('SSRVPN program-file transaction action=' + Action +
       ' exit=' + IntToStr(ResultCode) +

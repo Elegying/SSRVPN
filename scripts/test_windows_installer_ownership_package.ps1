@@ -109,7 +109,7 @@ function Build-Candidate([string]$Name, [switch]$Legacy, [switch]$Fault) {
   try { $entry = $faultKey.OpenSubKey($script:uninstallRegistrySubkey); try { $version = $entry.GetValue('DisplayVersion') } finally { $entry.Dispose() } }
   finally { $faultKey.Dispose() }
   if ($version -cne '9.9.9') { throw 'Fault did not reach the real new HKLM64 uninstall metadata.' }
-  throw 'TEST_ONLY_PRE_COMMIT_AFTER_HKLM64'
+  throw ('TEST_ONLY_PRE_COMMIT_AFTER_HKLM64 ' + [char]0x4e2d + [char]0x6587)
 '@
     Write-Text $helper ($source.Replace($boundary, $boundary + $inject))
   }
@@ -188,7 +188,16 @@ function Invoke-Transaction([string]$Directory, [string]$Action, [string]$Phase)
 }
 function Pass([string]$Name) { [void]$results.Add([ordered]@{ case = $Name; result = 'PASS' }); Write-Host "PASS $Name" }
 
+$fileSystemKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem'
+$previousLongPaths = Get-ItemPropertyValue -LiteralPath $fileSystemKey -Name LongPathsEnabled
 try {
+  # Only this disposable runner is changed. New real installer/helper processes
+  # must work under the Windows default, without a machine-wide opt-in.
+  Set-ItemProperty -LiteralPath $fileSystemKey -Name LongPathsEnabled -Value 0
+  Write-Text (Join-Path $root 'path-environment.json') ([ordered]@{
+    previousLongPathsEnabled = $previousLongPaths; testedLongPathsEnabled = 0
+    localAppDataLength = $env:LOCALAPPDATA.Length
+  } | ConvertTo-Json)
   $pins = Get-Content (Join-Path $PSScriptRoot 'windows_legacy_installer_sources.json') -Encoding UTF8 -Raw | ConvertFrom-Json
   $pin = @($pins | Where-Object tag -eq 'v5.0.18')[0]
   $official = Join-Path $root 'official-v5.0.18.exe'
@@ -233,6 +242,20 @@ try {
   $key32 = $machine32.CreateSubKey($registrySubkey)
   try { $key32.SetValue('NonTargetSentinel', [int]3242, [Microsoft.Win32.RegistryValueKind]::DWord) } finally { $key32.Dispose() }
   [void](Snapshot 'n03-green-before')
+  # Reproduce the actual 5.0.19 public package, not a source-string check or a
+  # helper substitute. It must fail in Begin and leave the old install intact.
+  $published5019 = Join-Path $root 'official-v5.0.19.exe'
+  & curl.exe -q --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --retry 3 --max-time 180 --output $published5019 https://github.com/Elegying/SSRVPN/releases/download/v5.0.19/SSRVPN_Setup.exe
+  if ($LASTEXITCODE -ne 0 -or (Get-FileHash -LiteralPath $published5019).Hash.ToLowerInvariant() -cne '318cea6884f9652fb653f6c304fd9aa7e8cefbc587a95a85ed7d7960b3c80da9') { throw 'Official 5.0.19 identity mismatch.' }
+  $before = Snapshot 'max-path-red-before'
+  if ((Run-Installer $published5019 'max-path-red-public-5019') -eq 0) { throw 'Public 5.0.19 did not reproduce MAX_PATH failure.' }
+  $redPathLog = [IO.File]::ReadAllText((Join-Path $root 'max-path-red-public-5019.log'))
+  if ($redPathLog -notmatch 'action=Begin exit=[1-9].*CopyNew' -or $redPathLog.Contains('action=Clear')) { throw 'Public failure was not the reported preparation path failure.' }
+  $after = Snapshot 'max-path-red-after'
+  foreach ($part in @('files', 'registry', 'shortcuts')) {
+    if (($before[$part] | ConvertTo-Json -Depth 5 -Compress) -cne ($after[$part] | ConvertTo-Json -Depth 5 -Compress)) { throw "Failed 5.0.19 changed $part." }
+  }
+  Pass 'MAX_PATH red: exact public 5.0.19 fails preparation with long paths disabled; old installation is intact'
   $candidate = Build-Candidate 'candidate'
   if ((Run-Installer $candidate 'legacy-to-candidate') -ne 0) { throw 'Verified v5.0.18 migration failed.' }
   Assert-Committed 'legacy-to-candidate'
@@ -240,6 +263,7 @@ try {
   Assert-NonTargetScopes
   [void](Snapshot 'legacy-to-candidate')
   Pass 'Verified v5.0.18 migration preserves root/nested sentinels and user data'
+  Pass 'MAX_PATH green: candidate upgrades the same install with long paths disabled and prior failed staging retained'
   if ((Run-Installer $candidate 'normal-upgrade') -ne 0) { throw 'Owned candidate upgrade failed.' }
   Assert-Committed 'normal-upgrade'
   Assert-UserFiles
@@ -264,6 +288,7 @@ try {
   $before = Snapshot 'n04-green-before'
   [void](Run-Installer $fault 'n04-green-precommit')
   $greenLog = [IO.File]::ReadAllText((Join-Path $root 'n04-green-precommit.log'))
+  if (-not $greenLog.Contains('TEST_ONLY_PRE_COMMIT_AFTER_HKLM64 ' + [char]0x4e2d + [char]0x6587)) { throw 'UTF-8 helper status did not reach the real Inno log intact.' }
   $after = Snapshot 'n04-green-after'
   Assert-Recovered 'n04-green-precommit' $before $after
   foreach ($part in @('files', 'registry', 'shortcuts')) {
@@ -343,6 +368,7 @@ try {
   Pass 'Two real installation directories: uninstall A preserves all B state and backup; later B recovery succeeds'
   Assert-NonTargetScopes
 } finally {
+  Set-ItemProperty -LiteralPath $fileSystemKey -Name LongPathsEnabled -Value $previousLongPaths
   $machine32.Dispose()
   [ordered]@{ windows = [Environment]::OSVersion.VersionString; powershell = $PSVersionTable.PSVersion.ToString(); commit = $env:GITHUB_SHA; results = @($results.ToArray()) } |
     ConvertTo-Json -Depth 6 | Set-Content (Join-Path $root 'results.json') -Encoding UTF8
