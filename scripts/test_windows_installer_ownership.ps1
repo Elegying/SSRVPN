@@ -305,6 +305,22 @@ try {
   Assert-UserFiles $c
   Pass 'A standalone status write failure does not turn durable success into failure'
 
+  $c = New-Case 'persistent-state-write-failure'
+  Invoke-Case $c Begin
+  Invoke-Case $c Clear
+  Invoke-Case $c Install
+  Seal-Case $c
+  $lock = [IO.File]::Open((Join-Path $c.recovery 'state.json'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+  try {
+    Invoke-Case $c Recover -Failure
+    Invoke-Case $c Recover -Failure
+    $pending = [IO.File]::ReadAllText((Join-Path $c.recovery 'state.json')) | ConvertFrom-Json
+    if ($pending.phase -cne 'validated' -or -not (Test-Path (Join-Path $c.recovery 'program\ssrvpn_windows.exe'))) { throw 'Failed durable writes discarded pending evidence.' }
+  } finally { $lock.Dispose() }
+  Invoke-Case $c Recover
+  Assert-UserFiles $c
+  Pass 'Persistent state replacement failure reports failure and preserves recovery until writes succeed'
+
   $c = New-Case 'owned-hard-link'
   $original = Join-Path $c.install 'bin\app.dll'
   New-Item -ItemType HardLink -Path (Join-Path $c.root 'alias.dll') -Target $original | Out-Null

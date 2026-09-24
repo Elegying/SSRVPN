@@ -674,6 +674,8 @@ function New-UninstallRegistrySnapshot {
       Join-Path $StageRoot $script:uninstallRegistrySnapshotFileName) `
     -Value ([pscustomobject][ordered]@{
       schemaVersion = $script:schemaVersion
+      root = $script:transactionRegistryRoot
+      view = '64'
       subkey = $script:uninstallRegistrySubkey
       exists = [bool]$exists
       exportFile = $script:uninstallRegistryExportFileName
@@ -690,10 +692,12 @@ function Read-UninstallRegistrySnapshot {
   Assert-ExactObjectSchema -Value $snapshot `
     -Name 'The uninstall registry snapshot' `
     -RequiredProperties @(
-      'schemaVersion', 'subkey', 'exists', 'exportFile', 'length', 'sha256'
+      'schemaVersion', 'root', 'view', 'subkey', 'exists', 'exportFile', 'length', 'sha256'
     )
   if ($snapshot.schemaVersion -isnot [int] -or
       [int]$snapshot.schemaVersion -ne $script:transactionSchemaVersion -or
+      $snapshot.root -cne $script:transactionRegistryRoot -or
+      $snapshot.view -cne $UninstallRegistryView -or
       $snapshot.subkey -isnot [string] -or
       $snapshot.exists -isnot [bool] -or
       $snapshot.exportFile -isnot [string] -or
@@ -1351,7 +1355,9 @@ function Begin-ProgramFilesTransaction {
     [System.IO.Directory]::Move($stageRoot, $script:recoveryRoot)
   } finally {
     if (Test-Path -LiteralPath $stageRoot) {
-      Remove-SafeTree -Path $stageRoot
+      # A failed preparation has no authenticated inventory yet. Preserve it;
+      # a whole-directory scan must never authorize deletion of new arrivals.
+      Write-Warning "Incomplete preparation was retained: $stageRoot"
     }
   }
   return 'PREPARED'
@@ -1370,20 +1376,26 @@ function Recover-ProgramFilesTransaction {
     return 'RECOVERED_CLEANED'
   }
 
-  $material = Get-VerifiedRecoveryMaterial
-  $expectedInventory = @($material.expectedInventory)
-
-  Restore-OwnedProgramFiles -Old $expectedInventory -New @(@(Read-TransactionPayload) + @($state.metadataFiles))
+  # Keep verified sources and their parent directories pinned until all file
+  # and registry replay completes, including reg.exe's later read of the .reg.
+  $pinned = Open-OwnedFiles -Root $script:recoveryRoot -Entries @(Read-OwnedFileList -Entries $state.recoveryFiles -Root $script:recoveryRoot)
+  try {
+    $material = Get-VerifiedRecoveryMaterial
+    $expectedInventory = @($material.expectedInventory)
+    Restore-OwnedProgramFiles -Old $expectedInventory -New @(@(Read-TransactionPayload) + @($state.metadataFiles))
   # Inno processes [Icons] and uninstall registration only after the payload's
   # AfterInstall callback has durably published validated. Prepared/cleared
   # transactions have not changed these shared records (another directory may
   # have been uninstalled since Begin), so do not replay their old snapshots.
-  if ($state.phase -ceq 'validated') {
-    Restore-UninstallRegistrySnapshot -Snapshot $material.registrySnapshot
-    Restore-ExternalFilesSnapshot -Snapshot @($material.externalFilesSnapshot)
+    if ($state.phase -ceq 'validated') {
+      Restore-UninstallRegistrySnapshot -Snapshot $material.registrySnapshot
+      Restore-ExternalFilesSnapshot -Snapshot @($material.externalFilesSnapshot)
+    }
+    Set-OwnershipValue -Name 'Manifest' -Value $state.oldOwnership
+    Write-FinalizedState -Phase restored
+  } finally {
+    foreach ($item in $pinned) { $item.handle.Dispose() }
   }
-  Set-OwnershipValue -Name 'Manifest' -Value $state.oldOwnership
-  Write-FinalizedState -Phase restored
   Remove-CommittedTransaction -Phase restored
   return 'RECOVERED'
 }
@@ -1397,10 +1409,13 @@ function Clear-ProgramFilesForInstall {
   if (@('prepared', 'cleared') -cnotcontains [string]$state.phase) {
     throw 'Program files can only be cleared from a prepared transaction.'
   }
-  $material = Get-VerifiedRecoveryMaterial
-  Assert-NewTargetConflicts -Old @($material.expectedInventory) -New @(Read-TransactionPayload)
-  Remove-OwnedFiles -Entries @($material.expectedInventory)
-  Write-FinalizedState -Phase cleared
+  $pinned = Open-OwnedFiles -Root $script:recoveryRoot -Entries @(Read-OwnedFileList -Entries $state.recoveryFiles -Root $script:recoveryRoot)
+  try {
+    $material = Get-VerifiedRecoveryMaterial
+    Assert-NewTargetConflicts -Old @($material.expectedInventory) -New @(Read-TransactionPayload)
+    Remove-OwnedFiles -Entries @($material.expectedInventory)
+    Write-FinalizedState -Phase cleared
+  } finally { foreach ($item in $pinned) { $item.handle.Dispose() } }
   return 'CLEARED'
 }
 

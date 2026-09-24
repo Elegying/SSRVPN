@@ -118,6 +118,45 @@ function Assert-Committed([string]$Phase) {
     throw "Installer did not actually commit the candidate: $Phase"
   }
 }
+function Assert-Recovered([string]$Phase, $Before, $After) {
+  $log = [IO.File]::ReadAllText((Join-Path $root "$Phase.log"))
+  if (-not $log.Contains('TEST_ONLY_PRE_COMMIT_AFTER_HKLM64') -or -not $log.Contains('action=Recover exit=0')) {
+    throw "The actual installer did not reach successful pre-commit recovery: $Phase"
+  }
+  foreach ($part in @('files', 'registry', 'shortcuts')) {
+    if (($Before[$part] | ConvertTo-Json -Depth 5 -Compress) -cne ($After[$part] | ConvertTo-Json -Depth 5 -Compress)) {
+      throw "Recovery did not restore $part exactly: $Phase"
+    }
+  }
+}
+function Get-TreeHashes([string]$Directory) {
+  return (@(Get-ChildItem -LiteralPath $Directory -File -Recurse -Force | Sort-Object FullName | ForEach-Object {
+    [ordered]@{ path = $_.FullName.Substring($Directory.Length); sha256 = (Get-FileHash -LiteralPath $_.FullName).Hash }
+  }) | ConvertTo-Json -Depth 4 -Compress)
+}
+function Get-RecoveryRoot([string]$Directory) {
+  $hasher = [Security.Cryptography.SHA256]::Create()
+  try { $identity = [BitConverter]::ToString($hasher.ComputeHash($utf8.GetBytes($Directory.ToLowerInvariant()))).Replace('-', '').ToLowerInvariant() }
+  finally { $hasher.Dispose() }
+  return (Join-Path $env:LOCALAPPDATA "SSRVPN\installer-recovery-v4\$identity")
+}
+function Invoke-Transaction([string]$Directory, [string]$Action, [string]$Phase) {
+  $expected = Join-Path $root 'pending-b.sha256'
+  if ($Action -eq 'Begin') {
+    $entries = @(Get-ChildItem -LiteralPath $Directory -File -Recurse | Where-Object {
+      $_.FullName.Substring($Directory.Length + 1) -notmatch '^(installer-state\\|bin\\ssrvpn\\|unrelated\.txt|personal\\)'
+    } | ForEach-Object {
+      (Get-FileHash -LiteralPath $_.FullName).Hash.ToLowerInvariant() + '  ' + $_.FullName.Substring($Directory.Length + 1)
+    })
+    Write-Text $expected (($entries -join "`n") + "`n")
+  }
+  & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $repo 'SSRVPN_Windows\installer\program_files_transaction.ps1') `
+    -Action $Action -InstallDir $Directory -RecoveryRoot (Get-RecoveryRoot $Directory) -StatusPath (Join-Path $root "$Phase.status") `
+    -UninstallRegistrySubkey $registryPath.Substring(6) -UninstallRegistryRoot HKLM -UninstallRegistryView 64 `
+    -DesktopShortcutPath $desktop -StartMenuShortcutPath $menu -ExpectedPayloadManifestPath $expected -PayloadSourceRoot $Directory `
+    -UninstallMetadataRelativePath ('installer-state\' + [Guid]::NewGuid().ToString('N')) *> (Join-Path $root "$Phase.log")
+  if ($LASTEXITCODE -ne 0) { throw "Real production transaction failed: $Phase" }
+}
 function Pass([string]$Name) { [void]$results.Add([ordered]@{ case = $Name; result = 'PASS' }); Write-Host "PASS $Name" }
 
 try {
@@ -196,6 +235,48 @@ try {
   Uninstall-Current 'final-uninstall'
   Assert-UserFiles
   Pass 'Real uninstall and reinstall preserve user data and unrelated files'
+
+  $before = Snapshot 'first-failure-before'
+  [void](Run-Installer $fault 'first-failure-precommit')
+  $after = Snapshot 'first-failure-after'
+  Assert-Recovered 'first-failure-precommit' $before $after
+  if (Test-Path -LiteralPath $registryPath) { throw 'Failed first install left an uninstall record.' }
+  Assert-UserFiles
+  Pass 'Real failed first install restores absent HKLM64 and shortcuts without fabricating old values'
+
+  if ((Run-Installer $candidate 'directory-a-install') -ne 0) { throw 'Directory A install failed.' }
+  Assert-Committed 'directory-a-install'
+  $directoryA = $installDir
+  $installDir = Join-Path $root 'directory-b'
+  Write-Text (Join-Path $installDir 'unrelated.txt') 'directory-b-sentinel'
+  $before = Snapshot 'changed-directory-before'
+  [void](Run-Installer $fault 'changed-directory-precommit')
+  $after = Snapshot 'changed-directory-after'
+  Assert-Recovered 'changed-directory-precommit' $before $after
+  Pass 'Real failed directory change restores A registration and shortcuts while leaving B user files'
+
+  if ((Run-Installer $candidate 'directory-b-install') -ne 0) { throw 'Directory B install failed.' }
+  Assert-Committed 'directory-b-install'
+  $directoryB = $installDir
+  $uninstallerB = [string](Get-ItemProperty -LiteralPath $registryPath).UninstallString
+  if ($uninstallerB -notmatch '^"([^"]+)"') { throw 'Unexpected directory B uninstaller.' }
+  $uninstallerB = $matches[1]
+  $installDir = $directoryA
+  if ((Run-Installer $candidate 'directory-a-reactivate') -ne 0) { throw 'Directory A reactivation failed.' }
+  Assert-Committed 'directory-a-reactivate'
+  Invoke-Transaction $directoryB Begin 'directory-b-pending'
+  $recoveryB = Get-RecoveryRoot $directoryB
+  $beforeRecovery = Get-TreeHashes $recoveryB
+  $beforeB = Get-TreeHashes $directoryB
+  Write-Text (Join-Path $root 'directory-b-recovery-before.json') $beforeRecovery
+  Uninstall-Current 'directory-a-uninstall-with-b-pending'
+  if ((Get-TreeHashes $recoveryB) -cne $beforeRecovery -or (Get-TreeHashes $directoryB) -cne $beforeB) { throw 'Uninstall A damaged B or its pending backup.' }
+  Write-Text (Join-Path $root 'directory-b-recovery-after-a-uninstall.json') (Get-TreeHashes $recoveryB)
+  Invoke-Transaction $directoryB Recover 'directory-b-recover-after-a-uninstall'
+  if ((Get-TreeHashes $directoryB) -cne $beforeB -or (Test-Path $registryPath) -or (Test-Path $desktop) -or (Test-Path $menu)) { throw 'B recovery changed files or recreated stale A metadata.' }
+  if ((Run-Installer $uninstallerB 'directory-b-final-uninstall' $directoryB) -ne 0) { throw 'B cleanup uninstall failed.' }
+  if ([IO.File]::ReadAllText((Join-Path $directoryB 'unrelated.txt')) -cne 'directory-b-sentinel') { throw 'B uninstall deleted its unrelated file.' }
+  Pass 'Two real installation directories: uninstall A preserves all B state and backup; later B recovery succeeds'
 } finally {
   [ordered]@{ windows = [Environment]::OSVersion.VersionString; powershell = $PSVersionTable.PSVersion.ToString(); commit = $env:GITHUB_SHA; results = @($results.ToArray()) } |
     ConvertTo-Json -Depth 6 | Set-Content (Join-Path $root 'results.json') -Encoding UTF8
