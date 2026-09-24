@@ -143,6 +143,7 @@ var
   LastProgramFilesTransactionStatus: String;
   UninstallMetadataRelativePath: String;
   InstallSucceeded: Boolean;
+  PostInstallCommitFailed: Boolean;
 
 function WinCreateMutex(Attributes: Cardinal; InitialOwner: BOOL;
   Name: String): THandle;
@@ -732,6 +733,7 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
+    PostInstallCommitFailed := True;
     if ProgramFilesTransactionPrepared then
     begin
       if (not RunProgramFilesTransaction('Seal', '')) or
@@ -742,10 +744,28 @@ begin
           LastProgramFilesTransactionStatus + '。');
     end;
     InstallSucceeded := True;
+    PostInstallCommitFailed := False;
     if VerifiedUpdateCleanupRequested then
       LaunchVerifiedUpdatePackageCleanup;
     { Only this installation's HKLM64 record is transactionally owned. }
     ReleaseInstallGates;
+  end;
+end;
+
+function GetCustomSetupExitCode: Integer;
+begin
+  Result := 0;
+  if PostInstallCommitFailed then Result := 10;
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if (CurPageID = wpFinished) and PostInstallCommitFailed then
+  begin
+    WizardForm.FinishedHeadingLabel.Caption := 'SSRVPN 安装未完成';
+    WizardForm.FinishedLabel.Caption :=
+      '程序文件事务提交失败。退出安装器时将尝试恢复旧程序；' +
+      '请以安装日志中的恢复结果为准，保留诊断记录后重试。';
   end;
 end;
 

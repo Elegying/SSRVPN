@@ -34,6 +34,9 @@ function Run-Installer([string]$Exe, [string]$Phase, [string]$Directory = $insta
     $code = $process.ExitCode
   } finally { $process.Dispose() }
   Write-Host "$Phase exit=$code log=$log"
+  Write-Text (Join-Path $root "$Phase.process.json") ([ordered]@{
+    phase = $Phase; exitCode = $code; executableSha256 = (Get-FileHash -LiteralPath $Exe).Hash.ToLowerInvariant(); directory = $Directory
+  } | ConvertTo-Json)
   return $code
 }
 function Snapshot([string]$Name) {
@@ -119,6 +122,8 @@ function Assert-Committed([string]$Phase) {
   }
 }
 function Assert-Recovered([string]$Phase, $Before, $After) {
+  $process = [IO.File]::ReadAllText((Join-Path $root "$Phase.process.json")) | ConvertFrom-Json
+  if ($process.exitCode -ne 10) { throw "Post-install transaction failure falsely returned success: $Phase" }
   $log = [IO.File]::ReadAllText((Join-Path $root "$Phase.log"))
   if (-not $log.Contains('TEST_ONLY_PRE_COMMIT_AFTER_HKLM64') -or -not $log.Contains('action=Recover exit=0')) {
     throw "The actual installer did not reach successful pre-commit recovery: $Phase"
@@ -217,7 +222,7 @@ try {
   [void](Run-Installer $fault 'n04-green-precommit')
   $greenLog = [IO.File]::ReadAllText((Join-Path $root 'n04-green-precommit.log'))
   $after = Snapshot 'n04-green-after'
-  if (-not $greenLog.Contains('TEST_ONLY_PRE_COMMIT_AFTER_HKLM64') -or -not $greenLog.Contains('action=Recover exit=0')) { throw 'N04 green did not reach successful production recovery.' }
+  Assert-Recovered 'n04-green-precommit' $before $after
   foreach ($part in @('files', 'registry', 'shortcuts')) {
     if (($before[$part] | ConvertTo-Json -Depth 5 -Compress) -cne ($after[$part] | ConvertTo-Json -Depth 5 -Compress)) { throw "N04 green did not restore $part exactly." }
   }

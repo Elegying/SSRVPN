@@ -1,3 +1,4 @@
+import json
 import re
 import unittest
 from pathlib import Path
@@ -7,6 +8,36 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WindowsInstallerConfigTest(unittest.TestCase):
+    def test_historical_catalogs_match_verified_public_package_pins(self):
+        installer = ROOT / "SSRVPN_Windows/installer"
+        document = json.loads((installer / "legacy-program-catalogs.json").read_text(encoding="utf-8-sig"))
+        pins = json.loads((ROOT / "scripts/windows_legacy_installer_sources.json").read_text(encoding="utf-8-sig"))
+        self.assertEqual(document["schemaVersion"], 1)
+        self.assertEqual({item["tag"] for item in document["catalogs"]}, {item["tag"] for item in pins})
+        by_tag = {item["tag"]: item for item in pins}
+        launchers = {}
+        for catalog in document["catalogs"]:
+            with self.subTest(tag=catalog["tag"]):
+                self.assertEqual(catalog["installerSha256"], by_tag[catalog["tag"]]["sha256"])
+                files = catalog["files"]
+                self.assertGreater(len(files), 10)
+                self.assertLessEqual(len(files), 50000)
+                paths = [entry["path"].lower().replace("/", "\\") for entry in files]
+                self.assertEqual(len(paths), len(set(paths)))
+                self.assertIn("ssrvpn_windows.exe", paths)
+                for entry, path in zip(files, paths):
+                    self.assertRegex(entry["sha256"], r"^[a-f0-9]{64}$")
+                    self.assertGreaterEqual(entry["length"], 0)
+                    self.assertLessEqual(entry["length"], 2 * 1024**3)
+                    self.assertFalse(path.startswith(("bin\\ssrvpn\\", "\\")))
+                    self.assertNotIn("..", path.split("\\"))
+                    self.assertNotIn(":", path)
+                    self.assertNotRegex(path, r"^unins\d+\.(dat|msg)$")
+                launcher = files[paths.index("ssrvpn_windows.exe")]["sha256"]
+                if launcher in launchers:
+                    self.assertEqual(files, launchers[launcher], "A launcher must identify one unambiguous historical inventory")
+                launchers[launcher] = files
+
     def test_installer_scopes_ps51_module_path_to_its_own_process(self):
         script = (ROOT / "SSRVPN_Windows/installer/SSRVPN.iss").read_text(encoding="utf-8")
         self.assertIn("SetEnvironmentVariableW@kernel32.dll", script)

@@ -70,6 +70,8 @@ function Set-CaseRegistry($Case, [string]$Value) {
     $key.SetValue('Qword', [long]5000000000, [Microsoft.Win32.RegistryValueKind]::QWord)
     $key.SetValue('Multi', [string[]]@('first', 'second'), [Microsoft.Win32.RegistryValueKind]::MultiString)
     $key.SetValue('Expand', '%TEMP%\unchanged', [Microsoft.Win32.RegistryValueKind]::ExpandString)
+    $key.SetValue('', ('default-' + $Value), [Microsoft.Win32.RegistryValueKind]::String)
+    $key.SetValue('None', [byte[]]@(3, 0, 4), [Microsoft.Win32.RegistryValueKind]::None)
   } finally { $key.Dispose() }
 }
 function Get-CaseRegistry($Case) {
@@ -320,6 +322,52 @@ try {
   Invoke-Case $c Recover
   Assert-UserFiles $c
   Pass 'Persistent state replacement failure reports failure and preserves recovery until writes succeed'
+
+  foreach ($damage in @('missing', 'corrupt')) {
+    $c = New-Case ("installed-ownership-$damage")
+    Invoke-Case $c Begin
+    Invoke-Case $c Clear
+    Invoke-Case $c Install
+    Seal-Case $c
+    Invoke-Case $c Commit
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try { $identity = [BitConverter]::ToString($hasher.ComputeHash($utf8.GetBytes($c.install.ToLowerInvariant()))).Replace('-', '').ToLowerInvariant() }
+    finally { $hasher.Dispose() }
+    $key = $registry.OpenSubKey("Software\SSRVPN\InstallerOwnership\$identity", $true)
+    try {
+      if ($damage -eq 'missing') { $key.DeleteValue('Manifest') }
+      else { $key.SetValue('Manifest', 'corrupt') }
+    } finally { $key.Dispose() }
+    Invoke-Case $c Begin -Failure
+    Invoke-Case $c CheckUninstall -Failure
+    Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'new-ssrvpn_windows.exe'
+    Assert-UserFiles $c
+    Pass "Installed ownership $damage cannot authorize upgrade or uninstall"
+  }
+
+  $c = New-Case 'pinned-path-race'
+  Add-Type -Path (Join-Path $repo 'SSRVPN_Windows\installer\program_file_handles.cs')
+  $path = Join-Path $c.install 'bin\app.dll'
+  $handle = [SsrvpnInstaller.ProgramFile]::Open($path, $true)
+  try {
+    $denied = 0
+    try { [IO.File]::WriteAllText($path, 'racing-writer') } catch { $denied++ }
+    try { [IO.Directory]::Move((Join-Path $c.install 'bin'), (Join-Path $c.install 'exchanged-bin')) } catch { $denied++ }
+    try { $handle.CopyNew((Join-Path $c.install 'unrelated.txt')) } catch { $denied++ }
+    if ($denied -ne 3) { throw 'Pinned file/parent or exclusive-copy protection was bypassed.' }
+  } finally { $handle.Dispose() }
+  Assert-File $path 'old-bin\app.dll'
+  Assert-UserFiles $c
+  Pass 'Production handles prevent byte mutation, parent exchange and overwrite after verification'
+
+  $c = New-Case 'source-junction'
+  $foreign = Join-Path $c.root 'foreign'
+  Write-FixtureFile (Join-Path $foreign 'keep.txt') 'unrelated-junction-target'
+  New-Item -ItemType Junction -Path (Join-Path $c.install 'linked') -Target $foreign | Out-Null
+  Invoke-Case $c Begin -Failure
+  Assert-File (Join-Path $foreign 'keep.txt') 'unrelated-junction-target'
+  Assert-UserFiles $c
+  Pass 'Source junctions stop preparation and never touch their external target'
 
   $c = New-Case 'owned-hard-link'
   $original = Join-Path $c.install 'bin\app.dll'

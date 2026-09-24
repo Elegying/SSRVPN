@@ -465,6 +465,13 @@ jobs:
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts\test_windows_policy.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Real Windows installer ownership and failure recovery
+        shell: powershell
+        timeout-minutes: 30
+        run: |
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/test_windows_installer_ownership_package.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Archive Windows transaction behavior evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

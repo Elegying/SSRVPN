@@ -764,7 +764,7 @@ function Test-PreCommitFailureRollback {
         '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/LOG=$faultLog"
       )
     $faultLogText = [IO.File]::ReadAllText($faultLog)
-    if (-not $faultLogText.Contains('Injected pre-commit failure after HKLM metadata replacement.') -or
+    if ($faultExit -ne 10 -or -not $faultLogText.Contains('Injected pre-commit failure after HKLM metadata replacement.') -or
         -not $faultLogText.Contains('action=Recover exit=0')) {
       throw "The installer did not exercise verified rollback after new HKLM metadata (exit=$faultExit)."
     }
