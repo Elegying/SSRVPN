@@ -79,6 +79,10 @@ mixin _ClashDataPlaneSupport {
   ) =>
       client.send(http.Request('GET', uri));
 
+  /// Home status only reports local ownership problems. External observations
+  /// remain available in diagnostics and logs without implying a broken VPN.
+  String? get connectionStatusWarning => _connectivityOwnershipWarning;
+
   String? get connectivityWarning {
     final ownership = _connectivityOwnershipWarning;
     final dataPlane = _dataPlaneConnectivityWarning;
@@ -419,11 +423,8 @@ mixin _ClashDataPlaneSupport {
         }
       }
       if (shouldContinue?.call() == false) return null;
-      // Keep this short. The home surface renders it in a single-line slot it
-      // shares with the public-IP readout, and the full detail is already in
-      // the runtime log. One disclaimer is enough; the previous pair of
-      // hedges ("仅供参考" + "不代表节点失效") diluted the actual signal.
-      //
+      // Keep a concise cached diagnostic; individual attempts and their
+      // causes remain in the runtime log. This is not a home status warning.
       // 只描述**实际发生的事**，不再用「可能是验证站点受限」这类对冲措辞：
       // 有响应就把状态码说出来（通道已建立，是端点不配合），
       // 全程无响应才说无响应（通道可疑）。真因在日志的 cause= 里。

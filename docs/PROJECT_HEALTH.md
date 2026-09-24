@@ -2,9 +2,65 @@
 
 最近更新：2026-09-24
 
-当前应用版本：`v5.0.18`
+当前应用版本：`v5.0.19`
 
 最新正式版本：[GitHub Releases 当前正式版](https://github.com/Elegying/SSRVPN/releases/latest)
+
+## v5.0.19 Windows 安装事务修复与验收
+
+用户现场安装包摘要与 v5.0.18 正式资产一致。正在运行的旧客户端写入 v3
+`tun_teardown.pending`，该版本安装器却只接受 v1/v2，在停止进程前报
+`TUN_TEARDOWN_PENDING`。客户端真实序列化器与随包 PowerShell 的跨组件测试复现了该错误；
+新增兼容修复，同时对齐空网卡、旧基线、部分 TUN 残留、网卡编号复用和连续清理判断。
+状态解析失败改报 `TUN_OWNERSHIP_UNVERIFIED`，安装日志默认启用。
+
+N03/N04 已完成共同事务修复，协议为 schema 4，详见
+[ADR-022](decisions/022-windows-program-ownership-and-recovery.md)。旧文件归属来自受保护的
+已提交清单，首次迁移来自 16 个固定官方旧安装包；扫描全目录和新包清单均不再授权删除旧文件。
+Clear、Recover、卸载及事务清理只处理精确、验证过的文件，未知、被改写与 Begin 后新增文件保留。
+Inno 不再记录 payload 自动删除项；按目录隔离并认证 state，旧/新 A 卸载器均不能清除 B 材料。
+
+N04 在调用方和 state 中一致绑定 HKLM/64，保留完整值类型、数据、项不存在状态及快捷方式。
+真实 ssPostInstall 窗口的失败可成功恢复旧文件和旧 HKLM64，不修改非目标 HKCU64/HKLM32；
+committed 持久化后清理失败不回滚，写入失败不能声称恢复完成。旧 schema 2/3 缺少可信归属或
+机器注册表原值时保留材料，不伪造旧值，支持归档后选择空目录安装的恢复路径。
+
+专项证据：[历史包采集](https://github.com/Elegying/SSRVPN/actions/runs/35979092156)；
+[完整真实安装矩阵](https://github.com/Elegying/SSRVPN/actions/runs/35986624853)，提交
+`913bdde4df7e69e674d80ca8d8d0583c9dcdff55`，10 组场景通过。该矩阵实际复现旧 N03 数据删除、
+旧 N04 文件恢复成功但 HKLM 错位，随后验证修复后的迁移、升级、卸载/重装、首装失败、换目录
+失败、第三方改写拒绝和 A/B 恢复。候选故障包在一次性源码副本注入，生产包没有故障开关。
+专项包复用官方 5.0.18 的应用字节；当前应用完整构建由 CI 的 Windows build 单独验收。
+
+独立复审追加固定状态句柄认证、快捷方式源/目标句柄保护、中文路径 UTF-8 身份和完整卸载
+第二阶段等待。[最后加固回归](https://github.com/Elegying/SSRVPN/actions/runs/35987784213)
+绑定 `dba7ac7c76dfc8b18283077a903a91d152810977`：HKCU/HKLM 各 36 组生产 helper 场景和
+10 组真实 Inno 场景全部通过，包括真正的 committed 状态写失败、损坏注册表/快捷方式备份、
+持续写失败、已提交清理失败反证及中文安装目录。N03/N04 的代码和专项验收已闭环。
+
+后续单独复审又发现并修复三处边界：[35993429506](https://github.com/Elegying/SSRVPN/actions/runs/35993429506)
+复现过期 validated 事务覆盖后来安装/卸载的共享元数据；现已按 AppId、hive/view 绑定受保护
+代际，并校验旧版卸载记录身份。结束事务清理不再覆盖后到的未知 state，真实红/绿回归保留
+前后内容；父目录句柄修正为申请参与 Windows 共享检查的访问权限，实际目录交换被阻止。
+[最新专项 35997094665](https://github.com/Elegying/SSRVPN/actions/runs/35997094665) 绑定
+`7effe1863bf50334450ac4fd2e4d8455696d2d5b`，HKCU/HKLM 各 46 组和 10 组真实 Inno 场景通过。
+此前 35996134447 确实暴露目录固定失败，不能标为整体通过；后续修复没有降低测试断言。
+
+按维护者 2026-09-24 明确决策，三端首页只显示真实连接及本地故障，单独的外部探测失败
+留在诊断与日志，文案为“外部探测未通过，实际访问情况尚未确认”。共享诊断 185 项、布局
+221 项和三端新增首页行为测试已在 Windows Flutter 3.44.1 通过；macOS 原生与完整平台门禁
+以目标 CI 为准。本地工作区根 analyze 会扫描未入库旧复现脚本并产生 5 条 testing 注解提醒，
+按项目入口分别分析共享包与三端源码则全部无问题；没有删除旧资料或降低分析规则。
+
+版本经 [PR #274](https://github.com/Elegying/SSRVPN/pull/274) 进入受保护合并、精确 main CI
+和 Prepare Release；公开状态以正式 Release、发布工作流及 `windows-public-installer`
+验收记录为准，不以旧版 smoke、静态通过或 Release 页面存在代替正式字节验收。
+
+执行环境：一次性 GitHub Windows Server 2025，10.0.26100.0、PowerShell 5.1.26100.33296、
+Inno 6.7.1。宿主本机未运行安装器、停止在用客户端或改变代理/DNS/TUN/个人数据。
+本机 60 项 TUN 回归、79 项安装/生命周期/工作流静态检查通过；真实行为以隔离 run 为准。
+Windows 10/11 人工交互、三端实机、长时间后台和真实渲染不在本次新增验收范围。
+以下段落保留旧版本审查快照；其中“未修复/未执行”仅描述当时基线，不覆盖上述当前状态。
 
 ## v5.0.18 稳定性审查修复
 

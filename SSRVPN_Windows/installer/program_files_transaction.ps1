@@ -1,30 +1,32 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet('Begin', 'Recover', 'Clear', 'Validate', 'Commit', 'Discard')]
+  [ValidateSet('Begin', 'Recover', 'Clear', 'Install', 'Validate', 'Seal', 'Commit', 'Discard', 'CheckUninstall', 'Uninstall')]
   [string]$Action,
   [Parameter(Mandatory = $true)][string]$InstallDir,
   [Parameter(Mandatory = $true)][string]$RecoveryRoot,
   [Parameter(Mandatory = $true)][string]$StatusPath,
   [Parameter(Mandatory = $true)][string]$UninstallRegistrySubkey,
+  [ValidateSet('HKCU', 'HKLM')][string]$UninstallRegistryRoot = 'HKCU',
+  [ValidateSet('64')][string]$UninstallRegistryView = '64',
   [Parameter(Mandatory = $true)][string]$DesktopShortcutPath,
   [Parameter(Mandatory = $true)][string]$StartMenuShortcutPath,
-  [string]$ExpectedPayloadManifestPath = ''
+  [string]$ExpectedPayloadManifestPath = '',
+  [string]$LegacyCatalogPath = '',
+  [string]$PayloadSourceRoot = '',
+  [string]$LegacyRecoveryRoot = '',
+  [string]$UninstallMetadataRelativePath = ''
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-# Durable phases:
-# - prepared: the verified old program is available for rollback.
-# - validated: the complete new payload was verified before Inno writes its
-#   final uninstall metadata; the old program remains available for rollback.
-# - restored: rollback is verified; only transaction cleanup remains.
-# - committed: the verified new install won; only cleanup remains.
-# Staging and cleanup directories are siblings so directory publication and
-# finalization can use same-volume renames. User-owned bin\ssrvpn never enters
-# the backup and is never removed during rollback.
-$schemaVersion = 2
+# prepared/validated retain rollback; restored/committed need cleanup only.
+# Sibling staging directories allow same-volume atomic publication.
+# User-owned bin\ssrvpn never enters backup or rollback deletion.
+$schemaVersion = 4
+$transactionSchemaVersion = $schemaVersion
+$transactionRegistryRoot = $UninstallRegistryRoot.ToUpperInvariant()
 $preservedDataRelativePath = 'bin\ssrvpn'
 $stateFileName = 'state.json'
 $manifestFileName = 'manifest.json'
@@ -33,10 +35,7 @@ $uninstallRegistrySnapshotFileName = 'uninstall-registry.json'
 $uninstallRegistryExportFileName = 'uninstall-registry.reg'
 $externalFilesSnapshotFileName = 'external-files.json'
 $externalFilesBackupDirectoryName = 'external-files'
-# Resource ceilings are intentionally generous for a Flutter desktop bundle,
-# but finite so a corrupted/tampered install or recovery tree cannot make the
-# installer recurse, allocate, hash, or copy without bound. Keep these limits
-# together: every program inventory, backup, restore, and manifest uses them.
+# All inventories, backups and manifests share these finite resource ceilings.
 $maxMetadataDocumentBytes = 8MB
 $maxProgramRelativePathChars = 1024
 $maxProgramRelativePathDepth = 64
@@ -46,6 +45,7 @@ $maxProgramFileBytes = 2GB
 $maxProgramTotalBytes = 8GB
 $utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
 $strictUtf8 = New-Object System.Text.UTF8Encoding -ArgumentList $false, $true
+. (Join-Path $PSScriptRoot 'program_file_ownership.ps1')
 
 function Get-SafeDirectoryPath {
   param(
@@ -64,6 +64,14 @@ function Get-SafeDirectoryPath {
   if ($trimmedPath -ieq $trimmedRoot) {
     throw "$Name must not be a filesystem root."
   }
+  $ancestor = $trimmedPath
+  while ($ancestor) {
+    $entry = Get-PathItem -Path $ancestor
+    if ($null -ne $entry -and (-not $entry.PSIsContainer -or (Test-ReparsePoint -Item $entry))) {
+      throw "$Name has a non-directory or reparse-point ancestor."
+    }
+    $ancestor = [IO.Path]::GetDirectoryName($ancestor)
+  }
   return $trimmedPath
 }
 
@@ -81,6 +89,7 @@ function Get-SafeMetadataFilePath {
   if ([System.IO.Path]::GetFileName($fullPath) -ine 'SSRVPN.lnk') {
     throw "$Name must identify the SSRVPN.lnk shortcut."
   }
+  [void](Get-SafeDirectoryPath -Path ([IO.Path]::GetDirectoryName($fullPath)) -Name $Name)
   return $fullPath
 }
 
@@ -296,149 +305,6 @@ function Get-BoundedFileMetadata {
   }
 }
 
-function Remove-SafeTree {
-  param([Parameter(Mandatory = $true)][string]$Path)
-
-  $item = Get-PathItem -Path $Path
-  if ($null -eq $item) { return }
-  if (-not $item.PSIsContainer -or (Test-ReparsePoint -Item $item)) {
-    Remove-Item -LiteralPath $item.FullName -Force
-    return
-  }
-  foreach ($child in @(Get-ChildItem -LiteralPath $item.FullName -Force)) {
-    Remove-SafeTree -Path $child.FullName
-  }
-  Remove-Item -LiteralPath $item.FullName -Force
-}
-
-function Copy-SafeEntry {
-  param(
-    [Parameter(Mandatory = $true)][string]$SourceRoot,
-    [Parameter(Mandatory = $true)][string]$DestinationRoot,
-    [Parameter(Mandatory = $true)][string]$Source,
-    [Parameter(Mandatory = $true)]$Limits,
-    [switch]$ExcludePreservedData
-  )
-
-  $sourcePath = [System.IO.Path]::GetFullPath($Source)
-  if ($ExcludePreservedData -and
-      (Test-PathWithin -Candidate $sourcePath -Parent $script:preservedDataRoot)) {
-    return
-  }
-  $item = Get-PathItem -Path $sourcePath
-  if ($null -eq $item) {
-    throw "Program path disappeared during backup: $sourcePath"
-  }
-  if (Test-ReparsePoint -Item $item) {
-    throw "Program-file transaction refuses reparse point: $sourcePath"
-  }
-  $relativePath = $item.FullName.Substring($SourceRoot.Length).TrimStart(
-    [char[]]@('\', '/'))
-  $relativePath = Assert-BoundedProgramRelativePath `
-    -RelativePath $relativePath -Root $SourceRoot `
-    -ExcludedRoot $(if ($ExcludePreservedData) {
-        $script:preservedDataRoot
-      } else { '' }) `
-    -Name 'Program-file backup'
-  $destination = Join-Path $DestinationRoot $relativePath
-  if ($item.PSIsContainer) {
-    if ([long]$Limits.directoryCount -ge $script:maxProgramDirectoryCount) {
-      throw 'Program-file backup exceeds the directory-count limit.'
-    }
-    $Limits.directoryCount = [long]$Limits.directoryCount + 1
-    New-Item -ItemType Directory -Path $Destination -Force | Out-Null
-    foreach ($child in @(
-        Get-ChildItem -LiteralPath $item.FullName -Force | Sort-Object Name
-      )) {
-      Copy-SafeEntry -SourceRoot $SourceRoot `
-        -DestinationRoot $DestinationRoot -Source $child.FullName `
-        -Limits $Limits `
-        -ExcludePreservedData:$ExcludePreservedData
-    }
-    return
-  }
-
-  if ([long]$Limits.fileCount -ge $script:maxProgramFileCount) {
-    throw 'Program-file backup exceeds the file-count limit.'
-  }
-  $remainingBytes = $script:maxProgramTotalBytes - [long]$Limits.totalBytes
-  if ($remainingBytes -lt 0) {
-    throw 'Program-file backup exceeds the total-size limit.'
-  }
-  $destinationParent = [System.IO.Path]::GetDirectoryName($Destination)
-  New-Item -ItemType Directory -Path $destinationParent -Force | Out-Null
-  $sourceStream = $null
-  $destinationStream = $null
-  try {
-    $sourceStream = New-Object System.IO.FileStream -ArgumentList @(
-      $item.FullName,
-      [System.IO.FileMode]::Open,
-      [System.IO.FileAccess]::Read,
-      [System.IO.FileShare]::Read
-    )
-    $length = [long]$sourceStream.Length
-    if ($length -gt $script:maxProgramFileBytes -or
-        $length -gt $remainingBytes) {
-      throw "Program-file backup exceeds its size limit: $($item.FullName)"
-    }
-    $Limits.fileCount = [long]$Limits.fileCount + 1
-    $Limits.totalBytes = [long]$Limits.totalBytes + $length
-    $destinationStream = New-Object System.IO.FileStream -ArgumentList @(
-      $Destination,
-      [System.IO.FileMode]::Create,
-      [System.IO.FileAccess]::Write,
-      [System.IO.FileShare]::None
-    )
-    $buffer = New-Object byte[] (1MB)
-    $remaining = $length
-    while ($remaining -gt 0) {
-      $requested = [int][Math]::Min([long]$buffer.Length, $remaining)
-      $read = $sourceStream.Read($buffer, 0, $requested)
-      if ($read -le 0) {
-        throw "Program file changed during backup: $($item.FullName)"
-      }
-      $destinationStream.Write($buffer, 0, $read)
-      $remaining -= $read
-    }
-    $destinationStream.Flush($true)
-  } finally {
-    if ($null -ne $destinationStream) { $destinationStream.Dispose() }
-    if ($null -ne $sourceStream) { $sourceStream.Dispose() }
-  }
-}
-
-function Copy-SafeContents {
-  param(
-    [Parameter(Mandatory = $true)][string]$SourceRoot,
-    [Parameter(Mandatory = $true)][string]$DestinationRoot,
-    [switch]$ExcludePreservedData
-  )
-
-  $sourceItem = Get-PathItem -Path $SourceRoot
-  if ($null -eq $sourceItem -or -not $sourceItem.PSIsContainer -or
-      (Test-ReparsePoint -Item $sourceItem)) {
-    throw "Program-file transaction source is not a real directory: $SourceRoot"
-  }
-  $sourceRootPath = [System.IO.Path]::GetFullPath($SourceRoot).TrimEnd(
-    [char[]]@('\', '/'))
-  $destinationRootPath = [System.IO.Path]::GetFullPath(
-    $DestinationRoot).TrimEnd([char[]]@('\', '/'))
-  $limits = [pscustomobject]@{
-    directoryCount = [long]0
-    fileCount = [long]0
-    totalBytes = [long]0
-  }
-  New-Item -ItemType Directory -Path $DestinationRoot -Force | Out-Null
-  foreach ($child in @(
-      Get-ChildItem -LiteralPath $SourceRoot -Force | Sort-Object Name
-    )) {
-    Copy-SafeEntry -SourceRoot $sourceRootPath `
-      -DestinationRoot $destinationRootPath -Source $child.FullName `
-      -Limits $limits `
-      -ExcludePreservedData:$ExcludePreservedData
-  }
-}
-
 function Add-InventoryEntry {
   param(
     [Parameter(Mandatory = $true)][string]$Root,
@@ -579,44 +445,42 @@ function ConvertTo-BoundedJsonText {
 function Write-JsonAtomic {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
-    [Parameter(Mandatory = $true)]$Value
+    [Parameter(Mandatory = $true)]$Value,
+    [switch]$CreateNewOnly
   )
 
-  $parent = [System.IO.Path]::GetDirectoryName($Path)
-  New-Item -ItemType Directory -Path $parent -Force | Out-Null
+  if (-not ('SsrvpnInstaller.ProgramFile' -as [type])) {
+    Add-Type -Path (Join-Path $PSScriptRoot 'program_file_handles.cs')
+  }
+  $parents = [SsrvpnInstaller.ProgramFile]::PinParentsFor($Path)
   $token = [Guid]::NewGuid().ToString('N')
   $temporary = "$Path.tmp.$token"
   $replacementBackup = "$Path.replace-backup.$token"
   try {
     $text = ConvertTo-BoundedJsonText -Value $Value
-    [System.IO.File]::WriteAllText($temporary, $text, $script:utf8NoBom)
-    if (Test-Path -LiteralPath $Path -PathType Leaf) {
-      # .NET Framework on Windows PowerShell 5.1 rejects a null backup path
-      # for this overload on hosted Windows Server. A unique same-directory
-      # backup preserves the atomic replacement contract and is removed below.
+    $bytes = $script:utf8NoBom.GetBytes($text)
+    $stream = New-Object IO.FileStream -ArgumentList @($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) }
+    finally { $stream.Dispose() }
+    if (-not $CreateNewOnly -and (Test-Path -LiteralPath $Path -PathType Leaf)) {
+      # PS 5.1/.NET requires a non-null backup path for atomic replacement.
       [System.IO.File]::Replace($temporary, $Path, $replacementBackup)
     } else {
       [System.IO.File]::Move($temporary, $Path)
     }
   } finally {
-    if (Test-Path -LiteralPath $temporary -PathType Leaf) {
-      Remove-Item -LiteralPath $temporary -Force
-    }
-    if (Test-Path -LiteralPath $replacementBackup -PathType Leaf) {
-      Remove-Item -LiteralPath $replacementBackup -Force
-    }
+    try {
+      if (Test-Path -LiteralPath $temporary -PathType Leaf) { Remove-Item -LiteralPath $temporary -Force }
+      if (Test-Path -LiteralPath $replacementBackup -PathType Leaf) { Remove-Item -LiteralPath $replacementBackup -Force }
+    } finally { $parents.Dispose() }
   }
 }
 
 function Invoke-RegExe {
   param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
-  # Windows PowerShell 5.1 converts native stderr into ErrorRecord objects.
-  # With the script-wide Stop preference, reg.exe can therefore throw before
-  # LASTEXITCODE is inspected even when it exits 0 (notably, `reg delete` has
-  # emitted "The operation completed successfully" on hosted Windows 2025).
-  # Capture the complete native output under Continue, then decide solely from
-  # the process exit code and the verified registry postconditions.
+  # PS 5.1 can turn reg.exe success text on stderr into terminating errors.
+  # Decide from its exit code and verified postconditions instead.
   $previousErrorActionPreference = $ErrorActionPreference
   try {
     $ErrorActionPreference = 'Continue'
@@ -632,11 +496,21 @@ function Invoke-RegExe {
 }
 
 function Test-UninstallRegistryKeyExists {
-  $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
-    $script:uninstallRegistrySubkey, $false)
-  if ($null -eq $key) { return $false }
-  $key.Close()
-  return $true
+  $hive = if ($script:transactionRegistryRoot -ceq 'HKLM') {
+    [Microsoft.Win32.RegistryHive]::LocalMachine
+  } else {
+    [Microsoft.Win32.RegistryHive]::CurrentUser
+  }
+  $registryRoot = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+    $hive, [Microsoft.Win32.RegistryView]::Registry64)
+  try {
+    $key = $registryRoot.OpenSubKey($script:uninstallRegistrySubkey, $false)
+    if ($null -eq $key) { return $false }
+    $key.Close()
+    return $true
+  } finally {
+    $registryRoot.Close()
+  }
 }
 
 function New-UninstallRegistrySnapshot {
@@ -644,14 +518,15 @@ function New-UninstallRegistrySnapshot {
 
   $exportPath = Join-Path $StageRoot $script:uninstallRegistryExportFileName
   $exists = Test-UninstallRegistryKeyExists
+  $registration = Get-InstallerRegistrationIdentity
   $length = [long]0
   $sha256 = ''
   if ($exists) {
     Invoke-RegExe -Arguments @(
       'export',
-      "HKCU\$($script:uninstallRegistrySubkey)",
+      "$($script:transactionRegistryRoot)\$($script:uninstallRegistrySubkey)",
       $exportPath,
-      '/y'
+      '/y', '/reg:64'
     )
     $exportItem = Get-PathItem -Path $exportPath
     if ($null -eq $exportItem -or $exportItem.PSIsContainer -or
@@ -667,8 +542,11 @@ function New-UninstallRegistrySnapshot {
       Join-Path $StageRoot $script:uninstallRegistrySnapshotFileName) `
     -Value ([pscustomobject][ordered]@{
       schemaVersion = $script:schemaVersion
+      root = $script:transactionRegistryRoot
+      view = '64'
       subkey = $script:uninstallRegistrySubkey
       exists = [bool]$exists
+      registration = $registration
       exportFile = $script:uninstallRegistryExportFileName
       length = $length
       sha256 = $sha256
@@ -683,10 +561,12 @@ function Read-UninstallRegistrySnapshot {
   Assert-ExactObjectSchema -Value $snapshot `
     -Name 'The uninstall registry snapshot' `
     -RequiredProperties @(
-      'schemaVersion', 'subkey', 'exists', 'exportFile', 'length', 'sha256'
+      'schemaVersion', 'root', 'view', 'subkey', 'exists', 'registration', 'exportFile', 'length', 'sha256'
     )
   if ($snapshot.schemaVersion -isnot [int] -or
-      [int]$snapshot.schemaVersion -ne $script:schemaVersion -or
+      [int]$snapshot.schemaVersion -ne $script:transactionSchemaVersion -or
+      $snapshot.root -cne $script:transactionRegistryRoot -or
+      $snapshot.view -cne $UninstallRegistryView -or
       $snapshot.subkey -isnot [string] -or
       $snapshot.exists -isnot [bool] -or
       $snapshot.exportFile -isnot [string] -or
@@ -705,11 +585,18 @@ function Read-UninstallRegistrySnapshot {
     $script:uninstallRegistryExportFileName
   $exportItem = Get-PathItem -Path $exportPath
   if (-not [bool]$snapshot.exists) {
-    if ($null -ne $exportItem -or [long]$snapshot.length -ne 0 -or
+    if ($null -ne $snapshot.registration -or $null -ne $exportItem -or [long]$snapshot.length -ne 0 -or
         -not [string]::IsNullOrEmpty([string]$snapshot.sha256)) {
       throw 'The absent uninstall registry snapshot has unexpected data.'
     }
     return $snapshot
+  }
+  Assert-ExactObjectSchema -Value $snapshot.registration -Name 'The original uninstall identity' `
+    -RequiredProperties @('InstallLocation', 'UninstallString', 'DisplayVersion')
+  foreach ($property in $snapshot.registration.PSObject.Properties) {
+    if ($null -ne $property.Value -and ($property.Value -isnot [string] -or $property.Value.Length -gt 32768)) {
+      throw 'The original uninstall identity is invalid.'
+    }
   }
   if ($null -eq $exportItem -or $exportItem.PSIsContainer -or
       (Test-ReparsePoint -Item $exportItem) -or
@@ -736,7 +623,12 @@ function Read-UninstallRegistrySnapshot {
   if ($sectionMatches.Count -eq 0) {
     throw 'The uninstall registry export contains no registry key.'
   }
-  $expectedRoot = "HKEY_CURRENT_USER\$($script:uninstallRegistrySubkey)"
+  $hiveName = if ($script:transactionRegistryRoot -ceq 'HKLM') {
+    'HKEY_LOCAL_MACHINE'
+  } else {
+    'HKEY_CURRENT_USER'
+  }
+  $expectedRoot = "$hiveName\$($script:uninstallRegistrySubkey)"
   foreach ($sectionMatch in $sectionMatches) {
     $section = [string]$sectionMatch.Groups[1].Value
     if (-not $section.Equals(
@@ -753,14 +645,12 @@ function Read-UninstallRegistrySnapshot {
 
 function Remove-UninstallRegistryKey {
   if (-not (Test-UninstallRegistryKeyExists)) { return }
-  # RegistryKey.DeleteSubKeyTree can surface a spurious Win32 error 0
-  # ("The operation completed successfully") in this Windows Server 2025
-  # recovery path. Use the already-pinned system reg.exe path and verify the
-  # postcondition instead of relying on that wrapper.
+  # Avoid DeleteSubKeyTree's spurious Win32 error 0 on Windows Server 2025.
+  # Use pinned reg.exe and verify the postcondition.
   Invoke-RegExe -Arguments @(
     'delete',
-    "HKCU\$($script:uninstallRegistrySubkey)",
-    '/f'
+    "$($script:transactionRegistryRoot)\$($script:uninstallRegistrySubkey)",
+    '/f', '/reg:64'
   )
   if (Test-UninstallRegistryKeyExists) {
     throw 'The uninstall registry key could not be removed.'
@@ -775,7 +665,8 @@ function Restore-UninstallRegistrySnapshot {
   Invoke-RegExe -Arguments @(
     'import',
     (Join-Path $script:recoveryRoot `
-      $script:uninstallRegistryExportFileName)
+      $script:uninstallRegistryExportFileName),
+    '/reg:64'
   )
   if (-not (Test-UninstallRegistryKeyExists)) {
     throw 'The uninstall registry key was not restored.'
@@ -785,9 +676,9 @@ function Restore-UninstallRegistrySnapshot {
   try {
     Invoke-RegExe -Arguments @(
       'export',
-      "HKCU\$($script:uninstallRegistrySubkey)",
+      "$($script:transactionRegistryRoot)\$($script:uninstallRegistrySubkey)",
       $verifyPath,
-      '/y'
+      '/y', '/reg:64'
     )
     $verifyItem = Get-PathItem -Path $verifyPath
     if ($null -eq $verifyItem -or $verifyItem.PSIsContainer -or
@@ -825,11 +716,13 @@ function New-ExternalFilesSnapshot {
       }
       New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
       $backupPath = Join-Path $backupRoot $spec.backupName
-      [System.IO.File]::Copy($item.FullName, $backupPath, $true)
-      $backupItem = Get-Item -LiteralPath $backupPath -Force
-      $length = [long]$backupItem.Length
-      $sha256 = (Get-FileHash -LiteralPath $backupPath `
-        -Algorithm SHA256).Hash.ToLowerInvariant()
+      $source = [SsrvpnInstaller.ProgramFile]::Open($item.FullName, $false)
+      try {
+        $length = $source.Length
+        if ($length -gt 16MB) { throw 'External installer metadata exceeds its size limit.' }
+        $sha256 = $source.Sha256
+        $source.CopyNew($backupPath)
+      } finally { $source.Dispose() }
     }
     [void]$entries.Add([pscustomobject][ordered]@{
       name = $spec.name
@@ -861,7 +754,7 @@ function Read-ExternalFilesSnapshot {
     throw 'The external installer metadata snapshot is invalid.'
   }
   $files = @($snapshot.files)
-  if ([int]$snapshot.schemaVersion -ne $script:schemaVersion -or
+  if ([int]$snapshot.schemaVersion -ne $script:transactionSchemaVersion -or
       $files.Count -ne $script:externalFileSpecs.Count) {
     throw 'The external installer metadata snapshot is invalid.'
   }
@@ -940,15 +833,15 @@ function Restore-ExternalFilesSnapshot {
           (Test-ReparsePoint -Item $currentItem)) {
         throw "External installer metadata path is unsafe: $($entry.path)"
       }
-      Remove-Item -LiteralPath $currentItem.FullName -Force
+      $target = [SsrvpnInstaller.ProgramFile]::Open($currentItem.FullName, $true)
+      try { $target.Delete() } finally { $target.Dispose() }
     }
     if ([bool]$entry.exists) {
-      $parent = [System.IO.Path]::GetDirectoryName([string]$entry.path)
-      New-Item -ItemType Directory -Path $parent -Force | Out-Null
-      [System.IO.File]::Copy(
-        [string]$entry.backupPath,
-        [string]$entry.path,
-        $true)
+      $source = [SsrvpnInstaller.ProgramFile]::Open([string]$entry.backupPath, $false)
+      try {
+        if ($source.Sha256 -cne [string]$entry.sha256) { throw 'External installer metadata source changed.' }
+        $source.CopyNew([string]$entry.path)
+      } finally { $source.Dispose() }
       $actualHash = (Get-FileHash -LiteralPath ([string]$entry.path) `
         -Algorithm SHA256).Hash.ToLowerInvariant()
       if ($actualHash -cne [string]$entry.sha256) {
@@ -969,8 +862,7 @@ function Read-TransactionState {
   $statePath = Join-Path $script:recoveryRoot $script:stateFileName
   $state = Read-BoundedJsonDocument -Path $statePath `
     -Name 'Program-file recovery state'
-  Assert-ExactObjectSchema -Value $state -Name 'Program-file recovery state' `
-    -RequiredProperties @(
+  $requiredStateProperties = @(
       'schemaVersion',
       'phase',
       'installDir',
@@ -978,8 +870,16 @@ function Read-TransactionState {
       'desktopShortcutPath',
       'startMenuShortcutPath'
     )
+  if ($state.schemaVersion -ge 3) {
+    $requiredStateProperties += @('uninstallRegistryRoot', 'uninstallRegistryView')
+  }
+  if ($state.schemaVersion -eq 4) {
+    $requiredStateProperties += @('transactionId', 'previousMetadataGeneration', 'recoveryRoot', 'documents', 'recoveryFiles', 'oldOwnership', 'metadataPath', 'metadataFiles', 'authentication')
+  }
+  Assert-ExactObjectSchema -Value $state -Name 'Program-file recovery state' `
+    -RequiredProperties $requiredStateProperties
   if ($state.schemaVersion -isnot [int] -or
-      [int]$state.schemaVersion -ne $script:schemaVersion -or
+      @(2, 3, 4) -notcontains [int]$state.schemaVersion -or
       $state.phase -isnot [string] -or
       $state.installDir -isnot [string] -or
       $state.uninstallRegistrySubkey -isnot [string] -or
@@ -996,6 +896,39 @@ function Read-TransactionState {
         -cnotcontains $state.phase) {
     throw 'Program-file recovery state is invalid.'
   }
+  if ($state.schemaVersion -ge 3) {
+    if ($state.uninstallRegistryRoot -isnot [string] -or
+        @('HKCU', 'HKLM') -cnotcontains $state.uninstallRegistryRoot -or
+        $state.uninstallRegistryRoot -ine $UninstallRegistryRoot -or
+        $state.uninstallRegistryView -isnot [string] -or
+        $state.uninstallRegistryView -cne $UninstallRegistryView) {
+      throw 'Program-file recovery registry root does not match this installer.'
+    }
+    $script:transactionRegistryRoot = $state.uninstallRegistryRoot
+  } else {
+    # v2 backups contain HKCU only, even when made by an elevated installer.
+    # Recover exactly that recorded scope; never replay a legacy export into
+    # HKLM or fabricate the machine snapshot missing from old transactions.
+    if ($UninstallRegistryRoot -eq 'HKLM' -and
+        @('committed', 'restored') -cnotcontains [string]$state.phase) {
+      throw 'Legacy recovery has no machine uninstall registry snapshot; recovery files were preserved.'
+    }
+    $script:transactionRegistryRoot = 'HKCU'
+  }
+  if ($state.schemaVersion -lt 4) {
+    throw 'Legacy recovery does not prove file ownership or the original machine registry state. All recovery material was retained; archive it before using a separate empty installation directory.'
+  }
+  if ($state.schemaVersion -eq 4) {
+    if ($state.transactionId -cnotmatch '^[0-9a-f]{32}$' -or $state.recoveryRoot -ine $script:recoveryRoot -or
+        $state.previousMetadataGeneration -isnot [string] -or $state.previousMetadataGeneration -cnotmatch '^([0-9a-f]{32})?$' -or
+        $state.authentication -cnotmatch '^[0-9a-f]{64}$' -or
+        $state.authentication -cne (Get-StateAuthentication -State $state)) {
+      throw 'Recovery transaction identity/authentication failed; material was retained.'
+    }
+    $script:activeState = $state
+    if (@('committed', 'restored') -cnotcontains [string]$state.phase) { Assert-TransactionDocuments -State $state }
+  }
+  $script:transactionSchemaVersion = [int]$state.schemaVersion
   return $state
 }
 
@@ -1007,7 +940,7 @@ function Read-Manifest {
     -Name 'Program-file recovery manifest' `
     -RequiredProperties @('schemaVersion', 'files')
   if ($manifest.schemaVersion -isnot [int] -or
-      [int]$manifest.schemaVersion -ne $script:schemaVersion -or
+      [int]$manifest.schemaVersion -ne $script:transactionSchemaVersion -or
       $manifest.files -isnot [System.Array]) {
     throw 'Program-file recovery manifest version is invalid.'
   }
@@ -1105,86 +1038,16 @@ function Read-ExpectedPayloadManifest {
 }
 
 function Test-InstalledPayload {
-  $expected = @(Read-ExpectedPayloadManifest)
-  $actual = @(Get-ProgramInventory -Root $script:installDir `
-      -ExcludePreservedData -ExcludeInstallerMetadata)
-  if ($expected.Count -ne $actual.Count) {
-    throw (
-      'Installed payload file count did not match the trusted manifest: ' +
-      "expected $($expected.Count), found $($actual.Count).")
-  }
-  for ($index = 0; $index -lt $expected.Count; $index++) {
-    if (-not [string]::Equals(
-          [string]$expected[$index].path,
-          [string]$actual[$index].path,
-          [System.StringComparison]::OrdinalIgnoreCase) -or
-        [string]$expected[$index].sha256 -cne
-          [string]$actual[$index].sha256) {
-      throw "Installed payload mismatch: $($expected[$index].path)"
-    }
-  }
+  # Every package member must verify. Files outside that trusted inventory
+  # belong to the user and must neither fail a count check nor be deleted.
+  $opened = Open-OwnedFiles -Root $script:installDir -Entries @(Read-TransactionPayload)
+  foreach ($item in $opened) { $item.handle.Dispose() }
   return $true
 }
 
-function Remove-ProgramEntry {
-  param([Parameter(Mandatory = $true)][string]$Path)
-
-  $fullPath = [System.IO.Path]::GetFullPath($Path)
-  if (Test-PathWithin -Candidate $fullPath -Parent $script:preservedDataRoot) {
-    return
-  }
-  $item = Get-PathItem -Path $fullPath
-  if ($null -eq $item) { return }
-  if (Test-ReparsePoint -Item $item) {
-    if (Test-PathWithin -Candidate $script:preservedDataRoot `
-        -Parent $fullPath) {
-      throw "Cannot preserve user data through a reparse point: $fullPath"
-    }
-    Remove-Item -LiteralPath $item.FullName -Force
-    return
-  }
-  if (-not $item.PSIsContainer) {
-    Remove-Item -LiteralPath $item.FullName -Force
-    return
-  }
-  foreach ($child in @(Get-ChildItem -LiteralPath $item.FullName -Force)) {
-    Remove-ProgramEntry -Path $child.FullName
-  }
-  if (@(Get-ChildItem -LiteralPath $item.FullName -Force).Count -eq 0) {
-    Remove-Item -LiteralPath $item.FullName -Force
-  }
-}
-
-function Remove-CurrentProgramFiles {
-  $installItem = Get-PathItem -Path $script:installDir
-  if ($null -eq $installItem) { return }
-  if (-not $installItem.PSIsContainer -or (Test-ReparsePoint -Item $installItem)) {
-    throw 'Install directory is not a real directory.'
-  }
-  # Inventory immediately before deletion. This repeats the bounded traversal
-  # at the destructive boundary so a tree that changed after Begin cannot make
-  # cleanup recurse through an unbounded number of entries.
-  [void](Get-ProgramInventory -Root $script:installDir -ExcludePreservedData)
-  foreach ($child in @(Get-ChildItem -LiteralPath $script:installDir -Force)) {
-    Remove-ProgramEntry -Path $child.FullName
-  }
-}
-
 function Clear-StaleStagingDirectories {
-  $parent = [System.IO.Path]::GetDirectoryName($script:recoveryRoot)
-  if (-not (Test-Path -LiteralPath $parent -PathType Container)) { return }
-  $leaf = Split-Path -Path $script:recoveryRoot -Leaf
-  $prefixes = @("$leaf.staging.", "$leaf.cleanup.")
-  foreach ($entry in @(Get-ChildItem -LiteralPath $parent -Force)) {
-    foreach ($prefix in $prefixes) {
-      if ($entry.Name.StartsWith(
-          $prefix,
-          [System.StringComparison]::OrdinalIgnoreCase)) {
-        Remove-SafeTree -Path $entry.FullName
-        break
-      }
-    }
-  }
+  # A filename prefix is not transaction ownership. Orphan staging/cleanup
+  # material remains available for diagnosis instead of deleting other roots.
 }
 
 function Write-FinalizedState {
@@ -1194,15 +1057,25 @@ function Write-FinalizedState {
     [string]$Phase
   )
 
-  Write-JsonAtomic -Path (Join-Path $script:recoveryRoot $script:stateFileName) `
-    -Value ([pscustomobject][ordered]@{
-      schemaVersion = $script:schemaVersion
+  if ($script:transactionSchemaVersion -eq 4) {
+    $script:activeState.phase = $Phase
+    Write-AuthenticatedState -Root $script:recoveryRoot -State $script:activeState
+    return
+  }
+  $state = [ordered]@{
+      schemaVersion = $script:transactionSchemaVersion
       phase = $Phase
       installDir = $script:installDir
       uninstallRegistrySubkey = $script:uninstallRegistrySubkey
       desktopShortcutPath = $script:desktopShortcutPath
       startMenuShortcutPath = $script:startMenuShortcutPath
-    })
+    }
+  if ($script:transactionSchemaVersion -eq 3) {
+    $state.uninstallRegistryRoot = $script:transactionRegistryRoot
+    $state.uninstallRegistryView = '64'
+  }
+  Write-JsonAtomic -Path (Join-Path $script:recoveryRoot $script:stateFileName) `
+    -Value ([pscustomobject]$state)
 }
 
 function Remove-FinalizedTree {
@@ -1213,16 +1086,7 @@ function Remove-FinalizedTree {
       (Test-ReparsePoint -Item $rootItem)) {
     throw 'Finalized program-file cleanup root is not a real directory.'
   }
-  $statePath = Join-Path $Path $script:stateFileName
-  foreach ($child in @(
-      Get-ChildItem -LiteralPath $Path -Force | Sort-Object Name
-    )) {
-    if ($child.FullName -ine $statePath) {
-      Remove-SafeTree -Path $child.FullName
-    }
-  }
-  Remove-SafeTree -Path $statePath
-  Remove-Item -LiteralPath $Path -Force
+  Remove-AuthenticatedRecoveryFiles -Root $Path -State $script:activeState
 }
 
 function Remove-CommittedTransaction {
@@ -1232,6 +1096,7 @@ function Remove-CommittedTransaction {
     [string]$Phase
   )
 
+  if ($Phase -ceq 'restored') { Restore-PreviousMetadataGeneration -State $script:activeState }
   $rootItem = Get-PathItem -Path $script:recoveryRoot
   if ($null -eq $rootItem) { return }
   if (-not $rootItem.PSIsContainer -or (Test-ReparsePoint -Item $rootItem)) {
@@ -1241,6 +1106,7 @@ function Remove-CommittedTransaction {
   $cleanupToken = [Guid]::NewGuid().ToString('N')
   $cleanupRoot = "$($script:recoveryRoot).cleanup.$cleanupToken"
   $transactionAtRecoveryRoot = $true
+  $script:finalizedStateRemoved = $false
   try {
     [System.IO.Directory]::Move($script:recoveryRoot, $cleanupRoot)
     $transactionAtRecoveryRoot = $false
@@ -1258,10 +1124,12 @@ function Remove-CommittedTransaction {
           "directory: $($_.Exception.Message)")
       }
     }
-    if ($transactionAtRecoveryRoot -and
+    if ($script:finalizedStateRemoved -and $transactionAtRecoveryRoot -and
         (Test-Path -LiteralPath $script:recoveryRoot -PathType Container)) {
       try {
-        Write-FinalizedState -Phase $Phase
+        # Only recreate a state that this authenticated cleanup actually removed.
+        # CreateNew refuses a later unknown state instead of overwriting it.
+        Write-AuthenticatedState -Root $script:recoveryRoot -State $script:activeState -CreateNewOnly
       } catch {
         throw (
           'Finalized program-file cleanup failed and its durable state could ' +
@@ -1294,6 +1162,8 @@ function Get-VerifiedRecoveryMaterial {
 
 function Begin-ProgramFilesTransaction {
   Clear-StaleStagingDirectories
+  Assert-NoLegacyRecoveryConflict
+  $previousMetadataGeneration = Get-InstallerMetadataGeneration
   if (Test-Path -LiteralPath $script:recoveryRoot) {
     throw 'A previous program-file transaction must be recovered first.'
   }
@@ -1308,24 +1178,30 @@ function Begin-ProgramFilesTransaction {
   $stageProgramRoot = Join-Path $stageRoot $script:backupProgramDirectoryName
   try {
     New-Item -ItemType Directory -Path $stageProgramRoot -Force | Out-Null
-    $sourceInventory = @()
-    if ($null -ne $installItem) {
-      $sourceInventory = @(Get-ProgramInventory -Root $script:installDir `
-        -ExcludePreservedData)
+    # Package catalogs or the protected committed manifest grant ownership.
+    # Scanning an arbitrary installation directory never grants deletion rights.
+    if ($null -ne $installItem) { [void](Get-ProgramInventory -Root $script:installDir -ExcludePreservedData) }
+    $sourceInventory = @(Get-ExistingOwnedFiles -Entries @(Get-OldOwnedInventory))
+    $newInventory = @(Get-PlannedPayload)
+    Assert-NewTargetConflicts -Old $sourceInventory -New $newInventory
+    [void](Get-TransactionAuthenticator -Create)
+    $transactionId = [Guid]::NewGuid().ToString('N')
+    $metadataPath = Assert-BoundedProgramRelativePath -RelativePath $UninstallMetadataRelativePath `
+      -Root $script:installDir -ExcludedRoot $script:preservedDataRoot -Name 'New uninstall metadata directory'
+    if ($metadataPath -cnotmatch '^installer-state\\[0-9a-f]{32}$' -or
+        (Test-Path -LiteralPath (Join-Path $script:installDir $metadataPath))) {
+      throw 'New uninstall metadata must use a fresh installation-owned directory.'
     }
     $manifestValue = [pscustomobject][ordered]@{
       schemaVersion = $script:schemaVersion
       files = @($sourceInventory)
     }
-    # Serialize the complete bounded inventory before copying a byte. This is
-    # the metadata-size preflight and prevents a large/pathological tree from
-    # being copied only to discover that its durable manifest cannot be stored.
+    # Verify the bounded manifest can be stored before copying any program bytes.
     Write-JsonAtomic -Path (Join-Path $stageRoot $script:manifestFileName) `
       -Value $manifestValue
-    if ($null -ne $installItem) {
-      Copy-SafeContents -SourceRoot $script:installDir `
-        -DestinationRoot $stageProgramRoot -ExcludePreservedData
-    }
+    Copy-OwnedFiles -SourceRoot $script:installDir -DestinationRoot $stageProgramRoot -Entries $sourceInventory
+    Write-JsonAtomic -Path (Join-Path $stageRoot 'new-payload.json') `
+      -Value ([pscustomobject]@{ schemaVersion = 4; files = @($newInventory) })
     if (Test-Path -LiteralPath (
         Join-Path $stageProgramRoot $script:preservedDataRelativePath)) {
       throw 'Preserved user data entered the program-file backup.'
@@ -1337,19 +1213,39 @@ function Begin-ProgramFilesTransaction {
     }
     New-UninstallRegistrySnapshot -StageRoot $stageRoot
     New-ExternalFilesSnapshot -StageRoot $stageRoot
-    Write-JsonAtomic -Path (Join-Path $stageRoot $script:stateFileName) `
-      -Value ([pscustomobject][ordered]@{
+    if ((Get-InstallerMetadataGeneration) -cne $previousMetadataGeneration) {
+      throw 'Shared installer metadata changed during preparation; original files and staging were retained.'
+    }
+    $documents = @(foreach ($name in @('manifest.json', 'new-payload.json', 'uninstall-registry.json', 'external-files.json')) {
+      $identity = Get-BoundedFileMetadata -Path (Join-Path $stageRoot $name) -MaxBytes $script:maxMetadataDocumentBytes -Name 'Recovery document'
+      [pscustomobject][ordered]@{ path = $name; sha256 = $identity.sha256 }
+    })
+    $recoveryFiles = @(Get-ProgramInventory -Root $stageRoot)
+    Write-AuthenticatedState -Root $stageRoot `
+      -State ([pscustomobject][ordered]@{
         schemaVersion = $script:schemaVersion
         phase = 'prepared'
         installDir = $script:installDir
         uninstallRegistrySubkey = $script:uninstallRegistrySubkey
+        uninstallRegistryRoot = $script:transactionRegistryRoot
+        uninstallRegistryView = '64'
         desktopShortcutPath = $script:desktopShortcutPath
         startMenuShortcutPath = $script:startMenuShortcutPath
+        transactionId = $transactionId
+        previousMetadataGeneration = $previousMetadataGeneration
+        recoveryRoot = $script:recoveryRoot
+        documents = $documents
+        recoveryFiles = $recoveryFiles
+        oldOwnership = (Get-OwnershipValue -Name 'Manifest')
+        metadataPath = $metadataPath
+        metadataFiles = @()
       })
     [System.IO.Directory]::Move($stageRoot, $script:recoveryRoot)
   } finally {
     if (Test-Path -LiteralPath $stageRoot) {
-      Remove-SafeTree -Path $stageRoot
+      # A failed preparation has no authenticated inventory yet. Preserve it;
+      # a whole-directory scan must never authorize deletion of new arrivals.
+      Write-Warning "Incomplete preparation was retained: $stageRoot"
     }
   }
   return 'PREPARED'
@@ -1367,37 +1263,29 @@ function Recover-ProgramFilesTransaction {
     Remove-CommittedTransaction -Phase restored
     return 'RECOVERED_CLEANED'
   }
+  if ($state.phase -ceq 'validated') { Assert-InstallerMetadataGeneration -State $state }
 
-  $material = Get-VerifiedRecoveryMaterial
-  $expectedInventory = @($material.expectedInventory)
-
-  $currentInventory = @(Get-ProgramInventory -Root $script:installDir `
-      -ExcludePreservedData)
-  if (Test-InventoriesEqual -Expected $expectedInventory `
-      -Actual $currentInventory) {
-    Restore-UninstallRegistrySnapshot `
-      -Snapshot $material.registrySnapshot
-    Restore-ExternalFilesSnapshot `
-      -Snapshot @($material.externalFilesSnapshot)
+  # Keep verified sources and their parent directories pinned until all file
+  # and registry replay completes, including reg.exe's later read of the .reg.
+  $pinned = Open-OwnedFiles -Root $script:recoveryRoot -Entries @(Read-OwnedFileList -Entries $state.recoveryFiles -Root $script:recoveryRoot)
+  try {
+    $material = Get-VerifiedRecoveryMaterial
+    $expectedInventory = @($material.expectedInventory)
+    if ($state.phase -ceq 'validated') { Assert-RecoveryRegistrationOwner -State $state -Snapshot $material.registrySnapshot }
+    Restore-OwnedProgramFiles -Old $expectedInventory -New @(@(Read-TransactionPayload) + @($state.metadataFiles))
+  # Inno processes [Icons] and uninstall registration only after the payload's
+  # AfterInstall callback has durably published validated. Prepared/cleared
+  # transactions have not changed these shared records (another directory may
+  # have been uninstalled since Begin), so do not replay their old snapshots.
+    if ($state.phase -ceq 'validated') {
+      Restore-UninstallRegistrySnapshot -Snapshot $material.registrySnapshot
+      Restore-ExternalFilesSnapshot -Snapshot @($material.externalFilesSnapshot)
+    }
+    Set-OwnershipValue -Name 'Manifest' -Value $state.oldOwnership
     Write-FinalizedState -Phase restored
-    Remove-CommittedTransaction -Phase restored
-    return 'CURRENT_ALREADY_VERIFIED'
+  } finally {
+    foreach ($item in $pinned) { $item.handle.Dispose() }
   }
-
-  Remove-CurrentProgramFiles
-  New-Item -ItemType Directory -Path $script:installDir -Force | Out-Null
-  Copy-SafeContents -SourceRoot $script:backupProgramRoot `
-    -DestinationRoot $script:installDir
-  $restoredInventory = @(Get-ProgramInventory -Root $script:installDir `
-    -ExcludePreservedData)
-  if (-not (Test-InventoriesEqual -Expected $expectedInventory `
-      -Actual $restoredInventory)) {
-    throw 'Restored program files failed verification.'
-  }
-  Restore-UninstallRegistrySnapshot -Snapshot $material.registrySnapshot
-  Restore-ExternalFilesSnapshot `
-    -Snapshot @($material.externalFilesSnapshot)
-  Write-FinalizedState -Phase restored
   Remove-CommittedTransaction -Phase restored
   return 'RECOVERED'
 }
@@ -1411,14 +1299,13 @@ function Clear-ProgramFilesForInstall {
   if (@('prepared', 'cleared') -cnotcontains [string]$state.phase) {
     throw 'Program files can only be cleared from a prepared transaction.'
   }
-  [void](Get-VerifiedRecoveryMaterial)
-  Remove-CurrentProgramFiles
-  $remaining = @(Get-ProgramInventory -Root $script:installDir `
-      -ExcludePreservedData)
-  if ($remaining.Count -ne 0) {
-    throw 'Old program files remained after transaction cleanup.'
-  }
-  Write-FinalizedState -Phase cleared
+  $pinned = Open-OwnedFiles -Root $script:recoveryRoot -Entries @(Read-OwnedFileList -Entries $state.recoveryFiles -Root $script:recoveryRoot)
+  try {
+    $material = Get-VerifiedRecoveryMaterial
+    Assert-NewTargetConflicts -Old @($material.expectedInventory) -New @(Read-TransactionPayload)
+    Remove-OwnedFiles -Entries @($material.expectedInventory)
+    Write-FinalizedState -Phase cleared
+  } finally { foreach ($item in $pinned) { $item.handle.Dispose() } }
   return 'CLEARED'
 }
 
@@ -1432,6 +1319,10 @@ function Validate-ProgramFilesTransaction {
     throw 'Program files must be transactionally cleared before validation.'
   }
   [void](Test-InstalledPayload)
+  # Claim shared metadata before Inno is allowed to write icons/registration.
+  # If the phase write fails, cleared recovery restores this claim without
+  # replaying metadata which Inno has not yet changed.
+  Set-InstallerMetadataGeneration -Expected $state.previousMetadataGeneration -Value $state.transactionId
   Write-FinalizedState -Phase validated
   return 'VALIDATED'
 }
@@ -1446,6 +1337,16 @@ function Commit-ProgramFilesTransaction {
     if ([string]$state.phase -cne 'validated') {
       throw 'Cannot commit a program-file transaction before validation.'
     }
+    Assert-InstallerMetadataGeneration -State $state
+    [void](Test-InstalledPayload)
+    $owned = @(@(Read-TransactionPayload) + @($state.metadataFiles))
+    if ($state.metadataFiles.Count -lt 2) { throw 'Inno uninstall metadata has not been sealed.' }
+    $opened = Open-OwnedFiles -Root $script:installDir -Entries $owned
+    try {
+      Set-OwnershipValue -Name 'Manifest' -Value (ConvertTo-BoundedJsonText ([pscustomobject][ordered]@{
+        schemaVersion = 1; installDir = $script:installDir; files = $owned
+      }))
+    } finally { foreach ($item in $opened) { $item.handle.Dispose() } }
     Write-FinalizedState -Phase committed
   }
   try {
@@ -1460,19 +1361,15 @@ function Commit-ProgramFilesTransaction {
 }
 
 function Discard-ProgramFilesTransaction {
-  Clear-StaleStagingDirectories
-  $rootItem = Get-PathItem -Path $script:recoveryRoot
-  if ($null -ne $rootItem) {
-    if (-not $rootItem.PSIsContainer -or (Test-ReparsePoint -Item $rootItem)) {
-      Remove-SafeTree -Path $script:recoveryRoot
-    } else {
-      $cleanupRoot = "$($script:recoveryRoot).cleanup.$([Guid]::NewGuid().ToString('N'))"
-      [System.IO.Directory]::Move($script:recoveryRoot, $cleanupRoot)
-      Remove-SafeTree -Path $cleanupRoot
-    }
+  # Validate directory, scope and authenticated transaction identity first.
+  # Pending work must be recovered, never discarded by an unrelated uninstall.
+  $state = Read-TransactionState
+  if ($null -eq $state) { return 'NO_TRANSACTION' }
+  if (@('committed', 'restored') -cnotcontains $state.phase) {
+    throw 'A pending transaction must be recovered before this installation can be uninstalled.'
   }
-  Clear-StaleStagingDirectories
-  return 'DISCARDED'
+  Remove-CommittedTransaction -Phase $state.phase
+  return 'FINALIZED_TRANSACTION_DISCARDED'
 }
 
 function Write-TransactionStatus {
@@ -1507,7 +1404,7 @@ try {
       $UninstallRegistrySubkey -cne $UninstallRegistrySubkey.Trim() -or
       $UninstallRegistrySubkey -notmatch
         '(?i)\ASoftware\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\[^\\\r\n]+\z') {
-    throw 'UninstallRegistrySubkey is outside the per-user uninstall key.'
+    throw 'UninstallRegistrySubkey is outside the uninstall key.'
   }
   $script:uninstallRegistrySubkey = $UninstallRegistrySubkey
   $script:desktopShortcutPath = Get-SafeMetadataFilePath `
@@ -1555,9 +1452,13 @@ try {
     'Begin' { Begin-ProgramFilesTransaction }
     'Recover' { Recover-ProgramFilesTransaction }
     'Clear' { Clear-ProgramFilesForInstall }
+    'Install' { Install-OwnedProgramFiles }
     'Validate' { Validate-ProgramFilesTransaction }
+    'Seal' { Seal-UninstallMetadata }
     'Commit' { Commit-ProgramFilesTransaction }
     'Discard' { Discard-ProgramFilesTransaction }
+    'CheckUninstall' { Test-OwnedUninstall }
+    'Uninstall' { Remove-OwnedInstallation }
   }
   Write-TransactionStatus -Status $status
   exit 0

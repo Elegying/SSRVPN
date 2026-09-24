@@ -30,6 +30,8 @@ function Test-IpInPrefix {
 }
 
 function Get-SsrvpnTunOwnership {
+  param([object[]]$KnownInterfaces = @())
+
   $markerPath = $null
   if (-not [string]::IsNullOrWhiteSpace($InstalledCorePidPath)) {
     $markerPath = Join-Path (
@@ -38,8 +40,12 @@ function Get-SsrvpnTunOwnership {
   }
   $markerExists = $markerPath -and
     (Test-Path -LiteralPath $markerPath -PathType Leaf)
-  $owned = @()
+  # Keep identities captured before shutdown when a baseline-only marker is
+  # reread while Windows is still removing the corresponding adapter.
+  $owned = @($KnownInterfaces)
   $baselineGuids = @()
+  $baselineIndexes = @()
+  $baselineIncludesEmptyAdapters = $false
   $discoverFromBaseline = $false
   $discoverFromLegacy = $false
   if ($markerExists) {
@@ -57,7 +63,7 @@ function Get-SsrvpnTunOwnership {
       $version = 0
       if ($null -eq $marker.PSObject.Properties['version'] -or
           -not [int]::TryParse([string]$marker.version, [ref]$version) -or
-          ($version -ne 1 -and $version -ne 2) -or
+          ($version -ne 1 -and $version -ne 2 -and $version -ne 3) -or
           $null -eq $marker.PSObject.Properties['interfaces']) {
         throw 'SSRVPN TUN ownership marker has an unsupported schema.'
       }
@@ -78,7 +84,10 @@ function Get-SsrvpnTunOwnership {
           ExpectedGuid = $interfaceGuid.ToString('D').ToLowerInvariant()
         }
       }
-      if ($version -eq 2) {
+      if ($version -eq 2 -or $version -eq 3) {
+        # v2 recorded empty adapter shells as well as active interfaces. v3
+        # records only active interfaces, which must stay foreign to this run.
+        $baselineIncludesEmptyAdapters = $version -eq 2
         if ($null -eq $marker.PSObject.Properties['baselineInterfaces']) {
           throw 'SSRVPN TUN ownership marker is missing its baseline.'
         }
@@ -95,8 +104,10 @@ function Get-SsrvpnTunOwnership {
             throw 'SSRVPN TUN ownership marker contains an invalid baseline.'
           }
           $baselineGuids += $baselineGuid.ToString('D').ToLowerInvariant()
+          $baselineIndexes += $baselineIndex
         }
-        $discoverFromBaseline = $baselineGuids.Count -gt 0
+        $discoverFromBaseline = $owned.Count -eq 0 -and
+          $baselineGuids.Count -gt 0
       }
       if ($owned.Count -eq 0 -and $baselineGuids.Count -eq 0) {
         throw 'SSRVPN TUN ownership marker does not contain usable ownership evidence.'
@@ -106,8 +117,10 @@ function Get-SsrvpnTunOwnership {
 
   # A generic adapter name or an unrelated process is not ownership. Live
   # discovery requires either SSRVPN's pre-start GUID baseline or its durable
-  # legacy marker, plus both private TUN addresses and an SSRVPN route
-  # signature. Legacy numeric indexes are never trusted as identities.
+  # legacy marker. A baseline can detect partial startup/teardown; legacy
+  # discovery still requires both private addresses plus a route signature.
+  # Explicit owned GUIDs take precedence over discovery. Legacy numeric
+  # indexes are never trusted as identities.
   if ($discoverFromBaseline -or $discoverFromLegacy) {
     $adapters = @(Get-NetAdapter -IncludeHidden -ErrorAction Stop)
     $addresses = @(Get-NetIPAddress -ErrorAction Stop)
@@ -141,7 +154,7 @@ function Get-SsrvpnTunOwnership {
         return $false
       } | ForEach-Object { [int]$_.InterfaceIndex } | Sort-Object -Unique
     )
-    $signatureIndexes = @(
+    $legacySignatureIndexes = @(
       $dualAddressIndexes | Where-Object {
         $signatureRouteIndexes -contains [int]$_
       }
@@ -164,12 +177,34 @@ function Get-SsrvpnTunOwnership {
         OriginalIndex = $interfaceIndex
         ExpectedGuid = $normalizedGuid
       }
-      if (($signatureIndexes -contains $interfaceIndex) -and
-          ($discoverFromLegacy -or
+      $hasSignature = if ($discoverFromLegacy) {
+        $legacySignatureIndexes -contains $interfaceIndex
+      } else {
+        ($ipv4Indexes -contains $interfaceIndex) -or
+          ($ipv6Indexes -contains $interfaceIndex) -or
+          (($signatureRouteIndexes -contains $interfaceIndex) -and
+            ($baselineGuids -notcontains $normalizedGuid))
+      }
+      if ($hasSignature -and
+          ($discoverFromLegacy -or $baselineIncludesEmptyAdapters -or
           $baselineGuids -notcontains $normalizedGuid)) {
         $owned += [pscustomobject]@{
           OriginalIndex = $interfaceIndex
           ExpectedGuid = $normalizedGuid
+        }
+      }
+    }
+
+    if ($discoverFromBaseline) {
+      $occupiedIndexes = @($adapterIdentities | ForEach-Object {
+        [int]$_.OriginalIndex
+      })
+      foreach ($routeIndex in $signatureRouteIndexes) {
+        if ($occupiedIndexes -notcontains $routeIndex -and
+            $baselineIndexes -notcontains $routeIndex) {
+          # There is a post-start route but no GUID to follow safely. Do not
+          # silently declare teardown complete or invent an adapter identity.
+          throw 'SSRVPN TUN route remains without a verifiable interface identity.'
         }
       }
     }
@@ -261,9 +296,17 @@ function Test-SsrvpnTunArtifactsRemoved {
   foreach ($ownedInterface in $OwnedInterfaces) {
     $expectedGuid = [string]$ownedInterface.ExpectedGuid
     $originalIndex = [int]$ownedInterface.OriginalIndex
-    if ($adapters | Where-Object { $_.Guid -ceq $expectedGuid }) {
-      return $false
+    $ownedIndexes = @($adapters | Where-Object {
+      $_.Guid -ceq $expectedGuid
+    } | ForEach-Object { [int]$_.Index })
+    foreach ($ownedIndex in $ownedIndexes) {
+      if (($addressIndexes -contains $ownedIndex) -or
+          ($routeIndexes -contains $ownedIndex)) {
+        return $false
+      }
     }
+    # Windows may retain a hidden adapter shell after Mihomo exits. Without
+    # addresses or routes it cannot affect traffic and must not block setup.
     $indexWasReused = $adapters | Where-Object {
       $_.Index -eq $originalIndex
     }
@@ -287,14 +330,19 @@ function Wait-SsrvpnTunTeardown {
   if ($OwnedInterfaces.Count -eq 0) { return $true }
   $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
   $lastProbeError = ''
+  $consecutiveClearProbes = 0
   while ($true) {
     try {
       if (Test-SsrvpnTunArtifactsRemoved `
           -OwnedInterfaces $OwnedInterfaces) {
-        return $true
+        $consecutiveClearProbes++
+        if ($consecutiveClearProbes -ge 2) { return $true }
+      } else {
+        $consecutiveClearProbes = 0
       }
       $lastProbeError = ''
     } catch {
+      $consecutiveClearProbes = 0
       $lastProbeError = $_.Exception.Message
     }
 

@@ -176,13 +176,15 @@ void main() {
 }
 
 Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
-  for (var attempt = 0; attempt < 100; attempt++) {
+  final deadline = Stopwatch()..start();
+  while (deadline.elapsed < const Duration(seconds: 10)) {
     if (finder.evaluate().isNotEmpty) return;
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 10)),
     );
     await tester.pump();
   }
+  fail('Timed out waiting for the real persistence result: $finder');
 }
 
 class _SubscriptionFixture {

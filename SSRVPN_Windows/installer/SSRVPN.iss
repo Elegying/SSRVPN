@@ -49,8 +49,11 @@ OutputBaseFilename=SSRVPN_Setup
 SetupIconFile={#ProjectDir}\windows\runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\ssrvpn_windows.exe
 UninstallDisplayName=SSRVPN
+UninstallLogMode=new
+UninstallFilesDir={code:GetUninstallMetadataDir}
 Compression=lzma2/ultra64
 SolidCompression=yes
+SetupLogging=yes
 WizardStyle=modern
 CloseApplications=no
 RestartApplications=no
@@ -67,10 +70,6 @@ Name: "chinesesimp"; MessagesFile: "{#ProjectDir}\installer\languages\ChineseSim
 chinesesimp.ConfirmUninstall=确认卸载 %1 吗？%n%n卸载程序仅删除程序文件；设置、订阅、节点和本机加密密钥会保留，供以后重装使用。
 
 [InstallDelete]
-Type: files; Name: "{app}\*"
-Type: files; Name: "{app}\bin\*"
-Type: filesandordirs; Name: "{app}\bin\data"
-Type: filesandordirs; Name: "{app}\installer"
 Type: files; Name: "{localappdata}\SSRVPN\installer\rebuild-state.json"
 Type: dirifempty; Name: "{localappdata}\SSRVPN\installer"
 Type: filesandordirs; Name: "{userappdata}\SSRVPN.exe\EBWebView"
@@ -86,14 +85,21 @@ Source: "{#ProjectDir}\installer\proxy_transaction_state.ps1"; Flags: dontcopy n
 Source: "{#ProjectDir}\installer\tun_ownership.ps1"; Flags: dontcopy noencryption
 Source: "{#ProjectDir}\installer\name_based_process_sweep.ps1"; Flags: dontcopy noencryption
 Source: "{#ProjectDir}\installer\program_files_transaction.ps1"; Flags: dontcopy noencryption
+Source: "{#ProjectDir}\installer\program_file_ownership.ps1"; Flags: dontcopy noencryption
+Source: "{#ProjectDir}\installer\program_file_handles.cs"; Flags: dontcopy noencryption
+Source: "{#ProjectDir}\installer\legacy-program-catalogs.json"; Flags: dontcopy noencryption
 Source: "{#PayloadManifestPath}"; DestName: "ssrvpn_expected_payload.sha256"; Flags: dontcopy noencryption
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "bin\ssrvpn,bin\ssrvpn\*"; Flags: ignoreversion recursesubdirs createallsubdirs overwritereadonly
-Source: "{#ProjectDir}\installer\stop_ssrvpn_processes.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
-Source: "{#ProjectDir}\installer\proxy_transaction_state.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
-Source: "{#ProjectDir}\installer\tun_ownership.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
-Source: "{#ProjectDir}\installer\name_based_process_sweep.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
-Source: "{#ProjectDir}\installer\post_install_cleanup.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
-Source: "{#ProjectDir}\installer\program_files_transaction.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion; AfterInstall: ValidateProgramFilesTransaction
+; Inno extracts into its private staging directory. Only the transaction helper
+; can publish program files, using verified handles and exclusive CreateNew.
+Source: "{#SourceDir}\*"; DestDir: "{tmp}\payload"; Excludes: "bin\ssrvpn,bin\ssrvpn\*"; Flags: ignoreversion recursesubdirs createallsubdirs deleteafterinstall
+Source: "{#ProjectDir}\installer\stop_ssrvpn_processes.ps1"; DestDir: "{tmp}\payload\installer"; Flags: ignoreversion deleteafterinstall
+Source: "{#ProjectDir}\installer\proxy_transaction_state.ps1"; DestDir: "{tmp}\payload\installer"; Flags: ignoreversion deleteafterinstall
+Source: "{#ProjectDir}\installer\tun_ownership.ps1"; DestDir: "{tmp}\payload\installer"; Flags: ignoreversion deleteafterinstall
+Source: "{#ProjectDir}\installer\name_based_process_sweep.ps1"; DestDir: "{tmp}\payload\installer"; Flags: ignoreversion deleteafterinstall
+Source: "{#ProjectDir}\installer\post_install_cleanup.ps1"; DestDir: "{tmp}\payload\installer"; Flags: ignoreversion deleteafterinstall
+Source: "{#ProjectDir}\installer\program_file_ownership.ps1"; DestDir: "{tmp}\payload\installer"; Flags: ignoreversion deleteafterinstall
+Source: "{#ProjectDir}\installer\program_file_handles.cs"; DestDir: "{tmp}\payload\installer"; Flags: ignoreversion deleteafterinstall
+Source: "{#ProjectDir}\installer\program_files_transaction.ps1"; DestDir: "{tmp}\payload\installer"; Flags: ignoreversion deleteafterinstall; AfterInstall: ValidateProgramFilesTransaction
 
 [Icons]
 Name: "{commonprograms}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"
@@ -135,7 +141,9 @@ var
   ProgramFilesRecoveryPending: Boolean;
   ProgramFilesTransactionPrepared: Boolean;
   LastProgramFilesTransactionStatus: String;
+  UninstallMetadataRelativePath: String;
   InstallSucceeded: Boolean;
+  PostInstallCommitFailed: Boolean;
 
 function WinCreateMutex(Attributes: Cardinal; InitialOwner: BOOL;
   Name: String): THandle;
@@ -215,8 +223,8 @@ begin
   if not Result then
   begin
     Log('SSRVPN could not initialize the Windows PowerShell module path.');
-    MsgBox('无法准备安装所需的 Windows 组件，尚未修改程序文件。请重试。',
-      mbError, MB_OK);
+    SuppressibleMsgBox('无法准备安装所需的 Windows 组件，尚未修改程序文件。请重试。',
+      mbError, MB_OK, IDOK);
   end;
 end;
 
@@ -338,6 +346,7 @@ begin
     (Status = 'APP_STILL_RUNNING') or
     (Status = 'PROXY_UNSAFE') or
     (Status = 'PROCESSES_STILL_RUNNING') or
+    (Status = 'TUN_OWNERSHIP_UNVERIFIED') or
     (Status = 'TUN_TEARDOWN_PENDING') or
     (Status = 'PID_CLEANUP_FAILED') or
     (Status = 'RECOVERY_CLEANUP_PENDING') or
@@ -419,7 +428,20 @@ end;
 
 function ProgramFilesRecoveryRoot: String;
 begin
-  Result := ExpandConstant('{localappdata}\SSRVPN\installer-recovery');
+  { Separate roots also protect a new B transaction from an older A uninstaller
+    whose helper still discards the legacy shared installer-recovery path. }
+  Result := ExpandConstant('{localappdata}\SSRVPN\installer-recovery-v4\') +
+    GetSHA256OfString(UTF8Encode(Lowercase(ExpandConstant('{app}'))));
+end;
+
+function GetUninstallMetadataDir(Param: String): String;
+begin
+  if UninstallMetadataRelativePath = '' then
+    UninstallMetadataRelativePath := 'installer-state\' +
+      Copy(GetSHA256OfString(ExpandConstant('{tmp}') +
+        IntToStr(WinGetCurrentProcessId) +
+        GetDateTimeString('yyyymmddhhnnss', #0, #0)), 1, 32);
+  Result := ExpandConstant('{app}\') + UninstallMetadataRelativePath;
 end;
 
 function RunProgramFilesTransactionScript(Action: String; ScriptPath: String;
@@ -453,10 +475,17 @@ begin
       ' -RecoveryRoot ' + AddQuotes(ProgramFilesRecoveryRoot) +
       ' -StatusPath ' + AddQuotes(StatusPath) +
       ' -UninstallRegistrySubkey ' + AddQuotes(UninstallRegistryKey) +
+      ' -UninstallRegistryRoot HKLM -UninstallRegistryView 64' +
+      ' -LegacyRecoveryRoot ' + AddQuotes(ExpandConstant('{localappdata}\SSRVPN\installer-recovery')) +
+      ' -PayloadSourceRoot ' + AddQuotes(ExpandConstant('{tmp}\payload')) +
       ' -DesktopShortcutPath ' +
         AddQuotes(ExpandConstant('{commondesktop}\SSRVPN.lnk')) +
       ' -StartMenuShortcutPath ' +
         AddQuotes(ExpandConstant('{commonprograms}\SSRVPN.lnk'));
+    if Action = 'Begin' then
+      Parameters := Parameters + ' -LegacyCatalogPath ' +
+        AddQuotes(ExpandConstant('{tmp}\legacy-program-catalogs.json')) +
+        ' -UninstallMetadataRelativePath ' + AddQuotes(UninstallMetadataRelativePath);
     if ExpectedPayloadManifestPath <> '' then
       Parameters := Parameters + ' -ExpectedPayloadManifestPath ' +
         AddQuotes(ExpectedPayloadManifestPath);
@@ -487,6 +516,15 @@ begin
   try
     if not FileExists(ScriptPath) then
       ExtractTemporaryFile('program_files_transaction.ps1');
+    ExtractTemporaryFile('program_file_ownership.ps1');
+    ExtractTemporaryFile('program_file_handles.cs');
+    if Action = 'Begin' then
+    begin
+      ExtractTemporaryFile('legacy-program-catalogs.json');
+      ExtractTemporaryFiles('{tmp}\payload\*');
+      GetUninstallMetadataDir('');
+      ExpectedPayloadManifestName := 'ssrvpn_expected_payload.sha256';
+    end;
     ExpectedPayloadManifestPath := '';
     if ExpectedPayloadManifestName <> '' then
     begin
@@ -564,10 +602,10 @@ procedure ValidateProgramFilesTransaction;
 begin
   if (not ProgramFilesTransactionPrepared) or
     (not RunProgramFilesTransaction(
-      'Validate', 'ssrvpn_expected_payload.sha256')) then
+      'Install', 'ssrvpn_expected_payload.sha256')) then
     RaiseException(
       'SSRVPN 新程序文件未通过完整性校验，无法继续更新。' +
-      '旧程序将自动恢复。诊断阶段码：' +
+      '安装器将尝试恢复旧程序；请以安装日志中的恢复结果为准。诊断阶段码：' +
       LastProgramFilesTransactionStatus + '。');
 end;
 
@@ -631,7 +669,7 @@ begin
         RecoverPendingProgramFilesTransaction;
       ReleaseInstallGates;
       Result := '无法建立 SSRVPN 程序文件回滚点，安装尚未开始覆盖。' + #13#10 +
-        '旧程序已尽力恢复；恢复副本会保留到后续安装完成处理。' + #13#10 +
+        '请以日志中的恢复结果为准；不要删除仍在的恢复材料或个人文件。' + #13#10 +
         '诊断阶段码：' + BeginFailureStatus + '。';
       exit;
     end;
@@ -642,7 +680,7 @@ begin
         RecoverPendingProgramFilesTransaction;
       ReleaseInstallGates;
       Result := '无法在回滚点保护下清理旧版程序文件，安装尚未写入新版本。' + #13#10 +
-        '旧程序已尽力恢复；恢复副本会保留到后续安装完成处理。' + #13#10 +
+        '请以日志中的恢复结果为准；不要删除仍在的恢复材料或个人文件。' + #13#10 +
         '诊断阶段码：' + BeginFailureStatus + '。';
       exit;
     end;
@@ -656,6 +694,21 @@ begin
       StopStatusDiagnostic + #13#10 +
       '请退出所有 SSRVPN 窗口和托盘实例后重试；如果仍然失败，' +
       '请重启 Windows 后再次安装。';
+  end
+  else if LastStopStatus = 'TUN_OWNERSHIP_UNVERIFIED' then
+  begin
+    ReleaseInstallGates;
+    Result := '无法解析或确认 SSRVPN 虚拟网卡状态，安装尚未修改程序文件。' + #13#10 +
+      StopStatusDiagnostic + #13#10 +
+      '请先在客户端断开连接并退出后重试。若仍失败，请保留安装日志反馈，' +
+      '不要手动删除网络恢复记录。';
+  end
+  else if LastStopStatus = 'TUN_TEARDOWN_PENDING' then
+  begin
+    ReleaseInstallGates;
+    Result := 'SSRVPN 虚拟网卡的 IP 或路由尚未确认释放，安装尚未修改程序文件。' + #13#10 +
+      StopStatusDiagnostic + #13#10 +
+      '请稍后重试；如果仍然失败，请重启 Windows 后再次安装。';
   end
   else if StopResult = 3 then
   begin
@@ -674,116 +727,45 @@ begin
   end;
 end;
 
-function NormalizeRegistryPath(Path: String): String;
-begin
-  Result := ExpandFileName(Trim(Path));
-  while (Length(Result) > 3) and
-    ((Result[Length(Result)] = '\') or (Result[Length(Result)] = '/')) do
-    Delete(Result, Length(Result), 1);
-end;
-
-function ExtractCommandExecutable(Command: String): String;
-var
-  DelimiterIndex: Integer;
-begin
-  Command := Trim(Command);
-  Result := '';
-  if Command = '' then
-    exit;
-  if Command[1] = '"' then
-  begin
-    DelimiterIndex := Pos('"', Copy(Command, 2, Length(Command) - 1));
-    if DelimiterIndex = 0 then
-      exit;
-    Result := Copy(Command, 2, DelimiterIndex - 1);
-  end
-  else
-  begin
-    DelimiterIndex := Pos(' ', Command);
-    if DelimiterIndex = 0 then
-      Result := Command
-    else
-      Result := Copy(Command, 1, DelimiterIndex - 1);
-  end;
-  Result := NormalizeRegistryPath(Result);
-end;
-
-function IsOwnedUninstallDisplayName(DisplayName: String): Boolean;
-var
-  DisplayNamePrefix: String;
-begin
-  DisplayName := Trim(DisplayName);
-  DisplayNamePrefix := Copy(DisplayName, 1, 7);
-  Result := (CompareText(DisplayName, 'SSRVPN') = 0) or
-    ((Length(DisplayName) > 7) and
-      (CompareText(DisplayNamePrefix, 'SSRVPN ') = 0));
-end;
-
-procedure RemoveVerifiedOppositeScopeUninstallEntry;
-var
-  RootKey: Integer;
-  DisplayName: String;
-  InstallLocation: String;
-  UninstallString: String;
-  ExpectedInstallLocation: String;
-  ExpectedUninstaller: String;
-begin
-  if IsAdminInstallMode then
-    RootKey := HKCU
-  else
-    RootKey := HKLM;
-  if not RegQueryStringValue(
-    RootKey, UninstallRegistryKey, 'DisplayName', DisplayName) then
-    exit;
-  if not RegQueryStringValue(
-    RootKey, UninstallRegistryKey, 'InstallLocation', InstallLocation) then
-    exit;
-  if not RegQueryStringValue(
-    RootKey, UninstallRegistryKey, 'UninstallString', UninstallString) then
-    exit;
-
-  ExpectedInstallLocation := NormalizeRegistryPath(ExpandConstant('{app}'));
-  ExpectedUninstaller :=
-    NormalizeRegistryPath(ExpandConstant('{app}\unins000.exe'));
-  if (not IsOwnedUninstallDisplayName(DisplayName)) or
-    (CompareText(
-      NormalizeRegistryPath(InstallLocation), ExpectedInstallLocation) <> 0) or
-    (CompareText(
-      ExtractCommandExecutable(UninstallString), ExpectedUninstaller) <> 0) then
-  begin
-    Log('SSRVPN preserved an unverified opposite-scope uninstall entry.');
-    exit;
-  end;
-
-  if RegDeleteKeyIncludingSubkeys(RootKey, UninstallRegistryKey) then
-    Log('SSRVPN removed a verified stale opposite-scope uninstall entry.')
-  else
-    Log('SSRVPN could not remove a verified stale opposite-scope uninstall entry.');
-end;
-
 procedure LaunchVerifiedUpdatePackageCleanup; forward;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
+    PostInstallCommitFailed := True;
     if ProgramFilesTransactionPrepared then
     begin
-      if not CommitProgramFilesTransaction then
+      if (not RunProgramFilesTransaction('Seal', '')) or
+        (not CommitProgramFilesTransaction) then
         RaiseException(
           'SSRVPN 无法完成程序文件事务提交。' +
-          '旧程序将自动恢复。诊断阶段码：' +
+          '安装器将尝试恢复旧程序；请以安装日志中的恢复结果为准。诊断阶段码：' +
           LastProgramFilesTransactionStatus + '。');
     end;
     InstallSucceeded := True;
+    PostInstallCommitFailed := False;
     if VerifiedUpdateCleanupRequested then
       LaunchVerifiedUpdatePackageCleanup;
-    try
-      RemoveVerifiedOppositeScopeUninstallEntry;
-    except
-      Log('SSRVPN opposite-scope uninstall entry cleanup raised an internal exception.');
-    end;
+    { Only this installation's HKLM64 record is transactionally owned. }
     ReleaseInstallGates;
+  end;
+end;
+
+function GetCustomSetupExitCode: Integer;
+begin
+  Result := 0;
+  if PostInstallCommitFailed then Result := 10;
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if (CurPageID = wpFinished) and PostInstallCommitFailed then
+  begin
+    WizardForm.FinishedHeadingLabel.Caption := 'SSRVPN 安装未完成';
+    WizardForm.FinishedLabel.Caption :=
+      '程序文件事务提交失败。退出安装器时将尝试恢复旧程序；' +
+      '请以安装日志中的恢复结果为准，保留诊断记录后重试。';
   end;
 end;
 
@@ -868,9 +850,9 @@ begin
   if not Result then exit;
   if not HoldInstallGateHandles then
   begin
-    MsgBox('无法建立 SSRVPN 卸载期进程保护，卸载尚未删除程序文件。' + #13#10 +
+    SuppressibleMsgBox('无法建立 SSRVPN 卸载期进程保护，卸载尚未删除程序文件。' + #13#10 +
       '请关闭其他安装程序后重试；如果仍然失败，请重启 Windows。',
-      mbError, MB_OK);
+      mbError, MB_OK, IDOK);
     Result := False;
     exit;
   end;
@@ -880,14 +862,14 @@ begin
     AcquireLauncherGate(GateWaitMilliseconds);
   if Result then
   begin
-    if not RunInstalledProgramFilesTransaction('Discard') then
+    if not RunInstalledProgramFilesTransaction('CheckUninstall') then
     begin
       ReleaseInstallGates;
-      MsgBox('无法安全清理上次中断安装留下的程序文件副本，' +
+      SuppressibleMsgBox('无法安全清理上次中断安装留下的程序文件副本，' +
         '卸载尚未删除程序文件。' + #13#10 +
         '诊断阶段码：' + LastProgramFilesTransactionStatus + '。' + #13#10 +
         '请重试卸载；如果仍然失败，请重启 Windows 后再次卸载。',
-        mbError, MB_OK);
+        mbError, MB_OK, IDOK);
       Result := False;
     end;
     exit;
@@ -896,32 +878,43 @@ begin
   begin
     ReleaseInstallGates;
     if LastStopStatus = 'APP_INSTANCE_ACTIVE' then
-      MsgBox('仍有 SSRVPN 同名进程无法自动结束（含其他目录或便携版副本），' +
+      SuppressibleMsgBox('仍有 SSRVPN 同名进程无法自动结束（含其他目录或便携版副本），' +
         '卸载尚未删除程序文件。' + #13#10 +
         StopStatusDiagnostic + #13#10 +
         '请退出所有 SSRVPN 窗口和托盘实例后重试；如果仍然失败，' +
-        '请重启 Windows 后再次卸载。', mbError, MB_OK)
+        '请重启 Windows 后再次卸载。', mbError, MB_OK, IDOK)
+    else if LastStopStatus = 'TUN_OWNERSHIP_UNVERIFIED' then
+      SuppressibleMsgBox('无法解析或确认 SSRVPN 虚拟网卡状态，卸载尚未删除程序文件。' + #13#10 +
+        StopStatusDiagnostic + #13#10 +
+        '请先在客户端断开连接并退出后重试。若仍失败，请保留诊断阶段码反馈，' +
+        '不要手动删除网络恢复记录。', mbError, MB_OK, IDOK)
+    else if LastStopStatus = 'TUN_TEARDOWN_PENDING' then
+      SuppressibleMsgBox('SSRVPN 虚拟网卡的 IP 或路由尚未确认释放，卸载尚未删除程序文件。' + #13#10 +
+        StopStatusDiagnostic + #13#10 +
+        '请稍后重试；如果仍然失败，请重启 Windows 后再次卸载。', mbError, MB_OK, IDOK)
     else if StopResult = 3 then
-      MsgBox('无法确认 SSRVPN 进程归属或安全恢复系统代理，卸载尚未删除程序文件。' + #13#10 +
+      SuppressibleMsgBox('无法确认 SSRVPN 进程归属或安全恢复系统代理，卸载尚未删除程序文件。' + #13#10 +
         StopStatusDiagnostic + #13#10 +
         '请退出 SSRVPN，确认 Windows 系统代理和网络正常后重试；' +
-        '如果仍然失败，请重启 Windows 后再次卸载。', mbError, MB_OK)
+        '如果仍然失败，请重启 Windows 后再次卸载。', mbError, MB_OK, IDOK)
     else if StopResult <> 0 then
-      MsgBox('无法关闭正在运行的 SSRVPN，卸载尚未删除程序文件。' + #13#10 +
+      SuppressibleMsgBox('无法关闭正在运行的 SSRVPN，卸载尚未删除程序文件。' + #13#10 +
         StopStatusDiagnostic + #13#10 +
         '请退出 SSRVPN 后重试；如果仍然失败，请重启 Windows 后再次卸载。',
-        mbError, MB_OK)
+        mbError, MB_OK, IDOK)
     else
-      MsgBox('无法取得 SSRVPN 卸载期启动保护，卸载尚未删除程序文件。' + #13#10 +
-        '请稍后重试；如果仍然失败，请重启 Windows。', mbError, MB_OK);
+      SuppressibleMsgBox('无法取得 SSRVPN 卸载期启动保护，卸载尚未删除程序文件。' + #13#10 +
+        '请稍后重试；如果仍然失败，请重启 Windows。', mbError, MB_OK, IDOK);
   end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
-  if CurUninstallStep = usPostUninstall then
+  if CurUninstallStep = usUninstall then
   begin
-    RemoveVerifiedOppositeScopeUninstallEntry;
+    if not RunInstalledProgramFilesTransaction('Uninstall') then
+      RaiseException('SSRVPN 无法删除已验证的程序文件，现场已保留。诊断阶段码：' +
+        LastProgramFilesTransactionStatus);
   end;
 end;
 

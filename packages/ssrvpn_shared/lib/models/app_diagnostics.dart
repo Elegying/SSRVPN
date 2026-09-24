@@ -88,7 +88,7 @@ class AppFailure {
         AppErrorCode.coreStartTimeout => '连接服务启动时间过长，请稍后重新连接。',
         AppErrorCode.coreUnavailable => '暂时无法与连接服务正常通信，请运行诊断确认状态。',
         AppErrorCode.localProxyUnavailable => '本地连接服务尚未准备好，请稍后重新连接。',
-        AppErrorCode.dataPlaneDegraded => '暂未确认能否正常上网，请打开网页检查实际使用情况。',
+        AppErrorCode.dataPlaneDegraded => '外部探测未通过，实际访问情况尚未确认',
         AppErrorCode.networkTimeout => '服务器未能及时响应，请检查网络或稍后重试。',
         AppErrorCode.networkUnavailable => '暂时无法联系目标服务器，请检查网络或稍后重试。',
         AppErrorCode.secureConnectionFailed => '无法建立可信的加密连接，请检查设备时间或联系服务提供方。',
@@ -221,9 +221,9 @@ class AppFailure {
         ),
       AppErrorCode.dataPlaneDegraded => const AppFailure(
           code: AppErrorCode.dataPlaneDegraded,
-          title: '连接质量提示',
-          message: '核心与系统网络接管仍在运行，但当前验证站点暂时不可达。',
-          recommendedAction: '如界面已显示连接，当前连接仍保留；若实际无法上网，请稍后重试或手动切换节点。',
+          title: '外部探测未通过',
+          message: '外部探测未通过，实际访问情况尚未确认',
+          recommendedAction: '请通过网页或应用确认实际访问情况；若实际无法使用，再运行诊断或手动切换节点。',
         ),
       AppErrorCode.appLocationRequired => const AppFailure(
           code: AppErrorCode.appLocationRequired,
@@ -582,6 +582,7 @@ class AppFailure {
       'data-plane',
       '数据通道',
       '网络验证失败',
+      '外部探测未通过',
     ])) {
       return AppErrorCode.dataPlaneDegraded;
     }
@@ -761,7 +762,7 @@ String? _plainRuntimeSummary(String? event, String text) {
     if (text.contains('恢复失败')) return '自动恢复未完成，请运行诊断确认连接状态。';
   }
   if (event == 'data_plane_probe') {
-    if (text.contains('未通过')) return '暂未确认能否正常上网，当前连接仍保持。';
+    if (text.contains('未通过')) return '外部探测未通过，实际访问情况尚未确认';
     if (text.contains('已恢复')) return '已重新确认可以访问外部网络。';
   }
   if (event == 'rule_provider_refresh' && text.contains('失败')) {

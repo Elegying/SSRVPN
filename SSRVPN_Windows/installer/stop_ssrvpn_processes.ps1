@@ -33,6 +33,7 @@ $script:StopStatusValues = @(
   'APP_STILL_RUNNING',
   'PROXY_UNSAFE',
   'PROCESSES_STILL_RUNNING',
+  'TUN_OWNERSHIP_UNVERIFIED',
   'TUN_TEARDOWN_PENDING',
   'PID_CLEANUP_FAILED',
   'RECOVERY_CLEANUP_PENDING',
@@ -1143,7 +1144,7 @@ try {
   $tunOwnership = @(Get-SsrvpnTunOwnership)
 } catch {
   if ($installedProcessRunning) {
-    Set-StopStatus -Status 'TUN_TEARDOWN_PENDING'
+    Set-StopStatus -Status 'TUN_OWNERSHIP_UNVERIFIED'
     Write-Warning "Could not capture SSRVPN TUN ownership before stopping processes: $($_.Exception.Message)"
     exit 3
   }
@@ -1280,12 +1281,12 @@ if ($remainingApps.Count -gt 0 -or
 }
 
 try {
-  $tunOwnership += @(Get-SsrvpnTunOwnership)
+  $tunOwnership += @(Get-SsrvpnTunOwnership -KnownInterfaces $tunOwnership)
   $tunOwnership = @(
     $tunOwnership | Sort-Object ExpectedGuid, OriginalIndex -Unique
   )
 } catch {
-  Set-StopStatus -Status 'TUN_TEARDOWN_PENDING'
+  Set-StopStatus -Status 'TUN_OWNERSHIP_UNVERIFIED'
   Write-Warning "Could not capture SSRVPN TUN ownership after stopping processes: $($_.Exception.Message)"
   exit 3
 }

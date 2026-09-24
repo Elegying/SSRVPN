@@ -240,7 +240,10 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
                                           children: [
                                             status,
                                             const SizedBox(height: 8),
-                                            power
+                                            Flexible(
+                                                child: FittedBox(
+                                                    fit: BoxFit.scaleDown,
+                                                    child: power))
                                           ]),
                                       const SizedBox(width: 12),
                                       Expanded(

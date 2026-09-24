@@ -84,15 +84,20 @@ $lockedRoot = $null
 $legacyInstaller = $null
 $legacyMarker = $null
 $legacyRoot = $null
+$oppositeScopeExpectedValues = $null
 Copy-Item -LiteralPath $sourceInstaller -Destination $installInstaller -Force
 $installLog = Join-Path $logDir 'install.log'
 $upgradeLog = Join-Path $logDir 'upgrade.log'
 $uninstallLog = Join-Path $logDir 'uninstall.log'
-$uninstaller = Join-Path $installDir 'unins000.exe'
+$uninstaller = ''
 $programTransactionHelper = Join-Path $installDir `
   'installer\program_files_transaction.ps1'
-$programRecoveryRoot = Join-Path $env:LOCALAPPDATA `
-  'SSRVPN\installer-recovery'
+$recoveryHasher = [Security.Cryptography.SHA256]::Create()
+try {
+  $recoveryIdentity = [BitConverter]::ToString($recoveryHasher.ComputeHash(
+    [Text.Encoding]::UTF8.GetBytes($installDir.ToLowerInvariant()))).Replace('-', '').ToLowerInvariant()
+} finally { $recoveryHasher.Dispose() }
+$programRecoveryRoot = Join-Path $env:LOCALAPPDATA "SSRVPN\installer-recovery-v4\$recoveryIdentity"
 $uninstallFailure = $null
 $installedAppProcessId = $null
 $upgradeAppProcess = $null
@@ -465,11 +470,23 @@ function New-LocalizedOppositeScopeUninstallEntry {
     -Name InstallLocation -Value ([string]$currentValues.InstallLocation)
   Set-ItemProperty -LiteralPath $uninstallRegistryPath `
     -Name UninstallString -Value ([string]$currentValues.UninstallString)
+  $script:oppositeScopeExpectedValues = [ordered]@{
+    DisplayName = $localizedDisplayName
+    InstallLocation = [string]$currentValues.InstallLocation
+    UninstallString = [string]$currentValues.UninstallString
+  }
 }
 
-function Assert-OppositeScopeUninstallEntryRemoved {
-  if (Test-Path -LiteralPath $uninstallRegistryPath) {
-    throw "SSRVPN left a verified localized opposite-scope uninstall entry behind: $uninstallRegistryPath"
+function Assert-OppositeScopeUninstallEntryPreserved {
+  if ($null -eq $script:oppositeScopeExpectedValues) {
+    if (Test-Path -LiteralPath $uninstallRegistryPath) { throw 'Installer invented a non-target registry entry.' }
+    return
+  }
+  $actual = Get-ItemProperty -LiteralPath $uninstallRegistryPath
+  foreach ($name in $script:oppositeScopeExpectedValues.Keys) {
+    if ([string]$actual.$name -cne [string]$script:oppositeScopeExpectedValues[$name]) {
+      throw 'Installer changed an existing non-target HKCU uninstall entry.'
+    }
   }
 }
 
@@ -622,6 +639,13 @@ function New-PendingProgramFileTransaction {
     throw "Unexpected pre-existing program recovery root: $programRecoveryRoot"
   }
   $statusPath = Join-Path $logDir 'program-transaction-begin.status'
+  $ownershipKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("Software\SSRVPN\InstallerOwnership\$recoveryIdentity")
+  try { $ownership = [string]$ownershipKey.GetValue('Manifest') | ConvertFrom-Json }
+  finally { $ownershipKey.Dispose() }
+  $pendingManifest = Join-Path $logDir 'pending-payload.sha256'
+  $lines = @($ownership.files | Where-Object { $_.path -notlike 'installer-state\*' } |
+    ForEach-Object { "$($_.sha256)  $($_.path)" })
+  [IO.File]::WriteAllText($pendingManifest, (($lines -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
   & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
     -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
     -File $programTransactionHelper `
@@ -630,6 +654,10 @@ function New-PendingProgramFileTransaction {
     -RecoveryRoot $programRecoveryRoot `
     -StatusPath $statusPath `
     -UninstallRegistrySubkey $uninstallRegistrySubkey `
+    -UninstallRegistryRoot HKLM `
+    -PayloadSourceRoot $installDir `
+    -ExpectedPayloadManifestPath $pendingManifest `
+    -UninstallMetadataRelativePath ('installer-state\' + [Guid]::NewGuid().ToString('N')) `
     -DesktopShortcutPath $desktopShortcutPath `
     -StartMenuShortcutPath $startMenuShortcutPath
   if ($LASTEXITCODE -ne 0) {
@@ -642,6 +670,121 @@ function New-PendingProgramFileTransaction {
   }
   if (-not (Test-Path -LiteralPath $programRecoveryRoot -PathType Container)) {
     throw 'Program transaction helper did not publish its durable recovery root.'
+  }
+  $pendingLog = Join-Path $logDir 'pending-uninstall.log'
+  $pendingExit = Invoke-SmokeProcess -FilePath (Get-InstalledUninstaller) -Phase 'pending uninstall rejection' `
+    -LogPath $pendingLog -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$pendingLog")
+  if ($pendingExit -eq 0 -or -not (Test-Path -LiteralPath $programRecoveryRoot)) {
+    throw 'Uninstall discarded an uncommitted program transaction.'
+  }
+  & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
+    -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $programTransactionHelper `
+    -Action Recover -InstallDir $installDir -RecoveryRoot $programRecoveryRoot `
+    -StatusPath (Join-Path $logDir 'program-transaction-recover.status') `
+    -UninstallRegistrySubkey $uninstallRegistrySubkey -UninstallRegistryRoot HKLM `
+    -DesktopShortcutPath $desktopShortcutPath -StartMenuShortcutPath $startMenuShortcutPath
+  if ($LASTEXITCODE -ne 0) { throw 'Could not recover the pending transaction before normal uninstall.' }
+}
+
+function Get-InstalledUninstaller {
+  $value = [string](Get-ItemProperty -LiteralPath $currentUninstallRegistryPath).UninstallString
+  if ($value -notmatch '^"([^"]+)"' -or
+      -not $matches[1].StartsWith($installDir + '\', [StringComparison]::OrdinalIgnoreCase) -or
+      -not (Test-Path -LiteralPath $matches[1] -PathType Leaf)) {
+    throw 'The current installer did not publish its exact uninstaller path.'
+  }
+  return $matches[1]
+}
+
+function Get-MachineUninstallSnapshot {
+  $properties = (Get-ItemProperty -LiteralPath $currentUninstallRegistryPath).PSObject.Properties
+  return (@($properties | Where-Object { $_.Name -notmatch '^PS' } |
+    Sort-Object Name | ForEach-Object {
+      [ordered]@{ name = $_.Name; value = $_.Value }
+    }) | ConvertTo-Json -Depth 8 -Compress)
+}
+
+function Test-PreCommitFailureRollback {
+  # Only this disposable CI copy contains fault injection. Production source
+  # and the normal installer are never changed, and expose no fault switch.
+  $sourceProject = Join-Path (Split-Path -Path $PSScriptRoot -Parent) 'SSRVPN_Windows'
+  $faultRoot = Join-Path $logDir 'pre-commit-fault'
+  $faultProject = Join-Path $faultRoot 'project'
+  $faultTool = Join-Path $faultProject 'tool'
+  $faultResources = Join-Path $faultProject 'windows\runner\resources'
+  New-Item -ItemType Directory -Path $faultTool, $faultResources -Force | Out-Null
+  Copy-Item -LiteralPath (Join-Path $sourceProject 'installer') `
+    -Destination (Join-Path $faultProject 'installer') -Recurse
+  Copy-Item -LiteralPath (Join-Path $sourceProject 'tool\build_installer.ps1') `
+    -Destination $faultTool
+  Copy-Item -LiteralPath (Join-Path $sourceProject 'windows\runner\resources\app_icon.ico') `
+    -Destination $faultResources
+  $faultHelper = Join-Path $faultProject 'installer\program_files_transaction.ps1'
+  $sourceText = [IO.File]::ReadAllText($faultHelper)
+  $entry = 'function Commit-ProgramFilesTransaction {'
+  if ([regex]::Matches($sourceText, [regex]::Escape($entry)).Count -ne 1) {
+    throw 'Commit fault-injection boundary is ambiguous.'
+  }
+  $injection = @'
+
+  $injectedKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($script:uninstallRegistrySubkey)
+  try { $injectedVersion = [string]$injectedKey.GetValue('DisplayVersion') }
+  finally { $injectedKey.Close() }
+  if ($injectedVersion -cne '9.9.9') { throw 'Fault injection did not reach new HKLM metadata.' }
+  throw 'Injected pre-commit failure after HKLM metadata replacement.'
+'@
+  [IO.File]::WriteAllText($faultHelper, $sourceText.Replace($entry, $entry + $injection),
+    [Text.UTF8Encoding]::new($false))
+  & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
+    -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+    -File (Join-Path $faultTool 'build_installer.ps1') `
+    -SourceDir (Join-Path $sourceProject 'SSRVPN_Windows_Release') `
+    -OutputDir $faultRoot -Version '9.9.9'
+  if ($LASTEXITCODE -ne 0) { throw 'Could not build the isolated fault-injection installer.' }
+
+  $beforeRegistry = Get-MachineUninstallSnapshot
+  $beforeFiles = @{}
+  foreach ($path in @(
+      (Join-Path $installDir 'ssrvpn_windows.exe'),
+      (Join-Path $installDir 'bin\ssrvpn_windows_app.exe'),
+      (Get-InstalledUninstaller),
+      $programTransactionHelper, $desktopShortcutPath, $startMenuShortcutPath
+    )) {
+    $beforeFiles[$path] = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+  }
+  if (Test-Path -LiteralPath $uninstallRegistryPath) {
+    throw 'Refusing to replace a preexisting HKCU fault-test sentinel.'
+  }
+  New-Item -Path $uninstallRegistryPath -Force | Out-Null
+  Set-ItemProperty -LiteralPath $uninstallRegistryPath -Name 'NonTargetSentinel' -Value 'preserve-hkcu'
+  try {
+    $faultLog = Join-Path $logDir 'pre-commit-failure.log'
+    $faultExit = Invoke-SmokeProcess -FilePath (Join-Path $faultRoot 'SSRVPN_Setup.exe') `
+      -Phase 'pre-commit rollback' -LogPath $faultLog -ArgumentList @(
+        '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/LOG=$faultLog"
+      )
+    $faultLogText = [IO.File]::ReadAllText($faultLog)
+    if ($faultExit -ne 10 -or -not $faultLogText.Contains('Injected pre-commit failure after HKLM metadata replacement.') -or
+        -not $faultLogText.Contains('action=Recover exit=0')) {
+      throw "The installer did not exercise verified rollback after new HKLM metadata (exit=$faultExit)."
+    }
+    if ((Get-MachineUninstallSnapshot) -cne $beforeRegistry) {
+      throw 'Pre-commit rollback left new HKLM metadata alongside restored old files.'
+    }
+    if ((Get-ItemProperty -LiteralPath $uninstallRegistryPath).NonTargetSentinel -cne 'preserve-hkcu') {
+      throw 'Machine rollback changed the non-target HKCU uninstall entry.'
+    }
+    foreach ($path in $beforeFiles.Keys) {
+      if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -cne $beforeFiles[$path]) {
+        throw "Pre-commit rollback did not restore the exact file: $path"
+      }
+    }
+    if (Test-Path -LiteralPath $programRecoveryRoot) {
+      throw 'Verified pre-commit rollback left an unfinished transaction.'
+    }
+    Write-Host 'Real installer pre-commit rollback preserved HKLM64, HKCU, binaries and shortcuts.'
+  } finally {
+    Remove-Item -LiteralPath $uninstallRegistryPath -Recurse -Force
   }
 }
 
@@ -694,8 +837,7 @@ try {
     'third_party\THIRD_PARTY_NOTICES.md',
     'third_party\MICROSOFT_RUNTIME_PROVENANCE.txt',
     'third_party\licenses\GPL-3.0.txt',
-    'third_party\licenses\SSRVPN-MIT.txt',
-    'unins000.exe'
+    'third_party\licenses\SSRVPN-MIT.txt'
   )) {
     $installedPath = Join-Path $installDir $relativePath
     if (-not (Test-Path -LiteralPath $installedPath -PathType Leaf)) {
@@ -703,6 +845,7 @@ try {
     }
   }
   Assert-MicrosoftRuntimeProvenance -InstallDirectory $installDir
+  $uninstaller = Get-InstalledUninstaller
 
   $currentUninstallValues =
     Get-ItemProperty -LiteralPath $currentUninstallRegistryPath
@@ -723,6 +866,8 @@ try {
     -ExpectedVersion $windowsPeVersion `
     -ExpectedInternalName 'ssrvpn_windows_app' `
     -ExpectedOriginalFilename 'ssrvpn_windows_app.exe'
+
+  Test-PreCommitFailureRollback
 
   # The first upgrade from v4.0.14 cannot carry a v2 app-owned marker. Even
   # with the canonical versioned name, that manually supplied package must be
@@ -1033,7 +1178,7 @@ try {
   Wait-PathAbsent -Path $upgradeMarker
   Assert-InstallerPreserved -Path $installInstaller
   Assert-SingleMachineShortcut
-  Assert-OppositeScopeUninstallEntryRemoved
+  Assert-OppositeScopeUninstallEntryPreserved
   $upgradeAppProcess.Refresh()
   if (-not $upgradeAppProcess.HasExited) {
     throw "SSRVPN upgrade left the previous installed app PID $($upgradeAppProcess.Id) running."
@@ -1069,7 +1214,10 @@ try {
   if ($null -ne $upgradeAppProcess) {
     $upgradeAppProcess.Dispose()
   }
-  if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
+  if (Test-Path -LiteralPath $currentUninstallRegistryPath) {
+    $uninstaller = Get-InstalledUninstaller
+  }
+  if ($uninstaller -and (Test-Path -LiteralPath $uninstaller -PathType Leaf)) {
     try {
       New-CacheSentinels
       $uninstallExitCode = Invoke-SmokeProcess `
@@ -1087,6 +1235,19 @@ try {
           "SSRVPN uninstaller exited with code $uninstallExitCode. " +
           "Log: $uninstallLog"
       } else {
+        $uninstallDeadline = [DateTime]::UtcNow.AddSeconds(30)
+        while ([DateTime]::UtcNow -lt $uninstallDeadline -and
+            ((Test-Path -LiteralPath $uninstaller) -or
+             (Test-Path -LiteralPath $currentUninstallRegistryPath) -or
+             (Test-Path -LiteralPath $desktopShortcutPath) -or
+             (Test-Path -LiteralPath $startMenuShortcutPath))) {
+          Start-Sleep -Milliseconds 100
+        }
+        foreach ($ownedPath in @($uninstaller, $currentUninstallRegistryPath,
+            $desktopShortcutPath, $startMenuShortcutPath)) {
+          if (Test-Path -LiteralPath $ownedPath) { throw "Uninstall second phase left an owned resource: $ownedPath" }
+        }
+        Assert-OppositeScopeUninstallEntryPreserved
         if (Test-Path -LiteralPath $programRecoveryRoot) {
           throw 'SSRVPN uninstall left old program recovery binaries behind.'
         }
@@ -1172,8 +1333,8 @@ foreach ($cacheRoot in $cacheRoots) {
     throw "Uninstaller left WebView cache behind: $cacheRoot"
   }
 }
-if (Test-Path -LiteralPath $uninstallRegistryPath) {
-  throw "Uninstaller left its registry entry behind: $uninstallRegistryPath"
+if (Test-Path -LiteralPath $currentUninstallRegistryPath) {
+  throw "Uninstaller left its registry entry behind: $currentUninstallRegistryPath"
 }
 
 Write-Host "Windows installer install/uninstall smoke test passed. Logs: $logDir"

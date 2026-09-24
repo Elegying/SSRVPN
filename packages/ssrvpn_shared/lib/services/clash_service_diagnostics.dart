@@ -25,13 +25,12 @@ String buildDataPlaneDiagnosticSummary({
   required DateTime? observedAt,
   required DateTime now,
 }) {
-  const base = '外部网络观察暂未通过；核心、系统服务和运行配置仍保持连接';
+  const base = '外部探测未通过，实际访问情况尚未确认';
   if (observedAt == null) return base;
   final seconds = now.difference(observedAt).inSeconds;
   // 时钟回拨、或跨会话残留的旧时间戳，都不足以支撑「刚刚观察过」的措辞。
   if (seconds < 0 || seconds > 3600) return base;
-  return '外部网络观察暂未通过（最近一次观察 $seconds 秒前）；'
-      '核心、系统服务和运行配置仍保持连接';
+  return '$base（最近一次观察 $seconds 秒前）';
 }
 
 /// Read-only diagnostics and narrowly scoped, platform-owned repair hooks.
