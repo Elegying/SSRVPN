@@ -43,11 +43,20 @@ function Write-CorePidRecord {
     [Parameter(Mandatory = $true)][string]$ExpectedCorePath
   )
 
-  $Process.Refresh()
-  if ($Process.HasExited) {
-    throw 'Cannot write a core identity record for an exited process.'
+  $modulePath = ''
+  for ($attempt = 0; $attempt -lt 40; $attempt++) {
+    $Process.Refresh()
+    if ($Process.HasExited) {
+      throw 'Cannot write a core identity record for an exited process.'
+    }
+    $modulePath = [string]$Process.MainModule.FileName
+    if (-not [string]::IsNullOrWhiteSpace($modulePath)) { break }
+    Start-Sleep -Milliseconds 50
   }
-  $livePath = [IO.Path]::GetFullPath($Process.MainModule.FileName)
+  if ([string]::IsNullOrWhiteSpace($modulePath)) {
+    throw 'The core identity fixture did not finish starting within two seconds.'
+  }
+  $livePath = [IO.Path]::GetFullPath($modulePath)
   $expectedPath = [IO.Path]::GetFullPath($ExpectedCorePath)
   if (-not $livePath.Equals(
       $expectedPath,
