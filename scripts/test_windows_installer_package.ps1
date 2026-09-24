@@ -811,6 +811,14 @@ foreach ($shortcutPath in @(
 
 Assert-PeVersionMetadataPolicy
 
+$fileSystemKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem'
+$previousLongPaths = Get-ItemPropertyValue -LiteralPath $fileSystemKey -Name LongPathsEnabled
+try {
+  # Also exercise the actual current app build under default Windows policy,
+  # before publishing. This script's disposable Actions guard stays mandatory.
+  Set-ItemProperty -LiteralPath $fileSystemKey -Name LongPathsEnabled -Value 0
+  Write-Host "Installer smoke LongPathsEnabled=0 (previous=$previousLongPaths)"
+
 try {
   New-LegacyShortcut -Path $userDesktopShortcutPath
   New-LegacyShortcut -Path $userStartMenuShortcutPath
@@ -1338,3 +1346,6 @@ if (Test-Path -LiteralPath $currentUninstallRegistryPath) {
 }
 
 Write-Host "Windows installer install/uninstall smoke test passed. Logs: $logDir"
+} finally {
+  Set-ItemProperty -LiteralPath $fileSystemKey -Name LongPathsEnabled -Value $previousLongPaths
+}

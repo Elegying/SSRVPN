@@ -87,7 +87,13 @@ function Uninstall([string]$Phase) {
   }
   Assert-Sentinels $Phase
 }
+$fileSystemKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem'
+$previousLongPaths = Get-ItemPropertyValue -LiteralPath $fileSystemKey -Name LongPathsEnabled
 try {
+  # Real public packages must not depend on runner-only long-path opt-ins.
+  # The disposable-runner guard above is mandatory before this registry write.
+  Set-ItemProperty -LiteralPath $fileSystemKey -Name LongPathsEnabled -Value 0
+  Save-Json 'path-environment' ([ordered]@{ previousLongPathsEnabled = $previousLongPaths; testedLongPathsEnabled = 0; localAppDataLength = $env:LOCALAPPDATA.Length })
   $releasePath = Join-Path $root 'public-release.json'
   Download "https://api.github.com/repos/Elegying/SSRVPN/releases/tags/$Tag" $releasePath
   $release = [IO.File]::ReadAllText($releasePath) | ConvertFrom-Json
@@ -136,5 +142,6 @@ try {
   Uninstall 'public-final-uninstall'
   Write-Host "Public EXE acceptance passed: $Tag sha256=$hash"
 } finally {
+  Set-ItemProperty -LiteralPath $fileSystemKey -Name LongPathsEnabled -Value $previousLongPaths
   Save-Json 'results' ([ordered]@{ windows = [Environment]::OSVersion.VersionString; powershell = $PSVersionTable.PSVersion.ToString(); tag = $Tag; results = @($results.ToArray()) })
 }

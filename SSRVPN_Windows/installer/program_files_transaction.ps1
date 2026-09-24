@@ -1104,7 +1104,9 @@ function Remove-CommittedTransaction {
   }
 
   $cleanupToken = [Guid]::NewGuid().ToString('N')
-  $cleanupRoot = "$($script:recoveryRoot).cleanup.$cleanupToken"
+  # Cleanup must not reintroduce the oversized path avoided by Begin.
+  $cleanupRoot = Join-Path ([IO.Path]::GetDirectoryName($script:recoveryRoot)) `
+    ('.cleanup-' + $cleanupToken)
   $transactionAtRecoveryRoot = $true
   $script:finalizedStateRemoved = $false
   try {
@@ -1174,7 +1176,12 @@ function Begin-ProgramFilesTransaction {
     throw 'Install directory is not a real directory.'
   }
 
-  $stageRoot = "$($script:recoveryRoot).staging.$([Guid]::NewGuid().ToString('N'))"
+  # A staging name needs uniqueness, not a second copy of the 64-char install
+  # identity. Appending both made ordinary Flutter asset backups hit MAX_PATH
+  # on Windows with LongPathsEnabled=0. Keep it shorter than the final root;
+  # the authenticated state still binds the full install/recovery identities.
+  $stageRoot = Join-Path ([IO.Path]::GetDirectoryName($script:recoveryRoot)) `
+    ('.staging-' + [Guid]::NewGuid().ToString('N'))
   $stageProgramRoot = Join-Path $stageRoot $script:backupProgramDirectoryName
   try {
     New-Item -ItemType Directory -Path $stageProgramRoot -Force | Out-Null
