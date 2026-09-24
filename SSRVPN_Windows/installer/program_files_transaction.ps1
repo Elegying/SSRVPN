@@ -445,11 +445,14 @@ function ConvertTo-BoundedJsonText {
 function Write-JsonAtomic {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
-    [Parameter(Mandatory = $true)]$Value
+    [Parameter(Mandatory = $true)]$Value,
+    [switch]$CreateNewOnly
   )
 
-  $parent = [System.IO.Path]::GetDirectoryName($Path)
-  New-Item -ItemType Directory -Path $parent -Force | Out-Null
+  if (-not ('SsrvpnInstaller.ProgramFile' -as [type])) {
+    Add-Type -Path (Join-Path $PSScriptRoot 'program_file_handles.cs')
+  }
+  $parents = [SsrvpnInstaller.ProgramFile]::PinParentsFor($Path)
   $token = [Guid]::NewGuid().ToString('N')
   $temporary = "$Path.tmp.$token"
   $replacementBackup = "$Path.replace-backup.$token"
@@ -459,19 +462,17 @@ function Write-JsonAtomic {
     $stream = New-Object IO.FileStream -ArgumentList @($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
     try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) }
     finally { $stream.Dispose() }
-    if (Test-Path -LiteralPath $Path -PathType Leaf) {
+    if (-not $CreateNewOnly -and (Test-Path -LiteralPath $Path -PathType Leaf)) {
       # PS 5.1/.NET requires a non-null backup path for atomic replacement.
       [System.IO.File]::Replace($temporary, $Path, $replacementBackup)
     } else {
       [System.IO.File]::Move($temporary, $Path)
     }
   } finally {
-    if (Test-Path -LiteralPath $temporary -PathType Leaf) {
-      Remove-Item -LiteralPath $temporary -Force
-    }
-    if (Test-Path -LiteralPath $replacementBackup -PathType Leaf) {
-      Remove-Item -LiteralPath $replacementBackup -Force
-    }
+    try {
+      if (Test-Path -LiteralPath $temporary -PathType Leaf) { Remove-Item -LiteralPath $temporary -Force }
+      if (Test-Path -LiteralPath $replacementBackup -PathType Leaf) { Remove-Item -LiteralPath $replacementBackup -Force }
+    } finally { $parents.Dispose() }
   }
 }
 
@@ -1105,6 +1106,7 @@ function Remove-CommittedTransaction {
   $cleanupToken = [Guid]::NewGuid().ToString('N')
   $cleanupRoot = "$($script:recoveryRoot).cleanup.$cleanupToken"
   $transactionAtRecoveryRoot = $true
+  $script:finalizedStateRemoved = $false
   try {
     [System.IO.Directory]::Move($script:recoveryRoot, $cleanupRoot)
     $transactionAtRecoveryRoot = $false
@@ -1122,10 +1124,12 @@ function Remove-CommittedTransaction {
           "directory: $($_.Exception.Message)")
       }
     }
-    if ($transactionAtRecoveryRoot -and
+    if ($script:finalizedStateRemoved -and $transactionAtRecoveryRoot -and
         (Test-Path -LiteralPath $script:recoveryRoot -PathType Container)) {
       try {
-        Write-FinalizedState -Phase $Phase
+        # Only recreate a state that this authenticated cleanup actually removed.
+        # CreateNew refuses a later unknown state instead of overwriting it.
+        Write-AuthenticatedState -Root $script:recoveryRoot -State $script:activeState -CreateNewOnly
       } catch {
         throw (
           'Finalized program-file cleanup failed and its durable state could ' +

@@ -188,10 +188,10 @@ function Get-StateAuthentication {
 }
 
 function Write-AuthenticatedState {
-  param([string]$Root, $State)
+  param([string]$Root, $State, [switch]$CreateNewOnly)
   $signature = Get-StateAuthentication -State $State
   $State | Add-Member -NotePropertyName authentication -NotePropertyValue $signature -Force
-  Write-JsonAtomic -Path (Join-Path $Root $script:stateFileName) -Value $State
+  Write-JsonAtomic -Path (Join-Path $Root $script:stateFileName) -Value $State -CreateNewOnly:$CreateNewOnly
 }
 
 function Read-OwnedFileList {
@@ -559,6 +559,7 @@ function Remove-AuthenticatedRecoveryFiles {
     finally { foreach ($item in $opened) { $item.handle.Dispose() } }
     # Keep the authenticated state until all known material has been removed.
     $stateHandle.Delete()
+    $script:finalizedStateRemoved = $true
   } finally { $stateHandle.Dispose() }
   foreach ($directory in @($knownDirectories.Keys | Sort-Object Length -Descending)) {
     $item = Get-PathItem -Path $directory

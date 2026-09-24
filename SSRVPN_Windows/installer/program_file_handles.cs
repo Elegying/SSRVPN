@@ -111,6 +111,11 @@ namespace SsrvpnInstaller {
         return item;
       } catch { if (handle != null) handle.Dispose(); item.Dispose(); throw; }
     }
+    public static ProgramFile PinParentsFor(string path) {
+      var item = new ProgramFile();
+      try { item.PinParents(path, true); return item; }
+      catch { item.Dispose(); throw; }
+    }
     public void Delete() {
       byte value = 1;
       if (!SetFileInformationByHandle(stream.SafeFileHandle, 4, ref value, 1))

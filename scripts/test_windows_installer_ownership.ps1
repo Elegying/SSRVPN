@@ -306,6 +306,53 @@ try {
   }
   Pass 'Unknown recovery files and empty directories retain all backups without rolling back committed files'
 
+  foreach ($sourceKind in @('historical-red', 'current-green')) {
+    foreach ($injectionPoint in @('before-authentication', 'after-state-delete')) {
+      $c = New-Case "cleanup-state-$sourceKind-$injectionPoint"
+      Invoke-Case $c Begin
+      Invoke-Case $c Clear
+      Invoke-Case $c Install
+      Seal-Case $c
+      $injectedRoot = Join-Path $c.root 'injected-helper'
+      [void][IO.Directory]::CreateDirectory($injectedRoot)
+      $historicalCommit = 'dd36e8dc9d359397813d8af6c4e1869b5827487f'
+      foreach ($name in @('program_files_transaction.ps1', 'program_file_ownership.ps1', 'program_file_handles.cs')) {
+        if ($sourceKind -eq 'historical-red') {
+          $source = & git -C $repo show ($historicalCommit + ':SSRVPN_Windows/installer/' + $name)
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read the pinned pre-fix cleanup source.' }
+          $source = $source -join "`n"
+        } else { $source = [IO.File]::ReadAllText((Join-Path $repo ('SSRVPN_Windows/installer/' + $name))) }
+        if ($injectionPoint -eq 'before-authentication' -and $name -eq 'program_files_transaction.ps1') {
+          $needle = 'Remove-FinalizedTree -Path $cleanupRoot'
+          if (-not $source.Contains($needle)) { throw 'Cleanup fault location is missing.' }
+          $source = $source.Replace($needle, ('[IO.File]::WriteAllText((Join-Path $cleanupRoot ''state.json''), ''foreign-cleanup-state'')' + "`n    " + $needle))
+        }
+        if ($injectionPoint -eq 'after-state-delete' -and $name -eq 'program_file_ownership.ps1') {
+          $needle = '[SsrvpnInstaller.ProgramFile]::RemoveEmptyDirectory($directory)'
+          if (-not $source.Contains($needle)) { throw 'Post-state cleanup fault location is missing.' }
+          $source = $source.Replace($needle, ('[IO.File]::WriteAllText((Join-Path $Root ''state.json''), ''foreign-cleanup-state'')' + "`n    " + $needle))
+        }
+        [IO.File]::WriteAllText((Join-Path $injectedRoot $name), $source, $utf8)
+      }
+      Invoke-Case $c Commit -Script (Join-Path $injectedRoot 'program_files_transaction.ps1')
+      $observedState = [IO.File]::ReadAllText((Join-Path $c.recovery 'state.json'))
+      Write-FixtureFile (Join-Path $c.root 'cleanup-state-evidence.json') ([ordered]@{
+        source = $sourceKind; historicalCommit = $historicalCommit; injectionPoint = $injectionPoint
+        injectedState = 'foreign-cleanup-state'; actualState = $observedState
+      } | ConvertTo-Json -Depth 8)
+      if ($sourceKind -eq 'historical-red') {
+        if ($observedState -ceq 'foreign-cleanup-state') { throw 'Historical source did not reproduce state overwrite.' }
+        Invoke-Case $c Recover
+      } else {
+        if ($observedState -cne 'foreign-cleanup-state') { throw 'Cleanup overwrote an unowned or changed recovery state.' }
+        Invoke-Case $c Recover -Failure
+      }
+      Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'new-ssrvpn_windows.exe'
+      Assert-UserFiles $c
+      Pass "Cleanup state ownership $sourceKind at $injectionPoint"
+    }
+  }
+
   $c = New-Case 'commit-state-write-failure'
   $registryBefore = Get-CaseRegistry $c
   Invoke-Case $c Begin
@@ -528,7 +575,12 @@ try {
   New-Item -ItemType Junction -Path $alias -Target $foreign | Out-Null
   try { [SsrvpnInstaller.ProgramFile]::RemoveEmptyDirectory($alias) } catch { $denied++ }
   try { [SsrvpnInstaller.ProgramFile]::RemoveEmptyDirectory((Join-Path $alias 'empty')) } catch { $denied++ }
-  if ($denied -ne 3 -or -not (Test-Path -LiteralPath (Join-Path $foreign 'empty')) -or
+  try { [SsrvpnInstaller.ProgramFile]::PinParentsFor((Join-Path $alias 'never-created\state.json')).Dispose() } catch { $denied++ }
+  $writerPin = [SsrvpnInstaller.ProgramFile]::PinParentsFor((Join-Path $empty 'state.json'))
+  try { try { [IO.Directory]::Move($empty, "$empty-exchanged") } catch { $denied++ } }
+  finally { $writerPin.Dispose() }
+  if ($denied -ne 5 -or (Test-Path -LiteralPath (Join-Path $foreign 'never-created')) -or
+      -not (Test-Path -LiteralPath (Join-Path $foreign 'empty')) -or
       -not (Test-Path -LiteralPath $alias)) { throw 'Empty cleanup followed or removed a replaced directory.' }
   Assert-File (Join-Path $empty 'late.txt') 'late-directory-content'
   Assert-UserFiles $c
