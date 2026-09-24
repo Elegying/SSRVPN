@@ -2551,7 +2551,10 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "function Assert-PeVersionMetadataPolicy",
             package_smoke,
         )
-        self.assertIn("Assert-PeVersionMetadataPolicy\n\ntry {", package_smoke)
+        self.assertLess(
+            package_smoke.index("\nAssert-PeVersionMetadataPolicy\n"),
+            package_smoke.index("$installExitCode = Invoke-SmokeProcess"),
+        )
         self.assertIn("function Assert-PeVersionMetadata", package_smoke)
         self.assertIn(
             "function Get-ExpectedWindowsPeVersion",
