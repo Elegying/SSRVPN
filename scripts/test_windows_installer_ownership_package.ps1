@@ -110,6 +110,14 @@ function Assert-UserFiles {
     if (-not (Test-Path -LiteralPath $path) -or [IO.File]::ReadAllText($path) -cne ('sentinel-' + $relative)) { throw "User file changed: $relative" }
   }
 }
+function Assert-Committed([string]$Phase) {
+  $log = [IO.File]::ReadAllText((Join-Path $root "$Phase.log"))
+  if ($log -notmatch 'action=Commit exit=0 stage=COMMITTED\r?\n' -or
+      [string](Get-ItemProperty -LiteralPath $registryPath).DisplayVersion -cne '5.0.19' -or
+      [string](Get-ItemProperty -LiteralPath $registryPath).UninstallString -notmatch 'installer-state\\[0-9a-f]{32}\\unins000.exe') {
+    throw "Installer did not actually commit the candidate: $Phase"
+  }
+}
 function Pass([string]$Name) { [void]$results.Add([ordered]@{ case = $Name; result = 'PASS' }); Write-Host "PASS $Name" }
 
 try {
@@ -131,6 +139,7 @@ try {
     Copy-Item -LiteralPath $source -Destination $target
   }
   Write-Text (Join-Path $installDir 'unrelated.txt') 'must-survive'
+  [void](Snapshot 'n03-red-before')
   if ((Run-Installer $official 'n03-red-official-upgrade') -ne 0) { throw 'Baseline official upgrade did not complete.' }
   if (Test-Path -LiteralPath (Join-Path $installDir 'unrelated.txt')) { throw 'Official baseline did not reproduce N03.' }
   [void](Snapshot 'n03-red-after')
@@ -152,16 +161,19 @@ try {
   }
   $candidate = Build-Candidate 'candidate'
   if ((Run-Installer $candidate 'legacy-to-candidate') -ne 0) { throw 'Verified v5.0.18 migration failed.' }
+  Assert-Committed 'legacy-to-candidate'
   Assert-UserFiles
   [void](Snapshot 'legacy-to-candidate')
   Pass 'Verified v5.0.18 migration preserves root/nested sentinels and user data'
   if ((Run-Installer $candidate 'normal-upgrade') -ne 0) { throw 'Owned candidate upgrade failed.' }
+  Assert-Committed 'normal-upgrade'
   Assert-UserFiles
   Pass 'Normal owned upgrade preserves every user sentinel'
 
   $fault = Build-Candidate 'candidate-fault' -Fault
   $before = Snapshot 'n04-green-before'
-  New-Item -Path $otherRegistryPath | Out-Null
+  if (Test-Path -LiteralPath $otherRegistryPath) { throw 'Non-target registry fixture unexpectedly exists.' }
+  New-Item -Path $otherRegistryPath -Force | Out-Null
   Set-ItemProperty -LiteralPath $otherRegistryPath -Name 'NonTargetSentinel' -Value 'preserve-hkcu'
   [void](Run-Installer $fault 'n04-green-precommit')
   $greenLog = [IO.File]::ReadAllText((Join-Path $root 'n04-green-precommit.log'))
@@ -179,6 +191,7 @@ try {
   Assert-UserFiles
   if (Test-Path -LiteralPath (Join-Path $installDir 'ssrvpn_windows.exe')) { throw 'Uninstall left the owned launcher.' }
   if ((Run-Installer $candidate 'candidate-reinstall') -ne 0) { throw 'Reinstall failed.' }
+  Assert-Committed 'candidate-reinstall'
   Assert-UserFiles
   Uninstall-Current 'final-uninstall'
   Assert-UserFiles

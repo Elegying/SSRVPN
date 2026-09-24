@@ -726,93 +726,6 @@ begin
   end;
 end;
 
-function NormalizeRegistryPath(Path: String): String;
-begin
-  Result := ExpandFileName(Trim(Path));
-  while (Length(Result) > 3) and
-    ((Result[Length(Result)] = '\') or (Result[Length(Result)] = '/')) do
-    Delete(Result, Length(Result), 1);
-end;
-
-function ExtractCommandExecutable(Command: String): String;
-var
-  DelimiterIndex: Integer;
-begin
-  Command := Trim(Command);
-  Result := '';
-  if Command = '' then
-    exit;
-  if Command[1] = '"' then
-  begin
-    DelimiterIndex := Pos('"', Copy(Command, 2, Length(Command) - 1));
-    if DelimiterIndex = 0 then
-      exit;
-    Result := Copy(Command, 2, DelimiterIndex - 1);
-  end
-  else
-  begin
-    DelimiterIndex := Pos(' ', Command);
-    if DelimiterIndex = 0 then
-      Result := Command
-    else
-      Result := Copy(Command, 1, DelimiterIndex - 1);
-  end;
-  Result := NormalizeRegistryPath(Result);
-end;
-
-function IsOwnedUninstallDisplayName(DisplayName: String): Boolean;
-var
-  DisplayNamePrefix: String;
-begin
-  DisplayName := Trim(DisplayName);
-  DisplayNamePrefix := Copy(DisplayName, 1, 7);
-  Result := (CompareText(DisplayName, 'SSRVPN') = 0) or
-    ((Length(DisplayName) > 7) and
-      (CompareText(DisplayNamePrefix, 'SSRVPN ') = 0));
-end;
-
-procedure RemoveVerifiedOppositeScopeUninstallEntry;
-var
-  RootKey: Integer;
-  DisplayName: String;
-  InstallLocation: String;
-  UninstallString: String;
-  ExpectedInstallLocation: String;
-  ExpectedUninstaller: String;
-begin
-  if IsAdminInstallMode then
-    RootKey := HKCU
-  else
-    RootKey := HKLM;
-  if not RegQueryStringValue(
-    RootKey, UninstallRegistryKey, 'DisplayName', DisplayName) then
-    exit;
-  if not RegQueryStringValue(
-    RootKey, UninstallRegistryKey, 'InstallLocation', InstallLocation) then
-    exit;
-  if not RegQueryStringValue(
-    RootKey, UninstallRegistryKey, 'UninstallString', UninstallString) then
-    exit;
-
-  ExpectedInstallLocation := NormalizeRegistryPath(ExpandConstant('{app}'));
-  ExpectedUninstaller :=
-    NormalizeRegistryPath(ExpandConstant('{app}\unins000.exe'));
-  if (not IsOwnedUninstallDisplayName(DisplayName)) or
-    (CompareText(
-      NormalizeRegistryPath(InstallLocation), ExpectedInstallLocation) <> 0) or
-    (CompareText(
-      ExtractCommandExecutable(UninstallString), ExpectedUninstaller) <> 0) then
-  begin
-    Log('SSRVPN preserved an unverified opposite-scope uninstall entry.');
-    exit;
-  end;
-
-  if RegDeleteKeyIncludingSubkeys(RootKey, UninstallRegistryKey) then
-    Log('SSRVPN removed a verified stale opposite-scope uninstall entry.')
-  else
-    Log('SSRVPN could not remove a verified stale opposite-scope uninstall entry.');
-end;
-
 procedure LaunchVerifiedUpdatePackageCleanup; forward;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -831,11 +744,7 @@ begin
     InstallSucceeded := True;
     if VerifiedUpdateCleanupRequested then
       LaunchVerifiedUpdatePackageCleanup;
-    try
-      RemoveVerifiedOppositeScopeUninstallEntry;
-    except
-      Log('SSRVPN opposite-scope uninstall entry cleanup raised an internal exception.');
-    end;
+    { Only this installation's HKLM64 record is transactionally owned. }
     ReleaseInstallGates;
   end;
 end;
@@ -986,10 +895,6 @@ begin
     if not RunInstalledProgramFilesTransaction('Uninstall') then
       RaiseException('SSRVPN 无法删除已验证的程序文件，现场已保留。诊断阶段码：' +
         LastProgramFilesTransactionStatus);
-  end;
-  if CurUninstallStep = usPostUninstall then
-  begin
-    RemoveVerifiedOppositeScopeUninstallEntry;
   end;
 end;
 

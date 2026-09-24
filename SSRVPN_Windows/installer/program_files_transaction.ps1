@@ -1374,9 +1374,14 @@ function Recover-ProgramFilesTransaction {
   $expectedInventory = @($material.expectedInventory)
 
   Restore-OwnedProgramFiles -Old $expectedInventory -New @(@(Read-TransactionPayload) + @($state.metadataFiles))
-  Restore-UninstallRegistrySnapshot -Snapshot $material.registrySnapshot
-  Restore-ExternalFilesSnapshot `
-    -Snapshot @($material.externalFilesSnapshot)
+  # Inno processes [Icons] and uninstall registration only after the payload's
+  # AfterInstall callback has durably published validated. Prepared/cleared
+  # transactions have not changed these shared records (another directory may
+  # have been uninstalled since Begin), so do not replay their old snapshots.
+  if ($state.phase -ceq 'validated') {
+    Restore-UninstallRegistrySnapshot -Snapshot $material.registrySnapshot
+    Restore-ExternalFilesSnapshot -Snapshot @($material.externalFilesSnapshot)
+  }
   Set-OwnershipValue -Name 'Manifest' -Value $state.oldOwnership
   Write-FinalizedState -Phase restored
   Remove-CommittedTransaction -Phase restored

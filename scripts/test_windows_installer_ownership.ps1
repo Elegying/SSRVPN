@@ -269,6 +269,57 @@ try {
   Invoke-Case $c Recover
   Pass 'Registry hive mismatch is rejected without mutation'
 
+  $c = New-Case 'oversized-source'
+  $deep = Join-Path $c.install 'deep'
+  for ($depth = 0; $depth -lt 65; $depth++) { $deep = Join-Path $deep 'd' }
+  Write-FixtureFile (Join-Path $deep 'x') 'bounded'
+  Invoke-Case $c Begin -Failure
+  Assert-UserFiles $c
+  Pass 'Oversized source depth is rejected before any old file is removed'
+
+  $c = New-Case 'oversized-state'
+  Invoke-Case $c Begin
+  Write-FixtureFile (Join-Path $c.recovery 'state.json') ('x' * (8MB + 1))
+  Invoke-Case $c Recover -Failure
+  Assert-UserFiles $c
+  Pass 'Oversized recovery state fails before mutation'
+
+  $c = New-Case 'staged-payload-mismatch'
+  Invoke-Case $c Begin
+  Invoke-Case $c Clear
+  Write-FixtureFile (Join-Path $c.payload 'bin\app.dll') 'tampered-payload'
+  Invoke-Case $c Install -Failure
+  Invoke-Case $c Commit -Failure
+  Invoke-Case $c Recover
+  Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
+  Pass 'Mismatched staged bytes cannot be installed or committed'
+
+  $c = New-Case 'missing-transaction'
+  Invoke-Case $c Commit -Failure
+  Assert-UserFiles $c
+  Pass 'Missing recovery transaction cannot be committed'
+
+  $c = New-Case 'status-write-failure'
+  Invoke-Case $c Begin -StatusOverride $c.root
+  Invoke-Case $c Recover
+  Assert-UserFiles $c
+  Pass 'A standalone status write failure does not turn durable success into failure'
+
+  $c = New-Case 'owned-hard-link'
+  $original = Join-Path $c.install 'bin\app.dll'
+  New-Item -ItemType HardLink -Path (Join-Path $c.root 'alias.dll') -Target $original | Out-Null
+  Invoke-Case $c Begin -Failure
+  Assert-File $original 'old-bin\app.dll'
+  Pass 'Owned hard links are rejected without changing either name'
+
+  $c = New-Case 'prepared-external-uninstall'
+  Invoke-Case $c Begin
+  $registry.DeleteSubKeyTree($c.subkey)
+  Remove-Item -LiteralPath $c.desktop, $c.menu
+  Invoke-Case $c Recover
+  if ((Get-CaseRegistry $c) -cne 'ABSENT' -or (Test-Path $c.desktop) -or (Test-Path $c.menu)) { throw 'Prepared recovery recreated externally removed installation metadata.' }
+  Pass 'Prepared recovery does not undo another directory''s later uninstall'
+
   $c = New-Case 'legacy-schema2'
   Invoke-Case $c Begin -Legacy
   $before = Get-CaseRegistry $c

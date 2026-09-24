@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class WindowsInstallerConfigTest(unittest.TestCase):
     def test_installer_scopes_ps51_module_path_to_its_own_process(self):
-        script = (ROOT / "SSRVPN_Windows/installer/SSRVPN.iss").read_text()
+        script = (ROOT / "SSRVPN_Windows/installer/SSRVPN.iss").read_text(encoding="utf-8")
         self.assertIn("SetEnvironmentVariableW@kernel32.dll", script)
         self.assertEqual(script.count("Result := InitializePowerShellEnvironment();"), 2)
         self.assertIn("{sys}\\WindowsPowerShell\\v1.0\\Modules", script)
@@ -354,50 +354,14 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("$upgradeInstaller", smoke)
         self.assertIn("Assert-InstallerPreserved", smoke)
 
-    def test_successful_install_removes_only_verified_opposite_scope_entry(
-        self,
-    ) -> None:
-        installer = (
-            ROOT / "SSRVPN_Windows" / "installer" / "SSRVPN.iss"
-        ).read_text(encoding="utf-8")
-
-        cleanup = installer.split(
-            "procedure RemoveVerifiedOppositeScopeUninstallEntry;", 1
-        )[1].split("procedure CurStepChanged", 1)[0]
-        self.assertIn("IsAdminInstallMode", cleanup)
-        self.assertIn("RootKey := HKCU", cleanup)
-        self.assertIn("RootKey := HKLM", cleanup)
-        self.assertIn("RegQueryStringValue", cleanup)
-        self.assertIn("'DisplayName'", cleanup)
-        self.assertIn("'InstallLocation'", cleanup)
-        self.assertIn("'UninstallString'", cleanup)
-        self.assertIn("IsOwnedUninstallDisplayName(DisplayName)", cleanup)
-        self.assertIn("CompareText(DisplayName, 'SSRVPN')", installer)
-        self.assertIn("Copy(DisplayName, 1, 7)", installer)
-        self.assertIn("CompareText(DisplayNamePrefix, 'SSRVPN ')", installer)
-        self.assertIn("ExpandConstant('{app}')", cleanup)
-        self.assertIn("ExpandConstant('{app}\\unins000.exe')", cleanup)
-        self.assertIn("RegDeleteKeyIncludingSubkeys(RootKey, UninstallRegistryKey)", cleanup)
-        self.assertIn("UninstallDisplayName=SSRVPN", installer)
-
-        smoke = (
-            ROOT / "scripts" / "test_windows_installer_package.ps1"
-        ).read_text(encoding="utf-8")
+    def test_installer_preserves_non_target_uninstall_registrations(self) -> None:
+        installer = (ROOT / "SSRVPN_Windows/installer/SSRVPN.iss").read_text(encoding="utf-8")
+        self.assertNotIn("RemoveVerifiedOppositeScopeUninstallEntry", installer)
+        self.assertNotIn("RegDeleteKeyIncludingSubkeys", installer)
+        self.assertIn("-UninstallRegistryRoot HKLM -UninstallRegistryView 64", installer)
+        smoke = (ROOT / "scripts/test_windows_installer_package.ps1").read_text(encoding="utf-8")
         self.assertIn("New-LocalizedOppositeScopeUninstallEntry", smoke)
-        self.assertIn("[char]0x7248, [char]0x672C, $displayVersion", smoke)
-        self.assertIn("Assert-OppositeScopeUninstallEntryRemoved", smoke)
-
-        post_install = installer.split(
-            "procedure CurStepChanged(CurStep: TSetupStep);", 1
-        )[1].split("procedure LaunchPostInstallCleanup", 1)[0]
-        self.assertLess(
-            post_install.index("CommitProgramFilesTransaction"),
-            post_install.index("RemoveVerifiedOppositeScopeUninstallEntry"),
-        )
-        self.assertLess(
-            post_install.index("InstallSucceeded := True"),
-            post_install.index("RemoveVerifiedOppositeScopeUninstallEntry"),
-        )
+        self.assertIn("Assert-OppositeScopeUninstallEntryPreserved", smoke)
 
     def test_installer_closes_ssrvpn_and_installs_per_user(self) -> None:
         installer_root = ROOT / "SSRVPN_Windows" / "installer"
@@ -501,7 +465,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertNotIn("migrate_portable_data.ps1", installer)
         self.assertNotIn("多个便携", installer)
         self.assertNotIn("restartreplace", installer)
-        self.assertIn("overwritereadonly", installer)
+        self.assertNotIn('DestDir: "{app}', installer.split("[Files]", 1)[1].split("[Icons]", 1)[0])
 
     def test_installer_holds_app_and_launcher_gates_only_during_file_changes(
         self,
@@ -661,14 +625,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         install_delete = installer.split("[InstallDelete]", 1)[1].split(
             "[UninstallDelete]", 1
         )[0]
-        self.assertIn('Type: files; Name: "{app}\\*"', install_delete)
-        self.assertIn('Type: files; Name: "{app}\\bin\\*"', install_delete)
-        self.assertIn(
-            'Type: filesandordirs; Name: "{app}\\bin\\data"', install_delete
-        )
-        self.assertIn(
-            'Type: filesandordirs; Name: "{app}\\installer"', install_delete
-        )
+        # Application files may only be removed by authenticated transactions.
+        self.assertNotIn('{app}', install_delete)
         self.assertNotIn('Type: filesandordirs; Name: "{app}\\*"', install_delete)
         self.assertNotIn('Name: "{app}\\bin\\ssrvpn"', install_delete)
         self.assertNotIn(
@@ -733,7 +691,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         self.assertIn(
             'Source: "{#ProjectDir}\\installer\\program_files_transaction.ps1"; '
-            'DestDir: "{app}\\installer"; Flags: ignoreversion',
+            'DestDir: "{tmp}\\payload\\installer"; Flags: ignoreversion',
             installer,
         )
         self.assertIn("#ifndef PayloadManifestPath", installer)
@@ -776,13 +734,13 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         # check (payload file count mismatch) and rolls the whole update back.
         installer_helpers = []
         for files_line in files_section.splitlines():
-            if 'DestDir: "{app}\\installer"' not in files_line:
+            if 'DestDir: "{tmp}\\payload\\installer"' not in files_line:
                 continue
             match = re.search(r'Source: "[^"]*[\\/]([^"\\/]+)"', files_line)
             self.assertIsNotNone(match, files_line)
             installer_helpers.append(match.group(1))
         self.assertTrue(installer_helpers)
-        manifest_helpers = re.findall(r"'([A-Za-z_]+\.ps1)'", build_installer)
+        manifest_helpers = re.findall(r"'([A-Za-z_]+\.(?:ps1|cs))'", build_installer)
         for installed_helper in installer_helpers:
             self.assertIn(installed_helper, manifest_helpers)
         self.assertIn("ProgramFilesRecoveryPending := DirExists(", installer)
@@ -837,8 +795,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
 
         self.assertIn(
-            "ValidateSet('Begin', 'Recover', 'Clear', 'Validate', "
-            "'Commit', 'Discard')",
+            "ValidateSet('Begin', 'Recover', 'Clear', 'Install', 'Validate', "
+            "'Seal', 'Commit', 'Discard', 'CheckUninstall', 'Uninstall')",
             helper,
         )
         self.assertIn("ExpectedPayloadManifestPath", helper)
@@ -856,7 +814,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("function Read-UninstallRegistrySnapshot", helper)
         self.assertIn("function Restore-UninstallRegistrySnapshot", helper)
         self.assertIn("uninstall-registry.json", helper)
-        self.assertIn("CURRENT_ALREADY_VERIFIED", helper)
+        self.assertIn("Restore-OwnedProgramFiles", helper)
         self.assertIn("phase = 'prepared'", helper)
         self.assertIn("'cleared'", helper)
         self.assertIn("'validated'", helper)
@@ -884,7 +842,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertRegex(
             validate_callback,
             re.compile(
-                r"RunProgramFilesTransaction\(\s*'Validate', "
+                r"RunProgramFilesTransaction\(\s*'Install', "
                 r"'ssrvpn_expected_payload\.sha256'\)"
             ),
         )
@@ -892,7 +850,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         installed_transaction_helper = next(
             line
             for line in files_section.splitlines()
-            if 'DestDir: "{app}\\installer"' in line
+            if 'DestDir: "{tmp}\\payload\\installer"' in line
             and "program_files_transaction.ps1" in line
         )
         self.assertIn(
@@ -902,7 +860,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         commit_helper = helper.split(
             "function Commit-ProgramFilesTransaction", 1
         )[1].split("function Discard-ProgramFilesTransaction", 1)[0]
-        self.assertNotIn("Test-InstalledPayload", commit_helper)
+        self.assertIn("Test-InstalledPayload", commit_helper)
         self.assertIn("phase -cne 'validated'", commit_helper)
         self.assertIn(
             "[System.StringComparison]::OrdinalIgnoreCase", helper
@@ -927,12 +885,12 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "function InitializeUninstall(): Boolean;", 1
         )[1].split("procedure CurUninstallStepChanged", 1)[0]
         self.assertIn(
-            "RunInstalledProgramFilesTransaction('Discard')", initialize_uninstall
+            "RunInstalledProgramFilesTransaction('CheckUninstall')", initialize_uninstall
         )
         self.assertLess(
             initialize_uninstall.index("AcquireLauncherGate"),
             initialize_uninstall.index(
-                "RunInstalledProgramFilesTransaction('Discard')"
+                "RunInstalledProgramFilesTransaction('CheckUninstall')"
             ),
         )
 
@@ -1005,14 +963,14 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )[0]
         self.assertLess(
             begin.index("Get-ProgramInventory"),
-            begin.index("Copy-SafeContents"),
+            begin.index("Copy-OwnedFiles"),
         )
 
-        destructive_clear = helper.split(
-            "function Remove-CurrentProgramFiles", 1
-        )[1].split("function Clear-StaleStagingDirectories", 1)[0]
-        self.assertIn("Get-ProgramInventory", destructive_clear)
-        self.assertIn("-ExcludePreservedData", destructive_clear)
+        self.assertNotIn("function Remove-CurrentProgramFiles", helper)
+        destructive_clear = helper.split("function Clear-ProgramFilesForInstall", 1)[1].split(
+            "function Validate-ProgramFilesTransaction", 1)[0]
+        self.assertIn("Get-VerifiedRecoveryMaterial", destructive_clear)
+        self.assertIn("Remove-OwnedFiles", destructive_clear)
 
         json_writer = helper.split("function ConvertTo-BoundedJsonText", 1)[1].split(
             "function Invoke-RegExe", 1
@@ -1052,58 +1010,33 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("$script:maxProgramFileCount", expected_manifest)
         self.assertIn("Assert-BoundedProgramRelativePath", expected_manifest)
 
-        runtime = (
-            ROOT / "scripts" / "test_windows_program_files_transaction.ps1"
-        ).read_text(encoding="utf-8")
-        self.assertIn("oversized source was copied into recovery", runtime)
-        self.assertIn("oversized recovery state changed the installed program", runtime)
-        self.assertIn("invalid manifest schema changed the installed program", runtime)
+        runtime = (ROOT / "scripts" / "test_windows_installer_ownership.ps1").read_text(encoding="utf-8")
+        self.assertIn("Oversized source depth is rejected", runtime)
+        self.assertIn("Oversized recovery state fails before mutation", runtime)
+        self.assertIn("Invalid $damage fails before mutation", runtime)
 
     def test_windows_jobs_run_program_file_transaction_fault_injection(self) -> None:
-        runtime_test = (
-            ROOT / "scripts" / "test_windows_program_files_transaction.ps1"
-        )
-        self.assertTrue(runtime_test.is_file())
-        runtime = runtime_test.read_text(encoding="utf-8")
-        self.assertIn("bin\\ssrvpn\\user-data.sentinel", runtime)
-        self.assertIn("FileShare]::None", runtime)
-        self.assertIn("-ExpectFailure", runtime)
-        self.assertIn("tampered backup changed the current program", runtime)
-        self.assertIn("unverified partial program file survived recovery", runtime)
-        self.assertIn("successful commit changed user data", runtime)
-        self.assertIn(
-            "intact current program changed during failed no-op recovery", runtime
-        )
-        self.assertIn("payload mismatch unexpectedly committed", runtime)
-        self.assertIn("missing recovery transaction unexpectedly committed", runtime)
-        self.assertIn("unvalidated payload unexpectedly committed", runtime)
-        self.assertIn("payload path casing unexpectedly failed validation", runtime)
-        self.assertIn(
-            "stale nested program file survived transactional clear", runtime
-        )
-        self.assertIn("old-registry-version", runtime)
-        self.assertIn("new-registry-version", runtime)
-        self.assertIn(
-            "clean-install recovery left uninstall metadata", runtime
-        )
-        self.assertIn("unexpected-plugin.dll", runtime)
-        self.assertIn("discard changed bin\\ssrvpn user data", runtime)
-        self.assertIn("failed discard changed the installed launcher", runtime)
-        package_smoke = (
-            ROOT / "scripts" / "test_windows_installer_package.ps1"
-        ).read_text(encoding="utf-8")
-        self.assertIn("New-PendingProgramFileTransaction", package_smoke)
-        self.assertIn(
-            "SSRVPN uninstall left old program recovery binaries behind",
-            package_smoke,
-        )
-
-        policy_runner = (
-            ROOT / "scripts" / "test_windows_policy.ps1"
-        ).read_text(encoding="ascii")
-        self.assertIn(
-            "test_windows_program_files_transaction.ps1", policy_runner
-        )
+        entry = (ROOT / "scripts" / "test_windows_program_files_transaction.ps1").read_text(encoding="utf-8")
+        self.assertIn("test_windows_installer_ownership.ps1", entry)
+        runtime = (ROOT / "scripts" / "test_windows_installer_ownership.ps1").read_text(encoding="utf-8")
+        for required in (
+            "GITHUB_ACTIONS", "PSVersionTable", "v5.0.18:", "-Failure",
+            "FileShare]::None", "Assert-UserFiles", "Get-CaseRegistry",
+            "Cross-directory Discard", "Committed cleanup failure",
+            "Registry hive mismatch", "Legacy schema 2",
+            "Mismatched staged bytes", "Missing recovery transaction",
+            "status write failure", "owned-hard-link",
+        ):
+            self.assertIn(required, runtime)
+        real_package = (ROOT / "scripts" / "test_windows_installer_ownership_package.ps1").read_text(encoding="utf-8")
+        for required in (
+            "GITHUB_ACTIONS", "Build-Candidate", "TEST_ONLY_PRE_COMMIT_AFTER_HKLM64",
+            "action=Recover exit=0", "N03 red", "N04 red", "N04 green",
+            "registry", "shortcuts", "Assert-UserFiles",
+        ):
+            self.assertIn(required, real_package)
+        policy_runner = (ROOT / "scripts" / "test_windows_policy.ps1").read_text(encoding="ascii")
+        self.assertIn("test_windows_program_files_transaction.ps1", policy_runner)
 
     def test_windows_package_rejects_user_owned_payload_trees(self) -> None:
         package_script = (
@@ -2296,7 +2229,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("taskkill.exe", smoke)
         self.assertNotIn("Start-Process -FilePath $installer -Wait", smoke)
         self.assertIn("SSRVPN_Setup.exe", smoke)
-        self.assertIn("unins000.exe", smoke)
+        self.assertIn("Get-InstalledUninstaller", smoke)
         self.assertIn("ssrvpn_windows.exe", smoke)
         self.assertIn("bin\\ssrvpn_windows_app.exe", smoke)
         self.assertIn("SSRVPN upgrade", smoke)
