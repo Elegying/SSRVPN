@@ -294,6 +294,7 @@ proxies:
     'local edits preserve all mainstream node types in generated config',
     () async {
       await service.setRawYaml(_mainstreamEditableYaml);
+      expect(service.allNodes, hasLength(12));
 
       for (final node in service.allNodes) {
         final updated = Map<String, dynamic>.from(node.extra)
@@ -509,6 +510,8 @@ proxies:
     port: 443
     auth-str: hy-auth
     protocol: udp
+    up: 10 Mbps
+    down: 50 Mbps
   - name: Hysteria2
     type: hysteria2
     server: hy2.example.com

@@ -3,6 +3,7 @@ import 'dart:convert';
 /// Converts user-editable node data into bounded, Mihomo-ready values.
 import '../utils/runtime_config_name_policy.dart';
 import '../utils/proxy_node_usage_policy.dart';
+import '../utils/proxy_option_types.dart';
 
 class SubscriptionNodeCodec {
   const SubscriptionNodeCodec._();
@@ -176,7 +177,8 @@ class SubscriptionNodeCodec {
   static Map<String, dynamic> normalizeProxyConfig(
     Map<String, dynamic> config,
   ) {
-    final normalized = _cleanJsonMap(config)
+    final normalized = Map<String, dynamic>.from(
+        ProxyOptionTypes.canonicalize(_cleanJsonMap(config)))
       ..removeWhere((key, _) => _appOnlyKeys.contains(key));
 
     final name = RuntimeConfigNamePolicy.canonicalName(normalized['name']);

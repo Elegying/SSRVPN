@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../models/proxy_node.dart';
+import 'proxy_option_types.dart';
 import 'proxy_transport_validation.dart';
 
 class ProxyNodeUsagePolicy {
@@ -88,6 +89,11 @@ class ProxyNodeUsagePolicy {
 
     final port = _parsePort(proxy['port']);
     if (port < 1 || port > 65535) return false;
+    proxy = ProxyOptionTypes.canonicalize(proxy);
+    if (!ProxyOptionTypes.accepts(type, proxy) ||
+        !ProxyTransportValidation.protocolOptions(type, proxy)) {
+      return false;
+    }
 
     switch (type) {
       case 'ss':

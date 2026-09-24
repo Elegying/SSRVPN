@@ -162,6 +162,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
     final confirmed = await showSsrvpnGlassDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         elevation: 0,
         backgroundColor: Colors.transparent,
         contentPadding: EdgeInsets.zero,

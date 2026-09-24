@@ -1,0 +1,1865 @@
+[
+  {
+    "id": "vmess-valid",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": 0,
+      "cipher": "auto"
+    }
+  },
+  {
+    "id": "vmess-uuid-0",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "invalid-uuid",
+      "alterId": 0,
+      "cipher": "auto"
+    }
+  },
+  {
+    "id": "vmess-cipher-1",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": 0,
+      "cipher": "unsupported"
+    }
+  },
+  {
+    "id": "vmess-network-2",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": 0,
+      "cipher": "auto",
+      "network": "invalid"
+    }
+  },
+  {
+    "id": "vmess-alterId-3",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": true,
+      "cipher": "auto"
+    }
+  },
+  {
+    "id": "vmess-alterId-4",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": -1,
+      "cipher": "auto"
+    }
+  },
+  {
+    "id": "vmess-tls-5",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": 0,
+      "cipher": "auto",
+      "tls": "false"
+    }
+  },
+  {
+    "id": "vmess-ws-opts-6",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": 0,
+      "cipher": "auto",
+      "ws-opts": true
+    }
+  },
+  {
+    "id": "vmess-alpn-7",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": 0,
+      "cipher": "auto",
+      "alpn": [
+        true
+      ]
+    }
+  },
+  {
+    "id": "vless-valid",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff"
+    }
+  },
+  {
+    "id": "vless-uuid-0",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "invalid-uuid"
+    }
+  },
+  {
+    "id": "vless-network-1",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "network": "invalid"
+    }
+  },
+  {
+    "id": "vless-flow-2",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "flow": "invalid"
+    }
+  },
+  {
+    "id": "vless-encryption-3",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "encryption": "invalid"
+    }
+  },
+  {
+    "id": "vless-reality-opts-4",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "reality-opts": {
+        "public-key": "bad",
+        "short-id": "zz"
+      }
+    }
+  },
+  {
+    "id": "trojan-valid",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "trojan",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture"
+    }
+  },
+  {
+    "id": "trojan-network-0",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "trojan",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "network": "invalid"
+    }
+  },
+  {
+    "id": "trojan-grpc-opts-1",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "trojan",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "grpc-opts": true
+    }
+  },
+  {
+    "id": "trojan-skip-cert-verify-2",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "trojan",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "skip-cert-verify": "false"
+    }
+  },
+  {
+    "id": "trojan-alpn-3",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "trojan",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "alpn": [
+        true
+      ]
+    }
+  },
+  {
+    "id": "anytls-valid",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "anytls",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture"
+    }
+  },
+  {
+    "id": "anytls-idle-session-check-interval-0",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "anytls",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "idle-session-check-interval": "oops"
+    }
+  },
+  {
+    "id": "anytls-sni-1",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "anytls",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "sni": true
+    }
+  },
+  {
+    "id": "tuic-valid",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "tuic",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "password": "fixture"
+    }
+  },
+  {
+    "id": "tuic-uuid-0",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "tuic",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "bad",
+      "password": "fixture"
+    }
+  },
+  {
+    "id": "tuic-congestion-controller-1",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "tuic",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "password": "fixture",
+      "congestion-controller": "bad"
+    }
+  },
+  {
+    "id": "tuic-udp-relay-mode-2",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "tuic",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "password": "fixture",
+      "udp-relay-mode": "bad"
+    }
+  },
+  {
+    "id": "tuic-heartbeat-interval-3",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "tuic",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "password": "fixture",
+      "heartbeat-interval": "bad"
+    }
+  },
+  {
+    "id": "tuic-request-timeout-4",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "tuic",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "password": "fixture",
+      "request-timeout": -1
+    }
+  },
+  {
+    "id": "tuic-alpn-5",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "tuic",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "password": "fixture",
+      "alpn": [
+        true
+      ]
+    }
+  },
+  {
+    "id": "snell-valid",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "snell",
+      "server": "127.0.0.1",
+      "port": 443,
+      "psk": "fixture",
+      "version": 3
+    }
+  },
+  {
+    "id": "snell-version-0",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "snell",
+      "server": "127.0.0.1",
+      "port": 443,
+      "psk": "fixture",
+      "version": 0
+    }
+  },
+  {
+    "id": "snell-version-1",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "snell",
+      "server": "127.0.0.1",
+      "port": 443,
+      "psk": "fixture",
+      "version": 5
+    }
+  },
+  {
+    "id": "snell-version-2",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "snell",
+      "server": "127.0.0.1",
+      "port": 443,
+      "psk": "fixture",
+      "version": "invalid"
+    }
+  },
+  {
+    "id": "snell-obfs-opts-3",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "snell",
+      "server": "127.0.0.1",
+      "port": 443,
+      "psk": "fixture",
+      "version": 3,
+      "obfs-opts": {
+        "mode": "bad"
+      }
+    }
+  },
+  {
+    "id": "snell-obfs-opts-4",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "snell",
+      "server": "127.0.0.1",
+      "port": 443,
+      "psk": "fixture",
+      "version": 3,
+      "obfs-opts": {
+        "mode": "tls",
+        "host": true
+      }
+    }
+  },
+  {
+    "id": "ssr-valid",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "ssr",
+      "server": "127.0.0.1",
+      "port": 443,
+      "cipher": "aes-128-cfb",
+      "password": "fixture",
+      "protocol": "auth_sha1_v4",
+      "obfs": "tls1.2_ticket_auth"
+    }
+  },
+  {
+    "id": "ssr-cipher-0",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "ssr",
+      "server": "127.0.0.1",
+      "port": 443,
+      "cipher": "bad",
+      "password": "fixture",
+      "protocol": "auth_sha1_v4",
+      "obfs": "tls1.2_ticket_auth"
+    }
+  },
+  {
+    "id": "ssr-protocol-1",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "ssr",
+      "server": "127.0.0.1",
+      "port": 443,
+      "cipher": "aes-128-cfb",
+      "password": "fixture",
+      "protocol": "bad",
+      "obfs": "tls1.2_ticket_auth"
+    }
+  },
+  {
+    "id": "ssr-obfs-2",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "ssr",
+      "server": "127.0.0.1",
+      "port": 443,
+      "cipher": "aes-128-cfb",
+      "password": "fixture",
+      "protocol": "auth_sha1_v4",
+      "obfs": "bad"
+    }
+  },
+  {
+    "id": "hysteria-valid",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "hysteria",
+      "server": "127.0.0.1",
+      "port": 443,
+      "auth-str": "fixture",
+      "up": "10 Mbps",
+      "down": "50 Mbps"
+    }
+  },
+  {
+    "id": "hysteria-protocol-0",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "hysteria",
+      "server": "127.0.0.1",
+      "port": 443,
+      "auth-str": "fixture",
+      "up": "10 Mbps",
+      "down": "50 Mbps",
+      "protocol": "bad"
+    }
+  },
+  {
+    "id": "hysteria-up-1",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "hysteria",
+      "server": "127.0.0.1",
+      "port": 443,
+      "auth-str": "fixture",
+      "up": "bad",
+      "down": "50 Mbps"
+    }
+  },
+  {
+    "id": "hysteria-ports-2",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "hysteria",
+      "server": "127.0.0.1",
+      "port": 443,
+      "auth-str": "fixture",
+      "up": "10 Mbps",
+      "down": "50 Mbps",
+      "ports": "bad"
+    }
+  },
+  {
+    "id": "hysteria-recv-window-3",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "hysteria",
+      "server": "127.0.0.1",
+      "port": 443,
+      "auth-str": "fixture",
+      "up": "10 Mbps",
+      "down": "50 Mbps",
+      "recv-window": true
+    }
+  },
+  {
+    "id": "hysteria2-valid",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "hysteria2",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture"
+    }
+  },
+  {
+    "id": "hysteria2-obfs-0",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "hysteria2",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "obfs": "bad"
+    }
+  },
+  {
+    "id": "hysteria2-obfs-1",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "hysteria2",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "obfs": "salamander"
+    }
+  },
+  {
+    "id": "hysteria2-obfs-password-2",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "hysteria2",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "obfs-password": true
+    }
+  },
+  {
+    "id": "hysteria2-up-3",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "hysteria2",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "up": "bad"
+    }
+  },
+  {
+    "id": "hysteria2-skip-cert-verify-4",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "hysteria2",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "skip-cert-verify": "false"
+    }
+  },
+  {
+    "id": "socks5-valid",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "socks5",
+      "server": "127.0.0.1",
+      "port": 443
+    }
+  },
+  {
+    "id": "socks5-username-0",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "socks5",
+      "server": "127.0.0.1",
+      "port": 443,
+      "username": true
+    }
+  },
+  {
+    "id": "socks5-password-1",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "socks5",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": true
+    }
+  },
+  {
+    "id": "socks5-tls-2",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "socks5",
+      "server": "127.0.0.1",
+      "port": 443,
+      "tls": "false"
+    }
+  },
+  {
+    "id": "http-valid",
+    "accepted": true,
+    "node": {
+      "name": "probe",
+      "type": "http",
+      "server": "127.0.0.1",
+      "port": 443
+    }
+  },
+  {
+    "id": "http-username-0",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "http",
+      "server": "127.0.0.1",
+      "port": 443,
+      "username": true
+    }
+  },
+  {
+    "id": "http-password-1",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "http",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": true
+    }
+  },
+  {
+    "id": "http-headers-2",
+    "accepted": false,
+    "node": {
+      "name": "probe",
+      "type": "http",
+      "server": "127.0.0.1",
+      "port": 443,
+      "headers": {
+        "A": true
+      }
+    }
+  },
+  {
+    "id": "vmess-extra-defaults",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff"
+    },
+    "expect_fields": {
+      "cipher": "auto",
+      "alterId": 0
+    },
+    "accepted": true
+  },
+  {
+    "id": "vmess-extra-null-defaults",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": null,
+      "cipher": null
+    },
+    "expect_fields": {
+      "cipher": "auto",
+      "alterId": 0
+    },
+    "accepted": true
+  },
+  {
+    "id": "vmess-extra-alter-alias",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "cipher": "auto",
+      "alter-id": "0x4"
+    },
+    "expect_fields": {
+      "cipher": "auto",
+      "alterId": "0x4"
+    },
+    "accepted": true
+  },
+  {
+    "id": "socks5-extra-socks-alias",
+    "node": {
+      "name": "probe",
+      "type": "socks",
+      "server": "127.0.0.1",
+      "port": 443
+    },
+    "expect_fields": {
+      "type": "socks5"
+    },
+    "accepted": true
+  },
+  {
+    "id": "vmess-extra-bad-alter-alias",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "cipher": "auto",
+      "alter-id": "bad"
+    },
+    "accepted": false
+  },
+  {
+    "id": "vmess-extra-integer-5",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": "0",
+      "cipher": "auto"
+    },
+    "accepted": true
+  },
+  {
+    "id": "vmess-extra-integer-6",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": "00",
+      "cipher": "auto"
+    },
+    "accepted": true
+  },
+  {
+    "id": "vmess-extra-integer-7",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": "0x4",
+      "cipher": "auto"
+    },
+    "accepted": true
+  },
+  {
+    "id": "vmess-extra-integer-8",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": "0X_F",
+      "cipher": "auto"
+    },
+    "accepted": true
+  },
+  {
+    "id": "vmess-extra-integer-9",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": "0o7",
+      "cipher": "auto"
+    },
+    "accepted": true
+  },
+  {
+    "id": "vmess-extra-integer-10",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": "0b10",
+      "cipher": "auto"
+    },
+    "accepted": true
+  },
+  {
+    "id": "vmess-extra-integer-11",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": "1_2",
+      "cipher": "auto"
+    },
+    "accepted": true
+  },
+  {
+    "id": "vmess-extra-integer-12",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": "08",
+      "cipher": "auto"
+    },
+    "accepted": false
+  },
+  {
+    "id": "vmess-extra-integer-13",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": "+0x4",
+      "cipher": "auto"
+    },
+    "accepted": true
+  },
+  {
+    "id": "vmess-extra-integer-14",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": "-1",
+      "cipher": "auto"
+    },
+    "accepted": true
+  },
+  {
+    "id": "vmess-extra-integer-15",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": "-9223372036854775808",
+      "cipher": "auto"
+    },
+    "accepted": true
+  },
+  {
+    "id": "vmess-extra-integer-16",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": "9223372036854775808",
+      "cipher": "auto"
+    },
+    "accepted": false
+  },
+  {
+    "id": "vmess-extra-integer-17",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": "1__2",
+      "cipher": "auto"
+    },
+    "accepted": false
+  },
+  {
+    "id": "vmess-extra-integer-18",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": " 4",
+      "cipher": "auto"
+    },
+    "accepted": false
+  },
+  {
+    "id": "vmess-extra-integer-19",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": "0x",
+      "cipher": "auto"
+    },
+    "accepted": false
+  },
+  {
+    "id": "vmess-extra-integer-bool",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": 0,
+      "cipher": "auto",
+      "tls": 1
+    },
+    "accepted": true
+  },
+  {
+    "id": "vmess-extra-integer-float",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": 1.9,
+      "cipher": "auto"
+    },
+    "accepted": true
+  },
+  {
+    "id": "vmess-extra-uppercase-cipher",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": 0,
+      "CIPHER": "none"
+    },
+    "expect_fields": {
+      "cipher": "none",
+      "alterId": 0
+    },
+    "accepted": true
+  },
+  {
+    "id": "vmess-extra-uppercase-invalid-cipher",
+    "node": {
+      "name": "probe",
+      "type": "vmess",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "alterId": 0,
+      "CIPHER": "wrong"
+    },
+    "accepted": false
+  },
+  {
+    "id": "trojan-extra-underscore-bad-bool",
+    "node": {
+      "name": "probe",
+      "type": "trojan",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "skip_cert_verify": "false"
+    },
+    "accepted": false
+  },
+  {
+    "id": "trojan-extra-uppercase-bad-bool",
+    "node": {
+      "name": "probe",
+      "type": "trojan",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "SKIP-CERT-VERIFY": "false"
+    },
+    "accepted": false
+  },
+  {
+    "id": "trojan-extra-nested-case-bad",
+    "node": {
+      "name": "probe",
+      "type": "trojan",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "grpc_opts": {
+        "MAX_CONNECTIONS": true
+      }
+    },
+    "accepted": false
+  },
+  {
+    "id": "vless-extra-reality-key-27",
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "tls": true,
+      "reality-opts": {
+        "public-key": "",
+        "short-id": "abcd"
+      }
+    },
+    "accepted": true
+  },
+  {
+    "id": "vless-extra-reality-key-28",
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "tls": true,
+      "reality-opts": {
+        "public-key": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+        "short-id": "abcd"
+      }
+    },
+    "accepted": true
+  },
+  {
+    "id": "vless-extra-reality-key-29",
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "tls": true,
+      "reality-opts": {
+        "public-key": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+        "short-id": "abcd"
+      }
+    },
+    "accepted": false
+  },
+  {
+    "id": "vless-extra-reality-key-30",
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "tls": true,
+      "reality-opts": {
+        "public-key": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBA",
+        "short-id": "abcd"
+      }
+    },
+    "accepted": false
+  },
+  {
+    "id": "vless-extra-reality-key-31",
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "tls": true,
+      "reality-opts": {
+        "public-key": "wrong",
+        "short-id": "abcd"
+      }
+    },
+    "accepted": false
+  },
+  {
+    "id": "vless-extra-shortid-32",
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "tls": true,
+      "reality-opts": {
+        "public-key": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+        "short-id": ""
+      }
+    },
+    "accepted": true
+  },
+  {
+    "id": "vless-extra-shortid-33",
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "tls": true,
+      "reality-opts": {
+        "public-key": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+        "short-id": "aabbccddeeff0011"
+      }
+    },
+    "accepted": true
+  },
+  {
+    "id": "vless-extra-shortid-34",
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "tls": true,
+      "reality-opts": {
+        "public-key": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+        "short-id": "a"
+      }
+    },
+    "accepted": false
+  },
+  {
+    "id": "vless-extra-shortid-35",
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "tls": true,
+      "reality-opts": {
+        "public-key": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+        "short-id": "zz"
+      }
+    },
+    "accepted": false
+  },
+  {
+    "id": "vless-extra-shortid-36",
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "tls": true,
+      "reality-opts": {
+        "public-key": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+        "short-id": "ababababababababab"
+      }
+    },
+    "accepted": false
+  },
+  {
+    "id": "vless-extra-encryption-native",
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "encryption": "mlkem768x25519plus.native.1rtt.AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"
+    },
+    "accepted": true
+  },
+  {
+    "id": "vless-extra-encryption-xorpub",
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "encryption": "mlkem768x25519plus.xorpub.1rtt.AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"
+    },
+    "accepted": true
+  },
+  {
+    "id": "vless-extra-encryption-random",
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "encryption": "mlkem768x25519plus.random.1rtt.AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"
+    },
+    "accepted": true
+  },
+  {
+    "id": "vless-extra-encryption-unknown",
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "encryption": "mlkem768x25519plus.unknown.1rtt.AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"
+    },
+    "accepted": false
+  },
+  {
+    "id": "vless-extra-padding-41",
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "encryption": "mlkem768x25519plus.native.0rtt.AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE.100-35-35"
+    },
+    "accepted": true
+  },
+  {
+    "id": "vless-extra-padding-42",
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "encryption": "mlkem768x25519plus.native.0rtt.AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE.99-35-35"
+    },
+    "accepted": false
+  },
+  {
+    "id": "vless-extra-padding-43",
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "encryption": "mlkem768x25519plus.native.0rtt.AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE.100-34-35"
+    },
+    "accepted": false
+  },
+  {
+    "id": "vless-extra-padding-44",
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "encryption": "mlkem768x25519plus.native.0rtt.AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE.100-70000-35"
+    },
+    "accepted": false
+  },
+  {
+    "id": "vless-extra-padding-45",
+    "node": {
+      "name": "probe",
+      "type": "vless",
+      "server": "127.0.0.1",
+      "port": 443,
+      "uuid": "00112233-4455-6677-8899-aabbccddeeff",
+      "encryption": "mlkem768x25519plus.native.0rtt.AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE.100-35-35.0-0-0.0-1-1"
+    },
+    "accepted": true
+  },
+  {
+    "id": "hysteria-extra-bandwidth-46",
+    "node": {
+      "name": "probe",
+      "type": "hysteria",
+      "server": "127.0.0.1",
+      "port": 443,
+      "auth-str": "fixture",
+      "up": "8 bps",
+      "down": "50 Mbps"
+    },
+    "accepted": true
+  },
+  {
+    "id": "hysteria-extra-bandwidth-47",
+    "node": {
+      "name": "probe",
+      "type": "hysteria",
+      "server": "127.0.0.1",
+      "port": 443,
+      "auth-str": "fixture",
+      "up": "7 bps",
+      "down": "50 Mbps"
+    },
+    "accepted": false
+  },
+  {
+    "id": "hysteria-extra-bandwidth-48",
+    "node": {
+      "name": "probe",
+      "type": "hysteria",
+      "server": "127.0.0.1",
+      "port": 443,
+      "auth-str": "fixture",
+      "up": "1 KBps",
+      "down": "50 Mbps"
+    },
+    "accepted": true
+  },
+  {
+    "id": "hysteria-extra-bandwidth-49",
+    "node": {
+      "name": "probe",
+      "type": "hysteria",
+      "server": "127.0.0.1",
+      "port": 443,
+      "auth-str": "fixture",
+      "up": "1kbps",
+      "down": "50 Mbps"
+    },
+    "accepted": false
+  },
+  {
+    "id": "hysteria-extra-bandwidth-50",
+    "node": {
+      "name": "probe",
+      "type": "hysteria",
+      "server": "127.0.0.1",
+      "port": 443,
+      "auth-str": "fixture",
+      "up": "10 Mbps",
+      "down": "50 Mbps"
+    },
+    "accepted": true
+  },
+  {
+    "id": "hysteria-extra-bandwidth-51",
+    "node": {
+      "name": "probe",
+      "type": "hysteria",
+      "server": "127.0.0.1",
+      "port": 443,
+      "auth-str": "fixture",
+      "up": 10,
+      "down": "50 Mbps"
+    },
+    "accepted": true
+  },
+  {
+    "id": "hysteria-extra-bandwidth-52",
+    "node": {
+      "name": "probe",
+      "type": "hysteria",
+      "server": "127.0.0.1",
+      "port": 443,
+      "auth-str": "fixture",
+      "up": "+10",
+      "down": "50 Mbps"
+    },
+    "accepted": true
+  },
+  {
+    "id": "hysteria-extra-bandwidth-53",
+    "node": {
+      "name": "probe",
+      "type": "hysteria",
+      "server": "127.0.0.1",
+      "port": 443,
+      "auth-str": "fixture",
+      "up": "00010",
+      "down": "50 Mbps"
+    },
+    "accepted": true
+  },
+  {
+    "id": "hysteria-extra-bandwidth-54",
+    "node": {
+      "name": "probe",
+      "type": "hysteria",
+      "server": "127.0.0.1",
+      "port": 443,
+      "auth-str": "fixture",
+      "up": null,
+      "down": "50 Mbps"
+    },
+    "accepted": false
+  },
+  {
+    "id": "hysteria-extra-bandwidth-55",
+    "node": {
+      "name": "probe",
+      "type": "hysteria",
+      "server": "127.0.0.1",
+      "port": 443,
+      "auth-str": "fixture",
+      "up": "",
+      "down": "50 Mbps"
+    },
+    "accepted": false
+  },
+  {
+    "id": "hysteria-extra-bandwidth-56",
+    "node": {
+      "name": "probe",
+      "type": "hysteria",
+      "server": "127.0.0.1",
+      "port": 443,
+      "auth-str": "fixture",
+      "up": "18446744073709551616 bps",
+      "down": "50 Mbps"
+    },
+    "accepted": true
+  },
+  {
+    "id": "hysteria-extra-missing-speeds",
+    "node": {
+      "name": "probe",
+      "type": "hysteria",
+      "server": "127.0.0.1",
+      "port": 443,
+      "auth-str": "fixture"
+    },
+    "accepted": false
+  },
+  {
+    "id": "hysteria-extra-legacy-auth",
+    "node": {
+      "name": "probe",
+      "type": "hysteria",
+      "server": "127.0.0.1",
+      "port": 443,
+      "up": "10 Mbps",
+      "down": "50 Mbps",
+      "auth": "c2VjcmV0"
+    },
+    "accepted": true
+  },
+  {
+    "id": "hysteria-extra-legacy-bad-auth",
+    "node": {
+      "name": "probe",
+      "type": "hysteria",
+      "server": "127.0.0.1",
+      "port": 443,
+      "up": "10 Mbps",
+      "down": "50 Mbps",
+      "auth": "secret"
+    },
+    "accepted": false
+  },
+  {
+    "id": "snell-extra-version-1",
+    "node": {
+      "name": "probe",
+      "type": "snell",
+      "server": "127.0.0.1",
+      "port": 443,
+      "psk": "fixture",
+      "version": 1
+    },
+    "accepted": true
+  },
+  {
+    "id": "snell-extra-version-2",
+    "node": {
+      "name": "probe",
+      "type": "snell",
+      "server": "127.0.0.1",
+      "port": 443,
+      "psk": "fixture",
+      "version": 2
+    },
+    "accepted": true
+  },
+  {
+    "id": "snell-extra-version-3",
+    "node": {
+      "name": "probe",
+      "type": "snell",
+      "server": "127.0.0.1",
+      "port": 443,
+      "psk": "fixture",
+      "version": 3
+    },
+    "accepted": true
+  },
+  {
+    "id": "snell-extra-version-4",
+    "node": {
+      "name": "probe",
+      "type": "snell",
+      "server": "127.0.0.1",
+      "port": 443,
+      "psk": "fixture",
+      "version": 4
+    },
+    "accepted": true
+  },
+  {
+    "id": "snell-extra-version-5",
+    "node": {
+      "name": "probe",
+      "type": "snell",
+      "server": "127.0.0.1",
+      "port": 443,
+      "psk": "fixture",
+      "version": 5
+    },
+    "accepted": true
+  },
+  {
+    "id": "snell-extra-version-6",
+    "node": {
+      "name": "probe",
+      "type": "snell",
+      "server": "127.0.0.1",
+      "port": 443,
+      "psk": "fixture",
+      "version": 6
+    },
+    "accepted": false
+  },
+  {
+    "id": "snell-extra-version--1",
+    "node": {
+      "name": "probe",
+      "type": "snell",
+      "server": "127.0.0.1",
+      "port": 443,
+      "psk": "fixture",
+      "version": -1
+    },
+    "accepted": false
+  },
+  {
+    "id": "snell-extra-version-0x4",
+    "node": {
+      "name": "probe",
+      "type": "snell",
+      "server": "127.0.0.1",
+      "port": 443,
+      "psk": "fixture",
+      "version": "0x4"
+    },
+    "accepted": true
+  },
+  {
+    "id": "snell-extra-udp-1",
+    "node": {
+      "name": "probe",
+      "type": "snell",
+      "server": "127.0.0.1",
+      "port": 443,
+      "psk": "fixture",
+      "version": 1,
+      "udp": true
+    },
+    "accepted": false
+  },
+  {
+    "id": "snell-extra-udp-2",
+    "node": {
+      "name": "probe",
+      "type": "snell",
+      "server": "127.0.0.1",
+      "port": 443,
+      "psk": "fixture",
+      "version": 2,
+      "udp": true
+    },
+    "accepted": false
+  },
+  {
+    "id": "snell-extra-udp-3",
+    "node": {
+      "name": "probe",
+      "type": "snell",
+      "server": "127.0.0.1",
+      "port": 443,
+      "psk": "fixture",
+      "version": 3,
+      "udp": true
+    },
+    "accepted": true
+  },
+  {
+    "id": "snell-extra-udp-4",
+    "node": {
+      "name": "probe",
+      "type": "snell",
+      "server": "127.0.0.1",
+      "port": 443,
+      "psk": "fixture",
+      "version": 4,
+      "udp": true
+    },
+    "accepted": true
+  },
+  {
+    "id": "hysteria2-extra-obfs-salamander",
+    "node": {
+      "name": "probe",
+      "type": "hysteria2",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "obfs": "salamander",
+      "obfs-password": "fixture"
+    },
+    "accepted": true
+  },
+  {
+    "id": "hysteria2-extra-obfs-gecko",
+    "node": {
+      "name": "probe",
+      "type": "hysteria2",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "obfs": "gecko",
+      "obfs-password": "fixture"
+    },
+    "accepted": true
+  },
+  {
+    "id": "hysteria2-extra-uint-74",
+    "node": {
+      "name": "probe",
+      "type": "hysteria2",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "initial-stream-receive-window": "0x10"
+    },
+    "accepted": true
+  },
+  {
+    "id": "hysteria2-extra-uint-75",
+    "node": {
+      "name": "probe",
+      "type": "hysteria2",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "initial-stream-receive-window": "08"
+    },
+    "accepted": false
+  },
+  {
+    "id": "hysteria2-extra-uint-76",
+    "node": {
+      "name": "probe",
+      "type": "hysteria2",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "initial-stream-receive-window": "18446744073709551615"
+    },
+    "accepted": true
+  },
+  {
+    "id": "hysteria2-extra-uint-77",
+    "node": {
+      "name": "probe",
+      "type": "hysteria2",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "initial-stream-receive-window": "18446744073709551616"
+    },
+    "accepted": false
+  },
+  {
+    "id": "hysteria2-extra-uint-78",
+    "node": {
+      "name": "probe",
+      "type": "hysteria2",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "initial-stream-receive-window": "-1"
+    },
+    "accepted": false
+  },
+  {
+    "id": "hysteria2-extra-uint-79",
+    "node": {
+      "name": "probe",
+      "type": "hysteria2",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "initial-stream-receive-window": "+1"
+    },
+    "accepted": false
+  },
+  {
+    "id": "http-extra-numeric-credentials",
+    "node": {
+      "name": "probe",
+      "type": "http",
+      "server": "127.0.0.1",
+      "port": 443,
+      "username": 123,
+      "password": 456,
+      "headers": {
+        "X-Fixture": 123
+      }
+    },
+    "accepted": true
+  },
+  {
+    "id": "trojan-extra-string-alpn",
+    "node": {
+      "name": "probe",
+      "type": "trojan",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "alpn": "h2"
+    },
+    "accepted": false
+  },
+  {
+    "id": "trojan-extra-ss-method-aes-128-gcm",
+    "node": {
+      "name": "probe",
+      "type": "trojan",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "ss-opts": {
+        "enabled": true,
+        "method": "aes-128-gcm",
+        "password": "fixture"
+      }
+    },
+    "accepted": true
+  },
+  {
+    "id": "trojan-extra-ss-method-unsupported",
+    "node": {
+      "name": "probe",
+      "type": "trojan",
+      "server": "127.0.0.1",
+      "port": 443,
+      "password": "fixture",
+      "ss-opts": {
+        "enabled": true,
+        "method": "unsupported",
+        "password": "fixture"
+      }
+    },
+    "accepted": false
+  }
+]

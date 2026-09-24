@@ -56,20 +56,6 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
         return;
       }
 
-      if (core.hasPendingSystemProxyRecovery &&
-          !await core.recoverPendingSystemProxy()) {
-        final reason = core.lastStartError ?? '系统代理旧状态恢复失败';
-        StartupLogger.warning(reason);
-        await _presentTrayFailure(reason);
-        return;
-      }
-      if (core.isStartupDisabled) {
-        final reason = core.startupDisabledReason ?? '核心初始化失败';
-        StartupLogger.warning(reason);
-        await _presentTrayFailure(reason);
-        return;
-      }
-
       final subscriptionService = _subscriptionService;
       final rawYaml = subscriptionService?.rawYaml;
       if (rawYaml == null || rawYaml.trim().isEmpty) {
@@ -79,6 +65,31 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
       final subscriptionRevision = subscriptionService!.revision;
 
       connectionGeneration = core.requestConnectionIntent(true);
+      if (core.hasPendingSystemProxyRecovery) {
+        final recovered = await core.recoverPendingSystemProxy();
+        if (!core.isConnectionIntentCurrent(
+          connectionGeneration,
+          connected: true,
+        )) {
+          return;
+        }
+        if (!recovered) {
+          core.requestConnectionIntent(false);
+          core.interruptPendingStart();
+          final reason = core.lastStartError ?? '系统代理旧状态恢复失败';
+          StartupLogger.warning(reason);
+          await _presentTrayFailure(reason);
+          return;
+        }
+      }
+      if (core.isStartupDisabled) {
+        core.requestConnectionIntent(false);
+        core.interruptPendingStart();
+        final reason = core.startupDisabledReason ?? '核心初始化失败';
+        StartupLogger.warning(reason);
+        await _presentTrayFailure(reason);
+        return;
+      }
       final preferredNodeName = _defaultNodeName();
       final connectionResult = await core.runConnectionTransition(
         () => const DesktopConnectionCoordinator().connect(

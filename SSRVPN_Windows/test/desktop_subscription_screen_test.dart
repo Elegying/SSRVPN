@@ -26,6 +26,33 @@ void main() {
 
   tearDown(SubscriptionService.resetInstanceForTesting);
 
+  testWidgets('delete confirmation stays usable in a short large-text window',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 600));
+    addTearDown(() async {
+      tester.platformDispatcher.clearTextScaleFactorTestValue();
+      await tester.binding.setSurfaceSize(null);
+    });
+    final fixture = (await tester.runAsync(
+      () => _SubscriptionFixture.create(withSubscription: true),
+    ))!;
+    addTearDown(fixture.dispose);
+    await tester.pumpWidget(fixture.build());
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byTooltip('删除订阅'));
+    await tester.tap(find.byTooltip('删除订阅'));
+    await tester.pumpAndSettle();
+    await tester.binding.setSurfaceSize(const Size(640, 400));
+    tester.platformDispatcher.textScaleFactorTestValue = 3.2;
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.ensureVisible(find.widgetWithText(TextButton, '取消'));
+    await tester.tap(find.widgetWithText(TextButton, '取消'));
+    await tester.pumpAndSettle();
+    expect(fixture.subscription.subscriptions, hasLength(1));
+    expect(fixture.clash.stopCalls, 0);
+  });
+
   testWidgets('saving a source name preserves manually edited nodes',
       (tester) async {
     final fixture = (await tester

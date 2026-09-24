@@ -12,17 +12,17 @@ class WindowStateStore {
   static Rect initialBounds(Rect workArea) =>
       DesktopWindowStateStore.initialBounds(workArea);
 
-  static Future<void> clear() => _store().clear();
+  static Future<void> clear() => _store.clear();
 
-  static Future<Rect?> load() => _store().load();
+  static Future<Rect?> load() => _store.load();
 
-  static Future<void> save(Rect bounds) => _store().save(bounds);
+  static Future<void> save(Rect bounds) => _store.save(bounds);
 
-  static DesktopWindowStateStore _store() => DesktopWindowStateStore(
-        File(_path()),
-        onInfo: StartupLogger.info,
-        onError: StartupLogger.error,
-      );
+  static final _store = DesktopWindowStateStore(
+    File(_path()),
+    onInfo: StartupLogger.info,
+    onError: StartupLogger.error,
+  );
 
   static String _path() {
     if (Platform.isMacOS) {

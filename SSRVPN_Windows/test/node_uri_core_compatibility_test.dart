@@ -49,6 +49,37 @@ const _coreCiphers = [
 
 void main() {
   final core = File('assets/mihomo.exe').absolute;
+  final optionCases = jsonDecode(
+      File('../packages/ssrvpn_shared/test/fixtures/proxy_option_cases.json')
+          .readAsStringSync()) as List;
+  for (final fixture in optionCases) {
+    test('core loads isolated optional-field fixture ${fixture['id']}',
+        () async {
+      final directory =
+          await Directory.systemTemp.createTemp('ssrvpn-options-core-');
+      addTearDown(() => directory.delete(recursive: true));
+      final input = jsonEncode({
+        'proxies': [
+          fixture['node'],
+          {
+            'name': 'Healthy',
+            'type': 'socks5',
+            'server': '127.0.0.1',
+            'port': 1080,
+          }
+        ]
+      });
+      final config = File('${directory.path}/config.yaml');
+      await config.writeAsString('proxies:\n'
+          '${ClashConfigGenerator.buildProxiesText(input)}\n'
+          'rules: ["MATCH,DIRECT"]\n');
+      final result = await Process.run(
+          core.path, ['-t', '-d', directory.path, '-f', config.path]);
+      expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+    },
+        skip: !Platform.isWindows || !core.existsSync(),
+        timeout: const Timeout(Duration(seconds: 15)));
+  }
   test('YAML transport validation keeps a loadable mixed subscription',
       () async {
     final directory =
