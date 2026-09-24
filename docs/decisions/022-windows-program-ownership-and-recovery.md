@@ -66,7 +66,7 @@ schema 4 的 state 认证覆盖 previousMetadataGeneration 和 registry snapshot
 
 自有恢复根为 `%LOCALAPPDATA%\SSRVPN\installer-recovery-v4\<目录哈希>`，避免旧卸载器
 仍认识的共享根被用于新事务。Discard 先校验目录、hive/view、事务认证，只清理已结束事务。
-准备阶段使用同一父目录下的 `.staging-<UUID>`，不再重复拼接目录哈希与 UUID，避免
+准备与结束清理使用同一父目录下的 `.staging-<UUID>` / `.cleanup-<UUID>`，不再重复拼接目录哈希与 UUID，避免
 正常用户路径下的 Flutter 资产备份触及未启用长路径支持的 Windows MAX_PATH。
 最终恢复根、state 绑定与 schema 均不变，已有事务继续原路径恢复；旧失败 staging
 仍保留且不妨碍重试。安装器不改写用户的系统长路径策略。

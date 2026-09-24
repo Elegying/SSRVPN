@@ -1104,7 +1104,9 @@ function Remove-CommittedTransaction {
   }
 
   $cleanupToken = [Guid]::NewGuid().ToString('N')
-  $cleanupRoot = "$($script:recoveryRoot).cleanup.$cleanupToken"
+  # Cleanup must not reintroduce the oversized path avoided by Begin.
+  $cleanupRoot = Join-Path ([IO.Path]::GetDirectoryName($script:recoveryRoot)) `
+    ('.cleanup-' + $cleanupToken)
   $transactionAtRecoveryRoot = $true
   $script:finalizedStateRemoved = $false
   try {

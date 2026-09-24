@@ -259,6 +259,7 @@ try {
   $candidate = Build-Candidate 'candidate'
   if ((Run-Installer $candidate 'legacy-to-candidate') -ne 0) { throw 'Verified v5.0.18 migration failed.' }
   Assert-Committed 'legacy-to-candidate'
+  if (Test-Path -LiteralPath (Get-RecoveryRoot $installDir)) { throw 'Committed upgrade left a recovery root; cleanup must also support default Windows paths.' }
   Assert-UserFiles
   Assert-NonTargetScopes
   [void](Snapshot 'legacy-to-candidate')
