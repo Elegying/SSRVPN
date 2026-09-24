@@ -404,6 +404,58 @@ try {
   Assert-UserFiles $c
   Pass 'Production handles prevent byte mutation, parent exchange and overwrite after verification'
 
+  foreach ($laterOutcome in @('commit-uninstall', 'rollback')) {
+    $pending = New-Case "metadata-pending-$laterOutcome"
+    Invoke-Case $pending Begin
+    Invoke-Case $pending Clear
+    Invoke-Case $pending Install
+    Set-CaseRegistry $pending 'pending-B'
+    Write-FixtureFile $pending.desktop 'pending-B-desktop'
+    Write-FixtureFile $pending.menu 'pending-B-menu'
+    Seal-Case $pending
+    $later = New-Case "metadata-later-$laterOutcome" -Fresh
+    $later.subkey = $pending.subkey
+    $later.desktop = $pending.desktop
+    $later.menu = $pending.menu
+    Invoke-Case $later Begin
+    Invoke-Case $later Clear
+    Invoke-Case $later Install
+    Set-CaseRegistry $later 'later-C'
+    Write-FixtureFile $later.desktop 'later-C-desktop'
+    Write-FixtureFile $later.menu 'later-C-menu'
+    Seal-Case $later
+    $laterRegistry = Get-CaseRegistry $later
+    $pendingStateHash = (Get-FileHash -LiteralPath (Join-Path $pending.recovery 'state.json')).Hash
+    Invoke-Case $pending Recover -Failure
+    if ((Get-CaseRegistry $later) -cne $laterRegistry -or
+        (Get-FileHash -LiteralPath (Join-Path $pending.recovery 'state.json')).Hash -cne $pendingStateHash) {
+      throw 'An older recovery changed the later installation metadata or its own evidence.'
+    }
+    Assert-File (Join-Path $pending.install 'ssrvpn_windows.exe') 'new-ssrvpn_windows.exe'
+    Assert-File (Join-Path $pending.recovery 'program\ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
+    Assert-File $later.desktop 'later-C-desktop'
+    Assert-File $later.menu 'later-C-menu'
+    if ($laterOutcome -eq 'commit-uninstall') {
+      Invoke-Case $later Commit
+      Invoke-Case $later Uninstall
+      $registry.DeleteSubKeyTree($later.subkey, $false)
+      Remove-Item -LiteralPath $later.desktop, $later.menu -Force
+      Invoke-Case $pending Recover -Failure
+      if ((Get-CaseRegistry $later) -cne 'ABSENT' -or (Test-Path -LiteralPath $later.desktop) -or
+          (Test-Path -LiteralPath $later.menu)) { throw 'Older recovery resurrected an explicitly uninstalled later installation.' }
+      Assert-File (Join-Path $pending.recovery 'program\ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
+    } else {
+      Invoke-Case $later Recover
+      Assert-File $pending.desktop 'pending-B-desktop'
+      Invoke-Case $pending Recover
+      Assert-File (Join-Path $pending.install 'ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
+      Assert-File $pending.desktop 'old-desktop'
+    }
+    Assert-UserFiles $pending
+    Assert-UserFiles $later
+    Pass "Metadata ownership protects later cross-directory actions: $laterOutcome"
+  }
+
   $c = New-Case 'verified-empty-directory-cleanup'
   $empty = Join-Path $c.root 'empty'
   [void][IO.Directory]::CreateDirectory($empty)
