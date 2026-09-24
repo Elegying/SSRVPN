@@ -465,8 +465,9 @@ function Remove-AuthenticatedRecoveryFiles {
     $item = Get-PathItem -Path $directory
     if ($null -eq $item) { continue }
     if (-not $item.PSIsContainer -or (Test-ReparsePoint -Item $item)) { throw 'Finalized recovery directory changed.' }
-    # Directory.Delete(false) refuses new contents; no recursive cleanup.
-    [IO.Directory]::Delete($directory, $false)
+    # Pin ancestors and remove the verified directory object. Late contents
+    # fail the kernel's nonempty check; exchanged paths are never followed.
+    [SsrvpnInstaller.ProgramFile]::RemoveEmptyDirectory($directory)
   }
-  [IO.Directory]::Delete($Root, $false)
+  [SsrvpnInstaller.ProgramFile]::RemoveEmptyDirectory($Root)
 }

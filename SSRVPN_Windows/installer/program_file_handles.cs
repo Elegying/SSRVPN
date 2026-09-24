@@ -116,6 +116,19 @@ namespace SsrvpnInstaller {
       if (!SetFileInformationByHandle(stream.SafeFileHandle, 4, ref value, 1))
         throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot remove verified program file.");
     }
+    public static void RemoveEmptyDirectory(string path) {
+      using (var item = new ProgramFile()) {
+        item.PinParents(path, false);
+        using (var handle = CreateFile(path, 0x10080, 1, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero)) {
+          Check(handle, path, true);
+          // Delete this verified directory object, never a re-resolved path.
+          // Windows rejects nonempty directories, including late arrivals.
+          byte value = 1;
+          if (!SetFileInformationByHandle(handle, 4, ref value, 1))
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot remove verified empty directory.");
+        }
+      }
+    }
     public string ReadUtf8Text(long maxBytes) {
       if (stream.Length > maxBytes) throw new IOException("Verified metadata exceeds its size limit.");
       stream.Position = 0;

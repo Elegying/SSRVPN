@@ -404,6 +404,26 @@ try {
   Assert-UserFiles $c
   Pass 'Production handles prevent byte mutation, parent exchange and overwrite after verification'
 
+  $c = New-Case 'verified-empty-directory-cleanup'
+  $empty = Join-Path $c.root 'empty'
+  [void][IO.Directory]::CreateDirectory($empty)
+  [SsrvpnInstaller.ProgramFile]::RemoveEmptyDirectory($empty)
+  if (Test-Path -LiteralPath $empty) { throw 'Verified empty directory was not removed.' }
+  Write-FixtureFile (Join-Path $empty 'late.txt') 'late-directory-content'
+  $denied = 0
+  try { [SsrvpnInstaller.ProgramFile]::RemoveEmptyDirectory($empty) } catch { $denied++ }
+  $foreign = Join-Path $c.root 'foreign'
+  [void][IO.Directory]::CreateDirectory((Join-Path $foreign 'empty'))
+  $alias = Join-Path $c.root 'alias'
+  New-Item -ItemType Junction -Path $alias -Target $foreign | Out-Null
+  try { [SsrvpnInstaller.ProgramFile]::RemoveEmptyDirectory($alias) } catch { $denied++ }
+  try { [SsrvpnInstaller.ProgramFile]::RemoveEmptyDirectory((Join-Path $alias 'empty')) } catch { $denied++ }
+  if ($denied -ne 3 -or -not (Test-Path -LiteralPath (Join-Path $foreign 'empty')) -or
+      -not (Test-Path -LiteralPath $alias)) { throw 'Empty cleanup followed or removed a replaced directory.' }
+  Assert-File (Join-Path $empty 'late.txt') 'late-directory-content'
+  Assert-UserFiles $c
+  Pass 'Verified empty cleanup rejects late contents, junction targets and junction ancestors'
+
   $c = New-Case 'exclusive-inno-data-hash'
   $path = Join-Path $c.root 'exclusive.dat'
   Write-FixtureFile $path 'exclusive-engine-owned-metadata'
