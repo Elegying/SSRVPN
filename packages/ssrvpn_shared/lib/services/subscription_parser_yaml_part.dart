@@ -25,7 +25,8 @@ class _SubscriptionYamlParser {
                 proxyMap[SubscriptionParser.proxySourceKey]?.toString().trim();
             nodes.add(
               ProxyNode.fromJson({
-                ...proxyMap,
+                ...Map<String, dynamic>.from(
+                    ProxyOptionTypes.canonicalize(proxyMap)),
                 'group': source == null || source.isEmpty ? '全部节点' : source,
               }),
             );

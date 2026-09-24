@@ -4,6 +4,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
 
+import 'recovering_serial_queue.dart';
+
 typedef WindowStateInfoLogger = void Function(String message);
 typedef WindowStateErrorLogger = void Function(
   String message,
@@ -48,8 +50,11 @@ class DesktopWindowStateStore {
   final File file;
   final WindowStateInfoLogger? onInfo;
   final WindowStateErrorLogger? onError;
+  final _writes = RecoveringSerialQueue();
 
-  Future<void> clear() async {
+  Future<void> clear() => _writes.add(_clear);
+
+  Future<void> _clear() async {
     try {
       if (await file.exists()) {
         await file.delete();
@@ -61,6 +66,14 @@ class DesktopWindowStateStore {
   }
 
   Future<Rect?> load() async {
+    Rect? result;
+    await _writes.add(() async {
+      result = await _load();
+    });
+    return result;
+  }
+
+  Future<Rect?> _load() async {
     if (!await file.exists()) return null;
 
     try {
@@ -97,7 +110,7 @@ class DesktopWindowStateStore {
         throw FormatException('invalid window bounds: $rect');
       }
       if (isLegacySchema) {
-        await save(rect);
+        await _save(rect);
       }
       return rect;
     } catch (error, stack) {
@@ -107,7 +120,9 @@ class DesktopWindowStateStore {
     }
   }
 
-  Future<void> save(Rect bounds) async {
+  Future<void> save(Rect bounds) => _writes.add(() => _save(bounds));
+
+  Future<void> _save(Rect bounds) async {
     if (!_isSane(bounds)) return;
     final payload = jsonEncode({
       'schemaVersion': _currentSchemaVersion,

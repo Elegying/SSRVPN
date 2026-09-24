@@ -409,13 +409,8 @@ abstract class ClashServiceBase
       final client = _apiClient;
       if (client == null) return false;
       final url = _apiUrl('/configs');
-      final response = await client
-          .patch(
-            Uri.parse(url),
-            headers: apiHeaders(json: true),
-            body: jsonEncode({'mode': mode}),
-          )
-          .timeout(const Duration(seconds: 5));
+      final response = await _sendControllerRequest(client, 'PATCH', url,
+          body: jsonEncode({'mode': mode}));
       return response.statusCode == 200 || response.statusCode == 204;
     } catch (e) {
       this.log('切换模式失败: cause=${safeRuntimeErrorCode(e)}');
@@ -560,13 +555,8 @@ abstract class ClashServiceBase
         return false;
       }
       final url = _apiUrl('/proxies/${Uri.encodeComponent(groupName)}');
-      final response = await client
-          .put(
-            Uri.parse(url),
-            headers: apiHeaders(json: true),
-            body: jsonEncode({'name': nodeName}),
-          )
-          .timeout(const Duration(seconds: 5));
+      final response = await _sendControllerRequest(client, 'PUT', url,
+          body: jsonEncode({'name': nodeName}));
       final accepted = response.statusCode == 200 || response.statusCode == 204;
       if (!accepted) {
         this.log(
@@ -624,9 +614,8 @@ abstract class ClashServiceBase
       final client = _apiClient;
       if (client == null) return;
       final connUrl = _apiUrl('/connections');
-      final response = await client
-          .delete(Uri.parse(connUrl), headers: apiHeaders())
-          .timeout(const Duration(seconds: 3));
+      final response = await _sendControllerRequest(client, 'DELETE', connUrl,
+          timeout: const Duration(seconds: 3));
       if (response.statusCode < 200 || response.statusCode >= 300) {
         this.log(
           '节点已切换，但旧连接清理请求未被核心接受: '
@@ -649,9 +638,9 @@ abstract class ClashServiceBase
     try {
       final client = _apiClient;
       if (client == null) return -1;
-      final response = await client
-          .get(Uri.parse(_apiUrl('/connections')), headers: apiHeaders())
-          .timeout(const Duration(seconds: 2));
+      final response = await _sendControllerRequest(
+          client, 'GET', _apiUrl('/connections'),
+          timeout: const Duration(seconds: 2));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
         final connections = data['connections'] as List?;

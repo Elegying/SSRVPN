@@ -5,6 +5,18 @@ import 'package:ssrvpn_shared/models/app_diagnostics.dart';
 import 'package:ssrvpn_shared/services/clash_service_base.dart';
 
 void main() {
+  test('TCP allocator trapped in a UDP exclusion range can still connect',
+      () async {
+    final service = _UdpExcludedRangeService();
+    addTearDown(service.dispose);
+    final port = await service.findAvailableTcpUdpPort(65535, {1024, 1025});
+    expect(port, inInclusiveRange(1024, 65534));
+    expect(port, isNot(inInclusiveRange(49000, 51000)));
+    expect({1024, 1025}, isNot(contains(port)));
+    expect(service.probed.toSet().length, service.probed.length);
+    expect(service.probed.length, lessThanOrEqualTo(33));
+  });
+
   test('IPv6-only UDP occupancy prevents port reuse', () async {
     final service = _RuntimePortProbe();
     addTearDown(service.dispose);
@@ -101,6 +113,19 @@ class _NeverBindableClashService extends ClashServiceBase
 
   @override
   Future<void> onStopRequired() async {}
+}
+
+class _UdpExcludedRangeService extends _NeverBindableClashService {
+  final probed = <int>[];
+
+  @override
+  Future<int> allocateEphemeralPortCandidate() async => 50000;
+
+  @override
+  Future<bool> canBindTcpUdpRuntimePort(int port) async {
+    probed.add(port);
+    return port != 65535 && (port < 49000 || port > 51000);
+  }
 }
 
 mixin _ExplicitTestDiagnosticCapability on ClashServiceBase {

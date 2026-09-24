@@ -509,6 +509,8 @@ void main() {
       '.api-secret.dpapi': 'encrypted-secret',
       'settings.json': '{"proxyPort":8890}',
       'subscriptions.json': '["feed"]',
+      'node-latencies.json': '{"version":1,"entries":{}}',
+      'node-countries.json': '{"version":2,"countries":{}}',
     };
     for (final entry in critical.entries) {
       await File(

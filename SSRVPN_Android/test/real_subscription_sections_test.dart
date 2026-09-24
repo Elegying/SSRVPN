@@ -76,6 +76,42 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('Android delete confirmation stays usable with large text',
+      (tester) async {
+    final directory = Directory.systemTemp.createTempSync('ssrvpn-sub-delete-');
+    final service = (await tester.runAsync(
+      () => SubscriptionService.getInstance(directory.path),
+    ))!;
+    addTearDown(() async {
+      tester.platformDispatcher.clearTextScaleFactorTestValue();
+      await tester.binding.setSurfaceSize(null);
+      service.dispose();
+      if (directory.existsSync()) directory.deleteSync(recursive: true);
+    });
+    await tester.runAsync(() =>
+        service.addSubscription('Fixture', 'socks5://127.0.0.1:1080#Fixture'));
+    await tester.pumpWidget(MultiProvider(
+      providers: [
+        ChangeNotifierProvider<SubscriptionService>.value(value: service),
+        Provider<ClashService>.value(value: _TestDiagnosticsClashService()),
+      ],
+      child: host(const SubscriptionScreen()),
+    ));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byTooltip('删除订阅'));
+    await tester.tap(find.byTooltip('删除订阅'));
+    await tester.pumpAndSettle();
+    await tester.binding.setSurfaceSize(const Size(320, 568));
+    tester.platformDispatcher.textScaleFactorTestValue = 3.2;
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.ensureVisible(find.widgetWithText(TextButton, '取消'));
+    await tester.tap(find.widgetWithText(TextButton, '取消'));
+    await tester.pumpAndSettle();
+    expect(service.subscriptions, hasLength(1));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
       'Android subscription keeps a textual logs action on compact large text',
       (tester) async {

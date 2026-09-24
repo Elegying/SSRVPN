@@ -17,6 +17,7 @@ import 'package:ssrvpn_macos/screens/home_screen.dart';
 import 'package:ssrvpn_macos/services/clash_service.dart';
 import 'package:ssrvpn_macos/services/settings_service.dart';
 import 'package:ssrvpn_macos/services/subscription_service.dart';
+import 'package:ssrvpn_macos/services/tray_manager.dart';
 import 'package:ssrvpn_macos/startup/startup_flags.dart';
 import 'package:ssrvpn_macos/startup/startup_status.dart';
 import 'package:ssrvpn_macos/theme/app_theme.dart';
@@ -54,6 +55,85 @@ double _contrastRatio(Color foreground, Color background) {
 }
 
 void main() {
+  for (final recoverySucceeds in [true, false]) {
+    testWidgets('tray recovery completes with success=$recoverySucceeds',
+        (tester) async {
+      final fixture =
+          (await tester.runAsync(() => _HomeFixture.create(withNodes: true)))!;
+      addTearDown(fixture.dispose);
+      final status = StartupStatus.instance;
+      status.prepareCoreRetry();
+      status.setServices(
+        settings: fixture.settings,
+        clash: fixture.clash,
+        subscription: fixture.subscription,
+      );
+      addTearDown(status.prepareCoreRetry);
+      final release = fixture.clash.proxyRecoveryRelease = Completer<bool>();
+      await tester.pumpWidget(desktop_app.SSRVpnApp(
+          startupFlags: StartupFlags.parse(const ['--safe-mode'])));
+      await tester.pump();
+      TrayManager().onConnectToggle!();
+      await _pumpUntil(tester, () => fixture.clash.proxyRecoveryCalls == 1);
+      expect(fixture.clash.connectionDesired, isTrue);
+      release.complete(recoverySucceeds);
+      await _pumpUntil(
+          tester,
+          () => recoverySucceeds
+              ? fixture.clash.startCalls == 1
+              : !fixture.clash.connectionDesired);
+      await tester.pumpAndSettle();
+      expect(fixture.clash.startCalls, recoverySucceeds ? 1 : 0);
+      expect(fixture.clash.connectionDesired, recoverySucceeds);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+  }
+  for (final cancelFromTray in [false, true]) {
+    testWidgets('tray recovery respects cancellation from tray=$cancelFromTray',
+        (tester) async {
+      final fixture =
+          (await tester.runAsync(() => _HomeFixture.create(withNodes: true)))!;
+      addTearDown(fixture.dispose);
+      final status = StartupStatus.instance;
+      status.prepareCoreRetry();
+      status.setServices(
+        settings: fixture.settings,
+        clash: fixture.clash,
+        subscription: fixture.subscription,
+      );
+      addTearDown(status.prepareCoreRetry);
+      final release = fixture.clash.proxyRecoveryRelease = Completer<bool>();
+      await tester.pumpWidget(desktop_app.SSRVpnApp(
+          startupFlags: StartupFlags.parse(const ['--safe-mode'])));
+      await tester.pump();
+      final tray = TrayManager();
+      tray.onConnectToggle!();
+      await _pumpUntil(tester, () => fixture.clash.proxyRecoveryCalls == 1);
+      final desiredWhileRecovering = fixture.clash.connectionDesired;
+      if (cancelFromTray) {
+        tray.onConnectToggle!();
+      } else {
+        fixture.clash.requestConnectionIntent(false);
+        fixture.clash.interruptPendingStart();
+        await fixture.clash.runConnectionTransition(fixture.clash.stop);
+      }
+      await tester.pump();
+      release.complete(true);
+      await tester.pumpAndSettle();
+
+      expect(fixture.clash.startCalls, 0,
+          reason: 'late recovery must not revive a cancelled connection');
+      expect(fixture.clash.connectionDesired, isFalse);
+      expect(desiredWhileRecovering, isTrue);
+      expect(fixture.clash.proxyRecoveryCalls, 1);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+  }
+
   testWidgets(
       'adding a feed with new ownership preserves the active connection',
       (tester) async {
@@ -2192,6 +2272,8 @@ class _FakeClashService extends ClashService {
   int singleLatencyRuns = 0;
   int directConnectivityVerificationCalls = 0;
   int startCalls = 0;
+  int proxyRecoveryCalls = 0;
+  Completer<bool>? proxyRecoveryRelease;
   bool startResult = true;
   bool stallNextStart = false;
   final Completer<void> stalledStartEntered = Completer<void>();
@@ -2214,7 +2296,15 @@ class _FakeClashService extends ClashService {
   bool get isRunning => _running;
 
   @override
-  bool get hasPendingSystemProxyRecovery => false;
+  bool get hasPendingSystemProxyRecovery => proxyRecoveryRelease != null;
+
+  @override
+  Future<bool> recoverPendingSystemProxy() async {
+    proxyRecoveryCalls++;
+    final result = await proxyRecoveryRelease!.future;
+    proxyRecoveryRelease = null;
+    return result;
+  }
 
   @override
   Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async => const [];

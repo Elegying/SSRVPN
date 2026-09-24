@@ -1,19 +1,15 @@
 import 'dart:io';
 
 import '../models/proxy_node.dart';
+import 'proxy_option_types.dart';
+import 'proxy_transport_validation.dart';
 
 class ProxyNodeUsagePolicy {
   // Intersection of the three pinned cores' actual SS plugin implementations.
   // Unknown plugins are silently ignored by older cores, removing transport
   // protection even when `mihomo -t` reports success.
-  static const supportedShadowsocksPlugins = {
-    'obfs',
-    'v2ray-plugin',
-    'gost-plugin',
-    'shadow-tls',
-    'restls',
-    'kcptun',
-  };
+  static const supportedShadowsocksPlugins =
+      ProxyTransportValidation.shadowsocksPlugins;
 
   /// Shared by URI parsing and redaction, including accepted protocol aliases.
   static const nodeUriSchemes = {
@@ -93,14 +89,16 @@ class ProxyNodeUsagePolicy {
 
     final port = _parsePort(proxy['port']);
     if (port < 1 || port > 65535) return false;
+    proxy = ProxyOptionTypes.canonicalize(proxy);
+    if (!ProxyOptionTypes.accepts(type, proxy) ||
+        !ProxyTransportValidation.protocolOptions(type, proxy)) {
+      return false;
+    }
 
     switch (type) {
       case 'ss':
-        final plugin = proxy['plugin'];
         return _hasAll(proxy, const ['cipher', 'password']) &&
-            (plugin == null ||
-                plugin == '' ||
-                supportedShadowsocksPlugins.contains(plugin));
+            ProxyTransportValidation.shadowsocks(proxy);
       case 'ssr':
         return _hasAll(
           proxy,
@@ -111,8 +109,10 @@ class ProxyNodeUsagePolicy {
         return _hasRequiredValue(proxy['uuid']);
       case 'trojan':
       case 'anytls':
-      case 'hysteria2':
         return _hasRequiredValue(proxy['password']);
+      case 'hysteria2':
+        return _hasRequiredValue(proxy['password']) &&
+            ProxyTransportValidation.hysteria2(proxy);
       case 'hysteria':
         return _hasRequiredValue(proxy['auth-str']) ||
             _hasRequiredValue(proxy['auth']);
@@ -173,7 +173,9 @@ class ProxyNodeUsagePolicy {
   }
 
   static bool _hasRequiredValue(Object? value) {
-    if (value is! String && value is! num && value is! bool) return false;
+    // The core can decode numeric YAML scalars as strings, but not booleans.
+    if (value is! String && value is! num) return false;
+    if (value is num && !value.isFinite) return false;
     if (value is String && value.length > _maxRequiredValueLength) return false;
     final text = value.toString().trim();
     return text.isNotEmpty && text.length <= _maxRequiredValueLength;

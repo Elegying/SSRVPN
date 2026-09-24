@@ -18,7 +18,7 @@ void main() {
         _proxy('vless', {'uuid': 'uuid'}),
         _proxy('trojan', {'password': 'secret'}),
         _proxy('anytls', {'password': 'secret'}),
-        _proxy('hysteria', {'auth-str': 'secret'}),
+        _proxy('hysteria', {'auth-str': 'secret', 'up': '10', 'down': '50'}),
         _proxy('hysteria2', {'password': 'secret'}),
         _proxy('tuic', {'token': 'secret'}),
         _proxy('snell', {'psk': 'secret'}),
@@ -50,7 +50,7 @@ void main() {
         'vless': {'uuid': 'uuid'},
         'trojan': {'password': 'secret'},
         'anytls': {'password': 'secret'},
-        'hysteria': {'auth-str': 'secret'},
+        'hysteria': {'auth-str': 'secret', 'up': '10', 'down': '50'},
         'hysteria2': {'password': 'secret'},
         'tuic': {'uuid': 'uuid', 'password': 'secret'},
         'snell': {'psk': 'secret'},
@@ -72,7 +72,7 @@ void main() {
 
       expect(
         ProxyNodeUsagePolicy.isRunnableProxyMap(
-          _proxy('hysteria', {'auth': 'secret'}),
+          _proxy('hysteria', {'auth': 'c2VjcmV0', 'up': '10', 'down': '50'}),
         ),
         isTrue,
       );

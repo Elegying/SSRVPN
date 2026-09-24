@@ -181,9 +181,21 @@ mixin _ClashRuntimeSupport {
       if (await canBind(port)) return port;
     }
 
-    for (var attempt = 0; attempt < _maxEphemeralPortAttempts; attempt++) {
-      final port = await allocateEphemeralPortCandidate();
-      if (reserved.contains(port)) continue;
+    // TCP port 0 allocation may repeatedly stay inside a UDP/IPv6 exclusion
+    // range (notably Hyper-V on Windows). Use it once, then spread bounded,
+    // distinct candidates across the unprivileged range and probe all stacks.
+    final tried = {...reserved, ...candidates};
+    try {
+      final ephemeral = await allocateEphemeralPortCandidate();
+      if (tried.add(ephemeral) && await canBind(ephemeral)) return ephemeral;
+    } on SocketException {
+      // Exhaustion of the OS's dynamic pool need not exhaust other ports.
+    }
+    final fallback = [
+      for (var port = 1024; port <= 65535; port++)
+        if (!tried.contains(port)) port,
+    ]..shuffle(Random());
+    for (final port in fallback.take(_maxEphemeralPortAttempts - 1)) {
       if (await canBind(port)) return port;
     }
     throw StateError(failureMessage);
@@ -344,6 +356,32 @@ mixin _ClashRuntimeSupport {
 
 /// Reads are bound to one runtime. A late reply must not describe its replacement.
 extension _ControllerReads on ClashServiceBase {
+  // Future.timeout alone leaves the underlying socket alive. This is also
+  // needed for mutations and connection cleanup, not just status polling.
+  Future<http.Response> _sendControllerRequest(
+    http.Client client,
+    String method,
+    String url, {
+    String? body,
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    final abort = Completer<void>();
+    try {
+      final request = http.AbortableRequest(method, Uri.parse(url),
+          abortTrigger: abort.future)
+        ..headers.addAll(apiHeaders(json: body != null))
+        ..followRedirects = false;
+      if (body != null) request.body = body;
+      return await client
+          .send(request)
+          .then(http.Response.fromStream)
+          .timeout(timeout);
+    } finally {
+      abort.complete();
+      await abort.future;
+    }
+  }
+
   Future<Map<String, dynamic>?> _readControllerObject(
     String path, {
     Duration timeout = const Duration(seconds: 5),

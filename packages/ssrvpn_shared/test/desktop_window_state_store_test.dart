@@ -75,6 +75,32 @@ void main() {
     expect(errors, isEmpty);
   });
 
+  test('overlapping resize saves commit the latest complete bounds', () async {
+    final bounds =
+        List.generate(30, (i) => Rect.fromLTWH(24.0 + i, 48.0 + i, 440, 720));
+    await Future.wait(bounds.map(store.save));
+    expect(await store.load(), bounds.last);
+    expect(errors, isEmpty);
+    expect(await File('${stateFile.path}.tmp').exists(), isFalse);
+  });
+
+  test('clear follows pending saves and permits a later save', () async {
+    const before = Rect.fromLTWH(1, 2, 440, 720);
+    const after = Rect.fromLTWH(3, 4, 440, 720);
+    await Future.wait([store.save(before), store.clear()]);
+    expect(await store.load(), isNull);
+    await store.save(after);
+    expect(await store.load(), after);
+    expect(errors, isEmpty);
+  });
+
+  test('load waits for the latest pending resize', () async {
+    const bounds = Rect.fromLTWH(11, 12, 440, 720);
+    final write = store.save(bounds);
+    expect(await store.load(), bounds);
+    await write;
+  });
+
   test('backs up malformed state and returns no bounds', () async {
     await stateFile.writeAsString('{not-json');
 
