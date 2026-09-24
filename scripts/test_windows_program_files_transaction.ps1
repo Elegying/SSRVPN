@@ -1,3 +1,5 @@
+param([ValidateSet('HKCU', 'HKLM')][string]$UninstallRegistryRoot = 'HKCU')
+
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
@@ -28,13 +30,19 @@ $uninstallRegistrySubkey =
 $desktopShortcutPath = Join-Path $testRoot 'desktop\SSRVPN.lnk'
 $startMenuShortcutPath = Join-Path $testRoot 'start-menu\SSRVPN.lnk'
 $lockedStream = $null
+$fixtureRegistryRoot = if ($UninstallRegistryRoot -eq 'HKLM') {
+  [Microsoft.Win32.Registry]::LocalMachine
+} else {
+  [Microsoft.Win32.Registry]::CurrentUser
+}
 
 function Invoke-Transaction {
   param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('Begin', 'Recover', 'Clear', 'Validate', 'Commit', 'Discard')]
     [string]$Action,
-    [switch]$ExpectFailure
+    [switch]$ExpectFailure,
+    [string]$RegistryRoot = $UninstallRegistryRoot
   )
 
   New-Item -ItemType Directory -Path $statusRoot -Force | Out-Null
@@ -49,6 +57,7 @@ function Invoke-Transaction {
       '-RecoveryRoot', $recoveryRoot,
       '-StatusPath', $statusPath,
       '-UninstallRegistrySubkey', $uninstallRegistrySubkey,
+      '-UninstallRegistryRoot', $RegistryRoot,
       '-DesktopShortcutPath', $desktopShortcutPath,
       '-StartMenuShortcutPath', $startMenuShortcutPath,
       '-ExpectedPayloadManifestPath', $expectedPayloadManifestPath
@@ -137,7 +146,7 @@ function Set-TestUninstallMetadata {
     [Parameter(Mandatory = $true)][byte]$Marker
   )
 
-  $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey(
+  $key = $fixtureRegistryRoot.CreateSubKey(
     $uninstallRegistrySubkey)
   try {
     $key.SetValue(
@@ -154,11 +163,11 @@ function Set-TestUninstallMetadata {
 }
 
 function Remove-TestUninstallMetadata {
-  $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
+  $key = $fixtureRegistryRoot.OpenSubKey(
     $uninstallRegistrySubkey, $false)
   if ($null -eq $key) { return }
   $key.Close()
-  [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree(
+  $fixtureRegistryRoot.DeleteSubKeyTree(
     $uninstallRegistrySubkey)
 }
 
@@ -169,7 +178,7 @@ function Assert-TestUninstallMetadata {
     [Parameter(Mandatory = $true)][string]$Message
   )
 
-  $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
+  $key = $fixtureRegistryRoot.OpenSubKey(
     $uninstallRegistrySubkey, $false)
   if ($null -eq $key) { throw $Message }
   try {
@@ -188,7 +197,7 @@ function Assert-TestUninstallMetadata {
 function Assert-TestUninstallMetadataAbsent {
   param([Parameter(Mandatory = $true)][string]$Message)
 
-  $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
+  $key = $fixtureRegistryRoot.OpenSubKey(
     $uninstallRegistrySubkey, $false)
   if ($null -ne $key) {
     $key.Close()
@@ -279,6 +288,50 @@ try {
     'no-op recovery did not restore the Start Menu shortcut.'
   if (@(Get-RecoveryArtifacts).Count -ne 0) {
     throw 'an intact current program did not finalize recovery as a no-op.'
+  }
+
+  Invoke-Transaction -Action Begin
+  $scopeState = Get-Content -LiteralPath (Join-Path $recoveryRoot 'state.json') `
+    -Encoding UTF8 -Raw | ConvertFrom-Json
+  if ($scopeState.uninstallRegistryRoot -cne $UninstallRegistryRoot) {
+    throw 'Recovery did not bind the actual uninstall registry scope.'
+  }
+  $otherScope = if ($UninstallRegistryRoot -eq 'HKLM') { 'HKCU' } else { 'HKLM' }
+  Invoke-Transaction -Action Recover -RegistryRoot $otherScope -ExpectFailure
+  Assert-TestUninstallMetadata -ExpectedVersion 'old-registry-version' `
+    -ExpectedMarker 1 -Message 'A mismatched registry root changed metadata.'
+  Assert-RecoveryPhase -ExpectedPhase 'prepared'
+  Invoke-Transaction -Action Recover
+
+  if ($UninstallRegistryRoot -eq 'HKCU') {
+    # Recreate the exact v2 document shape from an older installer. New
+    # elevated setup must preserve the backup if old HKLM evidence is missing;
+    # an explicitly HKCU recovery still understands the old document shape.
+    Invoke-Transaction -Action Begin
+    foreach ($documentName in @(
+        'state.json', 'manifest.json', 'uninstall-registry.json', 'external-files.json'
+      )) {
+      $documentPath = Join-Path $recoveryRoot $documentName
+      $legacyDocument = Get-Content -LiteralPath $documentPath -Encoding UTF8 -Raw |
+        ConvertFrom-Json
+      $legacyDocument.schemaVersion = 2
+      if ($documentName -eq 'state.json') {
+        $legacyDocument.PSObject.Properties.Remove('uninstallRegistryRoot')
+        $legacyDocument.PSObject.Properties.Remove('uninstallRegistryView')
+      }
+      Write-TestFile $documentPath ($legacyDocument | ConvertTo-Json -Depth 8)
+    }
+    Set-TestUninstallMetadata -Version 'interrupted-legacy-update' -Marker 8
+    Write-TestFile (Join-Path $installDir 'ssrvpn_windows.exe') 'partial-legacy-update'
+    Invoke-Transaction -Action Recover -RegistryRoot HKLM -ExpectFailure
+    Assert-RecoveryPhase -ExpectedPhase 'prepared'
+    Assert-Text (Join-Path $installDir 'ssrvpn_windows.exe') 'partial-legacy-update' `
+      'Missing machine registry evidence allowed a partial legacy rollback.'
+    Invoke-Transaction -Action Recover -RegistryRoot HKCU
+    Assert-TestUninstallMetadata -ExpectedVersion 'old-registry-version' `
+      -ExpectedMarker 1 -Message 'Legacy recovery did not restore its recorded HKCU scope.'
+    Assert-Text (Join-Path $installDir 'ssrvpn_windows.exe') 'old-launcher' `
+      'Legacy v2 recovery did not restore the program.'
   }
 
   $oversizedSourceRoot = Join-Path $installDir 'oversized-depth'
@@ -537,4 +590,4 @@ try {
   Remove-TestUninstallMetadata
 }
 
-Write-Host 'Windows program-file transaction fault injection passed.'
+Write-Host "Windows program-file transaction fault injection passed ($UninstallRegistryRoot)."

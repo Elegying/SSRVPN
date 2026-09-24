@@ -630,6 +630,7 @@ function New-PendingProgramFileTransaction {
     -RecoveryRoot $programRecoveryRoot `
     -StatusPath $statusPath `
     -UninstallRegistrySubkey $uninstallRegistrySubkey `
+    -UninstallRegistryRoot HKLM `
     -DesktopShortcutPath $desktopShortcutPath `
     -StartMenuShortcutPath $startMenuShortcutPath
   if ($LASTEXITCODE -ne 0) {
@@ -642,6 +643,98 @@ function New-PendingProgramFileTransaction {
   }
   if (-not (Test-Path -LiteralPath $programRecoveryRoot -PathType Container)) {
     throw 'Program transaction helper did not publish its durable recovery root.'
+  }
+}
+
+function Get-MachineUninstallSnapshot {
+  $properties = (Get-ItemProperty -LiteralPath $currentUninstallRegistryPath).PSObject.Properties
+  return (@($properties | Where-Object { $_.Name -notmatch '^PS' } |
+    Sort-Object Name | ForEach-Object {
+      [ordered]@{ name = $_.Name; value = $_.Value }
+    }) | ConvertTo-Json -Depth 8 -Compress)
+}
+
+function Test-PreCommitFailureRollback {
+  # Only this disposable CI copy contains fault injection. Production source
+  # and the normal installer are never changed, and expose no fault switch.
+  $sourceProject = Join-Path (Split-Path -Path $PSScriptRoot -Parent) 'SSRVPN_Windows'
+  $faultRoot = Join-Path $logDir 'pre-commit-fault'
+  $faultProject = Join-Path $faultRoot 'project'
+  $faultTool = Join-Path $faultProject 'tool'
+  $faultResources = Join-Path $faultProject 'windows\runner\resources'
+  New-Item -ItemType Directory -Path $faultTool, $faultResources -Force | Out-Null
+  Copy-Item -LiteralPath (Join-Path $sourceProject 'installer') `
+    -Destination (Join-Path $faultProject 'installer') -Recurse
+  Copy-Item -LiteralPath (Join-Path $sourceProject 'tool\build_installer.ps1') `
+    -Destination $faultTool
+  Copy-Item -LiteralPath (Join-Path $sourceProject 'windows\runner\resources\app_icon.ico') `
+    -Destination $faultResources
+  $faultHelper = Join-Path $faultProject 'installer\program_files_transaction.ps1'
+  $sourceText = [IO.File]::ReadAllText($faultHelper)
+  $entry = 'function Commit-ProgramFilesTransaction {'
+  if ([regex]::Matches($sourceText, [regex]::Escape($entry)).Count -ne 1) {
+    throw 'Commit fault-injection boundary is ambiguous.'
+  }
+  $injection = @'
+
+  $injectedKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($script:uninstallRegistrySubkey)
+  try { $injectedVersion = [string]$injectedKey.GetValue('DisplayVersion') }
+  finally { $injectedKey.Close() }
+  if ($injectedVersion -cne '9.9.9') { throw 'Fault injection did not reach new HKLM metadata.' }
+  throw 'Injected pre-commit failure after HKLM metadata replacement.'
+'@
+  [IO.File]::WriteAllText($faultHelper, $sourceText.Replace($entry, $entry + $injection),
+    [Text.UTF8Encoding]::new($false))
+  & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
+    -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+    -File (Join-Path $faultTool 'build_installer.ps1') `
+    -SourceDir (Join-Path $sourceProject 'SSRVPN_Windows_Release') `
+    -OutputDir $faultRoot -Version '9.9.9'
+  if ($LASTEXITCODE -ne 0) { throw 'Could not build the isolated fault-injection installer.' }
+
+  $beforeRegistry = Get-MachineUninstallSnapshot
+  $beforeFiles = @{}
+  foreach ($path in @(
+      (Join-Path $installDir 'ssrvpn_windows.exe'),
+      (Join-Path $installDir 'bin\ssrvpn_windows_app.exe'),
+      (Join-Path $installDir 'unins000.exe'),
+      $programTransactionHelper, $desktopShortcutPath, $startMenuShortcutPath
+    )) {
+    $beforeFiles[$path] = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+  }
+  if (Test-Path -LiteralPath $uninstallRegistryPath) {
+    throw 'Refusing to replace a preexisting HKCU fault-test sentinel.'
+  }
+  New-Item -Path $uninstallRegistryPath -Force | Out-Null
+  Set-ItemProperty -LiteralPath $uninstallRegistryPath -Name 'NonTargetSentinel' -Value 'preserve-hkcu'
+  try {
+    $faultLog = Join-Path $logDir 'pre-commit-failure.log'
+    $faultExit = Invoke-SmokeProcess -FilePath (Join-Path $faultRoot 'SSRVPN_Setup.exe') `
+      -Phase 'pre-commit rollback' -LogPath $faultLog -ArgumentList @(
+        '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/LOG=$faultLog"
+      )
+    $faultLogText = [IO.File]::ReadAllText($faultLog)
+    if (-not $faultLogText.Contains('Injected pre-commit failure after HKLM metadata replacement.') -or
+        -not $faultLogText.Contains('action=Recover exit=0')) {
+      throw "The installer did not exercise verified rollback after new HKLM metadata (exit=$faultExit)."
+    }
+    if ((Get-MachineUninstallSnapshot) -cne $beforeRegistry) {
+      throw 'Pre-commit rollback left new HKLM metadata alongside restored old files.'
+    }
+    if ((Get-ItemProperty -LiteralPath $uninstallRegistryPath).NonTargetSentinel -cne 'preserve-hkcu') {
+      throw 'Machine rollback changed the non-target HKCU uninstall entry.'
+    }
+    foreach ($path in $beforeFiles.Keys) {
+      if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -cne $beforeFiles[$path]) {
+        throw "Pre-commit rollback did not restore the exact file: $path"
+      }
+    }
+    if (Test-Path -LiteralPath $programRecoveryRoot) {
+      throw 'Verified pre-commit rollback left an unfinished transaction.'
+    }
+    Write-Host 'Real installer pre-commit rollback preserved HKLM64, HKCU, binaries and shortcuts.'
+  } finally {
+    Remove-Item -LiteralPath $uninstallRegistryPath -Recurse -Force
   }
 }
 
@@ -723,6 +816,8 @@ try {
     -ExpectedVersion $windowsPeVersion `
     -ExpectedInternalName 'ssrvpn_windows_app' `
     -ExpectedOriginalFilename 'ssrvpn_windows_app.exe'
+
+  Test-PreCommitFailureRollback
 
   # The first upgrade from v4.0.14 cannot carry a v2 app-owned marker. Even
   # with the canonical versioned name, that manually supplied package must be

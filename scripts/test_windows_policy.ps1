@@ -21,15 +21,22 @@ function Invoke-WindowsPolicyTest {
   }
 }
 
+$transactionRelativePath = 'scripts\test_windows_program_files_transaction.ps1'
 foreach ($relativePath in @(
     'scripts\test_windows_powershell51_compatibility.ps1',
     'scripts\test_windows_proxy_ownership.ps1',
     'scripts\test_windows_installer_runtime.ps1',
-    'scripts\test_windows_program_files_transaction.ps1',
+    $transactionRelativePath,
     'scripts\test_windows_package_payload_guard.ps1'
   )) {
   Invoke-WindowsPolicyTest -ScriptPath (Join-Path $root $relativePath)
 }
+
+$transactionTest = Join-Path $root $transactionRelativePath
+# Hosted CI is elevated, so exercise the actual machine uninstall metadata
+# scope as well as the isolated HKCU compatibility fixtures above.
+Invoke-WindowsPolicyTest -ScriptPath $transactionTest `
+  -Arguments @('-UninstallRegistryRoot', 'HKLM')
 
 $smokeRoot = Join-Path $temporaryRoot 'ssrvpn-process-smoke'
 Invoke-WindowsPolicyTest `

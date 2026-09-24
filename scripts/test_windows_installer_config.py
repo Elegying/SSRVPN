@@ -908,6 +908,14 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "[System.StringComparison]::OrdinalIgnoreCase", helper
         )
         self.assertIn(" -UninstallRegistrySubkey ", installer)
+        # Admin-mode Inno writes its uninstall entry in HKLM. Backup/restore
+        # must operate on that same hive, not the old per-user install scope.
+        self.assertIn("PrivilegesRequired=admin", installer)
+        self.assertIn(" -UninstallRegistryRoot HKLM", installer)
+        self.assertIn("[Microsoft.Win32.RegistryHive]::LocalMachine", helper)
+        self.assertIn("[Microsoft.Win32.RegistryView]::Registry64", helper)
+        self.assertIn("'/reg:64'", helper)
+        self.assertIn("$state.uninstallRegistryRoot -ine $UninstallRegistryRoot", helper)
         self.assertIn(" -DesktopShortcutPath ", installer)
         self.assertIn(" -StartMenuShortcutPath ", installer)
         self.assertLess(
@@ -1673,6 +1681,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "APP_STILL_RUNNING",
             "PROXY_UNSAFE",
             "PROCESSES_STILL_RUNNING",
+            "TUN_OWNERSHIP_UNVERIFIED",
             "TUN_TEARDOWN_PENDING",
             "PID_CLEANUP_FAILED",
             "RECOVERY_CLEANUP_PENDING",
@@ -1785,7 +1794,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         capture_failure = runtime_flow[capture:first_stop]
         self.assertIn("if ($installedProcessRunning)", capture_failure)
         self.assertIn(
-            "Set-StopStatus -Status 'TUN_TEARDOWN_PENDING'", capture_failure
+            "Set-StopStatus -Status 'TUN_OWNERSHIP_UNVERIFIED'", capture_failure
         )
         self.assertIn("exit 3", capture_failure)
         remaining_processes = runtime_flow.index("$remainingApps = @(")
@@ -1800,10 +1809,12 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             post_capture_failure,
         )
         self.assertIn(
-            "Set-StopStatus -Status 'TUN_TEARDOWN_PENDING'",
+            "Set-StopStatus -Status 'TUN_OWNERSHIP_UNVERIFIED'",
             post_capture_failure,
         )
         self.assertIn("exit 3", post_capture_failure)
+        self.assertIn("-KnownInterfaces $tunOwnership", post_capture_failure)
+        self.assertIn("SetupLogging=yes", installer)
         success = runtime_flow.index("Set-StopStatus -Status 'OK'")
         self.assertLess(capture, first_stop)
         self.assertLess(remaining_processes, post_stop_capture)

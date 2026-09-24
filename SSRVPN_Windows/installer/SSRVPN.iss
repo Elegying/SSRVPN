@@ -51,6 +51,7 @@ UninstallDisplayIcon={app}\ssrvpn_windows.exe
 UninstallDisplayName=SSRVPN
 Compression=lzma2/ultra64
 SolidCompression=yes
+SetupLogging=yes
 WizardStyle=modern
 CloseApplications=no
 RestartApplications=no
@@ -338,6 +339,7 @@ begin
     (Status = 'APP_STILL_RUNNING') or
     (Status = 'PROXY_UNSAFE') or
     (Status = 'PROCESSES_STILL_RUNNING') or
+    (Status = 'TUN_OWNERSHIP_UNVERIFIED') or
     (Status = 'TUN_TEARDOWN_PENDING') or
     (Status = 'PID_CLEANUP_FAILED') or
     (Status = 'RECOVERY_CLEANUP_PENDING') or
@@ -453,6 +455,7 @@ begin
       ' -RecoveryRoot ' + AddQuotes(ProgramFilesRecoveryRoot) +
       ' -StatusPath ' + AddQuotes(StatusPath) +
       ' -UninstallRegistrySubkey ' + AddQuotes(UninstallRegistryKey) +
+      ' -UninstallRegistryRoot HKLM' +
       ' -DesktopShortcutPath ' +
         AddQuotes(ExpandConstant('{commondesktop}\SSRVPN.lnk')) +
       ' -StartMenuShortcutPath ' +
@@ -656,6 +659,21 @@ begin
       StopStatusDiagnostic + #13#10 +
       '请退出所有 SSRVPN 窗口和托盘实例后重试；如果仍然失败，' +
       '请重启 Windows 后再次安装。';
+  end
+  else if LastStopStatus = 'TUN_OWNERSHIP_UNVERIFIED' then
+  begin
+    ReleaseInstallGates;
+    Result := '无法解析或确认 SSRVPN 虚拟网卡状态，安装尚未修改程序文件。' + #13#10 +
+      StopStatusDiagnostic + #13#10 +
+      '请先在客户端断开连接并退出后重试。若仍失败，请保留安装日志反馈，' +
+      '不要手动删除网络恢复记录。';
+  end
+  else if LastStopStatus = 'TUN_TEARDOWN_PENDING' then
+  begin
+    ReleaseInstallGates;
+    Result := 'SSRVPN 虚拟网卡的 IP 或路由尚未确认释放，安装尚未修改程序文件。' + #13#10 +
+      StopStatusDiagnostic + #13#10 +
+      '请稍后重试；如果仍然失败，请重启 Windows 后再次安装。';
   end
   else if StopResult = 3 then
   begin
@@ -901,6 +919,15 @@ begin
         StopStatusDiagnostic + #13#10 +
         '请退出所有 SSRVPN 窗口和托盘实例后重试；如果仍然失败，' +
         '请重启 Windows 后再次卸载。', mbError, MB_OK)
+    else if LastStopStatus = 'TUN_OWNERSHIP_UNVERIFIED' then
+      MsgBox('无法解析或确认 SSRVPN 虚拟网卡状态，卸载尚未删除程序文件。' + #13#10 +
+        StopStatusDiagnostic + #13#10 +
+        '请先在客户端断开连接并退出后重试。若仍失败，请保留诊断阶段码反馈，' +
+        '不要手动删除网络恢复记录。', mbError, MB_OK)
+    else if LastStopStatus = 'TUN_TEARDOWN_PENDING' then
+      MsgBox('SSRVPN 虚拟网卡的 IP 或路由尚未确认释放，卸载尚未删除程序文件。' + #13#10 +
+        StopStatusDiagnostic + #13#10 +
+        '请稍后重试；如果仍然失败，请重启 Windows 后再次卸载。', mbError, MB_OK)
     else if StopResult = 3 then
       MsgBox('无法确认 SSRVPN 进程归属或安全恢复系统代理，卸载尚未删除程序文件。' + #13#10 +
         StopStatusDiagnostic + #13#10 +

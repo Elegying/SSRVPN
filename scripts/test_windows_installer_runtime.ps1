@@ -297,6 +297,7 @@ param(
     'unknown-empty-marker',
     'foreign-same-name',
     'owned-marker-pending',
+    'owned-phantom',
     'legacy-signature-pending',
     'legacy-signature-numeric',
     'legacy-foreign-same-name',
@@ -344,7 +345,8 @@ function Get-NetAdapter {
       ifIndex = 4343
       InterfaceGuid = $global:SsrvpnForeignTunGuid
     }
-  } elseif ($global:SsrvpnTestProbeMode -eq 'owned-marker-pending') {
+  } elseif ($global:SsrvpnTestProbeMode -eq 'owned-marker-pending' -or
+      $global:SsrvpnTestProbeMode -eq 'owned-phantom') {
     [pscustomobject]@{
       Name = 'Unrelated Display Name'
       ifIndex = 4242
@@ -358,7 +360,8 @@ function Get-NetIPAddress {
   param()
 
   $global:SsrvpnTestAddressCalls++
-  if ($global:SsrvpnTestProbeMode -eq 'late-pending' -or
+  if (($global:SsrvpnTestProbeMode -eq 'late-pending' -and
+      $global:SsrvpnTestAddressCalls -ge 2) -or
       ($global:SsrvpnTestProbeMode -eq 'sequence' -and
       $global:SsrvpnTestAddressCalls -eq 1) -or
       $global:SsrvpnLegacySignatureModes -contains
@@ -384,7 +387,8 @@ function Get-NetRoute {
   param()
 
   $global:SsrvpnTestRouteCalls++
-  if ($global:SsrvpnTestProbeMode -eq 'late-pending' -or
+  if (($global:SsrvpnTestProbeMode -eq 'late-pending' -and
+      $global:SsrvpnTestRouteCalls -ge 2) -or
       ($global:SsrvpnTestProbeMode -eq 'sequence' -and
       $global:SsrvpnTestRouteCalls -le 2) -or
       $global:SsrvpnLegacySignatureModes -contains
@@ -591,6 +595,31 @@ exit $LASTEXITCODE
   }
   Remove-Item -LiteralPath $tunMarkerPath -Force -ErrorAction Stop
 
+  $phantomCore = Start-Process -FilePath $corePath -PassThru
+  Write-CorePidRecord -PidPath $pidFile -Process $phantomCore -ExpectedCorePath $corePath
+  [System.IO.File]::WriteAllText(
+    $tunMarkerPath,
+    '{"version":3,"interfaces":[{"index":4242,"guid":"11111111-1111-4111-8111-111111111111"}],"baselineInterfaces":[]}',
+    [System.Text.UTF8Encoding]::new($false)
+  )
+  $phantomStatusPath = Join-Path $testRoot 'owned-phantom.status'
+  $stop = Start-Process powershell.exe -ArgumentList @(
+    '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+    '-File', $tunHarnessPath, '-StopScript', $stopScript,
+    '-InstalledAppPath', $appPath, '-InstalledLauncherPath', $launcherPath,
+    '-InstalledCorePath', $corePath, '-InstalledCorePidPath', $pidFile,
+    '-StatusPath', $phantomStatusPath, '-ProbeMode', 'owned-phantom',
+    '-TunTimeoutMilliseconds', 1000
+  ) -Wait -PassThru -WindowStyle Hidden
+  $phantomCore.Refresh()
+  if ($stop.ExitCode -ne 0 -or -not $phantomCore.HasExited -or
+      [System.IO.File]::ReadAllText($phantomStatusPath) -cne 'OK' -or
+      (Test-Path -LiteralPath $pidFile)) {
+    throw 'A v3 marker with an empty phantom adapter blocked a verified upgrade.'
+  }
+  $phantomCore.Dispose()
+  Remove-Item -LiteralPath $tunMarkerPath -Force -ErrorAction Stop
+
   $emptyMarkerCore = Start-Process -FilePath $corePath -PassThru
   $emptyMarkerApp = Start-Process -FilePath $appPath -PassThru
   Start-Sleep -Milliseconds 300
@@ -620,7 +649,7 @@ exit $LASTEXITCODE
   $emptyMarkerApp.Refresh()
   if ($stop.ExitCode -ne 3 -or
       [System.IO.File]::ReadAllText($emptyMarkerStatusPath) -cne
-      'TUN_TEARDOWN_PENDING') {
+      'TUN_OWNERSHIP_UNVERIFIED') {
     throw 'An empty structured TUN marker did not fail closed.'
   }
   if ($emptyMarkerCore.HasExited -or $emptyMarkerApp.HasExited) {
@@ -846,7 +875,7 @@ exit $LASTEXITCODE
     ) -Wait -PassThru -WindowStyle Hidden
     if ($stop.ExitCode -ne 3 -or
         [System.IO.File]::ReadAllText($ambiguousStatusPath) -cne
-        'TUN_TEARDOWN_PENDING' -or
+        'TUN_OWNERSHIP_UNVERIFIED' -or
         [System.IO.File]::ReadAllText($tunMarkerPath) -cne 'pending') {
       throw "Ambiguous legacy evidence $ambiguousMode did not fail closed."
     }
@@ -874,7 +903,7 @@ exit $LASTEXITCODE
   ) -Wait -PassThru -WindowStyle Hidden
   if ($stop.ExitCode -ne 3 -or
       [System.IO.File]::ReadAllText($legacyForeignStatusPath) -cne
-      'TUN_TEARDOWN_PENDING') {
+      'TUN_OWNERSHIP_UNVERIFIED') {
     throw 'Ambiguous legacy TUN ownership did not fail closed.'
   }
   if ([System.IO.File]::ReadAllText($tunMarkerPath) -cne 'pending') {

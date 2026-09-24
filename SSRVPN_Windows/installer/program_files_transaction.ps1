@@ -7,6 +7,7 @@ param(
   [Parameter(Mandatory = $true)][string]$RecoveryRoot,
   [Parameter(Mandatory = $true)][string]$StatusPath,
   [Parameter(Mandatory = $true)][string]$UninstallRegistrySubkey,
+  [ValidateSet('HKCU', 'HKLM')][string]$UninstallRegistryRoot = 'HKCU',
   [Parameter(Mandatory = $true)][string]$DesktopShortcutPath,
   [Parameter(Mandatory = $true)][string]$StartMenuShortcutPath,
   [string]$ExpectedPayloadManifestPath = ''
@@ -15,16 +16,12 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-# Durable phases:
-# - prepared: the verified old program is available for rollback.
-# - validated: the complete new payload was verified before Inno writes its
-#   final uninstall metadata; the old program remains available for rollback.
-# - restored: rollback is verified; only transaction cleanup remains.
-# - committed: the verified new install won; only cleanup remains.
-# Staging and cleanup directories are siblings so directory publication and
-# finalization can use same-volume renames. User-owned bin\ssrvpn never enters
-# the backup and is never removed during rollback.
-$schemaVersion = 2
+# prepared/validated retain rollback; restored/committed need cleanup only.
+# Sibling staging directories allow same-volume atomic publication.
+# User-owned bin\ssrvpn never enters backup or rollback deletion.
+$schemaVersion = 3
+$transactionSchemaVersion = $schemaVersion
+$transactionRegistryRoot = $UninstallRegistryRoot.ToUpperInvariant()
 $preservedDataRelativePath = 'bin\ssrvpn'
 $stateFileName = 'state.json'
 $manifestFileName = 'manifest.json'
@@ -33,10 +30,7 @@ $uninstallRegistrySnapshotFileName = 'uninstall-registry.json'
 $uninstallRegistryExportFileName = 'uninstall-registry.reg'
 $externalFilesSnapshotFileName = 'external-files.json'
 $externalFilesBackupDirectoryName = 'external-files'
-# Resource ceilings are intentionally generous for a Flutter desktop bundle,
-# but finite so a corrupted/tampered install or recovery tree cannot make the
-# installer recurse, allocate, hash, or copy without bound. Keep these limits
-# together: every program inventory, backup, restore, and manifest uses them.
+# All inventories, backups and manifests share these finite resource ceilings.
 $maxMetadataDocumentBytes = 8MB
 $maxProgramRelativePathChars = 1024
 $maxProgramRelativePathDepth = 64
@@ -591,9 +585,7 @@ function Write-JsonAtomic {
     $text = ConvertTo-BoundedJsonText -Value $Value
     [System.IO.File]::WriteAllText($temporary, $text, $script:utf8NoBom)
     if (Test-Path -LiteralPath $Path -PathType Leaf) {
-      # .NET Framework on Windows PowerShell 5.1 rejects a null backup path
-      # for this overload on hosted Windows Server. A unique same-directory
-      # backup preserves the atomic replacement contract and is removed below.
+      # PS 5.1/.NET requires a non-null backup path for atomic replacement.
       [System.IO.File]::Replace($temporary, $Path, $replacementBackup)
     } else {
       [System.IO.File]::Move($temporary, $Path)
@@ -611,12 +603,8 @@ function Write-JsonAtomic {
 function Invoke-RegExe {
   param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
-  # Windows PowerShell 5.1 converts native stderr into ErrorRecord objects.
-  # With the script-wide Stop preference, reg.exe can therefore throw before
-  # LASTEXITCODE is inspected even when it exits 0 (notably, `reg delete` has
-  # emitted "The operation completed successfully" on hosted Windows 2025).
-  # Capture the complete native output under Continue, then decide solely from
-  # the process exit code and the verified registry postconditions.
+  # PS 5.1 can turn reg.exe success text on stderr into terminating errors.
+  # Decide from its exit code and verified postconditions instead.
   $previousErrorActionPreference = $ErrorActionPreference
   try {
     $ErrorActionPreference = 'Continue'
@@ -632,11 +620,21 @@ function Invoke-RegExe {
 }
 
 function Test-UninstallRegistryKeyExists {
-  $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
-    $script:uninstallRegistrySubkey, $false)
-  if ($null -eq $key) { return $false }
-  $key.Close()
-  return $true
+  $hive = if ($script:transactionRegistryRoot -ceq 'HKLM') {
+    [Microsoft.Win32.RegistryHive]::LocalMachine
+  } else {
+    [Microsoft.Win32.RegistryHive]::CurrentUser
+  }
+  $registryRoot = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+    $hive, [Microsoft.Win32.RegistryView]::Registry64)
+  try {
+    $key = $registryRoot.OpenSubKey($script:uninstallRegistrySubkey, $false)
+    if ($null -eq $key) { return $false }
+    $key.Close()
+    return $true
+  } finally {
+    $registryRoot.Close()
+  }
 }
 
 function New-UninstallRegistrySnapshot {
@@ -649,9 +647,9 @@ function New-UninstallRegistrySnapshot {
   if ($exists) {
     Invoke-RegExe -Arguments @(
       'export',
-      "HKCU\$($script:uninstallRegistrySubkey)",
+      "$($script:transactionRegistryRoot)\$($script:uninstallRegistrySubkey)",
       $exportPath,
-      '/y'
+      '/y', '/reg:64'
     )
     $exportItem = Get-PathItem -Path $exportPath
     if ($null -eq $exportItem -or $exportItem.PSIsContainer -or
@@ -686,7 +684,7 @@ function Read-UninstallRegistrySnapshot {
       'schemaVersion', 'subkey', 'exists', 'exportFile', 'length', 'sha256'
     )
   if ($snapshot.schemaVersion -isnot [int] -or
-      [int]$snapshot.schemaVersion -ne $script:schemaVersion -or
+      [int]$snapshot.schemaVersion -ne $script:transactionSchemaVersion -or
       $snapshot.subkey -isnot [string] -or
       $snapshot.exists -isnot [bool] -or
       $snapshot.exportFile -isnot [string] -or
@@ -736,7 +734,12 @@ function Read-UninstallRegistrySnapshot {
   if ($sectionMatches.Count -eq 0) {
     throw 'The uninstall registry export contains no registry key.'
   }
-  $expectedRoot = "HKEY_CURRENT_USER\$($script:uninstallRegistrySubkey)"
+  $hiveName = if ($script:transactionRegistryRoot -ceq 'HKLM') {
+    'HKEY_LOCAL_MACHINE'
+  } else {
+    'HKEY_CURRENT_USER'
+  }
+  $expectedRoot = "$hiveName\$($script:uninstallRegistrySubkey)"
   foreach ($sectionMatch in $sectionMatches) {
     $section = [string]$sectionMatch.Groups[1].Value
     if (-not $section.Equals(
@@ -753,14 +756,12 @@ function Read-UninstallRegistrySnapshot {
 
 function Remove-UninstallRegistryKey {
   if (-not (Test-UninstallRegistryKeyExists)) { return }
-  # RegistryKey.DeleteSubKeyTree can surface a spurious Win32 error 0
-  # ("The operation completed successfully") in this Windows Server 2025
-  # recovery path. Use the already-pinned system reg.exe path and verify the
-  # postcondition instead of relying on that wrapper.
+  # Avoid DeleteSubKeyTree's spurious Win32 error 0 on Windows Server 2025.
+  # Use pinned reg.exe and verify the postcondition.
   Invoke-RegExe -Arguments @(
     'delete',
-    "HKCU\$($script:uninstallRegistrySubkey)",
-    '/f'
+    "$($script:transactionRegistryRoot)\$($script:uninstallRegistrySubkey)",
+    '/f', '/reg:64'
   )
   if (Test-UninstallRegistryKeyExists) {
     throw 'The uninstall registry key could not be removed.'
@@ -775,7 +776,8 @@ function Restore-UninstallRegistrySnapshot {
   Invoke-RegExe -Arguments @(
     'import',
     (Join-Path $script:recoveryRoot `
-      $script:uninstallRegistryExportFileName)
+      $script:uninstallRegistryExportFileName),
+    '/reg:64'
   )
   if (-not (Test-UninstallRegistryKeyExists)) {
     throw 'The uninstall registry key was not restored.'
@@ -785,9 +787,9 @@ function Restore-UninstallRegistrySnapshot {
   try {
     Invoke-RegExe -Arguments @(
       'export',
-      "HKCU\$($script:uninstallRegistrySubkey)",
+      "$($script:transactionRegistryRoot)\$($script:uninstallRegistrySubkey)",
       $verifyPath,
-      '/y'
+      '/y', '/reg:64'
     )
     $verifyItem = Get-PathItem -Path $verifyPath
     if ($null -eq $verifyItem -or $verifyItem.PSIsContainer -or
@@ -861,7 +863,7 @@ function Read-ExternalFilesSnapshot {
     throw 'The external installer metadata snapshot is invalid.'
   }
   $files = @($snapshot.files)
-  if ([int]$snapshot.schemaVersion -ne $script:schemaVersion -or
+  if ([int]$snapshot.schemaVersion -ne $script:transactionSchemaVersion -or
       $files.Count -ne $script:externalFileSpecs.Count) {
     throw 'The external installer metadata snapshot is invalid.'
   }
@@ -969,8 +971,7 @@ function Read-TransactionState {
   $statePath = Join-Path $script:recoveryRoot $script:stateFileName
   $state = Read-BoundedJsonDocument -Path $statePath `
     -Name 'Program-file recovery state'
-  Assert-ExactObjectSchema -Value $state -Name 'Program-file recovery state' `
-    -RequiredProperties @(
+  $requiredStateProperties = @(
       'schemaVersion',
       'phase',
       'installDir',
@@ -978,8 +979,13 @@ function Read-TransactionState {
       'desktopShortcutPath',
       'startMenuShortcutPath'
     )
+  if ($state.schemaVersion -eq 3) {
+    $requiredStateProperties += @('uninstallRegistryRoot', 'uninstallRegistryView')
+  }
+  Assert-ExactObjectSchema -Value $state -Name 'Program-file recovery state' `
+    -RequiredProperties $requiredStateProperties
   if ($state.schemaVersion -isnot [int] -or
-      [int]$state.schemaVersion -ne $script:schemaVersion -or
+      @(2, 3) -notcontains [int]$state.schemaVersion -or
       $state.phase -isnot [string] -or
       $state.installDir -isnot [string] -or
       $state.uninstallRegistrySubkey -isnot [string] -or
@@ -996,6 +1002,26 @@ function Read-TransactionState {
         -cnotcontains $state.phase) {
     throw 'Program-file recovery state is invalid.'
   }
+  if ($state.schemaVersion -eq 3) {
+    if ($state.uninstallRegistryRoot -isnot [string] -or
+        @('HKCU', 'HKLM') -cnotcontains $state.uninstallRegistryRoot -or
+        $state.uninstallRegistryRoot -ine $UninstallRegistryRoot -or
+        $state.uninstallRegistryView -isnot [string] -or
+        $state.uninstallRegistryView -cne '64') {
+      throw 'Program-file recovery registry root does not match this installer.'
+    }
+    $script:transactionRegistryRoot = $state.uninstallRegistryRoot
+  } else {
+    # v2 backups contain HKCU only, even when made by an elevated installer.
+    # Recover exactly that recorded scope; never replay a legacy export into
+    # HKLM or fabricate the machine snapshot missing from old transactions.
+    if ($UninstallRegistryRoot -eq 'HKLM' -and
+        @('committed', 'restored') -cnotcontains [string]$state.phase) {
+      throw 'Legacy recovery has no machine uninstall registry snapshot; recovery files were preserved.'
+    }
+    $script:transactionRegistryRoot = 'HKCU'
+  }
+  $script:transactionSchemaVersion = [int]$state.schemaVersion
   return $state
 }
 
@@ -1007,7 +1033,7 @@ function Read-Manifest {
     -Name 'Program-file recovery manifest' `
     -RequiredProperties @('schemaVersion', 'files')
   if ($manifest.schemaVersion -isnot [int] -or
-      [int]$manifest.schemaVersion -ne $script:schemaVersion -or
+      [int]$manifest.schemaVersion -ne $script:transactionSchemaVersion -or
       $manifest.files -isnot [System.Array]) {
     throw 'Program-file recovery manifest version is invalid.'
   }
@@ -1161,9 +1187,7 @@ function Remove-CurrentProgramFiles {
   if (-not $installItem.PSIsContainer -or (Test-ReparsePoint -Item $installItem)) {
     throw 'Install directory is not a real directory.'
   }
-  # Inventory immediately before deletion. This repeats the bounded traversal
-  # at the destructive boundary so a tree that changed after Begin cannot make
-  # cleanup recurse through an unbounded number of entries.
+  # Recheck bounds immediately before deletion; the tree may change after Begin.
   [void](Get-ProgramInventory -Root $script:installDir -ExcludePreservedData)
   foreach ($child in @(Get-ChildItem -LiteralPath $script:installDir -Force)) {
     Remove-ProgramEntry -Path $child.FullName
@@ -1194,15 +1218,20 @@ function Write-FinalizedState {
     [string]$Phase
   )
 
-  Write-JsonAtomic -Path (Join-Path $script:recoveryRoot $script:stateFileName) `
-    -Value ([pscustomobject][ordered]@{
-      schemaVersion = $script:schemaVersion
+  $state = [ordered]@{
+      schemaVersion = $script:transactionSchemaVersion
       phase = $Phase
       installDir = $script:installDir
       uninstallRegistrySubkey = $script:uninstallRegistrySubkey
       desktopShortcutPath = $script:desktopShortcutPath
       startMenuShortcutPath = $script:startMenuShortcutPath
-    })
+    }
+  if ($script:transactionSchemaVersion -eq 3) {
+    $state.uninstallRegistryRoot = $script:transactionRegistryRoot
+    $state.uninstallRegistryView = '64'
+  }
+  Write-JsonAtomic -Path (Join-Path $script:recoveryRoot $script:stateFileName) `
+    -Value ([pscustomobject]$state)
 }
 
 function Remove-FinalizedTree {
@@ -1317,9 +1346,7 @@ function Begin-ProgramFilesTransaction {
       schemaVersion = $script:schemaVersion
       files = @($sourceInventory)
     }
-    # Serialize the complete bounded inventory before copying a byte. This is
-    # the metadata-size preflight and prevents a large/pathological tree from
-    # being copied only to discover that its durable manifest cannot be stored.
+    # Verify the bounded manifest can be stored before copying any program bytes.
     Write-JsonAtomic -Path (Join-Path $stageRoot $script:manifestFileName) `
       -Value $manifestValue
     if ($null -ne $installItem) {
@@ -1343,6 +1370,8 @@ function Begin-ProgramFilesTransaction {
         phase = 'prepared'
         installDir = $script:installDir
         uninstallRegistrySubkey = $script:uninstallRegistrySubkey
+        uninstallRegistryRoot = $script:transactionRegistryRoot
+        uninstallRegistryView = '64'
         desktopShortcutPath = $script:desktopShortcutPath
         startMenuShortcutPath = $script:startMenuShortcutPath
       })
@@ -1507,7 +1536,7 @@ try {
       $UninstallRegistrySubkey -cne $UninstallRegistrySubkey.Trim() -or
       $UninstallRegistrySubkey -notmatch
         '(?i)\ASoftware\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\[^\\\r\n]+\z') {
-    throw 'UninstallRegistrySubkey is outside the per-user uninstall key.'
+    throw 'UninstallRegistrySubkey is outside the uninstall key.'
   }
   $script:uninstallRegistrySubkey = $UninstallRegistrySubkey
   $script:desktopShortcutPath = Get-SafeMetadataFilePath `
