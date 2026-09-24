@@ -74,7 +74,7 @@ ad-hoc 身份不能跨构建稳定复用，因此 macOS 长期 API secret 保持
 
 ## Windows：固定未签名
 
-Windows 只发布 Inno Setup 每用户安装器并生成 SHA256。Release workflow
+Windows 只发布 Inno Setup 管理员安装器（默认程序目录位于当前用户 LocalAppData）并生成 SHA256。Release workflow
 不导入 PFX、不调用 `signtool.exe`，打包脚本也不读取 Authenticode 环境变量。
 
 SmartScreen 或浏览器可能显示“未知发布者”。用户只有在正式来源和 SHA256 都匹配时才应

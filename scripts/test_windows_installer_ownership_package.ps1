@@ -245,7 +245,9 @@ try {
   # Reproduce the actual 5.0.19 public package, not a source-string check or a
   # helper substitute. It must fail in Begin and leave the old install intact.
   $published5019 = Join-Path $root 'official-v5.0.19.exe'
-  & curl.exe -q --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --retry 3 --max-time 180 --output $published5019 https://github.com/Elegying/SSRVPN/releases/download/v5.0.19/SSRVPN_Setup.exe
+  # Immutable archive of the original public package; the exact original digest
+  # below remains authoritative after retiring old GitHub Release listings.
+  & curl.exe -q --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --retry 3 --max-time 180 --output $published5019 https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases/v5.0.19/SSRVPN_Setup.exe
   if ($LASTEXITCODE -ne 0 -or (Get-FileHash -LiteralPath $published5019).Hash.ToLowerInvariant() -cne '318cea6884f9652fb653f6c304fd9aa7e8cefbc587a95a85ed7d7960b3c80da9') { throw 'Official 5.0.19 identity mismatch.' }
   $before = Snapshot 'max-path-red-before'
   if ((Run-Installer $published5019 'max-path-red-public-5019') -eq 0) { throw 'Public 5.0.19 did not reproduce MAX_PATH failure.' }

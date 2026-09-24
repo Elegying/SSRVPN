@@ -1,11 +1,9 @@
 # SSRVPN Windows
 
-[![CI](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml/badge.svg)](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml)
-
 SSRVPN Windows 客户端支持系统代理、TUN、系统托盘与在线更新。安装后的客户端默认请求
 Windows 管理员权限，因此每次启动都会显示 UAC；授权后系统代理与 TUN 均在同一管理员
 实例中运行。安装完成后不会自动启动客户端，用户需从桌面或开始菜单自行打开并确认 UAC。
-Windows 对外只发布每用户安装器 `SSRVPN_Setup.exe`；不再构建或发布便携 ZIP。
+Windows 对外只发布 `SSRVPN_Setup.exe`，使用管理员安装模式，默认程序目录位于当前用户的 LocalAppData；不发布便携 ZIP。
 
 [下载正式版](https://github.com/Elegying/SSRVPN/releases/latest) · [用户指南](USER_GUIDE.md) · [获取帮助](../SUPPORT.md) · [返回主项目](../README.md)
 
@@ -13,12 +11,13 @@ Windows 对外只发布每用户安装器 `SSRVPN_Setup.exe`；不再构建或�
 
 - Flutter SDK **3.44.1**，其他 stable 版本不能替代；
 - Visual Studio 2022，安装“使用 C++ 的桌面开发”工作负载；
-- Inno Setup 6.5 或更高版本；
+- Inno Setup 6.5 或更高版本（5.0.20 的 CI 安装验收使用 6.7.1）；
 - Windows 10 1507（build 10240）或更高版本的 x64 Windows。
 
 ## 构建安装器
 
-在 Windows PowerShell 5.1 中运行：
+先在仓库根目录通过 `make assets`（Git Bash / WSL）获取并校验固定资源，再进入
+`SSRVPN_Windows`，在 Windows PowerShell 5.1 中运行：
 
 ```powershell
 flutter pub get
@@ -51,16 +50,18 @@ powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass `
 
 ## 安装数据边界
 
-安装器要求 Windows 10 1507（build 10240）或更高版本，并固定写入
-`%LOCALAPPDATA%\Programs\SSRVPN`。为验证并结束以管理员权限运行的旧实例，安装阶段会
-请求 Windows 管理员授权；安装目录仍是每用户 LocalAppData，不会写入 Program Files。
-清理只匹配当前安装目录中三个精确可执行路径：应用、启动器和随包 Mihomo，并在结束前再次
-核对 PID、会话、路径与创建时间；不会按 Clash、OpenVPN、WireGuard、Tailscale 等通用
-进程名关闭其他软件，也不会关闭其他目录中的同名程序。覆盖升级只替换已知程序文件，保留
-安装目录 `bin\ssrvpn`、`%LOCALAPPDATA%\SSRVPN\ssrvpn` 与窗口状态。安装器不会搜索或
-合并桌面、下载目录等位置遗留的旧独立副本；若其他目录、旧版或便携版 SSRVPN 仍持有全局
-实例锁，安装器会保留该进程及代理恢复记录，并在修改系统代理或程序文件前失败。若已安装实例
-或系统代理无法安全关闭，同样会在修改程序文件前失败。
+安装器默认目录为 `%LOCALAPPDATA%\Programs\SSRVPN`，始终提供目录选择页并预填上次的选择。
+安装请求管理员授权，卸载信息写入 **HKLM 的 64 位视图**；默认路径位于用户目录不代表 HKCU 安装模式。
+
+安装/卸载会结束映像名精确为 `ssrvpn_windows_app.exe`、`ssrvpn_windows.exe`、`mihomo.exe`
+的进程，包括其他目录的副本；其他软件若使用同名 Mihomo 也可能受影响。逐 PID 的活进程身份校验保留，
+不会扩展到 Clash、OpenVPN、WireGuard 等其他名称。完整边界见
+[ADR-021](../docs/decisions/021-installer-name-based-process-stop.md)。
+
+覆盖升级、失败恢复和卸载按可信程序清单及哈希处理文件，保留安装目录 `bin\ssrvpn`、
+`%LOCALAPPDATA%\SSRVPN\ssrvpn`、窗口状态和无关文件，不搜索或合并其他目录的旧数据。
+文件冲突、被修改的程序或无法确认的事务会停止处理并保留恢复材料，详见
+[ADR-022](../docs/decisions/022-windows-program-ownership-and-recovery.md)。
 
 CI 在 Windows runner 上验证 PowerShell 5.1 兼容、安装器结构、静默安装、覆盖升级、数据
 保留、缓存清理与卸载。Windows 10/11 的交互向导、系统代理、管理员 TUN、重启与读屏仍需
@@ -68,9 +69,10 @@ CI 在 Windows runner 上验证 PowerShell 5.1 兼容、安装器结构、静默
 
 ## Mihomo 核心
 
-安装器载荷包含 `mihomo.exe`。项目使用官方
-`mihomo-windows-amd64-v1-go120` 构建；来源、版本与 SHA256 记录在
-`assets/mihomo-source.txt`。更新核心时必须同步来源记录并运行根目录验证。
+安装器载荷包含带 SSRVPN 流量统计扩展的 `mihomo.exe`，基于 Mihomo `v1.19.27`，
+使用 Go 1.20.14 / amd64 v1 构建。固定来源、补丁和 SHA-256 记录在
+[`assets/mihomo-source.txt`](assets/mihomo-source.txt)。不能以缺少统计接口的上游原版替换；
+更新流程见[核心资产说明](../docs/CORE_ASSETS.md)。
 
 ## 验证
 
@@ -80,8 +82,8 @@ CI 在 Windows runner 上验证 PowerShell 5.1 兼容、安装器结构、静默
 make verify
 ```
 
-Windows 原生恢复或打包变更还必须在 Windows 上执行
-`scripts/test_windows_native_proxy_recovery.ps1`、实际构建安装器并运行
-`scripts/test_windows_installer_package.ps1`。前者在进程级注册表沙箱中验证系统代理崩溃恢复，
-不会修改测试账户的真实代理设置；若没有现成 CMake build tree，会先生成一次 Release build。
+Windows 原生恢复测试 `scripts/test_windows_native_proxy_recovery.ps1` 使用进程级注册表沙箱，
+若没有现成 CMake build tree，会先生成一次 Release build。涉及真实安装、卸载、同名进程或
+注册表恢复的测试只在一次性 GitHub Windows runner 执行；
+`scripts/test_windows_installer_package.ps1` 的 GitHub Actions 保护不得在个人电脑上伪造或绕过。
 用户操作见 [Windows 指南](USER_GUIDE.md)。

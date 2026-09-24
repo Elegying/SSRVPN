@@ -2,7 +2,7 @@
 
 ## 支持范围
 
-安全修复面向当前最新稳定版 `4.x`。旧安装包和历史平台仓库不再单独维护；报告问题前请先确认能在最新 Release 复现。
+安全修复面向[当前最新正式版](https://github.com/Elegying/SSRVPN/releases/latest)。旧版本与历史平台仓库不再单独维护；请注明受影响版本，有条件时补充最新版的复现结果。
 
 ## 私下报告
 
@@ -16,9 +16,9 @@ SSRVPN 需要同时处理不受信任的订阅内容、网络响应、本地核�
 
 - 订阅、重定向、压缩响应、节点数量和生成配置有明确边界，失败不能覆盖最后一份可用配置。
 - 日志、错误与诊断信息使用共享脱敏逻辑；无法可靠脱敏时不记录原值。
-- 更新只接受预期 HTTPS 来源、精确资产名、匹配版本与 SHA256，下载完成后再替换；macOS 与 Windows 的 OSS 清单还必须由 GitHub 正式 Release 的相同版本和 SHA256 独立背书。
-- 客户端与 Windows 安装/卸载预清理只停止 SSRVPN 能通过 PID、路径、会话和创建时间证明
-  属于当前安装目录的进程，不按通用进程名清理其他代理/VPN 软件或其他目录中的同名程序。
+- 客户端连接成功后，只使用本仓库的正式 GitHub Release 检查与下载更新，校验 HTTPS 来源、精确资产名、版本及 SHA-256。OSS 用于网站下载和不可变归档，不作为客户端更新备用源。
+- 客户端退出和异常恢复只停止能够通过 PID、路径、会话和创建时间证明归属的进程。Windows 安装/卸载按三个精确映像名处理运行实例，包含其他目录的同名进程，终止前仍核对活进程身份；其中 `mihomo.exe` 可能被其他软件使用。范围与用户提示见 [ADR-021](docs/decisions/021-installer-name-based-process-stop.md)。
+- Windows 程序替换、回滚和卸载依据可信程序清单及文件哈希，保留用户数据与无关文件。文件、HKLM64 卸载信息和快捷方式保持同一事务边界，见 [ADR-022](docs/decisions/022-windows-program-ownership-and-recovery.md)。
 - 系统代理只在 SSRVPN 仍拥有对应端点时恢复，不能覆盖用户或其他软件之后的修改。
 
 ## 本地凭据与数据
@@ -59,7 +59,9 @@ macOS Release 不包含 `get-task-allow`、JIT、未签名可执行内存或禁�
 
 ## 分发限制
 
-Android 正式包由项目固定的自签名 keystore 签名，后续版本必须保留同一签名谱系。macOS 与 Windows 当前没有付费平台签名，可能分别触发 Gatekeeper 与 SmartScreen 警告；SHA256 能验证下载完整性，但不能替代受信任发布者签名。
+Android 正式包由项目固定的自签名 keystore 签名，后续版本必须保留同一签名谱系。macOS 与 Windows 当前没有付费平台签名，可能分别触发 Gatekeeper 与 SmartScreen 警告；SHA-256 能验证下载完整性，但不能替代受信任发布者签名。
+
+正式发布另提供 provenance 和 GitHub artifact attestation，绑定仓库、源码提交、标签与产物摘要。构建证明不等同于 Windows Authenticode 或 Apple 公证，不应以此宣称平台已信任发布者。
 
 ## 依赖与供应链
 

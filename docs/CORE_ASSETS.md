@@ -1,6 +1,6 @@
 # Core Binary Assets
 
-SSRVPN downloads its large native assets from immutable GitHub Release URLs.
+SSRVPN downloads its large native assets from content-addressed GitHub Release URLs.
 The files are generated locally, ignored by Git, and accepted only after their
 container and extracted SHA256 values match the committed source records.
 The bundled binaries and GeoIP database are not relicensed by SSRVPN. Exact
@@ -15,13 +15,14 @@ SSRVPN MIT texts.
 - Geo database: `SSRVPN_Windows/assets/geoip.metadb.gz`
 - Source record: `SSRVPN_Windows/assets/mihomo-source.txt`
 - Geo source record: `docs/GEOIP_SOURCE.txt`
-- Current source: MetaCubeX/mihomo `v1.19.27`
-- Required asset family: `mihomo-windows-amd64-v1-go120-*.zip`
+- Upstream base: MetaCubeX/mihomo `v1.19.27`
+- Bundled build: `v1.19.27-ssrvpn.1`, Windows / amd64 v1, Go `1.20.14`
+- Build recipe: `scripts/build-desktop-core.sh`
 
-Use the `v1-go120` Windows build for broad compatibility with older Windows
-installations and older x86-64 CPUs. After downloading, extract the executable,
-rename it to `mihomo.exe`, place it in `SSRVPN_Windows/assets/`, and update
-`mihomo-source.txt` with the official asset URL and SHA256 values.
+The bundled executable includes the reviewed `native/proxy_traffic/` extension.
+The source record pins the upstream commit/tree, Go toolchain, patch digest and
+custom executable SHA-256. Its `Official asset` fields describe the upstream
+reference; bootstrap installs the custom binary from `Mirror URL`.
 
 ## Android
 
@@ -36,7 +37,7 @@ The Android native library is loaded by the VPN service, so it must be verified
 before CI tests and release packaging.
 
 The Android core is source-rebuildable from the reviewed Mihomo commit and tree,
-the committed bridge, Go `1.25.11`, the pinned `x/mobile` revision, and Android
+the committed bridge and traffic extension, Go `1.25.11`, the pinned `x/mobile` revision, and Android
 NDK r28c. The published core is mirrored as a content-addressed asset in the
 `core-assets-v1` support release. Verification checks its SHA256, embedded Go
 build contract, six JNI exports, AArch64 target, and every ELF `LOAD` segment's
@@ -48,11 +49,19 @@ build contract, six JNI exports, AArch64 target, and every ELF `LOAD` segment's
 - Geo database: `SSRVPN_MacOS/assets/geoip.metadb.gz`
 - Source record: `SSRVPN_MacOS/assets/AtlasCore-source.txt`
 - Geo source record: `docs/GEOIP_SOURCE.txt`
-- Current source: MetaCubeX/mihomo `v1.19.29`
-- Required asset family: `mihomo-darwin-arm64-*.gz`
+- Upstream base: MetaCubeX/mihomo `v1.19.29`
+- Bundled build: `v1.19.29-ssrvpn.1`, darwin / arm64, Go `1.26.5`
+- Build recipe: `scripts/build-desktop-core.sh`
 
-The stored gzip is the official release asset. Verification checks both its
-compressed SHA256 and the decompressed executable SHA256.
+The stored gzip contains the custom core with the same traffic extension.
+Verification checks both its compressed SHA-256 and decompressed executable
+SHA-256 against the custom build record, not the upstream reference asset.
+
+All three platforms require `GET /ssrvpn/traffic`. Replacing a bundled core with
+an unmodified upstream binary removes that endpoint and breaks proxy traffic
+accounting. Core changes must update the reviewed source records and pass the
+rebuild, asset and behavior checks; see product rule 57 in
+[the product requirements](PRODUCT_REQUIREMENTS.zh-CN.md).
 
 ## Verification
 
@@ -115,6 +124,10 @@ GitHub Actions artifacts.
 
 Windows executable verification is also performed by
 `SSRVPN_Windows/tool/package_windows.ps1` when preparing the installer payload.
+
+The `core-assets-v1` support release is build infrastructure, not an old client
+release. Retaining only the current client in the Release list must not delete
+this support release, its tag or any referenced content-addressed asset.
 
 ## Runtime rule providers
 

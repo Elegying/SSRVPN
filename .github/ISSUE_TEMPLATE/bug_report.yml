@@ -3,6 +3,11 @@ description: 报告可以稳定复现的 SSRVPN 问题。
 title: "[Bug] "
 labels: ["bug"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢帮助改进 SSRVPN。请先查阅 [故障排查](https://github.com/Elegying/SSRVPN/blob/main/docs/TROUBLESHOOTING.zh-CN.md)，并搜索是否已有相同问题。
+        Issue 对所有人公开；安全漏洞请使用 [私有漏洞报告](https://github.com/Elegying/SSRVPN/security/advisories/new)，不要在此粘贴真实订阅或节点凭据。
   - type: dropdown
     id: platform
     attributes:
@@ -42,7 +47,7 @@ body:
     id: version
     attributes:
       label: SSRVPN 版本或提交
-      placeholder: 例如 v4.0.19 或完整 commit SHA
+      placeholder: 请复制“关于”页的完整版本号；自行构建请附完整 commit SHA
     validations:
       required: true
   - type: input

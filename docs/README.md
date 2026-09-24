@@ -48,7 +48,7 @@
 - [ADR-001：桌面端 API Secret 的长期存储](decisions/001-desktop-api-secret-storage.md)
 - [ADR-002：Windows 安装版数据保留与多来源隔离](decisions/002-windows-installed-data-preservation.md)
 - [ADR-003：Windows 只发布安装器](decisions/003-windows-installer-only-distribution.md)
-- [ADR-004：三端只保留首页与订阅](decisions/004-two-page-product-surface.md)
+- [ADR-004：移除解锁测试入口（两页导航已扩展为三页）](decisions/004-two-page-product-surface.md)
 - [ADR-005：使用 SSRVPN 自控的内容寻址 GeoIP 镜像](decisions/005-content-addressed-geoip-mirror.md)
 - [ADR-006：macOS 核心进程所有权使用持久化原生代际](decisions/006-macos-core-process-identity.md)
 - [ADR-007：默认路由使用国内直连与国外兜底代理（已取代）](decisions/007-domain-based-domestic-routing.md)
@@ -65,6 +65,8 @@
 - [ADR-018：规则发布必须经过可靠性审查](decisions/018-rule-publication-review.md)
 - [ADR-019：规则优先的双栈分流与代理内地址选择](decisions/019-dual-stack-routing.md)
 - [ADR-020：安装器只处置可证明归属的系统代理](decisions/020-installer-system-proxy-ownership.md)
+- [ADR-021：安装/卸载按精确映像名结束随包进程](decisions/021-installer-name-based-process-stop.md)
+- [ADR-022：Windows 程序归属与恢复事务](decisions/022-windows-program-ownership-and-recovery.md)
 
 ## 文档维护规则
 
