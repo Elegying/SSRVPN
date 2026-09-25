@@ -267,14 +267,14 @@ class _SubscriptionUriParser {
       'type': 'hysteria',
       'server': uri.host,
       'port': uri.port,
-      'auth-str': auth.trim(),
+      'auth-str': auth,
       'protocol': query['protocol']?.trim().isNotEmpty == true
           ? query['protocol']!.trim()
           : 'udp',
     };
 
     _putIfNotEmpty(proxy, 'ports', query['mport'] ?? query['ports']);
-    _putIfNotEmpty(proxy, 'obfs', query['obfs']);
+    _putIfNotEmpty(proxy, 'obfs', query['obfs'], trim: false);
     _putIfNotEmpty(proxy, 'sni', query['sni'] ?? query['peer']);
     _putIfNotEmpty(
       proxy,
@@ -370,6 +370,7 @@ class _SubscriptionUriParser {
       proxy,
       'obfs-password',
       query['obfs-password'] ?? query['obfsPassword'],
+      trim: false,
     );
     _putIfNotEmpty(proxy, 'hop-interval', hopInterval);
     _putIfNotEmpty(proxy, 'up', query['up']);
@@ -406,12 +407,12 @@ class _SubscriptionUriParser {
     final token = query['token'];
     final separator = userInfo.indexOf(':');
     if (token != null && token.trim().isNotEmpty) {
-      proxy['token'] = token.trim();
+      proxy['token'] = token;
     } else if (separator > 0 && separator < userInfo.length - 1) {
       proxy['uuid'] = userInfo.substring(0, separator);
       proxy['password'] = userInfo.substring(separator + 1);
     } else if (userInfo.trim().isNotEmpty) {
-      proxy['token'] = userInfo.trim();
+      proxy['token'] = userInfo;
     } else {
       return null;
     }
@@ -478,7 +479,7 @@ class _SubscriptionUriParser {
       'type': 'snell',
       'server': uri.host,
       'port': uri.port,
-      'psk': psk.trim(),
+      'psk': psk,
     };
 
     final version = _intFrom(query['version']);
@@ -622,10 +623,11 @@ class _SubscriptionUriParser {
   static void _putIfNotEmpty(
     Map<String, dynamic> target,
     String key,
-    String? value,
-  ) {
-    final trimmed = value?.trim();
-    if (trimmed != null && trimmed.isNotEmpty) target[key] = trimmed;
+    String? value, {
+    bool trim = true,
+  }) {
+    final normalized = trim ? value?.trim() : value;
+    if (normalized != null && normalized.isNotEmpty) target[key] = normalized;
   }
 
   static String? _bandwidthValue(String? value) {

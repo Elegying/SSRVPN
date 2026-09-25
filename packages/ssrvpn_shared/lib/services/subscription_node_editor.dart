@@ -1,3 +1,4 @@
+import '../models/subscription.dart';
 import '../utils/bounded_yaml.dart';
 import '../utils/proxy_dependency_policy.dart';
 import '../utils/runtime_config_name_policy.dart';
@@ -71,7 +72,18 @@ class SubscriptionNodeEditor {
         }
       }
     }
-    ProxyDependencyPolicy.resolve(proxies.whereType<Map<Object?, Object?>>());
+    for (final (proxy, target) in ProxyDependencyPolicy.resolve(
+        proxies.whereType<Map<Object?, Object?>>())) {
+      if (target == null) continue;
+      final owners = _sourceIds(proxy);
+      final targetOwners = _sourceIds(target);
+      // Every cached source must still contain the entire chain after splitting
+      // the merged document, including nodes deduplicated across subscriptions.
+      if (owners.isEmpty != targetOwners.isEmpty ||
+          !targetOwners.containsAll(owners)) {
+        throw const CrossSubscriptionProxyException();
+      }
+    }
 
     final groups = parsed['proxy-groups'];
     if (newName != canonicalOriginalName && groups is List) {
@@ -93,5 +105,10 @@ class SubscriptionNodeEditor {
       throw const FormatException('修改后的节点不可运行');
     }
     return MergedSubscriptionResult(yaml: yaml, parsed: candidate);
+  }
+
+  static Set<String> _sourceIds(Map<Object?, Object?> proxy) {
+    final value = proxy[SubscriptionParser.proxySourceIdsKey];
+    return value is List ? value.whereType<String>().toSet() : <String>{};
   }
 }
