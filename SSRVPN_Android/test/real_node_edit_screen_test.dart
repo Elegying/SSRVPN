@@ -180,9 +180,13 @@ void main() {
     await tester.pump();
   });
 
-  for (final editPassword in [false, true]) {
+  for (final (type, credentialKey, editPassword) in [
+    ('anytls', 'password', false),
+    ('anytls', 'password', true),
+    ('hysteria', 'obfs', false),
+  ]) {
     testWidgets(
-        'renaming a node preserves every password character (edited: $editPassword)',
+        'renaming $type preserves every $credentialKey character (edited: $editPassword)',
         (tester) async {
       const password = '  synthetic password  ';
       final expectedPassword =
@@ -197,10 +201,15 @@ void main() {
         await subscription.init(directory.path);
         await subscription.setRawYaml('proxies:\n  - ${jsonEncode({
               'name': 'Original',
-              'type': 'anytls',
+              'type': type,
               'server': 'synthetic.invalid',
               'port': 443,
-              'password': password,
+              credentialKey: password,
+              if (type == 'hysteria') ...{
+                'auth-str': 'synthetic-auth',
+                'up': '10 Mbps',
+                'down': '50 Mbps',
+              },
             })}\n');
         SharedPreferences.setMockInitialValues({});
         settings = await SettingsService.createForTesting(
@@ -234,21 +243,23 @@ void main() {
           .onPressed! as Future<void> Function();
       await tester.runAsync(save);
       await tester.pump();
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
       expect(tester.takeException(), isNull);
       expect(subscription.allNodes.single.name, 'Renamed');
-      expect(subscription.allNodes.single.extra['password'], expectedPassword);
+      expect(
+          subscription.allNodes.single.extra[credentialKey], expectedPassword);
       await tester.runAsync(() async {
         final reloaded = _EditorFaultSubscription();
         try {
           await reloaded.init(directory.path);
           expect(reloaded.allNodes.single.name, 'Renamed');
-          expect(reloaded.allNodes.single.extra['password'], expectedPassword);
+          expect(
+              reloaded.allNodes.single.extra[credentialKey], expectedPassword);
         } finally {
           reloaded.dispose();
         }
       });
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pump();
     });
   }
 
@@ -313,7 +324,13 @@ void main() {
     });
   }
 
-  for (final failure in ['duplicate', 'preference', 'node', 'rollback']) {
+  for (final failure in [
+    'duplicate',
+    'preference',
+    'node',
+    'rollback',
+    'cross-source'
+  ]) {
     testWidgets(
         'node edit reports $failure failure and restores its save control',
         (tester) async {
@@ -334,8 +351,8 @@ void main() {
         subscription = _EditorFaultSubscription();
         await subscription.init(directory.path);
         await subscription.setRawYaml('proxies:\n'
-            '  - {name: Original, type: socks5, server: original.invalid, port: 443}\n'
-            '  - {name: Second, type: socks5, server: second.invalid, port: 443}\n');
+            '  - {name: Original, type: socks5, server: original.invalid, port: 443, ssrvpn-subscription-ids: [a]}\n'
+            '  - {name: Second, type: socks5, server: second.invalid, port: 443, ssrvpn-subscription-ids: [b]}\n');
         settings = await SettingsService.createForTesting(
             configPath: '${directory.path}/settings.json',
             readApiSecret: () async => 'synthetic-secret',
@@ -346,7 +363,8 @@ void main() {
         };
         settings.addListener(() => writes++);
         if (failure == 'preference') await blockSettingsFile();
-        subscription.failNextCache = failure != 'duplicate';
+        subscription.failNextCache =
+            failure != 'duplicate' && failure != 'cross-source';
       });
       addTearDown(() async {
         subscription.dispose();
@@ -358,6 +376,12 @@ void main() {
         ChangeNotifierProvider<SettingsService>.value(value: settings),
       ], child: host(NodeEditScreen(node: subscription.allNodes.first))));
       await tester.enterText(find.byType(TextFormField).first, targetName);
+      if (failure == 'cross-source') {
+        await tester.scrollUntilVisible(find.text('其他参数（JSON）'), 200,
+            scrollable: find.byType(Scrollable).first);
+        await tester.enterText(
+            find.byType(TextFormField).last, '{"dialer-proxy":"Second"}');
+      }
       final submit = tester
           .widget<TextButton>(find.widgetWithText(TextButton, '保存'))
           .onPressed! as Future<void> Function();
@@ -372,6 +396,16 @@ void main() {
           isNotNull);
       expect(find.byType(CircularProgressIndicator), findsNothing);
       expect(find.byType(SnackBar), findsOneWidget);
+      if (failure == 'cross-source') {
+        expect(find.text(const CrossSubscriptionProxyException().message),
+            findsOneWidget);
+        expect(
+            tester
+                .widget<TextFormField>(find.byType(TextFormField).last)
+                .controller!
+                .text,
+            '{"dialer-proxy":"Second"}');
+      }
       if (failure == 'rollback') {
         expect(find.textContaining('首选节点恢复失败'), findsOneWidget);
       } else {
@@ -380,7 +414,7 @@ void main() {
       expect(
           writes,
           switch (failure) {
-            'duplicate' || 'preference' || 'rollback' => 0,
+            'duplicate' || 'preference' || 'rollback' || 'cross-source' => 0,
             _ => 1
           });
       await tester.pumpWidget(const SizedBox.shrink());

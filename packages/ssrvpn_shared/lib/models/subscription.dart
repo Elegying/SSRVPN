@@ -47,3 +47,8 @@ class DuplicateSubscriptionUrlException implements Exception {
   @override
   String toString() => '该订阅链接已存在';
 }
+
+class CrossSubscriptionProxyException extends FormatException {
+  const CrossSubscriptionProxyException()
+      : super('链式代理入口必须属于同一订阅；共享节点的入口须存在于全部所属订阅');
+}

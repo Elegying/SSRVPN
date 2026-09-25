@@ -182,7 +182,9 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
       if (_usesServerNameForSni && key == 'servername') continue;
       // Credentials are opaque: renaming a node must not change its password.
       final text = _controllers[key]!.text;
-      final value = key == 'password' ? text : text.trim();
+      final value = key == 'password' || (_type == 'hysteria' && key == 'obfs')
+          ? text
+          : text.trim();
       if (value.isNotEmpty) {
         final targetKey =
             key == 'sni' && _usesServerNameForSni ? 'servername' : key;
@@ -206,11 +208,13 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     } catch (e) {
       if (mounted) {
         final msg = e.toString();
-        final friendlyMsg = msg.contains('备注名已存在')
-            ? '节点名称重复，请使用不同的名称'
-            : msg.contains('找不到')
-                ? '节点已被删除，请返回刷新'
-                : '保存失败，请稍后重试';
+        final friendlyMsg = e is CrossSubscriptionProxyException
+            ? e.message
+            : msg.contains('备注名已存在')
+                ? '节点名称重复，请使用不同的名称'
+                : msg.contains('找不到')
+                    ? '节点已被删除，请返回刷新'
+                    : '保存失败，请稍后重试';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             margin: EdgeInsets.fromLTRB(16, 0, 16, 88),

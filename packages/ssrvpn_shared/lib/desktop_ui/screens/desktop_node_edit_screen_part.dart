@@ -29,25 +29,21 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     'socks5',
     'http',
   ];
-  static const _editableKeys = {
-    'name',
-    'type',
-    'server',
-    'port',
-    'password',
-    'cipher',
-    'protocol',
-    'protocol-param',
-    'obfs',
-    'obfs-param',
-    'uuid',
-    'alterId',
-    'alter-id',
-    'network',
-    'sni',
-    'servername',
-    'flow',
-  };
+  // Only fields represented by this protocol's form are removed from JSON.
+  Set<String> get _editableKeys => {
+        'name',
+        'type',
+        'server',
+        'port',
+        if (_usesPassword) 'password',
+        if (_usesCipher) 'cipher',
+        if (_usesSsr) ...{'protocol', 'protocol-param', 'obfs', 'obfs-param'},
+        if (_usesUuid) 'uuid',
+        if (_usesAlterId) ...{'alterId', 'alter-id'},
+        if (_usesTransport) 'network',
+        if (_usesSni) ...{'sni', 'servername'},
+        if (_usesFlow) 'flow',
+      };
   static const _internalKeys = {
     SubscriptionServiceBase.proxySourceKey,
     'group',
@@ -105,8 +101,9 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     _flowController = _controller(config['flow']);
 
     final advanced = <String, dynamic>{};
+    final editableKeys = _editableKeys;
     for (final entry in config.entries) {
-      if (!_editableKeys.contains(entry.key) &&
+      if (!editableKeys.contains(entry.key) &&
           !_internalKeys.contains(entry.key)) {
         advanced[entry.key] = entry.value;
       }

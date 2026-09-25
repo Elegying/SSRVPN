@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ssrvpn_shared/models/app_diagnostics.dart';
+import 'package:ssrvpn_shared/models/subscription.dart';
 import 'package:ssrvpn_shared/services/clash_config_generator.dart';
 import 'package:ssrvpn_shared/services/subscription_parser.dart';
 import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
@@ -37,6 +39,13 @@ Map<String, dynamic> _target(
     nodes.singleWhere((node) => node['name'] == exit['dialer-proxy']);
 
 void main() {
+  test('cross-source rejection explains the repair without exposing node data',
+      () {
+    expect(
+        safeUserFacingFailureMessage(const CrossSubscriptionProxyException()),
+        '链式代理入口必须属于同一订阅；共享节点的入口须存在于全部所属订阅');
+  });
+
   test('colliding entries keep each source on its own chain', () {
     final nodes = _proxies(_merge([
       _yaml([_proxy('Entry', 'a')]),
@@ -154,6 +163,68 @@ void main() {
     expect(_proxies(restarted.rawYaml!).last['dialer-proxy'], 'Renamed');
     expect(
         ClashConfigGenerator.buildProxiesText(restarted.rawYaml!), isNotEmpty);
+  });
+
+  test(
+      'cross-source edits fail before writing and leave subscription edits usable',
+      () async {
+    for (final name in ['A', 'B', 'C']) {
+      final sub =
+          await service.addSubscription(name, 'https://$name.invalid/sub');
+      service.responses[sub.url] = _yaml([_proxy(name, name)]);
+    }
+    await service.refreshAllSubscriptionsDetailed();
+    final previous = service.rawYaml;
+    final edited = {...service.allNodes.first.extra, 'dialer-proxy': 'B'};
+    final failure = throwsA(isA<FormatException>()
+        .having((error) => error.message, 'message', contains('同一订阅')));
+    expect(() => service.validateNodeUpdate('A', edited), failure);
+    await expectLater(service.updateNode('A', edited), failure);
+    expect(service.rawYaml, previous);
+    expect(
+        await File('${directory.path}/subscription_cache.yaml').readAsString(),
+        previous);
+    final c = service.subscriptions.last;
+    await service.updateSubscription(
+        Subscription(id: c.id, name: 'Renamed C', url: c.url));
+    final restarted = _Service();
+    addTearDown(restarted.dispose);
+    await restarted.init(directory.path);
+    expect(restarted.subscriptions.last.name, 'Renamed C');
+    expect(restarted.allNodes, hasLength(3));
+    expect(restarted.allNodes.first.extra['dialer-proxy'], isNull);
+  });
+
+  test('a shared node requires its entry in every owner and survives remerge',
+      () async {
+    for (final name in ['A', 'B']) {
+      final sub =
+          await service.addSubscription(name, 'https://$name.invalid/sub');
+      service.responses[sub.url] = _yaml([
+        _proxy(name, name),
+        _proxy('Shared entry', 'entry'),
+        _proxy('Shared exit', 'exit'),
+      ]);
+    }
+    await service.refreshAllSubscriptionsDetailed();
+    final exit =
+        service.allNodes.singleWhere((node) => node.name == 'Shared exit');
+    await expectLater(
+        service.updateNode(exit.name, {...exit.extra, 'dialer-proxy': 'A'}),
+        throwsFormatException);
+    await service
+        .updateNode(exit.name, {...exit.extra, 'dialer-proxy': 'Shared entry'});
+    final b = service.subscriptions.last;
+    await service.updateSubscription(
+        Subscription(id: b.id, name: 'Renamed B', url: b.url));
+    final restarted = _Service();
+    addTearDown(restarted.dispose);
+    await restarted.init(directory.path);
+    final saved =
+        restarted.allNodes.singleWhere((node) => node.name == exit.name);
+    expect(saved.extra['dialer-proxy'], 'Shared entry');
+    expect(saved.extra[SubscriptionParser.proxySourceIdsKey], hasLength(2));
+    expect(restarted.subscriptions.last.name, 'Renamed B');
   });
 
   test('invalid edit and replacement preserve the committed disk cache',

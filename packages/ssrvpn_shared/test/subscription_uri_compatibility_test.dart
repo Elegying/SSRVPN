@@ -4,6 +4,33 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/services/subscription_parser.dart';
 
 void main() {
+  for (final (link, field) in [
+    (
+      'hy2://fixture@relay.invalid:443?obfs=salamander&obfs-password=%20fixture%20',
+      'obfs-password'
+    ),
+    (
+      'hysteria://relay.invalid:443?auth=%20fixture%20&upmbps=10&downmbps=50',
+      'auth-str'
+    ),
+    (
+      'hysteria://fixture@relay.invalid:443?obfs=%20fixture%20&upmbps=10&downmbps=50',
+      'obfs'
+    ),
+    ('snell://%20fixture%20@relay.invalid:443?version=3', 'psk'),
+    ('tuic://relay.invalid:443?token=%20fixture%20', 'token'),
+    ('tuic://%20fixture%20@relay.invalid:443', 'token'),
+  ]) {
+    test('URI preserves opaque $field bytes: $link', () {
+      final proxy = SubscriptionParser.proxyFromUri(link);
+      expect(proxy, isNotNull);
+      expect(proxy![field], ' fixture ');
+      final yaml = SubscriptionParser.uriListToYaml(link)!;
+      expect(SubscriptionParser.parseYaml(yaml).nodes.single.extra[field],
+          ' fixture ');
+    });
+  }
+
   test('malformed UTF-8 query parameters cannot poison a mixed subscription',
       () {
     final invalid = [

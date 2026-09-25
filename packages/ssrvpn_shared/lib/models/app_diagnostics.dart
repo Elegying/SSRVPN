@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../constants/app_constants.dart';
 import '../utils/log_redactor.dart';
 import '../services/subscription_failure_diagnosis.dart';
+import 'subscription.dart';
 
 enum AppErrorCode {
   coreMissing('CORE_MISSING'),
@@ -44,6 +45,7 @@ const _trustedUserFacingFailureMessages = <String>{
 };
 
 String safeUserFacingFailureMessage(Object? error) {
+  if (error is CrossSubscriptionProxyException) return error.message;
   final text = error?.toString().trim() ?? '';
   var trustedText = text;
   if (error is StateError) {
