@@ -222,7 +222,7 @@ for path in orchestrators:
         )
 
     init_start = source.index("Future<void> initCoreService()")
-    init_end = source.index("Future<bool> _intersectsAnyDisplay", init_start)
+    init_end = source.index("Future<Rect?> _restoreVisibleBounds", init_start)
     init_body = source[init_start:init_end]
     if init_body.index("StartupStatus.instance.setServices") < init_body.index(
         "await core.init"
@@ -642,6 +642,7 @@ if runner_sources_phase is None:
 for support_name in (
     macos_core_support.name,
     macos_application_support.name,
+    "NetworkServiceIdentities.swift",
 ):
     runner_build_file = re.search(
         rf"(?m)^\s*([A-F0-9]+) /\* {re.escape(support_name)} in Sources \*/,$",

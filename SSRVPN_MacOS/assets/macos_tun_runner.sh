@@ -299,9 +299,16 @@ network_service_id_for_name() {
 # 0: exact service found in current location; 2: globally deleted; 1: unknown
 # or inactive location. Inactive services retain their journal until restored.
 resolve_dns_service() {
-  local ids id
+  local ids id current_ids
   if [[ -z ${dns_service_id:-} ]]; then
     # Legacy journals cannot distinguish deletion from rename or replacement.
+    # Identical names in different locations must not address the new service.
+    ids=$(network_service_ids NetworkServices) || return 1
+    current_ids=$(current_network_service_ids) || return 1
+    while IFS= read -r id; do
+      [[ -n $id ]] || continue
+      /usr/bin/grep -Fxq -- "$id" <<< "$current_ids" || return 1
+    done <<< "$ids"
     network_service_id_for_name "$dns_service" >/dev/null || return 1
     return 0
   fi

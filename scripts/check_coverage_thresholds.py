@@ -24,6 +24,7 @@ CRITICAL_FILE_THRESHOLDS = {
     "SSRVPN_MacOS": {
         "lib/services/clash_service_lifecycle.dart": 60.0,
         "lib/services/system_proxy_service.dart": 80.0,
+        "lib/services/system_proxy_snapshot.dart": 80.0,
     },
     "SSRVPN_Windows": {
         "lib/services/clash_service_lifecycle.dart": 51.0,

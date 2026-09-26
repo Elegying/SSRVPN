@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_macos/src/services/system_proxy_ownership.dart';
 
+part 'system_proxy_snapshot.dart';
+
 typedef MacNetworkSetupRunner = Future<ProcessResult> Function(
     List<String> arguments);
 typedef MacEffectiveProxyRunner = Future<ProcessResult> Function();
@@ -615,7 +617,7 @@ class SystemProxyService {
           final currentIDs = await _listNetworkServiceIdentities();
           if (currentIDs == null ||
               !currentIDs.values.toSet().containsAll(allIDs)) {
-            _lastError = '旧版代理记录无法确认其他网络位置中的服务，已保留恢复记录；请切回原网络位置后重试';
+            _lastError = '旧版代理记录缺少服务标识，无法确认多个网络位置中的同名服务；已保留记录，请核对原代理设置后处理恢复';
             return false;
           }
         }
@@ -830,104 +832,6 @@ class SystemProxyService {
       return null;
     }
     return ids;
-  }
-
-  Map<String, String>? _validatedSavedServiceIdentities(
-    Object? value, {
-    required List<String> savedServices,
-  }) {
-    if (value is! Map) {
-      _lastError = 'macOS 网络服务稳定标识快照格式无效，已保留现场';
-      return null;
-    }
-    final identities = <String, String>{};
-    final seenIDs = <String>{};
-    for (final entry in value.entries) {
-      final name = entry.key is String ? (entry.key as String).trim() : '';
-      final serviceID =
-          entry.value is String ? (entry.value as String).trim() : '';
-      if (name.isEmpty ||
-          serviceID.isEmpty ||
-          identities.containsKey(name) ||
-          !seenIDs.add(serviceID)) {
-        _lastError = 'macOS 网络服务稳定标识快照格式无效，已保留现场';
-        return null;
-      }
-      identities[name] = serviceID;
-    }
-    final saved = savedServices.toSet();
-    if (identities.length != saved.length ||
-        !saved.every(identities.containsKey)) {
-      _lastError = 'macOS 网络服务稳定标识与代理快照不一致，已保留现场';
-      return null;
-    }
-    return identities;
-  }
-
-  void _removeSavedService(
-    Map<String, dynamic> raw,
-    String service, {
-    required bool hasStableIdentities,
-  }) {
-    raw.remove(service);
-    if (!hasStableIdentities) return;
-    final identities = raw['_networkServiceIDs'];
-    if (identities is Map<String, dynamic>) {
-      identities.remove(service);
-    } else if (identities is Map) {
-      identities.remove(service);
-    }
-  }
-
-  Map<String, Map<String, dynamic>>? _validatedSavedServiceStates(
-    Map<String, dynamic> raw, {
-    required bool hasStableIdentities,
-  }) {
-    final services = <String, Map<String, dynamic>>{};
-    for (final entry in raw.entries) {
-      if (_snapshotMetadataKeys.contains(entry.key) &&
-          (entry.key != '_networkServiceIDs' || hasStableIdentities)) {
-        continue;
-      }
-      final value = entry.value;
-      if (!_isCompleteSavedProxyServiceState(value)) {
-        _lastError = '${entry.key}: 保存的代理状态格式无效，已保留现场';
-        return null;
-      }
-      services[entry.key] = value as Map<String, dynamic>;
-    }
-    if (services.isEmpty) {
-      _lastError = '代理恢复快照不包含有效网络服务，已保留现场';
-      return null;
-    }
-    return services;
-  }
-
-  bool _isCompleteSavedProxyServiceState(Object? value) =>
-      value is Map<String, dynamic> &&
-      value.length == 3 &&
-      const {'web', 'secureWeb', 'socks'}.containsAll(value.keys) &&
-      _isValidProxyState(value['web']) &&
-      _isValidProxyState(value['secureWeb']) &&
-      _isValidProxyState(value['socks']);
-
-  bool _isValidProxyState(Object? value) {
-    if (value is! Map<String, dynamic>) return false;
-    if (!const {'enabled', 'server', 'port'}.containsAll(value.keys) ||
-        value.length != 3) {
-      return false;
-    }
-    final enabled = value['enabled'];
-    final server = value['server'];
-    final port = value['port'];
-    if (enabled is! bool ||
-        server is! String ||
-        port is! int ||
-        port < 0 ||
-        port > 65535) {
-      return false;
-    }
-    return !enabled || (server.trim().isNotEmpty && port > 0);
   }
 
   Future<Map<String, dynamic>> _readProxyState(

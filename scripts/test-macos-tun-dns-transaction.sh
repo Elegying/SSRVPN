@@ -523,6 +523,17 @@ test_legacy_rename_retains_dns_journal() {
   [[ -f $dns_state_path && $MOCK_DNS_SET_CALLS == 0 ]]
 }
 
+test_legacy_location_retains_dns_journal() {
+  setup_case legacy-location
+  printf 'schema=1\nservice=Wi-Fi\ndevice=en0\nmode=manual\nserver=10.20.0.53\n' > "$dns_state_path"
+  chmod 600 "$dns_state_path"
+  MOCK_DNS_CURRENT=$tun_dns_server
+  MOCK_CURRENT_IDS=33333333-3333-3333-3333-333333333333
+  MOCK_ALL_IDS="$MOCK_CURRENT_IDS 11111111-1111-1111-1111-111111111111"
+  if restore_persisted_tun_dns; then return 1; fi
+  [[ -f $dns_state_path && $MOCK_DNS_SET_CALLS == 0 ]]
+}
+
 test_missing_network_service_retires_journal_and_unblocks_cleanup() {
   setup_case missing-network-service
   write_journal manual 1.1.1.1 8.8.8.8
@@ -1030,6 +1041,7 @@ for entry in \
   'renamed service DNS restore:test_renamed_service_restores_original_dns' \
   'other location DNS retention:test_other_location_retains_dns_journal' \
   'legacy rename DNS retention:test_legacy_rename_retains_dns_journal' \
+  'legacy location DNS retention:test_legacy_location_retains_dns_journal' \
   'missing service cleanup release:test_missing_network_service_retires_journal_and_unblocks_cleanup' \
   'service enumeration failure retention:test_network_service_enumeration_failure_keeps_journal' \
   'disabled service retention:test_disabled_network_service_is_not_treated_as_missing' \

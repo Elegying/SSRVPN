@@ -340,6 +340,9 @@ if proxy_guardian.index("guard dependencies.restoreProxy(") > proxy_guardian.ind
 proxy_service = Path(
     "SSRVPN_MacOS/lib/services/system_proxy_service.dart"
 ).read_text(encoding="utf-8")
+if "part 'system_proxy_snapshot.dart';" not in proxy_service:
+    raise SystemExit("macOS proxy snapshot validation is not linked")
+proxy_service += Path("SSRVPN_MacOS/lib/services/system_proxy_snapshot.dart").read_text(encoding="utf-8")
 required_proxy_guards = (
     "Future<bool>? _clearSystemProxyInFlight",
     "return _clearSystemProxyInFlight ??= _runClearSystemProxy()",
@@ -479,12 +482,10 @@ PY
 python3 - <<'PY'
 from pathlib import Path
 
-path = Path("SSRVPN_MacOS/macos/Runner/AppDelegate.swift")
+path = Path("SSRVPN_MacOS/macos/Runner/NetworkServiceIdentities.swift")
 source = path.read_text(encoding="utf-8")
 identity_start = source.index("func currentNetworkServiceIdentities(")
-identity_end = source.index(
-    "private func resetCommittedApplicationTermination", identity_start
-)
+identity_end = len(source)
 identity_body = source[identity_start:identity_end]
 
 for required in ("SCNetworkSetCopyCurrent", "SCNetworkSetCopyServices"):

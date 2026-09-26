@@ -90,9 +90,9 @@ try {
 
 # Execute the production policy probe against a temporary HKCU fixture only.
 # Redirect the hive and path, keeping its Registry64/type/value logic unchanged.
-$proxySource = Get-Content -LiteralPath (Join-Path $root 'SSRVPN_Windows\lib\services\system_proxy_service.dart') -Encoding UTF8 -Raw
-$probeStart = $proxySource.IndexOf('Future<bool> _supportsPerUserProxy')
-$scriptStart = $proxySource.IndexOf("const script = r'''", $probeStart) + "const script = r'''".Length
+$proxySource = Get-Content -LiteralPath (Join-Path $root 'SSRVPN_Windows\lib\src\services\windows_powershell.dart') -Encoding UTF8 -Raw
+$probeStart = $proxySource.IndexOf('const windowsPerUserProxyPolicyScript')
+$scriptStart = $proxySource.IndexOf("r'''", $probeStart) + "r'''".Length
 $scriptEnd = $proxySource.IndexOf("''';", $scriptStart)
 if ($probeStart -lt 0 -or $scriptEnd -lt $scriptStart) { throw 'Missing policy probe.' }
 $fixturePath = 'Software\SSRVPNPolicyTest-' + [Guid]::NewGuid().ToString('N')
