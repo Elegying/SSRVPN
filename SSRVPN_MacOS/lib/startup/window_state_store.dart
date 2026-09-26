@@ -12,6 +12,9 @@ class WindowStateStore {
   static Rect initialBounds(Rect workArea) =>
       DesktopWindowStateStore.initialBounds(workArea);
 
+  static Rect? restoredBounds(Rect saved, Iterable<Rect> workAreas) =>
+      DesktopWindowStateStore.restoredBounds(saved, workAreas);
+
   static Future<void> clear() => _store.clear();
 
   static Future<Rect?> load() => _store.load();

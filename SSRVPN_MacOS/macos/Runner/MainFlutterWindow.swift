@@ -24,6 +24,13 @@ class MainFlutterWindow: NSWindow {
 
   override func awakeFromNib() {
     configureIntegratedTitlebar()
+    // Native fault tests use explicit temporary fixtures. Do not bootstrap
+    // Dart services against the signed-in user's real proxy/configuration.
+    if AppDelegate.isXCTestEnvironment(ProcessInfo.processInfo.environment) {
+      super.awakeFromNib()
+      orderOut(nil)
+      return
+    }
 
     guard let delegate = NSApp.delegate as? AppDelegate else {
       super.awakeFromNib()
@@ -127,6 +134,13 @@ class MainFlutterWindow: NSWindow {
         delegate.enqueueCoreProcessOperation {
           let ended = delegate.endProxyLifecycleTransaction(token: token)
           DispatchQueue.main.async { result(ended) }
+        }
+        return
+      }
+      if call.method == "listAllNetworkServiceIDs" {
+        delegate.enqueueCoreProcessOperation {
+          let ids = delegate.allNetworkServiceIDs()
+          DispatchQueue.main.async { result(ids) }
         }
         return
       }

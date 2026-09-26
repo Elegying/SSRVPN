@@ -65,3 +65,9 @@ SmartScreen、安装文件缺失、DPAPI、托盘、连接或更新问题见
 
 - [Microsoft：CryptProtectData](https://learn.microsoft.com/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata)
 - [Microsoft：MoveFileExW](https://learn.microsoft.com/windows/win32/api/winbase/nf-winbase-movefileexw)
+
+### 账户与企业代理策略
+
+启动授权必须使用当前桌面登录账户；输入另一位管理员的凭据会使进程运行在其他账户下，系统代理无法正确作用于原桌面。客户端会拒绝这种启动并说明原因。
+
+如果企业配置了机器级代理策略（`ProxySettingsPerUser=0`），客户端会拒绝系统代理模式，不会修改该策略。请联系管理员确认网络配置，或按组织要求使用 TUN 模式。

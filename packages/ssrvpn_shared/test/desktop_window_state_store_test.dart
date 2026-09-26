@@ -65,6 +65,25 @@ void main() {
         throwsArgumentError);
   });
 
+  test(
+      'restored windows keep titlebar and controls inside the surviving display',
+      () {
+    const area = Rect.fromLTWH(0, 24, 1920, 1016);
+    expect(
+        DesktopWindowStateStore.restoredBounds(
+            const Rect.fromLTWH(200, -700, 440, 740), [area]),
+        const Rect.fromLTWH(200, 24, 440, 740));
+    expect(
+        DesktopWindowStateStore.restoredBounds(
+            const Rect.fromLTWH(1900, 1000, 800, 1400), [area]),
+        const Rect.fromLTWH(1120, 24, 800, 1016));
+    const left = Rect.fromLTWH(-1920, 24, 1920, 1016);
+    const saved = Rect.fromLTWH(-1800, 40, 440, 720);
+    expect(DesktopWindowStateStore.restoredBounds(saved, [area, left]), saved);
+    expect(DesktopWindowStateStore.restoredBounds(saved, [area]), isNull);
+    expect(DesktopWindowStateStore.restoredBounds(saved, []), isNull);
+  });
+
   test('round-trips valid bounds through an atomic save', () async {
     const bounds = Rect.fromLTWH(24, 48, 1180, 760);
 

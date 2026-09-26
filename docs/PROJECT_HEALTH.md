@@ -2,7 +2,7 @@
 
 最近更新：2026-09-25
 
-当前应用版本：`v5.0.21`
+当前应用版本：`v5.0.22`
 
 最新正式版本：[GitHub Releases 当前正式版](https://github.com/Elegying/SSRVPN/releases/latest)
 
@@ -380,6 +380,8 @@ Windows 管理员启动与安装器既定同名进程行为；Mac 进程身份/�
 解决；实现中 Android 服务一度超过已有行数边界，已保持原门槛修正并重跑通过。新增回归的红灯
 按上述触发链记录，与测试夹具调试错误及构建环境错误分开。本轮没有执行完整 `make verify`：
 按安全边界分段运行，不把分段通过包装成完整入口通过。
+
+以下为当时的历史验证限制；2026-09-26 起产品最低要求已调整为 macOS 13.0，旧测试结论不代表当前构建结果。
 
 首轮 macOS 的 `xcodebuild build-for-testing` 退出 65，第二轮沿用该环境限制：本机唯一 Xcode 27.0 / 27A266a 拒绝
 `MACOSX_DEPLOYMENT_TARGET=11.0`，其支持区间为 12.0–27.0.x。项目 macOS 11 / Apple M 系列要求

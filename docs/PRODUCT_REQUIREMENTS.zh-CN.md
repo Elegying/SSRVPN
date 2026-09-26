@@ -9,7 +9,7 @@
 1. Android、macOS 和 Windows 的主导航包含“首页/主页”“订阅”和“设置”三项；不得恢复隐藏的解锁测试、后台检测服务或替代性实验入口。
 2. 三端保持同一核心流程：导入订阅或节点、选择节点、建立连接、查看状态、断开连接；平台差异只用于操作系统集成。
 3. Android 正式包最低支持 Android 7.0，仅发布 `arm64-v8a` APK，并必须保持同一正式自签名证书谱系。
-4. macOS 正式包最低支持 macOS 11，仅支持 Apple M 系列 `arm64`；不得宣称支持 Intel 或 `x86_64`。
+4. macOS 正式包最低支持 macOS 13，仅支持 Apple M 系列 `arm64`；不得宣称支持 Intel 或 `x86_64`。
 5. Windows 最低支持 Windows 10 1507（build 10240）x64，只发布每用户安装器 `SSRVPN_Setup.exe`，不得恢复便携 ZIP 发布链。Windows 客户端及外层启动器必须继续声明 `requireAdministrator`，整套客户端固定以管理员身份运行；不得在未取得维护者明确确认时改成仅 TUN 提权、拆分权限或普通权限运行。
 6. macOS 固定采用 ad-hoc、未公证免费分发；Windows 固定采用未签名安装器。除非维护者明确取代该决策，不引入 Apple Developer ID、公证、Authenticode、付费证书 secret 或对应自动化。
 

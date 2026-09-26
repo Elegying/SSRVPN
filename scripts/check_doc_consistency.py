@@ -404,9 +404,9 @@ def self_test() -> None:
     )
     assert not stale_release_instructions("git tag --annotate v3.4.8")
     assert not stale_release_instructions("git tag -l 'v*'")
-    assert required_claims("README.md", "macOS 11 及以上")
+    assert required_claims("README.md", "macOS 13 及以上")
     assert not required_claims("README.md", "macOS 仅支持 Apple M 系列芯片。")
-    assert not required_claims("docs/OTHER.md", "macOS 11 及以上")
+    assert not required_claims("docs/OTHER.md", "macOS 13 及以上")
     assert not desktop_ui_count_claim(
         "的 12 个 `packages/ssrvpn_shared/lib/desktop_ui` 片段", 12
     )

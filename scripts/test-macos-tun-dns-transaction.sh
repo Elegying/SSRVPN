@@ -105,6 +105,23 @@ MOCK_STATUS_HISTORY=
   printf '   route to: default\ninterface: en0\n'
 }
 
+/usr/libexec/PlistBuddy() {
+  [[ $MOCK_NETWORK_SERVICE_LIST_FAILURE == false ]] || return 1
+  local id
+  case "$2" in
+    'Print :CurrentSet') printf '/Sets/22222222-2222-2222-2222-222222222222\n' ;;
+    'Print :Sets:22222222-2222-2222-2222-222222222222:Network:Service'|'Print :NetworkServices')
+      local ids=$MOCK_CURRENT_IDS
+      [[ $2 != 'Print :NetworkServices' ]] || ids=$MOCK_ALL_IDS
+      printf 'Dict {\n'
+      for id in $ids; do printf '    %s = Dict {\n    }\n' "$id"; done
+      printf '}\n'
+      ;;
+    'Print :NetworkServices:'*':UserDefinedName') printf '%s\n' "$MOCK_NETWORK_SERVICE" ;;
+    *) return 1 ;;
+  esac
+}
+
 /usr/sbin/scutil() {
   [[ ${1:-} == --nwi && $MOCK_SCUTIL_FAILURE == false ]] || return 1
   MOCK_SCUTIL_CALLS=$((MOCK_SCUTIL_CALLS + 1))
@@ -159,7 +176,7 @@ MOCK_STATUS_HISTORY=
       fi
       local service=${1:-}
       shift || true
-      [[ $service == Wi-Fi && $# -gt 0 ]] || return 1
+      [[ $service == "$MOCK_NETWORK_SERVICE" && $# -gt 0 ]] || return 1
       if [[ $1 == empty && $# -eq 1 ]]; then
         MOCK_DNS_CURRENT=$AUTOMATIC_DNS
         MOCK_LAST_DNS_SET=empty
@@ -270,6 +287,9 @@ setup_case() {
   dns_state_path="$dns_state_dir/tun-dns-state-v1"
   dns_state_temp="$dns_state_path.tmp"
   dns_service=
+  dns_service_id=
+  MOCK_CURRENT_IDS=11111111-1111-1111-1111-111111111111
+  MOCK_ALL_IDS=$MOCK_CURRENT_IDS
   dns_device=
   dns_original_mode=
   dns_original_servers=()
@@ -324,7 +344,7 @@ write_journal() {
   local mode=$1
   shift
   {
-    printf 'schema=1\nservice=Wi-Fi\ndevice=en0\nmode=%s\n' "$mode"
+    printf 'schema=2\nservice=Wi-Fi\ndevice=en0\nmode=%s\nservice_id=11111111-1111-1111-1111-111111111111\n' "$mode"
     local server
     for server in "$@"; do
       printf 'server=%s\n' "$server"
@@ -470,12 +490,57 @@ test_restore_failure_keeps_journal() {
     'failed restoration must leave the owned DNS value unchanged' || return 1
 }
 
+test_renamed_service_restores_original_dns() {
+  setup_case renamed-service
+  write_journal manual 10.20.0.53
+  MOCK_DNS_CURRENT=$tun_dns_server
+  MOCK_NETWORK_SERVICE='Office Wi-Fi'
+  restore_persisted_tun_dns || return 1
+  assert_equal 10.20.0.53 "$MOCK_DNS_CURRENT" 'renamed service must recover original DNS' || return 1
+  assert_file_absent "$dns_state_path" 'successful rename recovery retires journal'
+}
+
+test_other_location_retains_dns_journal() {
+  setup_case other-location
+  write_journal manual 10.20.0.53
+  MOCK_DNS_CURRENT=$tun_dns_server
+  MOCK_CURRENT_IDS=33333333-3333-3333-3333-333333333333
+  MOCK_ALL_IDS="$MOCK_CURRENT_IDS 11111111-1111-1111-1111-111111111111"
+  if restore_persisted_tun_dns; then return 1; fi
+  [[ -f $dns_state_path && $MOCK_DNS_SET_CALLS == 0 ]] || return 1
+  MOCK_CURRENT_IDS=11111111-1111-1111-1111-111111111111
+  restore_persisted_tun_dns || return 1
+  assert_equal 10.20.0.53 "$MOCK_DNS_CURRENT" 'returning to original location restores DNS'
+}
+
+test_legacy_rename_retains_dns_journal() {
+  setup_case legacy-rename
+  printf 'schema=1\nservice=Wi-Fi\ndevice=en0\nmode=manual\nserver=10.20.0.53\n' > "$dns_state_path"
+  chmod 600 "$dns_state_path"
+  MOCK_DNS_CURRENT=$tun_dns_server
+  MOCK_NETWORK_SERVICE='Office Wi-Fi'
+  if restore_persisted_tun_dns; then return 1; fi
+  [[ -f $dns_state_path && $MOCK_DNS_SET_CALLS == 0 ]]
+}
+
+test_legacy_location_retains_dns_journal() {
+  setup_case legacy-location
+  printf 'schema=1\nservice=Wi-Fi\ndevice=en0\nmode=manual\nserver=10.20.0.53\n' > "$dns_state_path"
+  chmod 600 "$dns_state_path"
+  MOCK_DNS_CURRENT=$tun_dns_server
+  MOCK_CURRENT_IDS=33333333-3333-3333-3333-333333333333
+  MOCK_ALL_IDS="$MOCK_CURRENT_IDS 11111111-1111-1111-1111-111111111111"
+  if restore_persisted_tun_dns; then return 1; fi
+  [[ -f $dns_state_path && $MOCK_DNS_SET_CALLS == 0 ]]
+}
+
 test_missing_network_service_retires_journal_and_unblocks_cleanup() {
   setup_case missing-network-service
   write_journal manual 1.1.1.1 8.8.8.8
   MOCK_DNS_CURRENT=$tun_dns_server
-  # The captured service was renamed or deleted. The exact old name is absent
-  # from a successful networksetup enumeration, and querying it now fails.
+  # Stable ID is absent from all locations, not just the current service name.
+  MOCK_CURRENT_IDS=33333333-3333-3333-3333-333333333333
+  MOCK_ALL_IDS=$MOCK_CURRENT_IDS
   MOCK_NETWORK_SERVICE='Home Wi-Fi'
   MOCK_NETWORK_SERVICE_LIST='Home Wi-Fi'
   MOCK_DNS_GET_FAILURE=true
@@ -973,6 +1038,10 @@ for entry in \
   'manual multi-DNS exact restore:test_manual_multi_dns_restores_exact_order' \
   'user DNS change preservation:test_user_dns_change_is_preserved_and_retires_journal' \
   'restore failure journal retention:test_restore_failure_keeps_journal' \
+  'renamed service DNS restore:test_renamed_service_restores_original_dns' \
+  'other location DNS retention:test_other_location_retains_dns_journal' \
+  'legacy rename DNS retention:test_legacy_rename_retains_dns_journal' \
+  'legacy location DNS retention:test_legacy_location_retains_dns_journal' \
   'missing service cleanup release:test_missing_network_service_retires_journal_and_unblocks_cleanup' \
   'service enumeration failure retention:test_network_service_enumeration_failure_keeps_journal' \
   'disabled service retention:test_disabled_network_service_is_not_treated_as_missing' \

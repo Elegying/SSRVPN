@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_macos/src/services/system_proxy_ownership.dart';
 
+part 'system_proxy_snapshot.dart';
+
 typedef MacNetworkSetupRunner = Future<ProcessResult> Function(
     List<String> arguments);
 typedef MacEffectiveProxyRunner = Future<ProcessResult> Function();
@@ -29,12 +31,14 @@ class SystemProxyService {
     MacEffectiveProxyRunner? effectiveProxyRunner,
     MacNetworkServiceIdentityRunner? networkServiceIdentityRunner,
     MacNetworkServiceIdentityRunner? enabledNetworkServiceIdentityRunner,
+    Future<List<String>?> Function()? allNetworkServiceIDsRunner,
     MacProxyLifecycleBegin? beginProxyLifecycleTransaction,
     MacProxyLifecycleEnd? endProxyLifecycleTransaction,
     MacProxyGuardianStart? startProxyGuardian,
   })  : _networkSetupRunner = networkSetupRunner,
         _effectiveProxyRunner = effectiveProxyRunner,
         _networkServiceIdentityRunner = networkServiceIdentityRunner,
+        _allNetworkServiceIDsRunner = allNetworkServiceIDsRunner,
         _enabledNetworkServiceIdentityRunner =
             enabledNetworkServiceIdentityRunner,
         _beginProxyLifecycleTransaction = beginProxyLifecycleTransaction,
@@ -58,6 +62,7 @@ class SystemProxyService {
   final MacEffectiveProxyRunner? _effectiveProxyRunner;
   final MacNetworkServiceIdentityRunner? _networkServiceIdentityRunner;
   final MacNetworkServiceIdentityRunner? _enabledNetworkServiceIdentityRunner;
+  final Future<List<String>?> Function()? _allNetworkServiceIDsRunner;
   final MacProxyLifecycleBegin? _beginProxyLifecycleTransaction;
   final MacProxyLifecycleEnd? _endProxyLifecycleTransaction;
   final MacProxyGuardianStart? _startProxyGuardian;
@@ -101,6 +106,10 @@ class SystemProxyService {
         return SystemProxyOwnershipStatus.unavailable;
       }
       final values = parseEffectiveMacProxy(result.stdout.toString());
+      if (_automaticProxyEnabled(values)) {
+        _lastError = _automaticProxyConflict;
+        return SystemProxyOwnershipStatus.externallyChanged;
+      }
       final owned = effectiveMacProxyEntryIsOwned(
             values,
             enableKey: 'HTTPEnable',
@@ -225,6 +234,16 @@ class SystemProxyService {
       return false;
     }
     try {
+      final effective = await _runEffectiveProxyProbe();
+      if (effective.exitCode != 0) {
+        _lastError = '无法检查 macOS 自动代理配置，未修改系统代理';
+        return false;
+      }
+      if (_automaticProxyEnabled(
+          parseEffectiveMacProxy(effective.stdout.toString()))) {
+        _lastError = _automaticProxyConflict;
+        return false;
+      }
       if (_proxyEnabled &&
           (_ownedProxyHost != host || _ownedProxyPort != port)) {
         if (!await clearSystemProxy()) return false;
@@ -563,10 +582,11 @@ class SystemProxyService {
       if (savedServiceStates == null) return false;
       final savedServices = savedServiceStates.keys.toList(growable: false);
       final restoreTargets = <({String savedName, String currentName})>[];
+      Map<String, String>? savedIdentities;
       late final List<String> currentServices;
       late final List<String> pendingServices;
       if (hasStableIdentities) {
-        final savedIdentities = _validatedSavedServiceIdentities(
+        savedIdentities = _validatedSavedServiceIdentities(
           raw['_networkServiceIDs'],
           savedServices: savedServices,
         );
@@ -591,6 +611,16 @@ class SystemProxyService {
         }
         pendingServices = pending;
       } else {
+        final allIDs = await _listAllNetworkServiceIDs();
+        if (allIDs == null) return false;
+        if (allIDs.isNotEmpty) {
+          final currentIDs = await _listNetworkServiceIdentities();
+          if (currentIDs == null ||
+              !currentIDs.values.toSet().containsAll(allIDs)) {
+            _lastError = '旧版代理记录缺少服务标识，无法确认多个网络位置中的同名服务；已保留记录，请核对原代理设置后处理恢复';
+            return false;
+          }
+        }
         currentServices = await _listNetworkServices();
         if (savedServices.isNotEmpty &&
             currentServices.isEmpty &&
@@ -661,6 +691,7 @@ class SystemProxyService {
                 currentServices: currentServices,
                 ownedHost: ownedHost,
                 ownedPort: ownedPort,
+                savedIdentities: savedIdentities,
               )
             : await _strictlyConfirmedMissingNetworkServices(
                 pendingServices,
@@ -749,8 +780,21 @@ class SystemProxyService {
     required List<String> currentServices,
     required String ownedHost,
     required int ownedPort,
+    Map<String, String>? savedIdentities,
   }) async {
     try {
+      final allIDs = await _listAllNetworkServiceIDs();
+      if (allIDs == null) return null;
+      if (savedIdentities != null) {
+        final inactive = missingServices
+            .where((name) => allIDs.contains(savedIdentities[name]));
+        if (inactive.isNotEmpty) {
+          _lastError = '原网络服务仍在其他网络位置中，请切回原网络位置后重试恢复：${inactive.join('、')}';
+          return missingServices
+              .where((name) => !allIDs.contains(savedIdentities[name]))
+              .toSet();
+        }
+      }
       for (final service in currentServices) {
         for (final command in const [
           '-getwebproxy',
@@ -778,102 +822,16 @@ class SystemProxyService {
     }
   }
 
-  Map<String, String>? _validatedSavedServiceIdentities(
-    Object? value, {
-    required List<String> savedServices,
-  }) {
-    if (value is! Map) {
-      _lastError = 'macOS 网络服务稳定标识快照格式无效，已保留现场';
+  Future<List<String>?> _listAllNetworkServiceIDs() async {
+    final ids = _allNetworkServiceIDsRunner != null
+        ? await _allNetworkServiceIDsRunner()
+        : await _coreProcessChannel
+            .invokeListMethod<String>('listAllNetworkServiceIDs');
+    if (ids == null || ids.any((id) => id.trim().isEmpty)) {
+      _lastError = '无法确认全部网络位置的服务，已保留代理恢复记录';
       return null;
     }
-    final identities = <String, String>{};
-    final seenIDs = <String>{};
-    for (final entry in value.entries) {
-      final name = entry.key is String ? (entry.key as String).trim() : '';
-      final serviceID =
-          entry.value is String ? (entry.value as String).trim() : '';
-      if (name.isEmpty ||
-          serviceID.isEmpty ||
-          identities.containsKey(name) ||
-          !seenIDs.add(serviceID)) {
-        _lastError = 'macOS 网络服务稳定标识快照格式无效，已保留现场';
-        return null;
-      }
-      identities[name] = serviceID;
-    }
-    final saved = savedServices.toSet();
-    if (identities.length != saved.length ||
-        !saved.every(identities.containsKey)) {
-      _lastError = 'macOS 网络服务稳定标识与代理快照不一致，已保留现场';
-      return null;
-    }
-    return identities;
-  }
-
-  void _removeSavedService(
-    Map<String, dynamic> raw,
-    String service, {
-    required bool hasStableIdentities,
-  }) {
-    raw.remove(service);
-    if (!hasStableIdentities) return;
-    final identities = raw['_networkServiceIDs'];
-    if (identities is Map<String, dynamic>) {
-      identities.remove(service);
-    } else if (identities is Map) {
-      identities.remove(service);
-    }
-  }
-
-  Map<String, Map<String, dynamic>>? _validatedSavedServiceStates(
-    Map<String, dynamic> raw, {
-    required bool hasStableIdentities,
-  }) {
-    final services = <String, Map<String, dynamic>>{};
-    for (final entry in raw.entries) {
-      if (_snapshotMetadataKeys.contains(entry.key) &&
-          (entry.key != '_networkServiceIDs' || hasStableIdentities)) {
-        continue;
-      }
-      final value = entry.value;
-      if (!_isCompleteSavedProxyServiceState(value)) {
-        _lastError = '${entry.key}: 保存的代理状态格式无效，已保留现场';
-        return null;
-      }
-      services[entry.key] = value as Map<String, dynamic>;
-    }
-    if (services.isEmpty) {
-      _lastError = '代理恢复快照不包含有效网络服务，已保留现场';
-      return null;
-    }
-    return services;
-  }
-
-  bool _isCompleteSavedProxyServiceState(Object? value) =>
-      value is Map<String, dynamic> &&
-      value.length == 3 &&
-      const {'web', 'secureWeb', 'socks'}.containsAll(value.keys) &&
-      _isValidProxyState(value['web']) &&
-      _isValidProxyState(value['secureWeb']) &&
-      _isValidProxyState(value['socks']);
-
-  bool _isValidProxyState(Object? value) {
-    if (value is! Map<String, dynamic>) return false;
-    if (!const {'enabled', 'server', 'port'}.containsAll(value.keys) ||
-        value.length != 3) {
-      return false;
-    }
-    final enabled = value['enabled'];
-    final server = value['server'];
-    final port = value['port'];
-    if (enabled is! bool ||
-        server is! String ||
-        port is! int ||
-        port < 0 ||
-        port > 65535) {
-      return false;
-    }
-    return !enabled || (server.trim().isNotEmpty && port > 0);
+    return ids;
   }
 
   Future<Map<String, dynamic>> _readProxyState(
@@ -930,7 +888,6 @@ class SystemProxyService {
     final currentEnabled = current['enabled'] == true;
     final expectedEnabled = expected['enabled'] == true;
     if (currentEnabled != expectedEnabled) return false;
-    if (!currentEnabled) return true;
     return (current['server']?.toString().trim() ?? '') ==
             (expected['server']?.toString().trim() ?? '') &&
         (int.tryParse(current['port']?.toString() ?? '') ?? 0) ==
@@ -949,9 +906,10 @@ class SystemProxyService {
     final server = state['server']?.toString() ?? '';
     final port = int.tryParse(state['port']?.toString() ?? '') ?? 0;
 
-    if (enabled && server.isNotEmpty && port > 0) {
+    if (server.isNotEmpty && port > 0) {
       await _checkedRun([setCommand, service, server, '$port']);
-    } else {
+    }
+    if (!enabled || server.isEmpty || port <= 0) {
       await _checkedRun([stateCommand, service, 'off']);
     }
   }
@@ -966,6 +924,13 @@ class SystemProxyService {
       timeoutStderr: 'scutil --proxy 命令超时',
     );
   }
+
+  static const _automaticProxyConflict =
+      '当前网络启用了自动代理（PAC/WPAD），系统代理模式无法可靠接管。请关闭自动代理后重试，或使用 TUN 模式';
+
+  bool _automaticProxyEnabled(Map<String, String> values) =>
+      values['ProxyAutoConfigEnable'] == '1' ||
+      values['ProxyAutoDiscoveryEnable'] == '1';
 
   Future<void> _checkedRun(List<String> args) async {
     final result = await _runNetworkSetup(args);

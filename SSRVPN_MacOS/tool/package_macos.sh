@@ -64,6 +64,8 @@ test -f "$APP_PATH/Contents/Resources/third_party/THIRD_PARTY_NOTICES.md"
 test -f "$APP_PATH/Contents/Resources/third_party/licenses/GPL-3.0.txt"
 test -f "$APP_PATH/Contents/Resources/third_party/licenses/SSRVPN-MIT.txt"
 
+python3 "$PROJECT_ROOT/../scripts/check_macos_deployment_target.py" "$APP_PATH"
+
 echo "Refreshing ad-hoc code signature..."
 /usr/bin/codesign --force --deep --sign - "$APP_PATH"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"

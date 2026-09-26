@@ -125,3 +125,10 @@ apply_standard_settings(ssrvpn_dns_http_response_test)
 set_target_properties(ssrvpn_dns_http_response_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/native-tests"
 )
+
+add_executable(ssrvpn_windows_user_identity_test EXCLUDE_FROM_ALL
+  "windows_user_identity.cpp" "windows_user_identity_test.cpp")
+apply_standard_settings(ssrvpn_windows_user_identity_test)
+set_target_properties(ssrvpn_windows_user_identity_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/native-tests")
+target_link_libraries(ssrvpn_windows_user_identity_test PRIVATE "advapi32.lib" "user32.lib")

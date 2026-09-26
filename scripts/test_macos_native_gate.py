@@ -801,6 +801,8 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
         source = self.read(
             "SSRVPN_MacOS/lib/services/system_proxy_service.dart"
         )
+        self.assertIn("part 'system_proxy_snapshot.dart';", source)
+        source += self.read("SSRVPN_MacOS/lib/services/system_proxy_snapshot.dart")
         for token in (
             "Future<bool>? _clearSystemProxyInFlight",
             "return _clearSystemProxyInFlight ??= _runClearSystemProxy()",
@@ -821,11 +823,9 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
             self.assertIn(token, source)
 
     def test_proxy_apply_filters_disabled_services_without_hiding_recovery(self) -> None:
-        source = self.read("SSRVPN_MacOS/macos/Runner/AppDelegate.swift")
+        source = self.read("SSRVPN_MacOS/macos/Runner/NetworkServiceIdentities.swift")
         start = source.index("func currentNetworkServiceIdentities(")
-        end = source.index(
-            "private func resetCommittedApplicationTermination", start
-        )
+        end = len(source)
 
         body = source[start:end]
         self.assertIn("enabledOnly: Bool = false", body)

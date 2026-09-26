@@ -247,47 +247,6 @@ class AppDelegate: FlutterAppDelegate {
     return active
   }
 
-  func currentNetworkServiceIdentities(enabledOnly: Bool = false) -> [String: String]? {
-    guard
-      let preferences = SCPreferencesCreate(
-        nil,
-        "com.ssrvpn.network-service-identities" as CFString,
-        nil
-      ),
-      // `networksetup` manages the current location's services. Reading every
-      // preference service also returns orphaned entries that it cannot name.
-      let currentSet = SCNetworkSetCopyCurrent(preferences),
-      let rawServices = SCNetworkSetCopyServices(currentSet)
-    else {
-      return nil
-    }
-    let services = rawServices as NSArray
-    var identities: [String: String] = [:]
-    var seenIDs = Set<String>()
-    for case let service as SCNetworkService in services where !enabledOnly || SCNetworkServiceGetEnabled(service) {
-      guard
-        let rawName = SCNetworkServiceGetName(service),
-        let rawServiceID = SCNetworkServiceGetServiceID(service)
-      else {
-        return nil
-      }
-      let name = (rawName as String)
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-      let serviceID = (rawServiceID as String)
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-      guard
-        !name.isEmpty,
-        !serviceID.isEmpty,
-        identities[name] == nil,
-        seenIDs.insert(serviceID).inserted
-      else {
-        return nil
-      }
-      identities[name] = serviceID
-    }
-    return identities
-  }
-
   private func resetCommittedApplicationTermination() {
     proxyLifecycleLeaseLock.lock()
     if applicationTerminationLeaseState == .committed {
@@ -1286,6 +1245,7 @@ class AppDelegate: FlutterAppDelegate {
     at explicitStateURL: URL? = nil,
     proxyCommandRunner: ((String, [String]) -> ProxyCommandResult)? = nil,
     networkServiceIdentityProvider: (() -> [String: String]?)? = nil,
+    allNetworkServiceIDsProvider: (() -> [String]?)? = nil,
     proxyStateRemover: ((URL) throws -> Void)? = nil,
     expectedGuardianNonce: String? = nil,
     expectedOwnerPid: Int32? = nil
@@ -1379,7 +1339,20 @@ class AppDelegate: FlutterAppDelegate {
           }
         )
       }
-      var hasMissingStableService = false
+      if !hasStableServiceIdentities {
+        let allIDs = allNetworkServiceIDsProvider != nil
+          ? allNetworkServiceIDsProvider?() : allNetworkServiceIDs()
+        guard let allIDs else { return false }
+        if !allIDs.isEmpty {
+          let currentIDs = networkServiceIdentityProvider != nil
+            ? networkServiceIdentityProvider?() : currentNetworkServiceIdentities()
+          guard let currentIDs, Set(currentIDs.values).isSuperset(of: allIDs) else {
+            NSLog("[AppDelegate] Legacy proxy snapshot cannot identify services across locations; preserving it")
+            return false
+          }
+        }
+      }
+      var missingStableServiceIDs: [String] = []
       var restoreTargets: [(String, String, [String: Any])] = []
       for (savedService, value) in services {
         if let savedServiceIdentities {
@@ -1387,7 +1360,9 @@ class AppDelegate: FlutterAppDelegate {
             let serviceID = savedServiceIdentities[savedService],
             let currentService = currentNamesByID[serviceID]
           else {
-            hasMissingStableService = true
+            if let serviceID = savedServiceIdentities[savedService] {
+              missingStableServiceIDs.append(serviceID)
+            }
             continue
           }
           restoreTargets.append((savedService, currentService, value))
@@ -1442,7 +1417,13 @@ class AppDelegate: FlutterAppDelegate {
           proxyCommandRunner: proxyCommandRunner
         ) && restoredAll
       }
-      if hasMissingStableService {
+      if !missingStableServiceIDs.isEmpty {
+        let allIDs = allNetworkServiceIDsProvider != nil
+          ? allNetworkServiceIDsProvider?() : allNetworkServiceIDs()
+        guard let allIDs, Set(allIDs).isDisjoint(with: missingStableServiceIDs) else {
+          NSLog("[AppDelegate] Saved services may belong to another network location; preserving recovery state")
+          return false
+        }
         let currentServiceNames = currentServiceIdentities.map {
           Array($0.keys)
         } ?? []
@@ -1895,18 +1876,19 @@ class AppDelegate: FlutterAppDelegate {
       port = 0
     }
 
-    if enabled && !server.isEmpty && port > 0 {
+    if !server.isEmpty && port > 0 {
       let setOk = executeProxyCommand(
         "/usr/sbin/networksetup",
         [setCommand, service, server, "\(port)"],
         proxyCommandRunner: proxyCommandRunner
       ).succeeded
+      guard setOk else { return false }
       let stateOk = executeProxyCommand(
         "/usr/sbin/networksetup",
-        [stateCommand, service, "on"],
+        [stateCommand, service, enabled ? "on" : "off"],
         proxyCommandRunner: proxyCommandRunner
       ).succeeded
-      return setOk && stateOk
+      return stateOk
     }
     return executeProxyCommand(
       "/usr/sbin/networksetup",

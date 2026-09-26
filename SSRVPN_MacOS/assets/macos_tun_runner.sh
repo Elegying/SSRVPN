@@ -243,25 +243,96 @@ read_dns_servers() {
   /usr/sbin/networksetup -getdnsservers "$1" 2>/dev/null
 }
 
-# Returns success only when networksetup itself completed successfully, emitted
-# its expected service-list header, and the exact captured service name is no
-# longer present. Command or output failures remain indistinguishable from an
-# existing service so DNS recovery keeps retrying conservatively.
-network_service_is_confirmed_missing() {
-  local expected_service=$1 output service saw_header=false
-  output=$(/usr/sbin/networksetup -listallnetworkservices 2>/dev/null) || return 1
-  while IFS= read -r service || [[ -n $service ]]; do
-    service=${service%$'\r'}
-    if [[ $service == 'An asterisk (*) denotes that a network service is disabled.' ]]; then
-      saw_header=true
-      continue
+# Read stable IDs from the root-owned SystemConfiguration preferences. Names
+# are labels scoped to a location; neither a rename nor a location switch is
+# evidence that a service was deleted. Never interpolate names into commands.
+network_service_ids() {
+  local path=$1 output line id
+  output=$(/usr/libexec/PlistBuddy -c "Print :$path" \
+    /Library/Preferences/SystemConfiguration/preferences.plist 2>/dev/null) || return 1
+  [[ $output == 'Dict {'$'\n'* && $output == *$'\n''}' ]] || return 1
+  while IFS= read -r line; do
+    if [[ $line == '    '* && $line != '     '* && $line != '    }' ]]; then
+      [[ $line == *' = Dict {' ]] || return 1
+      id=${line#    }
+      id=${id% = Dict \{}
+      [[ $id =~ ^[A-Fa-f0-9-]{36}$ ]] || return 1
+      /usr/bin/printf '%s\n' "$id"
     fi
-    if [[ $service == \** ]]; then
-      service=${service#\*}
-    fi
-    [[ $service == "$expected_service" ]] && return 1
   done <<< "$output"
-  [[ $saw_header == true ]]
+}
+
+current_network_service_ids() {
+  local location
+  location=$(/usr/libexec/PlistBuddy -c 'Print :CurrentSet' \
+    /Library/Preferences/SystemConfiguration/preferences.plist 2>/dev/null) || return 1
+  location=${location#/Sets/}
+  [[ $location =~ ^[A-Fa-f0-9-]{36}$ ]] || return 1
+  network_service_ids "Sets:$location:Network:Service"
+}
+
+network_service_name_for_id() {
+  local name
+  [[ $1 =~ ^[A-Fa-f0-9-]{36}$ ]] || return 1
+  name=$(/usr/libexec/PlistBuddy -c "Print :NetworkServices:$1:UserDefinedName" \
+    /Library/Preferences/SystemConfiguration/preferences.plist 2>/dev/null) || return 1
+  [[ -n $name && ${#name} -le 255 && $name != *$'\n'* && \
+    $name != *$'\r'* && $name != *$'\t'* && $name != \** ]] || return 1
+  /usr/bin/printf '%s\n' "$name"
+}
+
+network_service_id_for_name() {
+  local expected=$1 ids id name found=''
+  ids=$(current_network_service_ids) || return 1
+  while IFS= read -r id; do
+    [[ -n $id ]] || continue
+    name=$(network_service_name_for_id "$id") || return 1
+    if [[ $name == "$expected" ]]; then
+      [[ -z $found ]] || return 1
+      found=$id
+    fi
+  done <<< "$ids"
+  [[ -n $found ]] || return 1
+  /usr/bin/printf '%s\n' "$found"
+}
+
+# 0: exact service found in current location; 2: globally deleted; 1: unknown
+# or inactive location. Inactive services retain their journal until restored.
+resolve_dns_service() {
+  local ids id current_ids
+  if [[ -z ${dns_service_id:-} ]]; then
+    # Legacy journals cannot distinguish deletion from rename or replacement.
+    # Identical names in different locations must not address the new service.
+    ids=$(network_service_ids NetworkServices) || return 1
+    current_ids=$(current_network_service_ids) || return 1
+    while IFS= read -r id; do
+      [[ -n $id ]] || continue
+      /usr/bin/grep -Fxq -- "$id" <<< "$current_ids" || return 1
+    done <<< "$ids"
+    network_service_id_for_name "$dns_service" >/dev/null || return 1
+    return 0
+  fi
+  ids=$(current_network_service_ids) || return 1
+  while IFS= read -r id; do
+    if [[ $id == "$dns_service_id" ]]; then
+      dns_service=$(network_service_name_for_id "$id") || return 1
+      return 0
+    fi
+  done <<< "$ids"
+  ids=$(network_service_ids NetworkServices) || return 1
+  while IFS= read -r id; do
+    [[ $id != "$dns_service_id" ]] || return 1
+  done <<< "$ids"
+  return 2
+}
+
+valid_dns_output() {
+  local line
+  [[ $1 == "There aren't any DNS Servers set on "* ]] && return 0
+  [[ -n $1 ]] || return 1
+  while IFS= read -r line; do
+    is_dns_server "$line" || return 1
+  done <<< "$1"
 }
 
 is_secure_root_directory() {
@@ -312,9 +383,10 @@ remove_dns_state() {
 }
 
 load_persisted_tun_dns() {
-  local line line_number=0
+  local line line_number=0 schema=
   is_safe_dns_state_file "$dns_state_path" || return 1
   dns_service=
+  dns_service_id=
   dns_device=
   dns_original_mode=
   dns_original_servers=()
@@ -323,7 +395,8 @@ load_persisted_tun_dns() {
     ((line_number += 1))
     case $line_number in
       1)
-        [[ $line == "schema=1" ]] || return 1
+        [[ $line == "schema=1" || $line == "schema=2" ]] || return 1
+        schema=${line#schema=}
         ;;
       2)
         [[ $line == service=* ]] || return 1
@@ -343,6 +416,12 @@ load_persisted_tun_dns() {
         dns_original_mode=${line#mode=}
         ;;
       *)
+        if [[ $schema == 2 && $line_number == 5 ]]; then
+          [[ $line == service_id=* ]] || return 1
+          dns_service_id=${line#service_id=}
+          [[ $dns_service_id =~ ^[A-Fa-f0-9-]{36}$ ]] || return 1
+          continue
+        fi
         [[ $line == server=* ]] || return 1
         line=${line#server=}
         is_dns_server "$line" || return 1
@@ -352,6 +431,7 @@ load_persisted_tun_dns() {
     esac
   done < "$dns_state_path"
   ((line_number >= 4)) || return 1
+  [[ $schema == 1 || -n $dns_service_id ]] || return 1
   if [[ $dns_original_mode == automatic ]]; then
     ((dns_original_server_count == 0)) || return 1
   else
@@ -366,8 +446,8 @@ write_dns_state() {
   (set -o noclobber; : > "$dns_state_temp") 2>/dev/null || return 1
   /bin/chmod 600 "$dns_state_temp" || return 1
   {
-    /usr/bin/printf 'schema=1\nservice=%s\ndevice=%s\nmode=%s\n' \
-      "$dns_service" "$dns_device" "$dns_original_mode"
+    /usr/bin/printf 'schema=2\nservice=%s\ndevice=%s\nmode=%s\nservice_id=%s\n' \
+      "$dns_service" "$dns_device" "$dns_original_mode" "$dns_service_id"
     if ((dns_original_server_count > 0)); then
       local server
       for server in "${dns_original_servers[@]}"; do
@@ -401,6 +481,7 @@ capture_tun_dns_state() {
   [[ ! -e $dns_state_path && ! -L $dns_state_path ]] || return 1
   dns_device=$(active_network_device) || return 1
   dns_service=$(network_service_for_device "$dns_device") || return 1
+  dns_service_id=$(network_service_id_for_name "$dns_service") || return 1
   output=$(read_dns_servers "$dns_service") || return 1
   dns_original_mode=
   dns_original_servers=()
@@ -426,6 +507,7 @@ configure_tun_dns() {
   active_physical_network_unchanged || return 1
   mapped_service=$(network_service_for_device "$dns_device") || return 1
   [[ $mapped_service == "$dns_service" ]] || return 1
+  [[ $(network_service_id_for_name "$dns_service") == "$dns_service_id" ]] || return 1
   dns_snapshot_matches || return 1
   /usr/sbin/networksetup -setdnsservers "$dns_service" "$tun_dns_server" \
     >/dev/null 2>&1 || return 1
@@ -488,20 +570,23 @@ check_runtime_tun_dns_health() {
 }
 
 restore_persisted_tun_dns() {
-  local current restored
+  local current restored resolution=0
   if [[ ! -e $dns_state_path && ! -L $dns_state_path ]]; then
     return 0
   fi
   ensure_dns_state_directory || return 1
   load_persisted_tun_dns || return 1
-  if ! current=$(read_dns_servers "$dns_service"); then
-    if network_service_is_confirmed_missing "$dns_service"; then
-      echo "SSRVPN TUN: captured DNS service no longer exists; retiring recovery state" >&2
-      remove_dns_state || return 1
-      return 0
-    fi
-    return 1
+  resolve_dns_service || resolution=$?
+  if ((resolution == 2)); then
+    remove_dns_state
+    return $?
   fi
+  ((resolution == 0)) || return 1
+  if [[ -n ${dns_service_id:-} ]]; then
+    [[ $(network_service_id_for_name "$dns_service") == "$dns_service_id" ]] || return 1
+  fi
+  current=$(read_dns_servers "$dns_service") || return 1
+  valid_dns_output "$current" || return 1
   if ! is_owned_tun_dns_value "$current"; then
     echo "SSRVPN TUN: DNS ownership changed; preserving current settings" >&2
     remove_dns_state || return 1

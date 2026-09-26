@@ -456,6 +456,8 @@ void main() {
       var allowRecovery = false;
       final events = <String>[];
       final proxyService = SystemProxyService(
+        allNetworkServiceIDsRunner: () async => ['wifi-fixture'],
+        networkServiceIdentityRunner: () async => {'Wi-Fi': 'wifi-fixture'},
         startProxyGuardian: (_, __) async => true,
         beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
         endProxyLifecycleTransaction: (_) async => true,

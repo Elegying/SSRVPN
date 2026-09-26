@@ -293,6 +293,9 @@ class SystemProxyService {
       _lastError = 'SSRVPN 当前未持有 Windows 系统代理';
       return SystemProxyOwnershipStatus.unavailable;
     }
+    if (!await _supportsPerUserProxy(cancellation: cancellation)) {
+      return SystemProxyOwnershipStatus.externallyChanged;
+    }
     final current = await _readCurrentProxy(cancellation: cancellation);
     if (current == null) {
       _lastError ??= '无法读取当前 Windows 系统代理设置';
@@ -340,6 +343,10 @@ class SystemProxyService {
 
     try {
       cancellation.throwIfRequested();
+      if (!await _supportsPerUserProxy(cancellation: cancellation.future)) {
+        cancellation.throwIfRequested();
+        return false;
+      }
       if (!await isLauncherGuardianReady(cancellation: cancellation.future)) {
         cancellation.throwIfRequested();
         _lastError = '独立系统代理保护未就绪，请通过 ssrvpn_windows.exe 启动或重试';
@@ -396,7 +403,8 @@ ${_notifyWinInetScript()}
       }
       cancellation.throwIfRequested();
       if (result.exitCode != 0) {
-        final setError = _formatPowerShellError('写入 Windows 系统代理失败', result);
+        final setError =
+            formatWindowsPowerShellError('写入 Windows 系统代理失败', result);
         return _rollbackFailedAcquisition(setError);
       }
       try {
@@ -944,7 +952,8 @@ if ([int]\$item.EndpointRestoreInProgress -eq 1 -and
 }
 ''');
     if (result.exitCode != 0) {
-      _lastError = _formatPowerShellError('读取 Windows 原生代理恢复阶段失败', result);
+      _lastError =
+          formatWindowsPowerShellError('读取 Windows 原生代理恢复阶段失败', result);
       return null;
     }
     final output = result.stdout.toString().trim();
@@ -970,6 +979,20 @@ if ([int]\$item.EndpointRestoreInProgress -eq 1 -and
     _preparedAcquisitionNeedsDiscard = false;
     _previousProxy = null;
     _ownedProxyServer = null;
+  }
+
+  // Recovery still restores only our HKCU values. Never write HKLM or change
+  // an administrator's policy to make per-user proxy acquisition succeed.
+  Future<bool> _supportsPerUserProxy({Future<void>? cancellation}) async {
+    final result = await _runPowerShell(windowsPerUserProxyPolicyScript,
+        cancellation: cancellation);
+    if (result.exitCode == 125) throw const _SystemProxyAcquisitionCancelled();
+    if (result.exitCode != 0) {
+      _lastError =
+          'Windows 代理策略不允许或无法确认按用户设置代理。请联系管理员检查 ProxySettingsPerUser，或使用 TUN 模式';
+      return false;
+    }
+    return true;
   }
 
   Future<_ProxySnapshot?> _readCurrentProxy({
@@ -1006,7 +1029,7 @@ if ($null -ne $item.PSObject.Properties['AutoDetect'] -and
       throw const _SystemProxyAcquisitionCancelled();
     }
     if (result.exitCode != 0) {
-      _lastError = _formatPowerShellError('读取 Windows 系统代理失败', result);
+      _lastError = formatWindowsPowerShellError('读取 Windows 系统代理失败', result);
       return null;
     }
 
@@ -1081,7 +1104,7 @@ ${_notifyWinInetScript()}
 ''';
     final result = await _runPowerShell(script);
     if (result.exitCode != 0) {
-      _lastError = _formatPowerShellError('恢复 Windows 系统代理失败', result);
+      _lastError = formatWindowsPowerShellError('恢复 Windows 系统代理失败', result);
     }
     return result.exitCode == 0;
   }
@@ -1122,7 +1145,7 @@ ${_notifyWinInetScript()}
 ''';
     final result = await _runPowerShell(script);
     if (result.exitCode != 0) {
-      _lastError = _formatPowerShellError('释放 Windows 系统代理端点失败', result);
+      _lastError = formatWindowsPowerShellError('释放 Windows 系统代理端点失败', result);
     }
     return result.exitCode == 0;
   }
@@ -1186,7 +1209,8 @@ Set-ItemProperty -Path \$runOncePath -Name '$_runOnceValueName' -Type String `
       throw const _SystemProxyAcquisitionCancelled();
     }
     if (result.exitCode != 0) {
-      throw StateError(_formatPowerShellError('注册 Windows 代理恢复任务失败', result));
+      throw StateError(
+          formatWindowsPowerShellError('注册 Windows 代理恢复任务失败', result));
     }
   }
 
@@ -1262,7 +1286,7 @@ if (Test-Path -LiteralPath \$backupPath) {
 ''');
     if (nativeResult.exitCode != 0) {
       throw StateError(
-        _formatPowerShellError(
+        formatWindowsPowerShellError(
           'Failed to terminalize Windows native proxy recovery state',
           nativeResult,
         ),
@@ -1281,7 +1305,7 @@ if (Test-Path -LiteralPath \$runOncePath) {
 ''');
     if (runOnceResult.exitCode != 0) {
       throw StateError(
-        _formatPowerShellError('删除 Windows 代理恢复任务失败', runOnceResult),
+        formatWindowsPowerShellError('删除 Windows 代理恢复任务失败', runOnceResult),
       );
     }
     if (backupFile != null) {
@@ -1332,7 +1356,8 @@ Set-ItemProperty -Path \$backupPath -Name Valid -Type DWord -Value 1
       throw const _SystemProxyAcquisitionCancelled();
     }
     if (result.exitCode != 0) {
-      throw StateError(_formatPowerShellError('写入 Windows 原生代理恢复状态失败', result));
+      throw StateError(
+          formatWindowsPowerShellError('写入 Windows 原生代理恢复状态失败', result));
     }
   }
 
@@ -1348,7 +1373,8 @@ Set-ItemProperty -Path \$backupPath -Name ActivationInProgress -Type DWord -Valu
       throw const _SystemProxyAcquisitionCancelled();
     }
     if (result.exitCode != 0) {
-      throw StateError(_formatPowerShellError('更新 Windows 原生代理恢复状态失败', result));
+      throw StateError(
+          formatWindowsPowerShellError('更新 Windows 原生代理恢复状态失败', result));
     }
 
     final statePath = _statePath;
@@ -1405,18 +1431,6 @@ Set-ItemProperty -Path \$backupPath -Name ActivationInProgress -Type DWord -Valu
       timeoutStderr: 'Windows 系统代理 PowerShell 命令响应超时；可能是系统繁忙或安全软件暂时拦截，请稍后重试',
       cancellation: cancellation,
     );
-  }
-
-  String _formatPowerShellError(String prefix, ProcessResult result) {
-    if (result.exitCode == 124) {
-      return 'Windows 系统代理 PowerShell 命令响应超时；可能是系统繁忙或安全软件暂时拦截，请稍后重试';
-    }
-    final stderr = result.stderr.toString().trim();
-    final stdout = result.stdout.toString().trim();
-    final detail = stderr.isNotEmpty ? stderr : stdout;
-    return detail.isEmpty
-        ? '$prefix（退出码 ${result.exitCode}）'
-        : '$prefix（退出码 ${result.exitCode}）: $detail';
   }
 
   String _notifyWinInetScript() => r'''

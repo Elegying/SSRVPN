@@ -88,6 +88,40 @@ try {
   }
 }
 
+# Execute the production policy probe against a temporary HKCU fixture only.
+# Redirect the hive and path, keeping its Registry64/type/value logic unchanged.
+$proxySource = Get-Content -LiteralPath (Join-Path $root 'SSRVPN_Windows\lib\src\services\windows_powershell.dart') -Encoding UTF8 -Raw
+$probeStart = $proxySource.IndexOf('const windowsPerUserProxyPolicyScript')
+$scriptStart = $proxySource.IndexOf("r'''", $probeStart) + "r'''".Length
+$scriptEnd = $proxySource.IndexOf("''';", $scriptStart)
+if ($probeStart -lt 0 -or $scriptEnd -lt $scriptStart) { throw 'Missing policy probe.' }
+$fixturePath = 'Software\SSRVPNPolicyTest-' + [Guid]::NewGuid().ToString('N')
+$probe = $proxySource.Substring($scriptStart, $scriptEnd - $scriptStart)
+$probe = $probe.Replace('[Microsoft.Win32.RegistryHive]::LocalMachine', '[Microsoft.Win32.RegistryHive]::CurrentUser')
+$probe = $probe.Replace('SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings', $fixturePath)
+$fixtureBase = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::Registry64)
+try {
+  & ([scriptblock]::Create($probe))
+  $fixture = $fixtureBase.CreateSubKey($fixturePath)
+  try {
+    & ([scriptblock]::Create($probe))
+    foreach ($case in @(
+      @{ Value = 1; Kind = [Microsoft.Win32.RegistryValueKind]::DWord; Allowed = $true },
+      @{ Value = 0; Kind = [Microsoft.Win32.RegistryValueKind]::DWord; Allowed = $false },
+      @{ Value = 2; Kind = [Microsoft.Win32.RegistryValueKind]::DWord; Allowed = $false },
+      @{ Value = '1'; Kind = [Microsoft.Win32.RegistryValueKind]::String; Allowed = $false }
+    )) {
+      $fixture.SetValue('ProxySettingsPerUser', $case.Value, $case.Kind)
+      $allowed = $true
+      try { & ([scriptblock]::Create($probe)) } catch { $allowed = $false }
+      if ($allowed -ne $case.Allowed) { throw 'ProxySettingsPerUser policy probe failed.' }
+    }
+  } finally { $fixture.Dispose() }
+} finally {
+  $fixtureBase.DeleteSubKeyTree($fixturePath, $false)
+  $fixtureBase.Dispose()
+}
+
 Write-Host (
   "Windows PowerShell 5.1 compatibility passed for " +
   "$($relativePaths.Count) tracked scripts."

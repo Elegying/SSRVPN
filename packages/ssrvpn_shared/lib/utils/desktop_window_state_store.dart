@@ -25,6 +25,36 @@ class DesktopWindowStateStore {
   static const Size defaultSize = Size(440, 720);
   static const Size minimumSize = Size(380, 560);
 
+  /// Reconcile a saved window with the current monitor work areas. A tiny
+  /// intersection is not enough: the title bar must remain reachable.
+  static Rect? restoredBounds(Rect saved, Iterable<Rect> workAreas) {
+    final areas = workAreas.where((area) => area.isFinite && !area.isEmpty);
+    Rect? target;
+    var largestOverlap = 0.0;
+    for (final area in areas) {
+      final intersection = saved.intersect(area);
+      final overlap =
+          intersection.isEmpty ? 0.0 : intersection.width * intersection.height;
+      if (overlap > largestOverlap) {
+        target = area;
+        largestOverlap = overlap;
+      }
+    }
+    // No surviving display: let the host center on its primary display.
+    if (target == null) return null;
+    final width =
+        math.max(minimumSize.width, math.min(saved.width, target.width));
+    final height =
+        math.max(minimumSize.height, math.min(saved.height, target.height));
+    return Rect.fromLTWH(
+      saved.left
+          .clamp(target.left, math.max(target.left, target.right - width)),
+      saved.top.clamp(target.top, math.max(target.top, target.bottom - height)),
+      width,
+      height,
+    );
+  }
+
   /// First launch/reset uses the portrait reference, centered in the usable
   /// display area. Shrink the window (not the UI) on smaller screens, leaving
   /// 16 logical pixels around it where the existing minimum permits.
