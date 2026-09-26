@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.22] - 2026-09-26
+
 ### Windows 与 macOS 环境兼容性
 
 - macOS 最低支持版本提高为 13.0，仅支持 Apple M 系列；打包与 DMG 检查递归验证所有 Mach-O 和压缩核心的实际最低版本。
