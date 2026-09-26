@@ -293,6 +293,9 @@ class SystemProxyService {
       _lastError = 'SSRVPN 当前未持有 Windows 系统代理';
       return SystemProxyOwnershipStatus.unavailable;
     }
+    if (!await _supportsPerUserProxy(cancellation: cancellation)) {
+      return SystemProxyOwnershipStatus.externallyChanged;
+    }
     final current = await _readCurrentProxy(cancellation: cancellation);
     if (current == null) {
       _lastError ??= '无法读取当前 Windows 系统代理设置';
@@ -340,6 +343,10 @@ class SystemProxyService {
 
     try {
       cancellation.throwIfRequested();
+      if (!await _supportsPerUserProxy(cancellation: cancellation.future)) {
+        cancellation.throwIfRequested();
+        return false;
+      }
       if (!await isLauncherGuardianReady(cancellation: cancellation.future)) {
         cancellation.throwIfRequested();
         _lastError = '独立系统代理保护未就绪，请通过 ssrvpn_windows.exe 启动或重试';
@@ -970,6 +977,35 @@ if ([int]\$item.EndpointRestoreInProgress -eq 1 -and
     _preparedAcquisitionNeedsDiscard = false;
     _previousProxy = null;
     _ownedProxyServer = null;
+  }
+
+  // Recovery still restores only our HKCU values. Never write HKLM or change
+  // an administrator's policy to make per-user proxy acquisition succeed.
+  Future<bool> _supportsPerUserProxy({Future<void>? cancellation}) async {
+    const script = r'''
+$policyBase = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
+try {
+  $policy = $policyBase.OpenSubKey('SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings', $false)
+  if ($null -ne $policy) {
+    try {
+      $value = $policy.GetValue('ProxySettingsPerUser', $null)
+      if ($null -ne $value) {
+        if ($policy.GetValueKind('ProxySettingsPerUser') -ne [Microsoft.Win32.RegistryValueKind]::DWord -or $value -ne 1) {
+          throw 'SSRVPN requires per-user proxy settings; machine proxy policy is active or invalid.'
+        }
+      }
+    } finally { $policy.Dispose() }
+  }
+} finally { $policyBase.Dispose() }
+''';
+    final result = await _runPowerShell(script, cancellation: cancellation);
+    if (result.exitCode == 125) throw const _SystemProxyAcquisitionCancelled();
+    if (result.exitCode != 0) {
+      _lastError =
+          'Windows 代理策略不允许或无法确认按用户设置代理。请联系管理员检查 ProxySettingsPerUser，或使用 TUN 模式';
+      return false;
+    }
+    return true;
   }
 
   Future<_ProxySnapshot?> _readCurrentProxy({

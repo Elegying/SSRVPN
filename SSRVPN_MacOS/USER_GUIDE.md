@@ -3,7 +3,7 @@
 导入订阅、连接、状态判断和订阅刷新请先阅读
 [公共用户指南](../docs/USER_GUIDE.zh-CN.md)。本页只说明 macOS 差异。
 
-当前正式 DMG 仅支持 Apple M 系列芯片，不支持 Intel Mac；系统要求为 macOS 11.0 或更高版本。
+当前正式 DMG 仅支持 Apple M 系列芯片，不支持 Intel Mac；系统要求为 macOS 13.0 或更高版本。
 
 ## 安装
 
@@ -43,3 +43,9 @@ Gatekeeper、TUN 授权、连接或代理恢复问题见
 
 - [Apple TN3137：macOS Keychain 与 Data Protection Keychain](https://developer.apple.com/documentation/technotes/tn3137-on-mac-keychains)
 - [Apple TN2206：Code Signing In Depth](https://developer.apple.com/library/archive/technotes/tn2206/_index.html)
+
+### 网络环境变化后的恢复
+
+- 自动代理（PAC/WPAD）启用时，系统代理模式会说明冲突原因。关闭自动代理后重试，或使用 TUN；客户端不会擅自覆盖自动代理策略。
+- 切换 macOS 网络位置后，原位置中的网络服务仍然存在。若提示恢复未完成，请在系统设置中切回原网络位置后重试断开；客户端会保留恢复记录和必要的监听进程，直到完成恢复。
+- 新建的 TUN DNS 恢复记录使用服务稳定 ID，网络服务改名后仍能找回原 DNS。旧版记录没有稳定 ID，若无法确认服务身份，会保留记录而不猜测恢复目标。

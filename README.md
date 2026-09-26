@@ -23,7 +23,7 @@ SSRVPN 使用 Flutter 构建界面，基于带 SSRVPN 流量统计扩展的 Miho
 | 平台 | 系统要求 | 最新安装包 |
 | --- | --- | --- |
 | Android | Android 7.0+，arm64-v8a | [下载 APK](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.apk) |
-| macOS | macOS 11+，仅支持 Apple M 系列芯片 | [下载 DMG](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.dmg) |
+| macOS | macOS 13+，仅支持 Apple M 系列芯片 | [下载 DMG](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.dmg) |
 | Windows | Windows 10/11，x64 | [下载安装器](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN_Setup.exe) |
 
 以上链接始终指向最新正式版。查看[更新记录](CHANGELOG.md)或打开 [Release 页面](https://github.com/Elegying/SSRVPN/releases/latest)获取 SHA-256 校验文件与构建来源证明。`core-assets-v1` 是构建资源记录，不是客户端安装包。

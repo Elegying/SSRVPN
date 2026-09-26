@@ -225,6 +225,6 @@ GeoIP 更新不是发布回退步骤。只有收到明确更新指令时才手�
 本仓库固定 Flutter 3.44.1，三端均生成 `.symbols`，使用匹配文件执行
 `flutter symbolize`。不要用其他版本的符号解析当前包。
 
-macOS DMG 使用 ULMO（LZMA），系统从 macOS 10.15 支持，低于本项目 macOS 11.0
+macOS DMG 使用 ULMO（LZMA），系统从 macOS 10.15 支持，低于本项目 macOS 13.0
 最低要求；Windows 使用 `lzma2/ultra64` 固实压缩，解压字典约 64 MB，仅增加安装阶段
 的内存需求，不增加应用运行内存。核心、GeoIP、许可与运行文件集合均继续通过原有校验。

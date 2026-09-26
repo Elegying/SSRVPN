@@ -29,12 +29,14 @@ class SystemProxyService {
     MacEffectiveProxyRunner? effectiveProxyRunner,
     MacNetworkServiceIdentityRunner? networkServiceIdentityRunner,
     MacNetworkServiceIdentityRunner? enabledNetworkServiceIdentityRunner,
+    Future<List<String>?> Function()? allNetworkServiceIDsRunner,
     MacProxyLifecycleBegin? beginProxyLifecycleTransaction,
     MacProxyLifecycleEnd? endProxyLifecycleTransaction,
     MacProxyGuardianStart? startProxyGuardian,
   })  : _networkSetupRunner = networkSetupRunner,
         _effectiveProxyRunner = effectiveProxyRunner,
         _networkServiceIdentityRunner = networkServiceIdentityRunner,
+        _allNetworkServiceIDsRunner = allNetworkServiceIDsRunner,
         _enabledNetworkServiceIdentityRunner =
             enabledNetworkServiceIdentityRunner,
         _beginProxyLifecycleTransaction = beginProxyLifecycleTransaction,
@@ -58,6 +60,7 @@ class SystemProxyService {
   final MacEffectiveProxyRunner? _effectiveProxyRunner;
   final MacNetworkServiceIdentityRunner? _networkServiceIdentityRunner;
   final MacNetworkServiceIdentityRunner? _enabledNetworkServiceIdentityRunner;
+  final Future<List<String>?> Function()? _allNetworkServiceIDsRunner;
   final MacProxyLifecycleBegin? _beginProxyLifecycleTransaction;
   final MacProxyLifecycleEnd? _endProxyLifecycleTransaction;
   final MacProxyGuardianStart? _startProxyGuardian;
@@ -101,6 +104,10 @@ class SystemProxyService {
         return SystemProxyOwnershipStatus.unavailable;
       }
       final values = parseEffectiveMacProxy(result.stdout.toString());
+      if (_automaticProxyEnabled(values)) {
+        _lastError = _automaticProxyConflict;
+        return SystemProxyOwnershipStatus.externallyChanged;
+      }
       final owned = effectiveMacProxyEntryIsOwned(
             values,
             enableKey: 'HTTPEnable',
@@ -225,6 +232,16 @@ class SystemProxyService {
       return false;
     }
     try {
+      final effective = await _runEffectiveProxyProbe();
+      if (effective.exitCode != 0) {
+        _lastError = '无法检查 macOS 自动代理配置，未修改系统代理';
+        return false;
+      }
+      if (_automaticProxyEnabled(
+          parseEffectiveMacProxy(effective.stdout.toString()))) {
+        _lastError = _automaticProxyConflict;
+        return false;
+      }
       if (_proxyEnabled &&
           (_ownedProxyHost != host || _ownedProxyPort != port)) {
         if (!await clearSystemProxy()) return false;
@@ -563,10 +580,11 @@ class SystemProxyService {
       if (savedServiceStates == null) return false;
       final savedServices = savedServiceStates.keys.toList(growable: false);
       final restoreTargets = <({String savedName, String currentName})>[];
+      Map<String, String>? savedIdentities;
       late final List<String> currentServices;
       late final List<String> pendingServices;
       if (hasStableIdentities) {
-        final savedIdentities = _validatedSavedServiceIdentities(
+        savedIdentities = _validatedSavedServiceIdentities(
           raw['_networkServiceIDs'],
           savedServices: savedServices,
         );
@@ -591,6 +609,16 @@ class SystemProxyService {
         }
         pendingServices = pending;
       } else {
+        final allIDs = await _listAllNetworkServiceIDs();
+        if (allIDs == null) return false;
+        if (allIDs.isNotEmpty) {
+          final currentIDs = await _listNetworkServiceIdentities();
+          if (currentIDs == null ||
+              !currentIDs.values.toSet().containsAll(allIDs)) {
+            _lastError = '旧版代理记录无法确认其他网络位置中的服务，已保留恢复记录；请切回原网络位置后重试';
+            return false;
+          }
+        }
         currentServices = await _listNetworkServices();
         if (savedServices.isNotEmpty &&
             currentServices.isEmpty &&
@@ -661,6 +689,7 @@ class SystemProxyService {
                 currentServices: currentServices,
                 ownedHost: ownedHost,
                 ownedPort: ownedPort,
+                savedIdentities: savedIdentities,
               )
             : await _strictlyConfirmedMissingNetworkServices(
                 pendingServices,
@@ -749,8 +778,21 @@ class SystemProxyService {
     required List<String> currentServices,
     required String ownedHost,
     required int ownedPort,
+    Map<String, String>? savedIdentities,
   }) async {
     try {
+      final allIDs = await _listAllNetworkServiceIDs();
+      if (allIDs == null) return null;
+      if (savedIdentities != null) {
+        final inactive = missingServices
+            .where((name) => allIDs.contains(savedIdentities[name]));
+        if (inactive.isNotEmpty) {
+          _lastError = '原网络服务仍在其他网络位置中，请切回原网络位置后重试恢复：${inactive.join('、')}';
+          return missingServices
+              .where((name) => !allIDs.contains(savedIdentities[name]))
+              .toSet();
+        }
+      }
       for (final service in currentServices) {
         for (final command in const [
           '-getwebproxy',
@@ -776,6 +818,18 @@ class SystemProxyService {
       _lastError = '确认 macOS 网络服务代理归属失败: $error';
       return null;
     }
+  }
+
+  Future<List<String>?> _listAllNetworkServiceIDs() async {
+    final ids = _allNetworkServiceIDsRunner != null
+        ? await _allNetworkServiceIDsRunner()
+        : await _coreProcessChannel
+            .invokeListMethod<String>('listAllNetworkServiceIDs');
+    if (ids == null || ids.any((id) => id.trim().isEmpty)) {
+      _lastError = '无法确认全部网络位置的服务，已保留代理恢复记录';
+      return null;
+    }
+    return ids;
   }
 
   Map<String, String>? _validatedSavedServiceIdentities(
@@ -930,7 +984,6 @@ class SystemProxyService {
     final currentEnabled = current['enabled'] == true;
     final expectedEnabled = expected['enabled'] == true;
     if (currentEnabled != expectedEnabled) return false;
-    if (!currentEnabled) return true;
     return (current['server']?.toString().trim() ?? '') ==
             (expected['server']?.toString().trim() ?? '') &&
         (int.tryParse(current['port']?.toString() ?? '') ?? 0) ==
@@ -949,9 +1002,10 @@ class SystemProxyService {
     final server = state['server']?.toString() ?? '';
     final port = int.tryParse(state['port']?.toString() ?? '') ?? 0;
 
-    if (enabled && server.isNotEmpty && port > 0) {
+    if (server.isNotEmpty && port > 0) {
       await _checkedRun([setCommand, service, server, '$port']);
-    } else {
+    }
+    if (!enabled || server.isEmpty || port <= 0) {
       await _checkedRun([stateCommand, service, 'off']);
     }
   }
@@ -966,6 +1020,13 @@ class SystemProxyService {
       timeoutStderr: 'scutil --proxy 命令超时',
     );
   }
+
+  static const _automaticProxyConflict =
+      '当前网络启用了自动代理（PAC/WPAD），系统代理模式无法可靠接管。请关闭自动代理后重试，或使用 TUN 模式';
+
+  bool _automaticProxyEnabled(Map<String, String> values) =>
+      values['ProxyAutoConfigEnable'] == '1' ||
+      values['ProxyAutoDiscoveryEnable'] == '1';
 
   Future<void> _checkedRun(List<String> args) async {
     final result = await _runNetworkSetup(args);

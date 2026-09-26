@@ -127,6 +127,7 @@ check_dmg() {
   trap cleanup RETURN
   hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT_DIR" "$dmg" >/dev/null
   test -d "$MOUNT_DIR/SSRVPN.app"
+  python3 scripts/check_macos_deployment_target.py "$MOUNT_DIR/SSRVPN.app"
   test -L "$MOUNT_DIR/Applications"
   test -f "$MOUNT_DIR/.background/background.png"
   test -f "$MOUNT_DIR/.DS_Store"

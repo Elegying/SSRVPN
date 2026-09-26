@@ -6,7 +6,7 @@ SSRVPN macOS 版，基于 Flutter 和 Mihomo/Clash Meta 核心的桌面客户端
 
 ## 支持范围
 
-- macOS 11 或更高版本，正式包仅支持 Apple M 系列芯片。
+- macOS 13 或更高版本，正式包仅支持 Apple M 系列芯片。
 - 支持 IPv4 / IPv6 双栈，遵循统一分流规则；客户端不修改 macOS 的全局 IPv6 开关。详见[双栈规范](../docs/IPV6_DUAL_STACK_SPEC.zh-CN.md)。
 - TUN 每次连接由 macOS 系统管理员授权窗口确认，SSRVPN 不读取或保存管理员密码。
 - Release 使用 AOT 与最小化 entitlement，不包含调试、JIT、未签名可执行内存或禁用库校验权限；免费 ad-hoc、未公证分发边界不变。

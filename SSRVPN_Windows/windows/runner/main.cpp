@@ -6,6 +6,7 @@
 #include "startup_diagnostics.h"
 #include "system_proxy_recovery.h"
 #include "utils.h"
+#include "windows_user_identity.h"
 
 namespace {
 constexpr wchar_t kAppInstanceMutexName[] =
@@ -88,6 +89,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
           MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
     }
     return safe_to_stop ? EXIT_SUCCESS : ERROR_RETRY;
+  }
+
+  if (!windows_user_identity::IsCurrentUserInteractiveUser()) {
+    ::MessageBoxW(nullptr,
+        L"SSRVPN 无法确认当前进程与桌面登录账户一致。请使用当前登录账户授权启动；若使用了其他管理员的凭据，请退出后登录该管理员账户再启动。否则系统代理会写入错误账户。",
+        L"SSRVPN 账户不匹配", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+    return ERROR_INVALID_OWNER;
   }
 
   HANDLE instance_mutex =

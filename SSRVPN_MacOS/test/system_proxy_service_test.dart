@@ -7,6 +7,119 @@ import 'package:ssrvpn_macos/services/system_proxy_service.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
+  for (final automaticKey in [
+    'ProxyAutoConfigEnable',
+    'ProxyAutoDiscoveryEnable'
+  ]) {
+    test('$automaticKey prevents acquisition and invalidates runtime ownership',
+        () async {
+      final directory = await Directory.systemTemp.createTemp('ssrvpn-pac-');
+      addTearDown(() => directory.delete(recursive: true));
+      var automatic = true;
+      final mutations = <List<String>>[];
+      final service = _testSystemProxyService(
+        effectiveProxyRunner: () async => ProcessResult(
+            1,
+            0,
+            _ownedEffectiveProxy.replaceFirst('HTTPEnable : 1',
+                'HTTPEnable : 1\n  $automaticKey : ${automatic ? 1 : 0}'),
+            ''),
+        networkSetupRunner: (args) async {
+          if (args.first.startsWith('-set')) mutations.add(args);
+          return _successfulNetworkSetupRunner(args);
+        },
+      );
+      await service.initialize(directory.path);
+      expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
+      expect(service.lastError, contains('PAC/WPAD'));
+      expect(mutations, isEmpty);
+      expect(File('${directory.path}/system_proxy.json').existsSync(), isFalse);
+      automatic = false;
+      expect(await service.setSystemProxy('127.0.0.1', 7890), isTrue);
+      automatic = true;
+      expect(await service.currentSystemProxyOwnershipStatus(),
+          SystemProxyOwnershipStatus.externallyChanged);
+      expect(await service.clearSystemProxy(), isTrue);
+      expect(mutations.any((args) => args.first.contains('auto')), isFalse);
+    });
+  }
+
+  test(
+      'inactive network location retains snapshot until original location returns',
+      () async {
+    final directory = await Directory.systemTemp.createTemp('ssrvpn-location-');
+    addTearDown(() => directory.delete(recursive: true));
+    final snapshot = File('${directory.path}/system_proxy.json');
+    await _writeOwnedSnapshot(snapshot, serviceID: 'home-wifi');
+    var atHome = false;
+    final mutations = <List<String>>[];
+    final service = _testSystemProxyService(
+      networkServiceIdentityRunner: () async =>
+          {'Wi-Fi': atHome ? 'home-wifi' : 'office-wifi'},
+      allNetworkServiceIDsRunner: () async => ['home-wifi', 'office-wifi'],
+      networkSetupRunner: (args) async {
+        if (args.first.startsWith('-set')) mutations.add(args);
+        return _successfulNetworkSetupRunner(args);
+      },
+    );
+    await service.initialize(directory.path);
+    expect(service.recoveryPending, isTrue);
+    expect(snapshot.existsSync(), isTrue);
+    expect(mutations, isEmpty);
+    expect(service.lastError, contains('切回原网络位置'));
+    atHome = true;
+    expect(await service.clearSystemProxy(), isTrue);
+    expect(snapshot.existsSync(), isFalse);
+    expect(mutations, hasLength(3));
+  });
+
+  test('legacy snapshot never restores a same-name service in another location',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('ssrvpn-legacy-location-');
+    addTearDown(() => directory.delete(recursive: true));
+    final snapshot = File('${directory.path}/system_proxy.json');
+    await _writeOwnedSnapshot(snapshot);
+    final service = _testSystemProxyService(
+      networkServiceIdentityRunner: () async => {'Wi-Fi': 'office-id'},
+      allNetworkServiceIDsRunner: () async => ['home-id', 'office-id'],
+      networkSetupRunner: (_) async =>
+          throw StateError('must not address an ambiguous service'),
+    );
+    await service.initialize(directory.path);
+    expect(service.recoveryPending, isTrue);
+    expect(snapshot.existsSync(), isTrue);
+    expect(service.lastError, contains('旧版代理记录'));
+  });
+
+  test('disabled proxy endpoints are restored before disabling them', () async {
+    final directory =
+        await Directory.systemTemp.createTemp('ssrvpn-disabled-endpoint-');
+    addTearDown(() => directory.delete(recursive: true));
+    final snapshot = File('${directory.path}/system_proxy.json');
+    await _writeOwnedSnapshot(snapshot, serviceID: 'wifi');
+    await snapshot.writeAsString((await snapshot.readAsString()).replaceAll(
+        '"server":"","port":0', '"server":"old.proxy","port":8080'));
+    final mutations = <String>[];
+    final service = _testSystemProxyService(
+      networkServiceIdentityRunner: () async => {'Wi-Fi': 'wifi'},
+      networkSetupRunner: (args) async {
+        if (args.first.startsWith('-set')) mutations.add(args.join(' '));
+        return _successfulNetworkSetupRunner(args);
+      },
+    );
+    await service.initialize(directory.path);
+    expect(service.recoveryPending, isFalse);
+    expect(mutations, [
+      '-setwebproxy Wi-Fi old.proxy 8080',
+      '-setwebproxystate Wi-Fi off',
+      '-setsecurewebproxy Wi-Fi old.proxy 8080',
+      '-setsecurewebproxystate Wi-Fi off',
+      '-setsocksfirewallproxy Wi-Fi old.proxy 8080',
+      '-setsocksfirewallproxystate Wi-Fi off',
+    ]);
+  });
+
   test(
       'effective ownership ignores scoped proxy overrides and rejects broken output',
       () async {
@@ -52,7 +165,7 @@ void main() {
       final directory =
           await Directory.systemTemp.createTemp('ssrvpn_proxy_settle_');
       addTearDown(() => directory.delete(recursive: true));
-      var probes = 0;
+      var probes = -1; // The first probe only checks automatic proxy conflicts.
       final mutations = <List<String>>[];
       final service = _testSystemProxyService(
         effectiveProxyRunner: () async => ProcessResult(
@@ -133,7 +246,7 @@ void main() {
     expect(service.recoveryPending, isFalse);
     expect(enabled, isEmpty);
     expect(
-        mutations.where((args) => !args.first.endsWith('state')), hasLength(3));
+        mutations.where((args) => !args.first.endsWith('state')), hasLength(6));
   });
 
   test('proxy guardian is ready before the first proxy mutation', () async {
@@ -1607,6 +1720,7 @@ SystemProxyService _testSystemProxyService({
   MacEffectiveProxyRunner? effectiveProxyRunner,
   MacNetworkServiceIdentityRunner? networkServiceIdentityRunner,
   MacNetworkServiceIdentityRunner? enabledNetworkServiceIdentityRunner,
+  Future<List<String>?> Function()? allNetworkServiceIDsRunner,
   MacProxyLifecycleBegin? beginProxyLifecycleTransaction,
   MacProxyLifecycleEnd? endProxyLifecycleTransaction,
   MacProxyGuardianStart? startProxyGuardian,
@@ -1618,6 +1732,7 @@ SystemProxyService _testSystemProxyService({
       networkServiceIdentityRunner: networkServiceIdentityRunner ??
           () async => {'Wi-Fi': 'test-service-wifi'},
       enabledNetworkServiceIdentityRunner: enabledNetworkServiceIdentityRunner,
+      allNetworkServiceIDsRunner: allNetworkServiceIDsRunner ?? () async => [],
       beginProxyLifecycleTransaction:
           beginProxyLifecycleTransaction ?? () async => 'test-proxy-lease',
       endProxyLifecycleTransaction:

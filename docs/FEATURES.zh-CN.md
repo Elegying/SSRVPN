@@ -14,7 +14,7 @@ VPN、系统代理、TUN、托盘、安装器和安全存储等操作系统差�
 | 平台 | 支持范围 | 正式产物 | 连接方式 | 平台入口 |
 | --- | --- | --- | --- | --- |
 | Android | Android 7.0+、`arm64-v8a` | `SSRVPN.apk` | 系统 VPN | 前台通知、快捷设置磁贴 |
-| macOS | macOS 11+、Apple M 系列 `arm64` | `SSRVPN.dmg` | 系统代理、TUN | 菜单栏、主窗口 |
+| macOS | macOS 13+、Apple M 系列 `arm64` | `SSRVPN.dmg` | 系统代理、TUN | 菜单栏、主窗口 |
 | Windows | Windows 10 1507+、x64 | `SSRVPN_Setup.exe` | 系统代理、TUN | 系统托盘、主窗口、安全模式与诊断脚本 |
 
 正式 Release 同时提供三个 SHA-256 文件和发布 provenance。macOS 为 ad-hoc、未公证分发，

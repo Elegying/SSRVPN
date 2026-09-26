@@ -29,7 +29,7 @@ class FreeDesktopDistributionTest(unittest.TestCase):
         self.assertIn('"--dart-define-from-file=$DartDefineFromFile"', windows)
         self.assertIn("--split-debug-info=build/symbols @usageArgs", windows)
 
-    def test_macos_release_metadata_matches_the_documented_macos_11_floor(
+    def test_macos_release_metadata_matches_the_documented_macos_13_floor(
         self,
     ) -> None:
         project = (
@@ -42,7 +42,7 @@ class FreeDesktopDistributionTest(unittest.TestCase):
 
         self.assertNotIn("MACOSX_DEPLOYMENT_TARGET = 10.15;", project)
         self.assertEqual(
-            project.count("MACOSX_DEPLOYMENT_TARGET = 11.0;"),
+            project.count("MACOSX_DEPLOYMENT_TARGET = 13.0;"),
             3,
         )
 

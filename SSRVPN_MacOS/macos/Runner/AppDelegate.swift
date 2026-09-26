@@ -247,6 +247,20 @@ class AppDelegate: FlutterAppDelegate {
     return active
   }
 
+  // Unlike the current location, this includes inactive locations and orphaned
+  // services. Only absence here proves that a saved service was deleted.
+  func allNetworkServiceIDs() -> [String]? {
+    guard let preferences = SCPreferencesCreate(nil, "com.ssrvpn.service-existence" as CFString, nil),
+      let services = SCNetworkServiceCopyAll(preferences) as? [SCNetworkService]
+    else { return nil }
+    var ids: [String] = []
+    for service in services {
+      guard let id = SCNetworkServiceGetServiceID(service) as String?, !id.isEmpty else { return nil }
+      ids.append(id)
+    }
+    return ids
+  }
+
   func currentNetworkServiceIdentities(enabledOnly: Bool = false) -> [String: String]? {
     guard
       let preferences = SCPreferencesCreate(
@@ -1286,6 +1300,7 @@ class AppDelegate: FlutterAppDelegate {
     at explicitStateURL: URL? = nil,
     proxyCommandRunner: ((String, [String]) -> ProxyCommandResult)? = nil,
     networkServiceIdentityProvider: (() -> [String: String]?)? = nil,
+    allNetworkServiceIDsProvider: (() -> [String]?)? = nil,
     proxyStateRemover: ((URL) throws -> Void)? = nil,
     expectedGuardianNonce: String? = nil,
     expectedOwnerPid: Int32? = nil
@@ -1379,7 +1394,20 @@ class AppDelegate: FlutterAppDelegate {
           }
         )
       }
-      var hasMissingStableService = false
+      if !hasStableServiceIdentities {
+        let allIDs = allNetworkServiceIDsProvider != nil
+          ? allNetworkServiceIDsProvider?() : allNetworkServiceIDs()
+        guard let allIDs else { return false }
+        if !allIDs.isEmpty {
+          let currentIDs = networkServiceIdentityProvider != nil
+            ? networkServiceIdentityProvider?() : currentNetworkServiceIdentities()
+          guard let currentIDs, Set(currentIDs.values).isSuperset(of: allIDs) else {
+            NSLog("[AppDelegate] Legacy proxy snapshot cannot identify services across locations; preserving it")
+            return false
+          }
+        }
+      }
+      var missingStableServiceIDs: [String] = []
       var restoreTargets: [(String, String, [String: Any])] = []
       for (savedService, value) in services {
         if let savedServiceIdentities {
@@ -1387,7 +1415,9 @@ class AppDelegate: FlutterAppDelegate {
             let serviceID = savedServiceIdentities[savedService],
             let currentService = currentNamesByID[serviceID]
           else {
-            hasMissingStableService = true
+            if let serviceID = savedServiceIdentities[savedService] {
+              missingStableServiceIDs.append(serviceID)
+            }
             continue
           }
           restoreTargets.append((savedService, currentService, value))
@@ -1442,7 +1472,13 @@ class AppDelegate: FlutterAppDelegate {
           proxyCommandRunner: proxyCommandRunner
         ) && restoredAll
       }
-      if hasMissingStableService {
+      if !missingStableServiceIDs.isEmpty {
+        let allIDs = allNetworkServiceIDsProvider != nil
+          ? allNetworkServiceIDsProvider?() : allNetworkServiceIDs()
+        guard let allIDs, Set(allIDs).isDisjoint(with: missingStableServiceIDs) else {
+          NSLog("[AppDelegate] Saved services may belong to another network location; preserving recovery state")
+          return false
+        }
         let currentServiceNames = currentServiceIdentities.map {
           Array($0.keys)
         } ?? []
@@ -1895,18 +1931,19 @@ class AppDelegate: FlutterAppDelegate {
       port = 0
     }
 
-    if enabled && !server.isEmpty && port > 0 {
+    if !server.isEmpty && port > 0 {
       let setOk = executeProxyCommand(
         "/usr/sbin/networksetup",
         [setCommand, service, server, "\(port)"],
         proxyCommandRunner: proxyCommandRunner
       ).succeeded
+      guard setOk else { return false }
       let stateOk = executeProxyCommand(
         "/usr/sbin/networksetup",
-        [stateCommand, service, "on"],
+        [stateCommand, service, enabled ? "on" : "off"],
         proxyCommandRunner: proxyCommandRunner
       ).succeeded
-      return setOk && stateOk
+      return stateOk
     }
     return executeProxyCommand(
       "/usr/sbin/networksetup",

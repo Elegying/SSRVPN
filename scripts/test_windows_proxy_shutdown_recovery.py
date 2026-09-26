@@ -2076,7 +2076,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertTrue(helper_source.is_file())
 
         implementation = helper_source.read_text(encoding="utf-8")
-        self.assertEqual(implementation.count("QueryCurrentUserSid()"), 1)
+        self.assertEqual(implementation.count("std::wstring QueryCurrentUserSid() {"), 1)
         for consumer_name in ("flutter_window.cpp", "launcher_main.cpp"):
             consumer = (runner / consumer_name).read_text(encoding="utf-8")
             with self.subTest(consumer=consumer_name):

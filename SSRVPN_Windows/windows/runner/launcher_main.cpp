@@ -701,8 +701,10 @@ bool CreateDetachedGuardianProcess(
           ? JoinPath(std::wstring(windows_directory.data(), windows_length),
                      L"explorer.exe")
           : std::wstring();
+  const std::wstring shell_sid = windows_user_identity::QueryProcessUserSid(shell_process);
   if (explorer_path.empty() ||
-      !ProcessImageMatches(shell_process, explorer_path)) {
+      !ProcessImageMatches(shell_process, explorer_path) ||
+      !windows_user_identity::SameUser(windows_user_identity::QueryCurrentUserSid(), shell_sid)) {
     ::CloseHandle(shell_process);
     if (error_code != nullptr) {
       *error_code = ERROR_INVALID_OWNER;
@@ -974,6 +976,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
                        guardian_child_thread_id,
                        guardian_ready_event_name,
                        guardian_commit_event_name);
+  }
+
+  if (!windows_user_identity::IsCurrentUserInteractiveUser()) {
+    ShowError(L"SSRVPN 账户不匹配",
+              L"无法确认当前进程与桌面登录账户一致。请使用当前登录账户授权启动；若使用了其他管理员的凭据，请退出后登录该管理员账户再启动。否则系统代理会写入错误账户。");
+    return ERROR_INVALID_OWNER;
   }
 
   const bool elevated_tun_relaunch =

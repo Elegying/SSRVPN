@@ -825,7 +825,7 @@ class RunnerTests: XCTestCase {
     let stateURL = directory.appendingPathComponent("system_proxy.json")
     try Data("{\"Wi-Fi\":{}}".utf8).write(to: stateURL)
 
-    XCTAssertFalse(delegate.restoreSavedProxyState(at: stateURL))
+    XCTAssertFalse(delegate.restoreProxyFixture(at: stateURL))
     XCTAssertTrue(FileManager.default.fileExists(atPath: stateURL.path))
   }
 
@@ -845,7 +845,7 @@ class RunnerTests: XCTestCase {
     try Data(contents.utf8).write(to: stateURL)
     var commands: [[String]] = []
 
-    let restored = delegate.restoreSavedProxyState(
+    let restored = delegate.restoreProxyFixture(
       at: stateURL,
       proxyCommandRunner: { _, arguments in
         commands.append(arguments)
@@ -874,7 +874,7 @@ class RunnerTests: XCTestCase {
     try Data(contents.utf8).write(to: stateURL)
     var commands: [[String]] = []
 
-    let restored = delegate.restoreSavedProxyState(
+    let restored = delegate.restoreProxyFixture(
       at: stateURL,
       proxyCommandRunner: { _, arguments in
         commands.append(arguments)
@@ -903,7 +903,7 @@ class RunnerTests: XCTestCase {
     try Data(contents.utf8).write(to: stateURL)
     var commands: [[String]] = []
 
-    let restored = delegate.restoreSavedProxyState(
+    let restored = delegate.restoreProxyFixture(
       at: stateURL,
       proxyCommandRunner: { _, arguments in
         commands.append(arguments)
@@ -932,7 +932,7 @@ class RunnerTests: XCTestCase {
     try Data(contents.utf8).write(to: stateURL)
     var commands: [[String]] = []
 
-    let restored = delegate.restoreSavedProxyState(
+    let restored = delegate.restoreProxyFixture(
       at: stateURL,
       proxyCommandRunner: { _, arguments in
         commands.append(arguments)
@@ -974,7 +974,7 @@ class RunnerTests: XCTestCase {
     try Data(contents.utf8).write(to: stateURL)
     var commands: [[String]] = []
 
-    let restored = delegate.restoreSavedProxyState(
+    let restored = delegate.restoreProxyFixture(
       at: stateURL,
       proxyCommandRunner: { _, arguments in
         commands.append(arguments)
@@ -1024,7 +1024,7 @@ class RunnerTests: XCTestCase {
     try Data(contents.utf8).write(to: stateURL)
     var commands: [[String]] = []
 
-    let restored = delegate.restoreSavedProxyState(
+    let restored = delegate.restoreProxyFixture(
       at: stateURL,
       proxyCommandRunner: { _, arguments in
         commands.append(arguments)
@@ -1072,7 +1072,7 @@ class RunnerTests: XCTestCase {
     try Data(contents.utf8).write(to: stateURL)
     var commands: [[String]] = []
 
-    let restored = delegate.restoreSavedProxyState(
+    let restored = delegate.restoreProxyFixture(
       at: stateURL,
       proxyCommandRunner: { _, arguments in
         commands.append(arguments)
@@ -1118,7 +1118,7 @@ class RunnerTests: XCTestCase {
     var identityCalls = 0
     var commands: [[String]] = []
 
-    let restored = delegate.restoreSavedProxyState(
+    let restored = delegate.restoreProxyFixture(
       at: stateURL,
       proxyCommandRunner: { _, arguments in
         commands.append(arguments)
@@ -1165,7 +1165,7 @@ class RunnerTests: XCTestCase {
     try Data(contents.utf8).write(to: stateURL)
     var commands: [[String]] = []
 
-    let restored = delegate.restoreSavedProxyState(
+    let restored = delegate.restoreProxyFixture(
       at: stateURL,
       proxyCommandRunner: { _, arguments in
         commands.append(arguments)
@@ -1180,6 +1180,57 @@ class RunnerTests: XCTestCase {
     XCTAssertFalse(restored)
     XCTAssertTrue(commands.isEmpty)
     XCTAssertEqual(try String(contentsOf: stateURL, encoding: .utf8), contents)
+  }
+
+  func testInactiveLocationPreservesProxyJournalThenRecoversDisabledEndpoints() throws {
+    let delegate = AppDelegate()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+    let stateURL = directory.appendingPathComponent("system_proxy.json")
+    let proxy: [String: Any] = ["enabled": false, "server": "old.proxy", "port": 8080]
+    let state: [String: Any] = [
+      "_ownedProxyHost": "127.0.0.1", "_ownedProxyPort": 7890,
+      "_networkServiceIDs": ["Wi-Fi": "home-id"],
+      "Wi-Fi": ["web": proxy, "secureWeb": proxy, "socks": proxy],
+    ]
+    try JSONSerialization.data(withJSONObject: state).write(to: stateURL)
+    var commands: [[String]] = []
+    let runner: (String, [String]) -> ProxyCommandResult = { _, args in
+      commands.append(args)
+      return ProxyCommandResult(succeeded: true,
+        output: args.first?.hasPrefix("-get") == true
+          ? "Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n" : nil)
+    }
+    var legacyState = state
+    legacyState.removeValue(forKey: "_networkServiceIDs")
+    try JSONSerialization.data(withJSONObject: legacyState).write(to: stateURL)
+    XCTAssertFalse(delegate.restoreProxyFixture(at: stateURL,
+      proxyCommandRunner: runner,
+      networkServiceIdentityProvider: { ["Wi-Fi": "office-id"] },
+      allNetworkServiceIDsProvider: { ["home-id", "office-id"] }))
+    XCTAssertTrue(commands.isEmpty)
+    XCTAssertTrue(FileManager.default.fileExists(atPath: stateURL.path))
+    try JSONSerialization.data(withJSONObject: state).write(to: stateURL)
+    XCTAssertFalse(delegate.restoreProxyFixture(at: stateURL,
+      proxyCommandRunner: runner,
+      networkServiceIdentityProvider: { ["Wi-Fi": "office-id"] },
+      allNetworkServiceIDsProvider: { ["home-id", "office-id"] }))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: stateURL.path))
+    XCTAssertTrue(commands.isEmpty)
+    XCTAssertTrue(delegate.restoreProxyFixture(at: stateURL,
+      proxyCommandRunner: runner,
+      networkServiceIdentityProvider: { ["Home Wi-Fi": "home-id"] },
+      allNetworkServiceIDsProvider: { ["home-id", "office-id"] }))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: stateURL.path))
+    XCTAssertEqual(commands.filter { $0.first?.hasPrefix("-set") == true }, [
+      ["-setwebproxy", "Home Wi-Fi", "old.proxy", "8080"],
+      ["-setwebproxystate", "Home Wi-Fi", "off"],
+      ["-setsecurewebproxy", "Home Wi-Fi", "old.proxy", "8080"],
+      ["-setsecurewebproxystate", "Home Wi-Fi", "off"],
+      ["-setsocksfirewallproxy", "Home Wi-Fi", "old.proxy", "8080"],
+      ["-setsocksfirewallproxystate", "Home Wi-Fi", "off"],
+    ])
   }
 
   func testStableIdentityDoesNotRestoreOntoSameNameReplacement() throws {
@@ -1198,7 +1249,7 @@ class RunnerTests: XCTestCase {
     try Data(contents.utf8).write(to: stateURL)
     var commands: [[String]] = []
 
-    let restored = delegate.restoreSavedProxyState(
+    let restored = delegate.restoreProxyFixture(
       at: stateURL,
       proxyCommandRunner: { _, arguments in
         commands.append(arguments)
@@ -1212,7 +1263,8 @@ class RunnerTests: XCTestCase {
       },
       networkServiceIdentityProvider: {
         ["Wi-Fi": "replacement-service-id"]
-      }
+      },
+      allNetworkServiceIDsProvider: { ["replacement-service-id"] }
     )
 
     XCTAssertTrue(restored)
@@ -1242,7 +1294,7 @@ class RunnerTests: XCTestCase {
     var proxyOwned = true
     var commands: [[String]] = []
 
-    let restored = delegate.restoreSavedProxyState(
+    let restored = delegate.restoreProxyFixture(
       at: stateURL,
       proxyCommandRunner: { _, arguments in
         commands.append(arguments)
@@ -1262,7 +1314,8 @@ class RunnerTests: XCTestCase {
       },
       networkServiceIdentityProvider: {
         ["Wi-Fi": "wifi-id"]
-      }
+      },
+      allNetworkServiceIDsProvider: { ["wifi-id"] }
     )
 
     XCTAssertTrue(restored)
@@ -1287,7 +1340,7 @@ class RunnerTests: XCTestCase {
     try Data(contents.utf8).write(to: stateURL)
     var proxyOwned = true
 
-    let restored = delegate.restoreSavedProxyState(
+    let restored = delegate.restoreProxyFixture(
       at: stateURL,
       proxyCommandRunner: { _, arguments in
         if arguments.first == "-listallnetworkservices" {
@@ -1344,7 +1397,7 @@ class RunnerTests: XCTestCase {
     var listCalls = 0
     var currentServiceGetCalls = 0
 
-    let restored = delegate.restoreSavedProxyState(
+    let restored = delegate.restoreProxyFixture(
       at: stateURL,
       proxyCommandRunner: { _, arguments in
         if arguments.first == "-listallnetworkservices" {
@@ -1394,7 +1447,7 @@ class RunnerTests: XCTestCase {
     """
     try Data(contents.utf8).write(to: stateURL)
 
-    let restored = delegate.restoreSavedProxyState(
+    let restored = delegate.restoreProxyFixture(
       at: stateURL,
       proxyCommandRunner: { _, arguments in
         if arguments.first?.hasPrefix("-get") == true {
@@ -1431,7 +1484,7 @@ class RunnerTests: XCTestCase {
       let replacementContents = Data("replacement evidence".utf8)
       var replaced = false
 
-      let restored = delegate.restoreSavedProxyState(
+      let restored = delegate.restoreProxyFixture(
         at: stateURL,
         proxyCommandRunner: { _, arguments in
           if arguments.first?.hasPrefix("-get") == true {
@@ -1498,7 +1551,7 @@ class RunnerTests: XCTestCase {
       try Data(contents.utf8).write(to: stateURL)
       var listCalls = 0
 
-      let restored = delegate.restoreSavedProxyState(
+      let restored = delegate.restoreProxyFixture(
         at: stateURL,
         proxyCommandRunner: { _, arguments in
           if arguments.first == "-listallnetworkservices" {
@@ -2328,7 +2381,7 @@ class RunnerTests: XCTestCase {
       try Data(contents.utf8).write(to: stateURL)
       var commands: [[String]] = []
 
-      let restored = delegate.restoreSavedProxyState(
+      let restored = delegate.restoreProxyFixture(
         at: stateURL,
         proxyCommandRunner: { _, arguments in
           commands.append(arguments)
@@ -2843,4 +2896,25 @@ class RunnerTests: XCTestCase {
     ]
   }
 
+}
+
+// Keep every native recovery fixture independent of the host's real locations.
+private extension AppDelegate {
+  func restoreProxyFixture(
+    at stateURL: URL,
+    proxyCommandRunner: ((String, [String]) -> ProxyCommandResult)? = nil,
+    networkServiceIdentityProvider: (() -> [String: String]?)? = nil,
+    allNetworkServiceIDsProvider: (() -> [String]?)? = nil,
+    proxyStateRemover: ((URL) throws -> Void)? = nil,
+    expectedGuardianNonce: String? = nil,
+    expectedOwnerPid: Int32? = nil
+  ) -> Bool {
+    restoreSavedProxyState(at: stateURL,
+      proxyCommandRunner: proxyCommandRunner,
+      networkServiceIdentityProvider: networkServiceIdentityProvider,
+      allNetworkServiceIDsProvider: allNetworkServiceIDsProvider ?? { [] },
+      proxyStateRemover: proxyStateRemover,
+      expectedGuardianNonce: expectedGuardianNonce,
+      expectedOwnerPid: expectedOwnerPid)
+  }
 }

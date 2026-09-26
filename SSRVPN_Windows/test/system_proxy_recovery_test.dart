@@ -12,16 +12,50 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart'
 import 'package:ssrvpn_windows/services/system_proxy_service.dart';
 
 void main() {
-  test('every PowerShell proxy operation forces UTF-8 output first', () async {
-    final temp = await Directory.systemTemp.createTemp('ssrvpn_proxy_utf8_');
+  test('machine-level proxy policy blocks acquisition without mutation',
+      () async {
+    final temp =
+        await Directory.systemTemp.createTemp('ssrvpn-machine-policy-');
     addTearDown(() => temp.delete(recursive: true));
     final scripts = <String>[];
-    var proxyReads = 0;
     final service = SystemProxyService.forTesting(
       isWindows: true,
       localAppData: temp.path,
       scriptRunner: (script) async {
         scripts.add(script);
+        if (script.contains("OpenSubKey('SOFTWARE")) {
+          expect(script, contains('ProxySettingsPerUser'));
+          expect(script, contains('Registry64'));
+          return ProcessResult(1, 1, '', 'machine proxy policy');
+        }
+        throw StateError('Unexpected operation under machine policy');
+      },
+    );
+    await service.initialize(temp.path);
+    expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
+    expect(service.lastError, contains('ProxySettingsPerUser'));
+    expect(service.isProxyEnabled, isFalse);
+    expect(scripts, hasLength(1));
+    expect(
+        File('${temp.path}/SSRVPN/runtime/system_proxy_backup.json')
+            .existsSync(),
+        isFalse);
+  });
+
+  test('every PowerShell proxy operation forces UTF-8 output first', () async {
+    final temp = await Directory.systemTemp.createTemp('ssrvpn_proxy_utf8_');
+    addTearDown(() => temp.delete(recursive: true));
+    final scripts = <String>[];
+    var proxyReads = 0;
+    var machinePolicy = false;
+    final service = SystemProxyService.forTesting(
+      isWindows: true,
+      localAppData: temp.path,
+      scriptRunner: (script) async {
+        scripts.add(script);
+        if (script.contains("OpenSubKey('SOFTWARE") && machinePolicy) {
+          return ProcessResult(1, 1, '', 'machine policy changed');
+        }
         if (script.contains('ConvertTo-Json -Compress')) {
           proxyReads += 1;
           final connected = proxyReads > 1;
@@ -54,6 +88,11 @@ void main() {
     await service.initialize(temp.path);
     expect(await service.setSystemProxy('127.0.0.1', 7890), isTrue);
 
+    machinePolicy = true;
+    expect(await service.currentSystemProxyOwnershipStatus(),
+        SystemProxyOwnershipStatus.externallyChanged);
+    expect(service.lastError, contains('ProxySettingsPerUser'));
+    expect(await service.clearSystemProxy(), isTrue);
     expect(scripts, isNotEmpty);
     for (final script in scripts) {
       expect(script, startsWith(r"$ErrorActionPreference = 'Stop'"));
@@ -1270,11 +1309,12 @@ void main() {
       await service.initialize(temp.path);
       expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
 
-      expect(scripts, hasLength(1));
-      expect(scripts.single, contains('SSRVPN_Windows_LauncherGuardian'));
-      expect(scripts.single, isNot(contains('RuntimeProxyBackup')));
-      expect(scripts.single, isNot(contains('SSRVPNProxyRecovery')));
-      expect(scripts.single, isNot(contains('ProxyEnable')));
+      expect(scripts, hasLength(2));
+      expect(scripts.first, contains('ProxySettingsPerUser'));
+      expect(scripts.last, contains('SSRVPN_Windows_LauncherGuardian'));
+      expect(scripts.last, isNot(contains('RuntimeProxyBackup')));
+      expect(scripts.last, isNot(contains('SSRVPNProxyRecovery')));
+      expect(scripts.last, isNot(contains('ProxyEnable')));
       expect(service.lastError, '独立系统代理保护未就绪，请通过 ssrvpn_windows.exe 启动或重试');
       final backup = File(
         '${temp.path}${Platform.pathSeparator}SSRVPN'

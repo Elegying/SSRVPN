@@ -108,12 +108,12 @@ class StartupOrchestrator {
 
       final savedBounds =
           flags.resetWindow ? null : await WindowStateStore.load();
-      final useSavedBounds =
-          savedBounds != null && await _intersectsAnyDisplay(savedBounds);
+      final restoredBounds =
+          savedBounds == null ? null : await _restoreVisibleBounds(savedBounds);
 
-      if (useSavedBounds) {
-        await windowManager.setBounds(savedBounds);
-        StartupLogger.info('Restored window bounds: $savedBounds');
+      if (restoredBounds != null) {
+        await windowManager.setBounds(restoredBounds);
+        StartupLogger.info('Restored window bounds: $restoredBounds');
       } else {
         if (savedBounds != null) {
           StartupLogger.warning(
@@ -266,14 +266,16 @@ class StartupOrchestrator {
     }
   }
 
-  Future<bool> _intersectsAnyDisplay(Rect rect) async {
+  Future<Rect?> _restoreVisibleBounds(Rect rect) async {
     try {
-      final displays = await screenRetriever.getAllDisplays();
-      if (displays.isEmpty) return false;
-      return displays.any((display) => rect.overlaps(_displayBounds(display)));
+      final displays = await screenRetriever
+          .getAllDisplays()
+          .timeout(const Duration(seconds: 2));
+      return WindowStateStore.restoredBounds(
+          rect, displays.map(_displayBounds));
     } catch (error, stack) {
       StartupLogger.error('Display lookup failed', error, stack);
-      return false;
+      return null;
     }
   }
 
