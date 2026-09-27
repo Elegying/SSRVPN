@@ -55,6 +55,26 @@ class ClassifyCiScopeTest(unittest.TestCase):
             )
         )
 
+    def test_workbuddy_skill_markdown_can_skip_platform_jobs(self) -> None:
+        classifier = load_classifier()
+
+        self.assertFalse(
+            classifier.platform_required(
+                [".workbuddy-ai/skills/ssrvpn-codebase/SKILL.md"]
+            )
+        )
+        self.assertFalse(
+            classifier.platform_required(
+                [".workbuddy-ai/skills/ssrvpn-codebase/references/guardrails.md"]
+            )
+        )
+        # Non-markdown under .workbuddy-ai/ still fails closed to full CI.
+        self.assertTrue(
+            classifier.platform_required(
+                [".workbuddy-ai/skills/ssrvpn-codebase/scripts/run.sh"]
+            )
+        )
+
     def test_mixed_or_non_documentation_paths_require_platform_jobs(self) -> None:
         classifier = load_classifier()
 
