@@ -13,21 +13,27 @@ from collections.abc import Iterable
 
 FULL_SHA = re.compile(r"[0-9a-fA-F]{40}")
 
+_DOC_IMAGE_SUFFIXES = (".md", ".png", ".jpg", ".jpeg", ".webp")
+
+
+def _is_documentation(path: str) -> bool:
+    # Root-level markdown (README.md, AGENTS.md, CHANGELOG.md, ...).
+    if "/" not in path and path.endswith(".md"):
+        return True
+    # The docs tree.
+    if path.startswith("docs/") and path.endswith(_DOC_IMAGE_SUFFIXES):
+        return True
+    # The in-repo project-knowledge skill: pure markdown, no product code.
+    if path.startswith(".workbuddy-ai/") and path.endswith(".md"):
+        return True
+    return False
+
 
 def platform_required(paths: Iterable[str]) -> bool:
     changed = list(paths)
     if not changed:
         return True
-    return any(
-        not (
-            ("/" not in path and path.endswith(".md"))
-            or (
-                path.startswith("docs/")
-                and path.endswith((".md", ".png", ".jpg", ".jpeg", ".webp"))
-            )
-        )
-        for path in changed
-    )
+    return any(not _is_documentation(path) for path in changed)
 
 
 def valid_revision(value: str) -> bool:

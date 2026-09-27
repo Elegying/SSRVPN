@@ -51,9 +51,14 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Local assistant workspace data and scratch output (never product files)
+# Local assistant workspace data and scratch output (never product files).
+# Exception: .workbuddy-ai/skills/ IS tracked. It holds the project-knowledge
+# skill that documents this repo's architecture, guardrails and verification
+# workflow, so any machine that clones the repo can load it before maintaining
+# the code. Everything else under .workbuddy-ai/ (memory, scratch) stays local.
 .workbuddy/
-.workbuddy-ai/
+.workbuddy-ai/*
+!.workbuddy-ai/skills/
 
 # One-off review and audit snapshots kept locally. docs/README.md reserves the
 # documentation tree for current documents and expects one-off review evidence
