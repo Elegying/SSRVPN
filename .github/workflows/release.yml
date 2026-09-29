@@ -390,6 +390,7 @@ jobs:
         timeout-minutes: 10
         run: |
           python3 scripts/check-core-dual-stack.py
+          python3 scripts/check-core-ipv4-egress.py
           python3 scripts/check-core-dual-stack-protocols.py
 
       - uses: ./.github/actions/setup-flutter
@@ -533,7 +534,8 @@ jobs:
 
       - name: Build Windows installer
         shell: powershell
-        timeout-minutes: 15
+        # Keep the complete installer acceptance budget aligned with CI.
+        timeout-minutes: 25
         run: |
           cd SSRVPN_Windows
           # Windows PowerShell does not stop when a child process returns non-zero.

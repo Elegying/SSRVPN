@@ -408,6 +408,8 @@ class ProxyTransportValidation {
   }
 
   static bool hysteria2(Map<Object?, Object?> proxy) =>
+      (proxy['ssrvpn-egress'] == null ||
+          const ['auto', 'ipv4'].contains(proxy['ssrvpn-egress'])) &&
       _optionalRange(proxy['ports'], minimum: 1, maximum: 65535) &&
       _optionalRange(proxy['hop-interval'],
           minimum: 0, maximum: 9223372036, allowList: false);

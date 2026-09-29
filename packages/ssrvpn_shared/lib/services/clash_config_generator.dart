@@ -7,6 +7,7 @@ import 'public_ip_info_service.dart';
 import '../constants/app_constants.dart';
 import '../utils/bounded_yaml.dart';
 import '../utils/proxy_dependency_policy.dart';
+import '../utils/proxy_egress_policy.dart';
 import '../utils/proxy_node_usage_policy.dart';
 import '../utils/proxy_option_types.dart';
 import '../utils/runtime_config_name_policy.dart';
@@ -474,7 +475,8 @@ class ClashConfigGenerator {
   ///
   /// 订阅里的节点字段先由 YAML parser 解析，再以 JSON flow map 写回；
   /// JSON 是合法 YAML 子集，可避免节点名、密码等用户输入逃逸 YAML 结构。
-  static String buildProxiesText(String rawYaml) {
+  static String buildProxiesText(String rawYaml,
+      {ProxyEgressPolicy? egressPolicy}) {
     try {
       final proxies = _parseProxyList(rawYaml);
       if (proxies != null) {
@@ -487,6 +489,8 @@ class ClashConfigGenerator {
           if (name.isEmpty) continue;
           final normalizedProxy = ProxyOptionTypes.canonicalize(proxy)
             ..['name'] = name;
+          (egressPolicy ?? ProxyEgressPolicy.configured)
+              .applyToRuntime(normalizedProxy);
           final reference = ProxyDependencyPolicy.reference(proxy);
           if (reference != null) normalizedProxy['dialer-proxy'] = reference;
           buffer.writeln('  - ${jsonEncode(_plainYamlValue(normalizedProxy))}');

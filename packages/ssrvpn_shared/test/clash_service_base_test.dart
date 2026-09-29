@@ -3429,6 +3429,21 @@ proxies:
       );
     });
 
+    test('IPv6 target failure stays log-only without changing connection state',
+        () async {
+      final service = _IPv6FailureDiagnosticService()
+        ..requestConnectionIntent(true)
+        ..setRunning(true);
+      addTearDown(service.dispose);
+      service.log('[SSRVPN_IPV6_TARGET_FAILED] IPv6 target connection failed');
+      final report = await service.runDiagnostics();
+      expect(report.checks.any((check) => check.id == 'ipv6_targets'), isFalse);
+      expect(service.connectionStatusWarning, isNull);
+      expect(service.isRunning, isTrue);
+      expect(service.connectionDesired, isTrue);
+      expect(service.recentLogs, contains('[SSRVPN_IPV6_TARGET_FAILED]'));
+    });
+
     test(
         'external failure stays in diagnostics and logs without a home warning',
         () async {
@@ -4681,4 +4696,9 @@ class _DelayedObservationClashService extends _TestClashService {
     observationCalls++;
     if (!started.isCompleted) started.complete();
   }
+}
+
+class _IPv6FailureDiagnosticService extends _DiagnosticClashService {
+  @override
+  Future<bool> diagnosticRecentIPv6Failure() async => true;
 }

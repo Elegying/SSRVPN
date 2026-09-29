@@ -33,6 +33,7 @@ run_step "Core binary assets" scripts/verify-core-assets.sh
 if [[ "$(uname -s)" == Darwin ]]; then
   run_step "Production routing on real core" python3 scripts/check-routing-core.py
   run_step "Dual-stack forwarding on real core" python3 scripts/check-core-dual-stack.py
+  run_step "Explicit IPv4-only HY2 egress" python3 scripts/check-core-ipv4-egress.py
   run_step "Dual-stack encrypted protocol paths" python3 scripts/check-core-dual-stack-protocols.py
   run_step "Imported SS plugin and HY2 traffic" python3 scripts/check-imported-protocol-traffic.py --restls
 fi
@@ -47,6 +48,8 @@ run_step "macOS TUN DNS transaction tests" scripts/test-macos-tun-dns-transactio
 run_step "Windows launcher security" scripts/check-windows-launcher-security.sh
 if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* || \
       "$(uname -s)" == CYGWIN* ]]; then
+  run_step "Explicit IPv4-only HY2 egress" \
+    python3 scripts/check-core-ipv4-egress.py --core SSRVPN_Windows/assets/mihomo.exe
   run_step "Imported SS plugin and HY2 traffic" \
     python3 scripts/check-imported-protocol-traffic.py --core SSRVPN_Windows/assets/mihomo.exe
   run_step "Windows native proxy recovery fault harness" \
