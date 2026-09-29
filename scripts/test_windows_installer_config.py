@@ -2336,7 +2336,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             build_step = build_step.split("\n      - name:", 1)[0]
             with self.subTest(workflow=workflow_name):
                 self.assertIn(invocation, build_step)
-                self.assertIn("timeout-minutes: 15", build_step)
+                self.assertIn("timeout-minutes: 25", build_step)
                 self.assertIn(
                     "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
                     build_step,

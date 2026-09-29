@@ -568,7 +568,8 @@ jobs:
 
       - name: Build Windows installer
         shell: powershell
-        timeout-minutes: 15
+        # Cold CodeQL builds plus install/upgrade/uninstall exceed 15 minutes.
+        timeout-minutes: 25
         run: |
           cd SSRVPN_Windows
           # Windows PowerShell does not stop when a child process returns non-zero.

@@ -534,7 +534,8 @@ jobs:
 
       - name: Build Windows installer
         shell: powershell
-        timeout-minutes: 15
+        # Keep the complete installer acceptance budget aligned with CI.
+        timeout-minutes: 25
         run: |
           cd SSRVPN_Windows
           # Windows PowerShell does not stop when a child process returns non-zero.
