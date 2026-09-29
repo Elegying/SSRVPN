@@ -1803,11 +1803,14 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         delete_cleanup = service[
             service.index("Future<void> _deleteBackup") : service.index(
-                "Future<void> _writeNativeRecoveryBackup"
+                "Future<ProcessResult> _runPowerShell"
             )
         ]
-        write_cleanup = service[
-            service.index("Future<void> _writeNativeRecoveryBackup") : service.index(
+        journal = (
+            ROOT / "SSRVPN_Windows/lib/services/system_proxy_recovery_journal.dart"
+        ).read_text(encoding="utf-8")
+        write_cleanup = journal[
+            journal.index("Future<void> _writeNativeRecoveryBackup") : journal.index(
                 "Future<void> _markActivationComplete"
             )
         ]
