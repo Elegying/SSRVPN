@@ -317,18 +317,8 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
       );
     }
 
-    if (isRunning &&
-        await _runDiagnosticCheck(
-                'ipv6_targets', diagnosticRecentIPv6Failure) ==
-            true) {
-      checks.add(const AppDiagnosticCheck(
-        id: 'ipv6_targets',
-        title: 'IPv6 目标访问',
-        status: AppDiagnosticStatus.warning,
-        summary:
-            '最近一分钟曾有 IPv6 目标连接失败；直连目标请检查本机 IPv6 网络，代理目标可尝试其他节点。这不代表其他网站无法使用。',
-      ));
-    }
+    // IPv6 target failures remain in the core logs. They do not establish
+    // node-wide failure and must not add a user-facing warning check.
 
     final startError = lastStartError?.trim();
     if (startError != null && startError.isNotEmpty) {

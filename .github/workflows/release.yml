@@ -390,6 +390,7 @@ jobs:
         timeout-minutes: 10
         run: |
           python3 scripts/check-core-dual-stack.py
+          python3 scripts/check-core-ipv4-egress.py
           python3 scripts/check-core-dual-stack-protocols.py
 
       - uses: ./.github/actions/setup-flutter

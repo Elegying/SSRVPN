@@ -211,6 +211,7 @@ const _coreOptionFields = <String, Map<String, String>>{
     'headers': 'map[string]string',
   },
   'Hysteria2Option': {
+    'ssrvpn-egress': 'string',
     'name': 'string',
     'server': 'string',
     'port': 'int',

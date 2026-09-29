@@ -158,7 +158,8 @@ class CiDocsScopeTest(unittest.TestCase):
         self.assertTrue(source.rstrip().endswith("bash scripts/verify-core-assets.sh"))
 
     def test_dual_stack_probes_are_required_and_fail_closed(self) -> None:
-        probes = ['scripts/check-core-dual-stack.py', 'scripts/check-core-dual-stack-protocols.py']
+        probes = ['scripts/check-core-dual-stack.py', 'scripts/check-core-ipv4-egress.py',
+                  'scripts/check-core-dual-stack-protocols.py']
         for workflow_file in (CI, ROOT / '.github/workflows/release.yml'):
             workflow = workflow_file.read_text()
             step = workflow.split('      - name: Verify real-core dual-stack forwarding\n', 1)[1].split('\n      - ', 1)[0]
@@ -181,7 +182,7 @@ class CiDocsScopeTest(unittest.TestCase):
                                                 env=dict(os.environ, TRACE=str(trace), FAIL_PROBE=fail),
                                                 capture_output=True)
                         self.assertEqual(result.returncode, 7 if fail else 0, result.stderr)
-                        self.assertEqual(trace.read_text().splitlines(), probes[:1] if fail == probes[0] else probes)
+                        self.assertEqual(trace.read_text().splitlines(), probes[:probes.index(fail) + 1] if fail else probes)
 
 
 if __name__ == "__main__":

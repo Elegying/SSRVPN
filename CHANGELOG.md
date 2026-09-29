@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.23] - 2026-09-29
+
+- 根据随包运营配置中已确认的 Hysteria2 节点出口能力生成 IPv4-only 运行参数，旧链接和保存的订阅无需修改或重新分享；TCP 保留域名远端解析，纯 IPv6 目标在本地结束无效尝试，UDP 使用 IPv4 目标，保留 DIRECT 双栈及其他节点行为。
+
+- IPv6 目标连接失败仅保留在日志中，不再生成诊断警告项；不改变连接状态、节点选择或现有启动错误提示。
+
 ## [5.0.22] - 2026-09-26
 
 ### Windows 与 macOS 环境兼容性

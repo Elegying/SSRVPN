@@ -498,3 +498,51 @@ index 8e0d09e6..d578eba6 100644
  	runtime.GC()
  	tunnel.OnRunning()
  	updateUpdater(cfg)
+diff --git a/adapter/outbound/hysteria2.go b/adapter/outbound/hysteria2.go
+--- a/adapter/outbound/hysteria2.go
++++ b/adapter/outbound/hysteria2.go
+@@ -37,6 +37,7 @@
+ }
+ 
+ type Hysteria2Option struct {
++	SSRVPNEgress string `proxy:"ssrvpn-egress,omitempty"`
+ 	BasicOption
+ 	Name              string     `proxy:"name"`
+ 	Server            string     `proxy:"server"`
+@@ -87,11 +88,26 @@
+ }
+ 
+ func (h *Hysteria2) DialContext(ctx context.Context, metadata *C.Metadata) (_ C.Conn, err error) {
++	metadata, err = ssrvpnEgressTarget(ctx, metadata, h.option.SSRVPNEgress, false, resolver.ResolveIPv4)
++	if err != nil {
++		return nil, err
++	}
+ 	c, err := h.client.DialConn(ctx, M.ParseSocksaddrHostPort(metadata.String(), metadata.DstPort))
+ 	if err != nil {
+ 		return nil, err
+ 	}
+ 	return NewConn(c, h), nil
++}
++
++// Enforce the declaration for both the initial UDP flow and reused packet
++// connections, whose ResolveUDP callback is retained by the core wrapper.
++func (h *Hysteria2) ResolveUDP(ctx context.Context, metadata *C.Metadata) error {
++	target, err := ssrvpnEgressTarget(ctx, metadata, h.option.SSRVPNEgress, true, resolver.ResolveIPv4)
++	if err != nil {
++		return err
++	}
++	metadata.DstIP = target.DstIP
++	return h.Base.ResolveUDP(ctx, metadata)
+ }
+ 
+ func (h *Hysteria2) ListenPacketContext(ctx context.Context, metadata *C.Metadata) (_ C.PacketConn, err error) {
+@@ -124,6 +140,9 @@
+ }
+ 
+ func NewHysteria2(option Hysteria2Option) (*Hysteria2, error) {
++	if option.SSRVPNEgress != "" && option.SSRVPNEgress != "auto" && option.SSRVPNEgress != "ipv4" {
++		return nil, fmt.Errorf("invalid ssrvpn-egress: expected auto or ipv4")
++	}
+ 	addr := net.JoinHostPort(option.Server, strconv.Itoa(option.Port))
+ 	outbound := &Hysteria2{
+ 		Base: NewBase(BaseOption{

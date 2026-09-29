@@ -308,7 +308,7 @@ def main():
         cases = ['obfs-http', 'obfs-tls', 'v2ray-plugin', 'gost-plugin', 'shadow-tls', 'kcptun']
         if args.restls:
             cases.append('restls')
-        cases.append('hysteria2-port-hop')
+        cases.extend(['hysteria2-port-hop', 'hysteria2-ipv4-egress'])
         if args.selected:
             if set(args.selected) - set(cases):
                 parser.error('unknown or disabled protocol case')
@@ -355,6 +355,10 @@ def main():
                     link = f'hysteria2://{quote(PASSWORD, safe="")}@127.0.0.1:{entry}/?sni=proxy.fixture&pinSHA256={fingerprint}&mport={ports}&hop-interval=5#fixture'
                 proxy, = parse_links(str(dart), [link])
                 assert proxy and proxy['name'] == 'fixture', (case, 'production parser rejected fixture')
+                if case == 'hysteria2-ipv4-egress':
+                    # Operator policy is added only to runtime output; the
+                    # imported link and authentication remain unchanged.
+                    proxy['ssrvpn-egress'] = 'ipv4'
                 _, server_log = launch_server(run, server_core, folder / f'{case}-server', server, health)
                 client = client_config(proxy, cert, health)
                 process, client_log = protocols.launch(run, core, folder / f'{case}-client', client)
@@ -384,6 +388,8 @@ def main():
                         bad_link = link.replace(good_auth, bad_auth)
                     rejected, = parse_links(str(dart), [bad_link])
                     assert rejected, 'negative fixture should be syntactically valid'
+                    if case == 'hysteria2-ipv4-egress':
+                        rejected['ssrvpn-egress'] = 'ipv4'
                     negative = client_config(rejected, cert, health)
                     rejected_process, _ = protocols.launch(run, core, folder / f'{case}-bad-auth', negative)
                     wait_ready(negative['mixed-port'], health)

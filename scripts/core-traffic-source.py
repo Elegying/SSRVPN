@@ -12,8 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 BUNDLE = ROOT / 'native/proxy_traffic'
 RUNTIME_FILES = ('sources.json', 'proxy_traffic.go', 'route.go',
                  'android.patch', 'macos.patch', 'windows.patch', 'target_address.go',
-                 'dns_resolution.go', 'direct_fallback.go', 'tun_startup.go')
+                 'dns_resolution.go', 'direct_fallback.go', 'tun_startup.go', 'egress_policy.go')
 COPIES = {
+    'egress_policy.go': 'adapter/outbound/ssrvpn_egress_policy.go',
+    'egress_policy_test.go': 'adapter/outbound/ssrvpn_egress_policy_test.go',
     'version_test.go': 'constant/ssrvpn_version_test.go',
     'tun_startup.go': 'hub/executor/ssrvpn_tun_startup.go',
     'tun_startup_test.go': 'hub/executor/ssrvpn_tun_startup_test.go',

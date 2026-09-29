@@ -36,7 +36,7 @@ HTTPS 的 TLS/SNI/HTTP Host 字节不改，变更仅作用于代理协议承载�
 
 最终拨号失败且确实尝试过 IPv6 目标时，核心输出固定事件，不含目标或凭据。
 认证的 `/ssrvpn/traffic` 增加会话内失败计数和距最近失败的毫秒数；
-手动诊断只展示最近一分钟内的失败观察，三端复用同一中文说明。
+局部 IPv6 失败仅保留日志，不生成主页提醒或手动诊断警告项。
 旧会话迟到结果不写入新会话。失败表示网络、节点或目标的该次访问未成功，
 不能证明节点永久不支持 IPv6。旧核心缺字段时不误报。
 
@@ -76,3 +76,38 @@ Android 先以无 TUN 模式准备核心，确认规则与节点选择后再建�
 准备和提交共用原有总超时预算。该实现仍需实际安装后的路由、取消和异常退出验收。
 
 本轮详细证据见 [IPv6 改造审计](../diagnostics/ipv6-stack-audit-20260918.md)。
+
+## 显式 IPv4-only Hysteria2 出口（候选，待实机验证）
+
+三端统一读取随包运营配置 `SSRVPN_NODE_EGRESS`，仅按已核实的服务器、端口与协议精确匹配，
+在生成核心运行配置时添加 `ssrvpn-egress: ipv4`。配置位于现有的
+`config/ssrvpn-usage-defines.json`，正式三端构建均通过同一 dart-define 文件携带。
+不修改分享 URI、二维码、原始订阅或持久化节点；用户升级客户端即可使用原链接，
+不要求面板升级、不轮换账号凭据、不要求重新分享或导入。
+未知节点及缺失/非法运营声明保持原行为；这是 SSRVPN 内部运行扩展，不是 Hysteria 标准能力协商。
+只在已确认整个节点地址背后的出口均仅支持 IPv4 时声明，不从 DNS 地址族或瞬时失败推断。
+出口能力发生变化时由维护者更新随包声明，客户端不会自动探测或持久化猜测结果。
+
+限制在选定的 Hysteria2 适配器执行：TCP 保留可信域名给服务端解析；无域名的 IPv6
+字面目标直接失败，返回不可用地址错误并停止核心拨号重试。UDP 在有域名时仅解析 IPv4，
+初始流和复用数据包的 ResolveUDP 回调都遵守限制。显式 hosts 不改写，IPv4-mapped
+地址按 IPv4 处理。DIRECT、其他节点、TLS 数据和整个代理会话不变，不自动切节点。
+
+仅日志记录不支持的请求；不能保证 UDP 应用立即感知失败，也不能保证 Telegram 自身
+立即切换 IPv4。此处理减少已知不可能成功的代理请求，不解决无线网络吞吐问题。
+
+### 与成熟客户端的边界对照
+
+[Mihomo 的 ip-version](https://wiki.metacubex.one/config/proxies/) 和
+[Surge 的 ip-version](https://manual.nssurge.com/policies/parameters.html) 在代理节点上
+控制连接代理服务器的地址族，不能当作远端目标的出口能力声明。
+[Surge 的 DNS 与 VIF 配置](https://manual.nssurge.com/profile/general.html) 也分别控制
+AAAA 查询和 IPv6 接管；关闭 AAAA 不等于处理了应用直接使用的 IPv6 地址。
+本扩展不修改全局 DNS 或 TUN 捕获，不通过移除 IPv6 路由使代理目标绕行。
+
+[Surge](https://manual.nssurge.com/policies/reject.html) 与
+[sing-box](https://sing-box.sagernet.org/configuration/route/rule_action/) 都对密集拒绝请求
+提供抑制机制。不能把快速返回错误视为普适最优解，也不能将当前适配器错误等同于
+它们的 TUN TCP RST/UDP ICMP 行为。候选启用前必须比较 Telegram 连接恢复时间、
+视频首帧、重试及日志频率，并确认同一节点的 IPv4 请求继续可用、无代理转直连、
+无局部失败引起的首页提醒或整个 VPN 重连。若发生重试风暴，须先解决抑制策略再交付。
