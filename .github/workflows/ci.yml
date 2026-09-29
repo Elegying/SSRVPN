@@ -221,6 +221,21 @@ jobs:
       - if: needs.changes.outputs.platform_required == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # Replay source contracts even when the binary asset cache is a hit.
+      - name: Replay pinned three-platform core contracts
+        if: needs.changes.outputs.platform_required == 'true'
+        timeout-minutes: 45
+        run: python3 scripts/test-core-contracts.py all --report-dir "$RUNNER_TEMP/core-contracts"
+
+      - name: Preserve core contract results
+        if: always() && needs.changes.outputs.platform_required == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: core-contracts
+          retention-days: 14
+          path: ${{ runner.temp }}/core-contracts
+          if-no-files-found: error
+
       # Cache only content-addressed binaries, never credentials or build state.
       # bootstrap always validates the restored bytes and rebuilds missing/mismatched assets.
       - name: Cache verified core assets

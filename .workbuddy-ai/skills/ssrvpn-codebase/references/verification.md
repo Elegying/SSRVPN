@@ -155,3 +155,10 @@ CI/Release 的 macOS runner 是 `macos-15`（自带 Xcode 16，支持 `MACOSX_DE
 - **引用历史结论前，必须在当前提交上重新执行对应测试或检查。**
 - 文档门禁自动枚举全部受版本控制 Markdown；`CHANGELOG.md` 只做链接检查，其余当前文档还检查已知陈旧结论和危险发布命令。
 - 既有先例目录 `docs/diagnostics/`、`docs/audit/` 用**英文 kebab-case** 命名。
+
+## 7. 三端内核差异持续回归
+
+`python3 scripts/test-core-contracts.py all --report-dir /tmp/ssrvpn-core-contracts`
+独立检出三端固定 commit/tree，应用同一扩展复制清单并运行全部共享 Go 契约。Go 版本各自钉死，
+测试结果不走缓存；缺失、跳过或失败即失败。CI 的必需 core-assets job 在二进制缓存前运行，
+始终上传 core-contracts 结果。该步骤不修改随包内核，不替代真实 JNI、TUN 或系统恢复验收。
