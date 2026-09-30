@@ -80,8 +80,10 @@ void main() {
       core.answers[i].complete(false);
     }
     await core.recovered.future.timeout(const Duration(seconds: 2));
+    await core.started[3].future.timeout(const Duration(seconds: 2));
     core.stopStatusMonitor();
     expect(core.recoveryCalls, 1);
+    expect(core.isAutoRecovering, isFalse);
     expect(core.isRunning, isTrue);
     expect(core.connectionDesired, isTrue);
     expect(core.recentLogs, contains('[health_recovery]'));
