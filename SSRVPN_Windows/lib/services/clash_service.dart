@@ -19,6 +19,7 @@ part 'clash_service_config.dart';
 part 'clash_service_diagnostics.dart';
 part 'clash_service_recovery_policy.dart';
 part 'clash_service_lifecycle.dart';
+part 'clash_service_process_support.dart';
 part 'clash_service_start_preparation.dart';
 part 'clash_service_tun_recovery.dart';
 
