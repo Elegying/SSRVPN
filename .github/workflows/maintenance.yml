@@ -23,6 +23,41 @@ permissions:
   contents: read
 
 jobs:
+  recover-5018-test-baseline:
+    name: Recover the exact pinned v5.0.18 installer baseline
+    if: github.event_name == 'workflow_dispatch' && inputs.task == 'windows-installer-archive' && github.ref == 'refs/heads/codex/recover-5018-test-baseline'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Recover and verify the original build artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/baseline"
+          gh run download 35967792673 --repo Elegying/SSRVPN --name windows --dir "$RUNNER_TEMP/baseline"
+          printf '%s  %s\n' '3b3ef33be028d7b9d61f637d34a57c53e938cbd2dd0f262d3729f823f7b259b9' "$RUNNER_TEMP/baseline/SSRVPN_Setup.exe" | sha256sum --check --strict
+      - name: Install pinned ossutil
+        run: |
+          bash scripts/install-ossutil.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Restore only the missing hash-pinned historical test object
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: oss-cn-qingdao.aliyuncs.com
+          OSS_REGION: cn-qingdao
+        run: |
+          set -euo pipefail
+          ossutil cp "$RUNNER_TEMP/baseline/SSRVPN_Setup.exe" 'oss://nikuaimobi/ssrvpn/releases/v5.0.18/SSRVPN_Setup.exe' --ignore-existing
+          curl -q --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --retry 3 --connect-timeout 10 --max-time 180 --max-filesize 134217728 'https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases/v5.0.18/SSRVPN_Setup.exe' -o "$RUNNER_TEMP/readback.exe"
+          printf '%s  %s\n' '3b3ef33be028d7b9d61f637d34a57c53e938cbd2dd0f262d3729f823f7b259b9' "$RUNNER_TEMP/readback.exe" | sha256sum --check --strict
+
   windows-installer-archive:
     name: Preserve verified installer regression baselines
     if: github.event_name == 'workflow_dispatch' && inputs.task == 'windows-installer-archive' && github.ref == 'refs/heads/main'
