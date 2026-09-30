@@ -192,7 +192,9 @@ void main() {
     'idle',
     'unknown-native',
     'running',
-    'malformed-config'
+    'malformed-config',
+    'log-failure',
+    'malformed-log-failure'
   ]) {
     test('startup collection handles $mode without changing connection state',
         () async {
@@ -209,7 +211,14 @@ void main() {
       }
       if (mode == 'unknown-native') service.retentionPaths = null;
       if (mode == 'running') service.setRunning(true);
-      if (mode == 'malformed-config') {
+      service.onLog = mode.contains('log-failure')
+          ? (line) {
+              if (line.contains('[rule_snapshot_retention]')) {
+                throw StateError('fixture log sink unavailable');
+              }
+            }
+          : null;
+      if (mode.startsWith('malformed')) {
         await File(service.configPath).writeAsString('rule-providers: [bad]');
       }
       final notices = <Object>[];
@@ -227,7 +236,7 @@ void main() {
       for (final v in [2, 4]) {
         expect(
             await Directory('${root.path}/providers/bundles/$v.0.0').exists(),
-            mode != 'idle');
+            mode != 'idle' && mode != 'log-failure');
       }
       expect(service.retentionReads, mode == 'running' ? 0 : 1);
       service.setRunning(false);

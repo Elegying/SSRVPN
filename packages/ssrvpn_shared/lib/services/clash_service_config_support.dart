@@ -87,6 +87,14 @@ mixin _ClashConfigSupport {
   /// Restores only missing or invalid remotely refreshable rule providers.
   /// Packaging problems stay advisory so core startup can use an existing
   /// cache or embedded conservative providers.
+  void _logRuleRetention(String message) {
+    try {
+      log(message, event: 'rule_snapshot_retention');
+    } catch (_) {
+      // Optional maintenance logging must never invalidate prepared rules.
+    }
+  }
+
   @protected
   Future<void> ensureBundledSmartRules() async {
     final collectSnapshots = !_ruleRetentionAttempted && !isRunning;
@@ -123,11 +131,11 @@ mixin _ClashConfigSupport {
           final paths = await ruleRetentionConfigPaths();
           if (paths != null) {
             final removed = await recovery.pruneUnusedSnapshots(paths);
-            if (removed > 0) log('已清理 $removed 份无引用规则快照');
+            if (removed > 0) _logRuleRetention('已清理 $removed 份无引用规则快照');
           }
         } catch (error) {
-          log('规则快照清理延后，现有配置保持: cause=${safeRuntimeErrorCode(error)}',
-              event: 'rule_snapshot_retention');
+          _logRuleRetention(
+              '规则快照清理延后，现有配置保持: cause=${safeRuntimeErrorCode(error)}');
         }
       }
     } catch (error) {
