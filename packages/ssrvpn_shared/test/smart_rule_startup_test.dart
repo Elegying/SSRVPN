@@ -187,9 +187,77 @@ void main() {
     expect((journal['confirmed'] as Map)['version'], '3.0.0');
     expect(journal['rejectedThrough'], '2.0.0');
   });
+
+  for (final mode in [
+    'idle',
+    'unknown-native',
+    'running',
+    'malformed-config',
+    'log-failure',
+    'malformed-log-failure'
+  ]) {
+    test('startup collection handles $mode without changing connection state',
+        () async {
+      for (var v = 2; v <= 6; v++) {
+        final staged = snapshot('$v.0.0');
+        final manifestText = staged.remove('manifest.json')!;
+        expect(
+            await SmartRuleBundle.installVerifiedProviderFiles(
+                root.path,
+                SmartRuleBundle.parseManifest(manifestText,
+                    expectedFileNames: names),
+                staged),
+            isTrue);
+      }
+      if (mode == 'unknown-native') service.retentionPaths = null;
+      if (mode == 'running') service.setRunning(true);
+      service.onLog = mode.contains('log-failure')
+          ? (line) {
+              if (line.contains('[rule_snapshot_retention]')) {
+                throw StateError('fixture log sink unavailable');
+              }
+            }
+          : null;
+      if (mode.startsWith('malformed')) {
+        await File(service.configPath).writeAsString('rule-providers: [bad]');
+      }
+      final notices = <Object>[];
+      service.onRuntimeNotice = notices.add;
+      await service.prepareRules();
+      expect(service.configVersion, '3.0.0');
+      expect(service.lastStartError, isNull);
+      expect(service.isRunning, mode == 'running');
+      expect(notices, isEmpty);
+      for (final v in [1, 3, 5, 6]) {
+        expect(
+            await Directory('${root.path}/providers/bundles/$v.0.0').exists(),
+            isTrue);
+      }
+      for (final v in [2, 4]) {
+        expect(
+            await Directory('${root.path}/providers/bundles/$v.0.0').exists(),
+            mode != 'idle' && mode != 'log-failure');
+      }
+      expect(service.retentionReads, mode == 'running' ? 0 : 1);
+      service.setRunning(false);
+      service.retentionPaths = const [];
+      await service.prepareRules();
+      expect(service.retentionReads, mode == 'running' ? 0 : 1,
+          reason:
+              'reinitialization must not collect after producers were admitted');
+    });
+  }
 }
 
 class _StartupService extends ClashServiceBase {
+  List<String>? retentionPaths = const [];
+  int retentionReads = 0;
+  @override
+  Future<List<String>?> ruleRetentionConfigPaths() async {
+    retentionReads++;
+    return retentionPaths;
+  }
+
   @override
   String get diagnosticConfigPath => configPath;
   @override

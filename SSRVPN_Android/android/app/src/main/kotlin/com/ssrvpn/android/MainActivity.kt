@@ -158,6 +158,13 @@ class MainActivity : FlutterActivity() {
             }
             "syncSettings" -> handleSyncSettings(call, result)
             "getConnectionSnapshotGeneration" -> handleSnapshotGeneration(result)
+            "getRuleRetentionConfigPaths" -> {
+                try {
+                    result.success(NativeVpnSessionCoordinator.ruleRetentionConfigPaths(this))
+                } catch (_: Exception) {
+                    result.success(null) // Unknown references must retain every bundle.
+                }
+            }
             "clearConnectionSnapshot" -> handleClearConnectionSnapshot(call, result)
             "prepareApiSecretRecovery" -> handlePrepareApiSecretRecovery(result)
             "notifyVpnStateChanged" -> {

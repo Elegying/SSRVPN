@@ -5,6 +5,7 @@ import 'dart:isolate';
 import '../constants/app_constants.dart';
 import '../utils/bounded_yaml.dart';
 import 'smart_rule_bundle.dart';
+import 'smart_rule_snapshot_retention.dart';
 
 /// Persists only rules, never subscription credentials or a complete VPN config.
 /// A failed candidate is retired before restoring the last core-confirmed set.
@@ -247,6 +248,23 @@ class SmartRuleRecovery {
         configDir,
         SmartRuleBundle.parseManifest(jsonEncode(confirmed),
             expectedFileNames: fileNames));
+  }
+
+  Future<int> pruneUnusedSnapshots(List<String> protectedConfigPaths) async {
+    final confirmed = (await _readValidated())['confirmed'];
+    if (confirmed == null) return 0;
+    final good = SmartRuleBundle.parseManifest(jsonEncode(confirmed),
+        expectedFileNames: fileNames);
+    final selected = await SmartRuleBundle.readInstalledManifest(configDir,
+        expectedFileNames: fileNames);
+    if (selected == null ||
+        !await SmartRuleBundle.verifyVersion(configDir, good)) {
+      return 0;
+    }
+    return SmartRuleSnapshotRetention.prune(configDir,
+        protectedVersions: {good.version, selected.version},
+        protectedConfigPaths: protectedConfigPaths,
+        fileNames: fileNames);
   }
 
   static Future<String?> _configVersionInBackground(String source) =>

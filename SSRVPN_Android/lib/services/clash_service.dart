@@ -158,6 +158,10 @@ class ClashService extends ClashServiceBase
   String get diagnosticConfigPath => _runningConfigPath ?? configPath;
 
   @override
+  Future<List<String>?> ruleRetentionConfigPaths() =>
+      _readRuleRetentionConfigPaths();
+
+  @override
   bool get diagnosticConfigRequired => isRunning;
 
   @override

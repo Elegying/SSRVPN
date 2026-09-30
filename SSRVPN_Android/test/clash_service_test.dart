@@ -111,6 +111,36 @@ class _ConnectivityRecoveryObservationService extends ClashService {
 }
 
 void main() {
+  for (final value in <Object?>[
+    null,
+    {'unknown': true},
+    [123],
+    ['/data/config.yaml']
+  ]) {
+    test('native rule retention references fail closed for $value', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      const channel = MethodChannel('com.ssrvpn/native');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        expect(call.method, 'getRuleRetentionConfigPaths');
+        return value;
+      });
+      final service = ClashService();
+      final notices = <RuntimeNotice>[];
+      service.onRuntimeNotice = notices.add;
+      try {
+        expect(await service.ruleRetentionConfigPaths(),
+            value is List<String> ? value : isNull);
+        expect(service.lastStartError, isNull);
+        expect(notices, isEmpty);
+      } finally {
+        messenger.setMockMethodCallHandler(channel, null);
+        service.dispose();
+      }
+    });
+  }
+
   test(
     'an Android advisory observation cannot publish into a newer session',
     () async {

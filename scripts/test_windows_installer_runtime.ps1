@@ -49,7 +49,10 @@ function Write-CorePidRecord {
     if ($Process.HasExited) {
       throw 'Cannot write a core identity record for an exited process.'
     }
-    $modulePath = [string]$Process.MainModule.FileName
+    # MainModule can expose ntdll.dll while the CLR fixture is still loading.
+    # Query the process executable, then retain the exact-path rejection below.
+    $modulePath = [string](Get-CimInstance Win32_Process `
+      -Filter "ProcessId=$($Process.Id)" -ErrorAction Stop).ExecutablePath
     if (-not [string]::IsNullOrWhiteSpace($modulePath)) { break }
     Start-Sleep -Milliseconds 50
   }
