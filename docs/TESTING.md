@@ -13,7 +13,7 @@ mise exec flutter@3.44.1 -- bash scripts/test-client-reliability.sh
 该入口复用现有包目录和 Flutter 版本检查，覆盖共享健康恢复、故障交错、旧 URI 兼容、
 IPv4 出口运行策略，以及三端真实订阅服务到同步/异步配置生成的往返。旧设置键、小缓存与
 达到后台生成阈值的大缓存都必须保留来源链接、节点凭据和文件原始字节；临时运行端口不得
-写回保存的设置。Windows 专项还覆盖外部观察节流、系统代理所有权和有界进程退出。迁出的进程退出支持单独执行 90%
+写回保存的设置。Windows 专项还覆盖外部观察节流、系统代理所有权和有界进程退出。迁出的进程退出支持与配置校验各自执行 90%
 关键文件覆盖率门禁，生命周期原有 51% 门槛继续保留。
 
 这些测试由各包现有全量 CI 自动发现，无需单独维护三份断言或重复添加 CI 作业。
@@ -78,13 +78,15 @@ make verify
 | Windows | 30% |
 
 平台总覆盖率容易掩盖低覆盖的关键生命周期文件，因此门禁还会检查以下基于完整测试套件实测后
-锁定的渐进下限：
+锁定的渐进下限（以下证据来自 2026-09-30 的包目录全量测试）：
 
 | 关键文件 | 最低行覆盖率 | 当前锁定证据 |
 | --- | ---: | ---: |
-| Windows `clash_service_lifecycle.dart` | 51.00% | `358/700`（51.14%） |
-| macOS `clash_service_lifecycle.dart` | 60.00% | `308/485`（63.51%） |
-| macOS `system_proxy_service.dart` | 80.00% | `220/258`（85.27%） |
+| Windows `clash_service_config_validation.dart` | 90.00% | `29/31`（93.55%） |
+| Windows `clash_service_process_support.dart` | 90.00% | `8/8`（100.00%） |
+| Windows `clash_service_lifecycle.dart` | 51.00% | `342/664`（51.51%） |
+| macOS `clash_service_lifecycle.dart` | 60.00% | `646/842`（76.72%） |
+| macOS `system_proxy_service.dart` | 80.00% | `393/439`（89.52%） |
 
 这些下限不把当前仍偏低的数值包装成目标值，只防止已有证据悄然倒退；关键文件从 LCOV 中消失
 同样会使门禁失败。新增生命周期行为时应先提高对应测试与下限，而不是依靠平台总覆盖率吸收

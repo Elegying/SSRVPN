@@ -18,8 +18,17 @@ class CheckCoverageThresholdsTests(unittest.TestCase):
             coverage.CRITICAL_FILE_THRESHOLDS["SSRVPN_Windows"][
                 "lib/services/clash_service_lifecycle.dart"
             ],
-            20.0,
+            51.0,
         )
+
+    def test_extracted_windows_responsibilities_keep_their_own_floors(self) -> None:
+        for path in (
+            "lib/services/clash_service_process_support.dart",
+            "lib/services/clash_service_config_validation.dart",
+        ):
+            self.assertGreaterEqual(
+                coverage.CRITICAL_FILE_THRESHOLDS["SSRVPN_Windows"][path], 90.0
+            )
 
     def _write_lcov(self, text: str) -> Path:
         temporary_directory = tempfile.TemporaryDirectory()
@@ -956,7 +965,7 @@ class CheckCoverageThresholdsTests(unittest.TestCase):
         self.assertGreaterEqual(
             coverage.CRITICAL_FILE_THRESHOLDS["SSRVPN_Windows"]
             ["lib/services/clash_service_lifecycle.dart"],
-            50.0,
+            51.0,
         )
         self.assertGreaterEqual(
             coverage.CRITICAL_FILE_THRESHOLDS["SSRVPN_MacOS"]

@@ -68,25 +68,34 @@ void main() {
         'port': 444,
       });
     });
-    await tester.pumpWidget(fixture.build());
-    await tester.pump();
-    await tester.ensureVisible(find.byTooltip('编辑订阅').last);
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('编辑订阅').last);
-    await tester.pumpAndSettle();
-    await tester.enterText(
-        find.byKey(const Key('ssrvpn-subscription-edit-name')),
-        'Renamed other');
-    await tester.tap(find.byKey(const Key('ssrvpn-subscription-edit-save')));
-    // Persistence starts after the dialog's reverse transition is removed.
-    await tester.pumpAndSettle();
-    await _pumpUntilFound(tester, find.text('订阅已更新'));
-    await tester.pumpAndSettle();
-    expect(fixture.subscription.subscriptions.last.name, 'Renamed other');
-    expect(fixture.subscription.allNodes.first.name, 'Manual node');
-    expect(fixture.subscription.allNodes.first.server, 'manual.invalid');
-    expect(find.textContaining('正在刷新'), findsNothing);
-    expect(tester.takeException(), isNull);
+    // Render and trigger the I/O flow in one real async zone. Moving only a
+    // delay to runAsync leaves the filesystem Future bound to FakeAsync.
+    await tester.runAsync(() async {
+      await tester.pumpWidget(fixture.build());
+      await tester.pump();
+      await tester.ensureVisible(find.byTooltip('编辑订阅').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('编辑订阅').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const Key('ssrvpn-subscription-edit-name')),
+          'Renamed other');
+      await tester.tap(find.byKey(const Key('ssrvpn-subscription-edit-save')));
+      // Persistence starts after the dialog's reverse transition is removed.
+      await tester.pumpAndSettle();
+      await _pumpUntilFound(
+        tester,
+        find.text('订阅已更新'),
+        diagnostics: () =>
+            'sources=${fixture.subscription.subscriptions.map((source) => source.name).toList()}',
+      );
+      await tester.pumpAndSettle();
+      expect(fixture.subscription.subscriptions.last.name, 'Renamed other');
+      expect(fixture.subscription.allNodes.first.name, 'Manual node');
+      expect(fixture.subscription.allNodes.first.server, 'manual.invalid');
+      expect(find.textContaining('正在刷新'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
   });
 
   testWidgets('subscription page has no about action', (tester) async {
@@ -156,35 +165,47 @@ void main() {
     ))!;
     addTearDown(fixture.dispose);
 
-    await tester.pumpWidget(fixture.build());
-    await tester.pump();
+    // Render and trigger the I/O flow in one real async zone. Moving only a
+    // delay to runAsync leaves the filesystem Future bound to FakeAsync.
+    await tester.runAsync(() async {
+      await tester.pumpWidget(fixture.build());
+      await tester.pump();
 
-    await tester.tap(find.byTooltip('删除订阅'));
-    await tester.pumpAndSettle();
-    expect(find.text('确认删除'), findsOneWidget);
+      await tester.tap(find.byTooltip('删除订阅'));
+      await tester.pumpAndSettle();
+      expect(find.text('确认删除'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(ElevatedButton, '删除'));
-    await tester.pumpAndSettle();
-    await _pumpUntilFound(tester, find.text('订阅已删除'));
+      await tester.tap(find.widgetWithText(ElevatedButton, '删除'));
+      await tester.pumpAndSettle();
+      await _pumpUntilFound(tester, find.text('订阅已删除'));
 
-    expect(fixture.subscription.subscriptions, isEmpty);
-    expect(fixture.clash.stopCalls, 1);
-    expect(fixture.clash.isRunning, isFalse);
-    expect(fixture.clash.connectionDesired, isFalse);
-    expect(find.text('订阅已删除'), findsOneWidget);
+      expect(fixture.subscription.subscriptions, isEmpty);
+      expect(fixture.clash.stopCalls, 1);
+      expect(fixture.clash.isRunning, isFalse);
+      expect(fixture.clash.connectionDesired, isFalse);
+      expect(find.text('订阅已删除'), findsOneWidget);
+    });
   });
 }
 
-Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
+// Call within tester.runAsync; the flow owns real filesystem Futures.
+Future<void> _pumpUntilFound(WidgetTester tester, Finder finder,
+    {String Function()? diagnostics}) async {
   final deadline = Stopwatch()..start();
   while (deadline.elapsed < const Duration(seconds: 10)) {
     if (finder.evaluate().isNotEmpty) return;
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 10)),
-    );
+    await Future<void>.delayed(const Duration(milliseconds: 10));
     await tester.pump();
   }
-  fail('Timed out waiting for the real persistence result: $finder');
+  final visible = find
+      .byType(Text)
+      .evaluate()
+      .map((element) => (element.widget as Text).data)
+      .whereType<String>()
+      .take(30)
+      .toList();
+  fail('Timed out waiting for the real persistence result: $finder; '
+      '${diagnostics?.call()}; visible=$visible');
 }
 
 class _SubscriptionFixture {

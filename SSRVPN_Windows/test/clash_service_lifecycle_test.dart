@@ -350,6 +350,21 @@ Future<void> main(List<String> args) async {
     },
   );
 
+  test(
+      'confirmed owned proxy recovery clears an old error without starting a core',
+      () async {
+    final proxy = _ControlledStopProxy()..recoveryPending = true;
+    final service = ClashService(systemProxyService: proxy)
+      ..setLastStartError('old recovery failure');
+    addTearDown(service.dispose);
+    expect(await service.recoverPendingSystemProxy(), isTrue);
+    expect(proxy.recoveryCalls, 1);
+    expect(service.lastStartError, isNull);
+    expect(service.isRunning, isFalse);
+    expect(service.connectionDesired, isFalse);
+    expect(proxy.clearCalls, 0);
+  });
+
   test('stop hook fails closed when proxy cleanup is unavailable', () async {
     final service = _createTestService();
 
@@ -873,6 +888,15 @@ Future<String> _preparePackagedCore(Directory temp) async {
 class _ControlledStopProxy implements SystemProxyService {
   Future<bool> Function() clear = () async => true;
   int clearCalls = 0;
+  int recoveryCalls = 0;
+
+  @override
+  Future<bool> retryPendingRecovery() async {
+    recoveryCalls++;
+    recoveryPending = false;
+    return true;
+  }
+
   @override
   bool recoveryPending = false;
   @override
