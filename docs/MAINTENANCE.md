@@ -64,6 +64,14 @@ cleanup and version identity). It does not replace Android JNI/device tests,
 native Windows/macOS TUN, or the existing real-core protocol probes. Adding a
 shared test through the copy manifest automatically adds it to all three runs.
 
+## Client Reliability Iteration
+
+For connection health, runtime generation, or legacy configuration changes, run
+`mise exec flutter@3.44.1 -- bash scripts/test-client-reliability.sh` first.
+The shared test contract exercises each platform's actual subscription and
+configuration entrypoints; the existing full CI package suites discover it.
+See [testing strategy](TESTING.md) for behavior boundaries and full merge gates.
+
 ## Pull Request Rules
 
 - Work from `feature/*`, `fix/*`, or `chore/*` branches; keep `main` stable.

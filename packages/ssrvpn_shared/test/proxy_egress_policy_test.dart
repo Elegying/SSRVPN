@@ -24,6 +24,27 @@ void main() {
     expect(SubscriptionParser.parseSubscriptionContent(link), yaml);
   });
 
+  test('changing runtime policy never contaminates a reusable legacy source',
+      () {
+    const link =
+        'hy2://fixture@node.example.test:443/?sni=tls.example.test#旧节点';
+    final yaml = SubscriptionParser.parseSubscriptionContent(link)!;
+    final policies = [
+      declaration,
+      '[]',
+      declaration.replaceFirst('node.example.test', 'other.example.test'),
+      declaration
+    ];
+    final before = SubscriptionParser.parseYaml(yaml).nodes.single.toJson();
+    for (var i = 0; i < policies.length; i++) {
+      final runtime = ClashConfigGenerator.buildProxiesText(yaml,
+          egressPolicy: ProxyEgressPolicy.fromJson(policies[i]));
+      expect(runtime.contains('"ssrvpn-egress":"ipv4"'), i == 0 || i == 3);
+      expect(SubscriptionParser.parseYaml(yaml).nodes.single.toJson(), before);
+      expect(SubscriptionParser.parseSubscriptionContent(link), yaml);
+    }
+  });
+
   test('only exact operator endpoint and protocol match; invalid data ignored',
       () {
     final policy = ProxyEgressPolicy.fromJson(declaration);

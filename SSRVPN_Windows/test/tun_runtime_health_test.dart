@@ -9,6 +9,35 @@ import 'package:ssrvpn_windows/services/clash_service.dart';
 import 'package:ssrvpn_windows/services/windows_tun_runtime_probe.dart';
 
 void main() {
+  for (final tun in [false, true]) {
+    test('real external IPv6 failure stays advisory and throttled, TUN=$tun',
+        () async {
+      final service = _RealExternalObservationCore()
+        ..updateSettings(AppSettings(enableTun: tun))
+        ..requestConnectionIntent(true)
+        ..setRunning(true);
+      addTearDown(service.dispose);
+      expect(service.observedAt, isNull);
+      await service.observeNow();
+      expect(service.requests, 1);
+      expect(service.observedAt, isNotNull);
+      expect(service.connectivityWarning, isNotNull);
+      expect(service.connectionStatusWarning, isNull);
+      expect(service.isRunning, isTrue);
+      expect(service.connectionDesired, isTrue);
+      await service.observeNow();
+      expect(service.requests, 1,
+          reason: 'failure must not cause a probe storm');
+      service.resetObservation();
+      service.failTarget = false;
+      await service.observeNow();
+      expect(service.requests, 2);
+      expect(service.connectivityWarning, isNull);
+      expect(service.connectionStatusWarning, isNull);
+      expect(service.isRunning, isTrue);
+    });
+  }
+
   test('TUN external data-plane failure is warning-only', () async {
     final service = _AdvisoryTunDataPlaneClashService()
       ..updateSettings(AppSettings(enableTun: true))
@@ -452,4 +481,31 @@ class _ControllableDataPlaneClashService extends ClashService {
     }
     return Future<String?>.value();
   }
+}
+
+class _RealExternalObservationCore extends ClashService {
+  int requests = 0;
+  bool failTarget = true;
+  DateTime? get observedAt => dataPlaneObservationAt;
+  Future<void> observeNow() => observeDataPlaneHealth();
+  void resetObservation() => resetTunDataPlaneObservationSession();
+
+  @override
+  Future<String?> verifyUserConnectivity({
+    int maxAttempts = AppConstants.dataPlaneProbeAttempts,
+    Duration retryDelay = AppConstants.dataPlaneProbeRetryDelay,
+    Future<http.Response> Function(Uri uri)? request,
+    bool Function()? shouldContinue,
+  }) =>
+      super.verifyUserConnectivity(
+        maxAttempts: 1,
+        shouldContinue: shouldContinue,
+        request: (_) async {
+          requests++;
+          if (failTarget) {
+            throw const SocketException('[SSRVPN_IPV6_TARGET_FAILED] fixture');
+          }
+          return http.Response('', 204);
+        },
+      );
 }
