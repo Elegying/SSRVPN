@@ -884,6 +884,12 @@ void main() {
           if (desktop.existsSync()) desktop.deleteSync(recursive: true);
         });
         final bytes = utf8.encode('verified-windows-installer');
+        final response = Completer<http.Response>();
+        addTearDown(() {
+          if (!response.isCompleted) {
+            response.completeError(StateError('test download cancelled'));
+          }
+        });
         late BuildContext context;
         await tester.pumpWidget(
           MaterialApp(
@@ -906,7 +912,7 @@ void main() {
           ),
           desktopDirectory: desktop,
           client: MockClient(
-            (_) async => http.Response.bytes(bytes, HttpStatus.ok),
+            (_) => response.future,
           ),
           filePublisher: (source, destination) async {
             await source.copy(destination.path);
@@ -916,6 +922,9 @@ void main() {
           },
         );
 
+        // Mount the progress route before completing the real I/O flow.
+        await _pumpUntilFound(tester, find.text('正在下载更新'));
+        response.complete(http.Response.bytes(bytes, HttpStatus.ok));
         await _pumpUntilFound(tester, find.text('下载完成'));
 
         const expectedMessage = '安装包已下载到桌面并通过 SHA-256 校验，但安装后无法自动删除。'
