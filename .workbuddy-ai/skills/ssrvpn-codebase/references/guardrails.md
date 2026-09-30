@@ -139,6 +139,7 @@ macOS 与 Windows：`setSystemProxy` / `clearSystemProxy` **只能**出现在 `c
 | macOS | `lib/services/system_proxy_service.dart` | **80.0%** |
 | macOS | `lib/services/system_proxy_snapshot.dart` | **80.0%** |
 | Windows | `lib/services/clash_service_lifecycle.dart` | 51.0% |
+| Windows | `lib/services/clash_service_process_support.dart` | **90.0%** |
 
 覆盖率从 `<pkg>/coverage/lcov.info` 读取（shared 无 lcov 时回退 Dart VM coverage）。
 
