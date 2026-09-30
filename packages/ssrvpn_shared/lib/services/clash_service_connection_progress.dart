@@ -44,6 +44,7 @@ extension ClashConnectionProgress on ClashServiceBase {
   /// publish a late step into the next connection attempt.
   void Function(String) createConnectionProgressReporter() {
     final generation = captureAutomaticRestartIntent();
+    final trace = _connectionPhaseTrace;
     return (message) {
       if (generation == null ||
           !isConnectionIntentCurrent(generation, connected: true) ||
@@ -56,7 +57,7 @@ extension ClashConnectionProgress on ClashServiceBase {
         listener();
       }
       if (isConnectionIntentCurrent(generation, connected: true)) {
-        _connectionPhaseTrace?.progress(message);
+        trace?.progress(message);
       }
     };
   }

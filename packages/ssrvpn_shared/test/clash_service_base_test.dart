@@ -165,6 +165,22 @@ void main() {
       expect(service.recentLogs, isNot(contains('系统授权与提权交接')));
     });
 
+    test('old reporter cannot write into recovery under the same intent', () {
+      final service = _TestClashService()..requestConnectionIntent(true);
+      addTearDown(service.dispose);
+      final old = service.createConnectionProgressReporter();
+      service.setRunning(true);
+      service.setAutoRecoveryInProgress(true);
+      final recovery = service.createConnectionProgressReporter();
+      final logs = service.recentLogs;
+      old('正在准备节点和分流规则…');
+      expect(service.recentLogs, logs);
+      recovery('正在启动连接服务…');
+      service.setRunning(true);
+      expect(service.recentLogs, contains('attempt=2 outcome=localReady'));
+      expect(service.recentLogs, contains('连接阶段：启动连接服务；'));
+    });
+
     test('old recovery release cannot finish a newer connection trace', () {
       final service = _TestClashService();
       addTearDown(service.dispose);
