@@ -176,7 +176,7 @@ class WindowsRunOnceProxyRecoveryTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         cleanup_start = service.index("Future<void> _deleteBackup()")
         cleanup_end = service.index(
-            "Future<void> _writeNativeRecoveryBackup", cleanup_start
+            "Future<ProcessResult> _runPowerShell", cleanup_start
         )
         cleanup = service[cleanup_start:cleanup_end]
 

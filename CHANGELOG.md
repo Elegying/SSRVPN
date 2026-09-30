@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 维护与安装说明
+
+- CI 在复用内核二进制前，独立对三端固定上游运行相同 Go 行为契约，并保存源码身份与逐项结果；缺失、跳过或失败的契约阻断门禁。
+- Windows 代理恢复日志读写迁入同库独立 part，保留锁、所有权、取消与事务顺序；私家车随机延迟策略不变。
+- 补全免费分发下 macOS 未公证、Windows 未签名安装包的逐步校验和系统提示说明，修正 macOS 指南中旧的 IPv4-only 描述。
+
 ## [5.0.23] - 2026-09-29
 
 - 根据随包运营配置中已确认的 Hysteria2 节点出口能力生成 IPv4-only 运行参数，旧链接和保存的订阅无需修改或重新分享；TCP 保留域名远端解析，纯 IPv6 目标在本地结束无效尝试，UDP 使用 IPv4 目标，保留 DIRECT 双栈及其他节点行为。

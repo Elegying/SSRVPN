@@ -39,6 +39,31 @@ This guide keeps local development, GitHub automation, and releases aligned.
 5. Repeat for `SSRVPN_MacOS` and `SSRVPN_Windows` when shared behavior or common models change.
 6. Keep `CHANGELOG.md` updated under `Unreleased`.
 
+## Pinned Core Behavior Matrix
+
+The required `Prepare verified core assets` CI job runs
+`scripts/test-core-contracts.py all` before consulting the binary cache. It replays
+every shared Go test copied by `core-traffic-source.py` against all three pinned
+commit/tree identities in `native/proxy_traffic/sources.json`, using each recorded
+Go version and the Android `cmfa` build tag. `-count=1` prevents cached test results
+from replacing execution. A missing, skipped or failing contract fails the job.
+CI preserves per-platform JSON identity/results and Go JSONL events as the
+`core-contracts` artifact, including failures.
+
+To reproduce locally without changing bundled binaries or generating a release:
+
+```bash
+python3 scripts/test-core-contracts.py all --report-dir /tmp/ssrvpn-core-contracts
+```
+
+Use `android`, `macos` or `windows` instead of `all` for a focused iteration.
+The script uses disposable source checkouts and the existing pinned Go toolchain
+resolver. This matrix checks upstream source compatibility and shared behavior
+(traffic accounting, DNS, TCP/UDP targets, IPv6 capture, egress policy, TUN startup
+cleanup and version identity). It does not replace Android JNI/device tests,
+native Windows/macOS TUN, or the existing real-core protocol probes. Adding a
+shared test through the copy manifest automatically adds it to all three runs.
+
 ## Pull Request Rules
 
 - Work from `feature/*`, `fix/*`, or `chore/*` branches; keep `main` stable.

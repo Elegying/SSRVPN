@@ -66,7 +66,7 @@ Release 明确禁用 Xcode 基础 entitlement 注入，并移除调试、JIT、�
 
 1. 只从正式下载地址获取 DMG。
 2. 核对 `SSRVPN.dmg.sha256`。
-3. 把应用拖到“应用程序”，右键 SSRVPN 并选择“打开”。
+3. 把应用拖到“应用程序”并尝试打开；若无法验证开发者，按“系统设置 → 隐私与安全性 → 仍要打开”处理单应用例外，详见 [macOS 安装指南](../SSRVPN_MacOS/USER_GUIDE.md)。
 4. 不关闭 Gatekeeper，不执行来源不明的绕过命令。
 
 ad-hoc 身份不能跨构建稳定复用，因此 macOS 长期 API secret 保持在权限为 `0600` 的
@@ -78,7 +78,8 @@ Windows 只发布 Inno Setup 管理员安装器（默认程序目录位于当前
 不导入 PFX、不调用 `signtool.exe`，打包脚本也不读取 Authenticode 环境变量。
 
 SmartScreen 或浏览器可能显示“未知发布者”。用户只有在正式来源和 SHA256 都匹配时才应
-选择保留并继续运行；任一条件不满足都不应绕过提示。
+选择保留并继续运行；任一条件不满足都不应绕过提示。逐步校验命令、SmartScreen/UAC
+区别和组织策略限制见 [Windows 安装指南](../SSRVPN_Windows/USER_GUIDE.md)。
 
 安装版最低要求 Windows 10 1507（build 10240）x64，默认写入
 `%LOCALAPPDATA%\\Programs\\SSRVPN`（安装器提供目录选择页）。安装阶段会请求管理员权限，用于结束映像名精确等于随包可执行文件名的高权限进程（SSRVPN 应用、启动器和随包 Mihomo，含其他目录或便携版副本与同名进程，见 ADR-021）；不会按 Clash、OpenVPN 等第三方通用名称结束软件。TUN 连接本身同样需要以管理员身份运行应用；这两个

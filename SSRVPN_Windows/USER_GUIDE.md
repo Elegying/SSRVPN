@@ -14,6 +14,28 @@ Authenticode 签名；只有在来源和哈希都确认无误时才继续处理 
 安装完成后安装器不会自动运行 SSRVPN，也不会显示“运行 SSRVPN”复选框；请关闭安装器后
 从桌面或开始菜单手动打开，并在 Windows UAC 中确认管理员授权。
 
+### 下载校验与系统提示
+
+把安装器和同一正式版本的 `SSRVPN_Setup.exe.sha256` 放在同一文件夹，在该文件夹打开 PowerShell：
+
+```powershell
+Get-FileHash .\SSRVPN_Setup.exe -Algorithm SHA256
+Get-Content .\SSRVPN_Setup.exe.sha256
+```
+
+逐字比较两处 64 位 SHA-256，忽略字母大小写。只有正式来源与摘要都一致时，才考虑继续打开。
+
+- SmartScreen 的“Windows 已保护你的电脑”表示应用信誉或发布者尚未被确认。若界面提供
+  “更多信息 → 仍要运行”，核对文件名后由你决定是否继续；并非所有 Windows 策略都提供该入口。
+- UAC 的“未知发布者”是未签名安装器的预期身份提示；管理员授权与安装包内容校验相互独立。
+- 如果 Defender 明确报出恶意软件、摘要不一致，或企业策略/Smart App Control 阻止运行，
+  停止安装并保留提示。不要关闭 Defender、SmartScreen 或组织策略来安装客户端。
+
+SHA-256 和构建来源证明不能替代 Windows 发布者签名。免费分发不会取消系统安全提示。
+系统机制见 [Microsoft 应用和浏览器控制说明](https://support.microsoft.com/en-us/windows/security/windows-security/app-browser-control-in-the-windows-security-app)。
+
+### 覆盖升级与数据保留
+
 覆盖运行新版安装器按可信清单和哈希替换程序文件，并保留：
 
 - `%LOCALAPPDATA%\Programs\SSRVPN\bin\ssrvpn` 中的订阅、设置和 DPAPI 密钥；

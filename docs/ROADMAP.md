@@ -61,6 +61,9 @@ Explorer 中的可见性、UAC 取消和交互安装结果仍待 Windows 11 人�
 
 ### 可维护性
 
+- 三端固定内核的共享 Go 契约现已独立接入 CI，二进制缓存命中也必须执行；扩展测试从同一复制清单发现，身份和结果随 CI 保存。继续保留平台原生及实机矩阵，不用源码测试替代设备验收。
+- Windows 代理恢复日志 I/O 已从系统代理服务拆出，事务锁与恢复顺序保留在服务；后续热点仍按下述行为证据边界逐步处理。
+
 - macOS 最低支持已调整为 13.0；打包和 DMG smoke 必须递归验证全部 Mach-O 与压缩核心的最低系统版本，不得只检查主程序 Info.plist。
 - 继续提高 Windows `clash_service_lifecycle.dart` 的行为覆盖率；当前渐进门槛为 51%，新增启动、提交、回滚或停止分支时同步提高证据和门槛。
 - 已完成共享更新 façade、macOS 原生核心/应用支持和 Windows 代理模型的第一轮低风险职责拆分；后续继续遵守 [ADR-010](decisions/010-risk-controlled-maintainability-boundaries.md)，只处理有新增行为证据的切片。

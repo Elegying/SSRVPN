@@ -1,6 +1,6 @@
 # 门禁全表：改之前先看会不会撞墙
 
-> **核心警告：上限卡得很死。** 实测零余量/紧余量不止一处：`Windows/clash_service_lifecycle.dart` 1763/1763、`subscription_service_persistence.dart` 196/196、`desktop_connection_coordinator.dart` 188/188（零余量）；`system_proxy_models.dart` 129/130、Windows `system_proxy_service.dart` 1448/1450、`CoreProcessSupport.swift` 238/240（余 ≤2）。**加几行就 fail 是常态，不是意外。**
+> **核心警告：上限卡得很死。** 实测零余量/紧余量不止一处：`Windows/clash_service_lifecycle.dart` 1763/1763、`subscription_service_persistence.dart` 196/196、`desktop_connection_coordinator.dart` 188/188（零余量）；`system_proxy_models.dart` 129/130、Windows `system_proxy_service.dart` 1314/1320、`CoreProcessSupport.swift` 238/240（余量见下表）。**加几行就 fail 是常态，不是意外。**
 > 守卫脚本用 `raise SystemExit`，**遇错即停**：修好一处才暴露下一处。
 > 验证时一次性算完所有数值，别打地鼠。
 
@@ -105,7 +105,8 @@ macOS 与 Windows：`setSystemProxy` / `clearSystemProxy` **只能**出现在 `c
 | 文件 | 当前 | 上限 | 余量 |
 |---|---|---|---|
 | `desktop_connection_coordinator.dart` | **188** | 188 | **0** 🚨 |
-| Windows `system_proxy_service.dart` | **1448** | 1450 | **2** 🚨 |
+| Windows `system_proxy_service.dart` | **1314** | 1320 | **6** ⚠️ |
+| Windows `system_proxy_recovery_journal.dart` | 140 | 155 | 15 |
 | `system_proxy_models.dart` | **129** | 130 | **1** 🚨 |
 | `CoreProcessSupport.swift` | **238** | 240 | **2** 🚨 |
 | `stop_ssrvpn_processes.ps1` | 1333 | 1350 | **17** ⚠️ |

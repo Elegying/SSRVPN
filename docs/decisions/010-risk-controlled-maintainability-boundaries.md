@@ -31,7 +31,9 @@ SSRVPN 的共享更新、macOS 原生应用委托、Windows 系统代理、Andro
    单实例租约由独立 Swift 支持文件承担。单实例文件的 `O_NOFOLLOW`、所有者、普通文件、
    单硬链接与非阻塞 `flock` 检查不得弱化。
 5. Windows `SystemProxyService` 继续独占锁、PowerShell 调用、恢复判定和写入顺序；快照、
-   恢复动作与取消状态迁入同一 Dart library 的模型 part。
+   恢复动作与取消状态迁入同一 Dart library 的模型 part。原生恢复日志读取、备份写入和激活提交
+   迁入同库 `system_proxy_recovery_journal.dart`；锁、回滚、清理和公开方法仍由服务编排，
+   不增加对象或公开接口。
 6. Android VPN Service 与 Windows 安装事务在本轮不做跨对象重排。前者已有通知、代际、
    TUN FD、会话和恢复策略边界；后者承担 PowerShell 5.1 下的跨重启文件、注册表、快捷方式
    原子回滚。没有新增目标平台故障注入证据前，只增加规模护栏，不为降低行数继续拆分。

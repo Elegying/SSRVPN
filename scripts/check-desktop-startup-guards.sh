@@ -674,10 +674,10 @@ print("macOS native core support boundary guard passed.")
 windows_proxy = Path("SSRVPN_Windows/lib/services/system_proxy_service.dart")
 windows_proxy_models = windows_proxy.with_name("system_proxy_models.dart")
 windows_proxy_source = windows_proxy.read_text(encoding="utf-8")
-if len(windows_proxy_source.splitlines()) > 1450:
+if len(windows_proxy_source.splitlines()) > 1320:
     raise SystemExit(
         f"{windows_proxy}: proxy transaction orchestration grew beyond its "
-        "1450-line boundary"
+        "1320-line boundary"
     )
 if "part 'system_proxy_models.dart';" not in windows_proxy_source:
     raise SystemExit(f"{windows_proxy}: missing proxy model boundary")
@@ -697,6 +697,20 @@ for delegated_type in (
             f"{windows_proxy}: {delegated_type} leaked back into transaction orchestration"
         )
 print("Windows system proxy model boundary guard passed.")
+
+journal = windows_proxy.with_name("system_proxy_recovery_journal.dart")
+if "part 'system_proxy_recovery_journal.dart';" not in windows_proxy_source:
+    raise SystemExit(f"{windows_proxy}: missing native recovery journal boundary")
+journal_source = journal.read_text(encoding="utf-8")
+if len(journal_source.splitlines()) > 155:
+    raise SystemExit(f"{journal}: journal I/O boundary grew beyond 155 lines")
+for declaration in (
+    "Future<_NativeProxyJournal?> _readNativeRecoveryJournal(",
+    "Future<void> _writeNativeRecoveryBackup(",
+    "Future<void> _markActivationComplete(",
+):
+    if declaration in windows_proxy_source or declaration not in journal_source:
+        raise SystemExit(f"{journal}: journal responsibility moved back into orchestration")
 
 # Windows deliberately uses manual registration to support safe-mode/tray flags.
 # A packaged DLL alone does not make the shared background picker available.
