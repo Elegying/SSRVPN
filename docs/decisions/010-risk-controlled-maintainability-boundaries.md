@@ -33,7 +33,8 @@ SSRVPN 的共享更新、macOS 原生应用委托、Windows 系统代理、Andro
 5. Windows `SystemProxyService` 继续独占锁、PowerShell 调用、恢复判定和写入顺序；快照、
    恢复动作与取消状态迁入同一 Dart library 的模型 part。原生恢复日志读取、备份写入和激活提交
    迁入同库 `system_proxy_recovery_journal.dart`；锁、回滚、清理和公开方法仍由服务编排，
-   不增加对象或公开接口。
+   不增加对象或公开接口。Windows 有界进程退出函数与退出结果枚举迁入同库
+   `clash_service_process_support.dart`，保持公开函数签名、信号顺序和超时语义。
 6. Android VPN Service 与 Windows 安装事务在本轮不做跨对象重排。前者已有通知、代际、
    TUN FD、会话和恢复策略边界；后者承担 PowerShell 5.1 下的跨重启文件、注册表、快捷方式
    原子回滚。没有新增目标平台故障注入证据前，只增加规模护栏，不为降低行数继续拆分。
@@ -42,7 +43,7 @@ SSRVPN 的共享更新、macOS 原生应用委托、Windows 系统代理、Andro
 
 ## 不变量
 
-- HTTP 订阅兼容、Android 内置国内应用直连策略、三端 IPv4-only、两页产品表面和既有节点编辑
+- HTTP 订阅兼容、Android 内置国内应用直连策略、三端双栈分流、三页产品表面和既有节点编辑
   手势不变。
 - macOS 免费 ad-hoc/未公证与 Windows 未签名安装器单一分发策略不变。
 - 核心启动、取消、停止、代理恢复和安装回滚的原有调用顺序、失败关闭与所有权判断不变。

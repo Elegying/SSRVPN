@@ -34,13 +34,15 @@ services = {
     ),
     Path("SSRVPN_Windows/lib/services/clash_service.dart"): (
         550,
-        ("clash_service_config.dart", "clash_service_lifecycle.dart"),
+        ("clash_service_config.dart", "clash_service_lifecycle.dart",
+         "clash_service_process_support.dart"),
     ),
 }
 
 # The Windows lifecycle is a legacy orchestration hotspot. New responsibilities
 # must leave this file; behavior regressions are checked by critical coverage.
-services[Path("SSRVPN_Windows/lib/services/clash_service_lifecycle.dart")] = (1763, ())
+services[Path("SSRVPN_Windows/lib/services/clash_service_lifecycle.dart")] = (1740, ())
+services[Path("SSRVPN_Windows/lib/services/clash_service_process_support.dart")] = (35, ())
 
 for path, (limit, parts) in services.items():
     source = path.read_text(encoding="utf-8")
@@ -53,6 +55,12 @@ for path, (limit, parts) in services.items():
             raise SystemExit(f"{path}: missing responsibility part {part}")
         if f"part '{part}';" not in source:
             raise SystemExit(f"{path}: does not declare part '{part}'")
+
+windows_lifecycle = Path("SSRVPN_Windows/lib/services/clash_service_lifecycle.dart")
+windows_support = windows_lifecycle.with_name("clash_service_process_support.dart")
+for declaration in ("enum _VerifiedCoreTermination {", "Future<bool> terminateCoreProcess("):
+    if declaration in windows_lifecycle.read_text() or declaration not in windows_support.read_text():
+        raise SystemExit(f"{windows_support}: process support responsibility returned to orchestration")
 
 update_service = Path("packages/ssrvpn_shared/lib/services/update_service.dart")
 update_source = update_service.read_text(encoding="utf-8")

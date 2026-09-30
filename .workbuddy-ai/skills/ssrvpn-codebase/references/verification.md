@@ -162,3 +162,9 @@ CI/Release 的 macOS runner 是 `macos-15`（自带 Xcode 16，支持 `MACOSX_DE
 独立检出三端固定 commit/tree，应用同一扩展复制清单并运行全部共享 Go 契约。Go 版本各自钉死，
 测试结果不走缓存；缺失、跳过或失败即失败。CI 的必需 core-assets job 在二进制缓存前运行，
 始终上传 core-contracts 结果。该步骤不修改随包内核，不替代真实 JNI、TUN 或系统恢复验收。
+
+## 8. 客户端可靠性专项
+
+`mise exec flutter@3.44.1 -- bash scripts/test-client-reliability.sh`
+按包目录执行共享健康/故障/URI/出口策略及三端旧配置往返测试，最后验证 Windows 有界退出、
+外部观察与恢复所有权。测试由现有全量 CI 自动发现；本入口不替代 make verify 或目标平台验收。
