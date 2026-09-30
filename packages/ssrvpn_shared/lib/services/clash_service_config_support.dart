@@ -37,12 +37,14 @@ mixin _ClashConfigSupport {
 
   String? _smartRuleProviderPathPrefix;
   String? _pendingSmartRuleVersion;
+  bool _ruleRetentionAttempted = false;
   List<String> _androidAppRules = const [];
   List<String> get androidDirectAppPackages => _androidAppRules
       .where((rule) => rule.endsWith(',DIRECT'))
       .map((rule) => rule.split(',')[1])
       .toList(growable: false);
   bool get hasLocalSmartRules => _smartRuleProviderPathPrefix != null;
+  Future<List<String>?> ruleRetentionConfigPaths() async => const [];
 
   Future<List<String>> _readAndroidAppRules(String version) async =>
       Platform.isAndroid
@@ -87,6 +89,8 @@ mixin _ClashConfigSupport {
   /// cache or embedded conservative providers.
   @protected
   Future<void> ensureBundledSmartRules() async {
+    final collectSnapshots = !_ruleRetentionAttempted && !isRunning;
+    _ruleRetentionAttempted = true;
     String? restoredVersion;
     try {
       final recovery = SmartRuleRecovery(configDir);
@@ -112,6 +116,20 @@ mixin _ClashConfigSupport {
             : '智能规则基线 ${baseline.activeVersion} 已就绪：'
                 '安装 ${baseline.installedFiles}，复用 ${baseline.reusedFiles}',
       );
+      // Init only: configuration generation is not admitted until this returns.
+      // Never attach disk collection to start/reconnect or live rule refresh.
+      if (collectSnapshots) {
+        try {
+          final paths = await ruleRetentionConfigPaths();
+          if (paths != null) {
+            final removed = await recovery.pruneUnusedSnapshots(paths);
+            if (removed > 0) log('已清理 $removed 份无引用规则快照');
+          }
+        } catch (error) {
+          log('规则快照清理延后，现有配置保持: cause=${safeRuntimeErrorCode(error)}',
+              event: 'rule_snapshot_retention');
+        }
+      }
     } catch (error) {
       if (restoredVersion == null) {
         _smartRuleProviderPathPrefix = null;

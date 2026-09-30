@@ -37,6 +37,7 @@ SSRVPN/
 | **订阅**：节点编辑 | `subscription_node_editor.dart`、`subscription_node_codec.dart` |
 | 订阅刷新策略 / 失败诊断 | `subscription_fetch_policy.dart`、`subscription_refresh_control.dart`、`subscription_failure_diagnosis.dart` |
 | **智能规则 / 签名通道** | `shared/lib/services/smart_rule_bundle.dart`、`smart_rule_signature.dart`、`smart_rule_recovery.dart` |
+| 智能规则历史快照清理（仅初始化） | `smart_rule_snapshot_retention.dart`、`smart_rule_recovery.dart`；Android 原生 `NativeConnectionSession.ruleRetentionConfigPaths` |
 | **更新检查 / 下载 / 发布** | `update_service.dart`（facade）、`update_service_download.dart`、`update_service_publication.dart`、`update_checker.dart`、`update_http_client.dart` |
 | 账号用量 | `account_usage_client.dart`、`account_usage_provider.dart`、`shared/lib/controllers/account_usage_controller.dart` |
 | 节点国家归属 | `node_country_lookup.dart`、`node_country_mmdb.dart`、`shared/lib/controllers/node_country_controller.dart` |

@@ -87,6 +87,23 @@ typedef _NativeConnectionState = ({
 });
 
 extension AndroidNativeBridge on ClashService {
+  Future<List<String>?> _readRuleRetentionConfigPaths() async {
+    try {
+      final value = await ClashService._channel
+          .invokeMethod<Object?>('getRuleRetentionConfigPaths')
+          .timeout(const Duration(seconds: 1));
+      if (value is! List || value.any((path) => path is! String)) {
+        log('原生会话或快照引用未知，延后规则快照清理', event: 'rule_snapshot_retention');
+        return null;
+      }
+      return value.cast<String>();
+    } catch (error) {
+      log('原生规则快照引用无法确认，延后清理: cause=${safeRuntimeErrorCode(error)}',
+          event: 'rule_snapshot_retention');
+      return null;
+    }
+  }
+
   void _logNativeStartupTiming(Object? value) {
     if (value is! Map) return;
     final timing = value['startupTimings'];

@@ -178,6 +178,19 @@ internal object NativeConnectionSession {
         }
     }
 
+    fun ruleRetentionConfigPaths(
+        gate: StartGenerationGate,
+        running: () -> Boolean,
+        readSnapshotPath: () -> String?
+    ): List<String>? = gate.withCurrent {
+        synchronized(this) {
+            if (running() || isTransitioning() || protectedConfigPath(false) != null) {
+                return@withCurrent null
+            }
+            listOfNotNull(readSnapshotPath())
+        }
+    }
+
     @Synchronized
     fun protectedConfigPath(running: Boolean): String? =
         if (running) {

@@ -5,6 +5,19 @@ import android.content.Intent
 
 /** Owns cross-entry-point native session claims and snapshot mutations. */
 internal object NativeVpnSessionCoordinator {
+    fun ruleRetentionConfigPaths(context: Context): List<String>? =
+        NativeConnectionSession.ruleRetentionConfigPaths(
+            SsrvpnVpnService.startGeneration,
+            { SsrvpnVpnService.isRunning }
+        ) {
+            val generation = NativeConnectionSnapshotStore.generation(context)
+            val snapshot = NativeConnectionSnapshotStore.read(context)
+            check(generation == null || snapshot != null) {
+                "Native rule snapshot references are unavailable"
+            }
+            snapshot?.configPath
+        }
+
     fun beginStart(claimId: String?): Long? {
         var accepted = false
         val token = SsrvpnVpnService.startGeneration.beginStart {

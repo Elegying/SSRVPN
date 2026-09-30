@@ -8,6 +8,90 @@ import org.junit.Test
 
 class NativeConnectionSessionTest {
     @Test
+    fun `tile start cannot interleave with retention reference capture`() {
+        val gate = StartGenerationGate()
+        val config = java.io.File.createTempFile("ssrvpn-rule-tile", ".yaml")
+        config.writeText("rule-providers: {p: {path: ./providers/bundles/1.0.0/a.yaml}}")
+        val executor = java.util.concurrent.Executors.newFixedThreadPool(2)
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val claimAttempted = java.util.concurrent.CountDownLatch(1)
+        NativeConnectionSession.clearRecovery()
+        NativeConnectionSession.clearStarting()
+        NativeConnectionSession.clearRunning()
+        try {
+            val capture = executor.submit<List<String>?> {
+                NativeConnectionSession.ruleRetentionConfigPaths(gate, { false }) {
+                    entered.countDown()
+                    check(release.await(2, java.util.concurrent.TimeUnit.SECONDS))
+                    config.absolutePath
+                }
+            }
+            assertTrue(entered.await(1, java.util.concurrent.TimeUnit.SECONDS))
+            val claim = executor.submit<String?> {
+                claimAttempted.countDown()
+                NativeConnectionSession.claimPendingStart(config.absolutePath, gate) { false }
+            }
+            assertTrue(claimAttempted.await(1, java.util.concurrent.TimeUnit.SECONDS))
+            var blocked = false
+            try {
+                claim.get(50, java.util.concurrent.TimeUnit.MILLISECONDS)
+            } catch (_: java.util.concurrent.TimeoutException) {
+                blocked = true
+            }
+            assertTrue(blocked)
+            release.countDown()
+            assertEquals(listOf(config.absolutePath),
+                capture.get(1, java.util.concurrent.TimeUnit.SECONDS))
+            assertTrue(claim.get(1, java.util.concurrent.TimeUnit.SECONDS) != null)
+            assertEquals(config.absolutePath,
+                NativeConnectionSession.snapshotConsistently(gate) { false }["protectedConfigPath"])
+        } finally {
+            release.countDown()
+            executor.shutdownNow()
+            NativeConnectionSession.clearStarting()
+            config.delete()
+        }
+    }
+
+    @Test
+    fun `rule collection rejects native transitions and propagates unreadable snapshots`() {
+        val gate = StartGenerationGate()
+        NativeConnectionSession.clearRecovery()
+        NativeConnectionSession.clearStarting()
+        NativeConnectionSession.clearRunning()
+        assertEquals(listOf("/data/old-tile.yaml"),
+            NativeConnectionSession.ruleRetentionConfigPaths(gate, { false }) {
+                "/data/old-tile.yaml"
+            })
+        assertNull(NativeConnectionSession.ruleRetentionConfigPaths(gate, { true }) {
+            error("Must not inspect a running snapshot")
+        })
+        NativeConnectionSession.reserveRecovery("/data/old-tile.yaml")
+        assertNull(NativeConnectionSession.ruleRetentionConfigPaths(gate, { false }) {
+            error("Must not inspect a recovery reservation")
+        })
+        NativeConnectionSession.clearRecovery()
+        assertTrue(NativeConnectionSession.beginStarting(null))
+        try {
+            assertNull(NativeConnectionSession.ruleRetentionConfigPaths(gate, { false }) {
+                error("Must not inspect a starting snapshot")
+            })
+        } finally {
+            NativeConnectionSession.clearStarting()
+        }
+        var propagated = false
+        try {
+            NativeConnectionSession.ruleRetentionConfigPaths(gate, { false }) {
+                error("Keystore unavailable")
+            }
+        } catch (_: IllegalStateException) {
+            propagated = true
+        }
+        assertTrue(propagated)
+    }
+
+    @Test
     fun `user stop cause survives cleanup and resets on the next accepted start`() {
         NativeConnectionSession.clearRecovery()
         NativeConnectionSession.clearStarting()

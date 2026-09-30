@@ -448,6 +448,7 @@ proxies:
     expect(await recovery.hasConfirmedVersion, isTrue);
     expect(await recovery.repairRejectedSelection(), isNull);
     expect(await journal.readAsBytes(), confirmedRecord);
+    expect(await recovery.pruneUnusedSnapshots([]), 0);
     expect(
         await SmartRuleBundle.readInstalledVersion(root.path,
             expectedFileNames: names),
@@ -477,5 +478,27 @@ proxies:
         await SmartRuleBundle.readInstalledVersion(root.path,
             expectedFileNames: names),
         '1.0.0');
+  });
+  test('collection removes only unused generations and preserves user config',
+      () async {
+    await confirmOld();
+    for (var v = 2; v <= 7; v++) {
+      await install('$v.0.0');
+    }
+    final configBytes = await File(configPath).readAsBytes();
+    final journal = File('${root.path}/providers/rule-recovery.json');
+    final journalBytes = await journal.readAsBytes();
+    expect(await recovery.pruneUnusedSnapshots([]), 3);
+    expect(await File(configPath).readAsBytes(), configBytes);
+    expect(await journal.readAsBytes(), journalBytes);
+    for (final v in [1, 5, 6, 7]) {
+      for (final name in names) {
+        expect(
+            await File('${root.path}/providers/bundles/$v.0.0/$name').exists(),
+            isTrue);
+      }
+    }
+    expect(await recovery.hasConfirmedVersion, isTrue);
+    expect(await recovery.pruneUnusedSnapshots([]), 0);
   });
 }
