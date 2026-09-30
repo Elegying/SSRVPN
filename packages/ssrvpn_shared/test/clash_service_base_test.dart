@@ -81,6 +81,161 @@ void main() {
     expect(notifications, 2);
   });
 
+  group('connection timing ownership', () {
+    test('records local readiness without altering state or notices', () {
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+      final notices = <Object>[];
+      service.onRuntimeNotice = notices.add;
+      service.requestConnectionIntent(true);
+      final report = service.createConnectionProgressReporter();
+      report('正在准备节点和分流规则…');
+      report('正在启动连接服务…');
+      service.setRunning(true);
+      expect(service.recentLogs, contains('outcome=localReady'));
+      expect(service.recentLogs, contains('attempt=1'));
+      expect(service.isRunning, isTrue);
+      expect(service.connectionDesired, isTrue);
+      expect(service.connectivityWarning, isNull);
+      expect(notices, isEmpty);
+      final completedLogs = service.recentLogs;
+      report('正在应用所选节点…');
+      expect(service.recentLogs, completedLogs);
+    });
+
+    test('a failed owned start closes timing without publishing a warning',
+        () async {
+      final service = _TestClashService()..requestConnectionIntent(true);
+      addTearDown(service.dispose);
+      final notices = <Object>[];
+      service.onRuntimeNotice = notices.add;
+      expect(
+          await service.startWithSmartRuleRecovery(
+            () async => false,
+            () async {},
+            () => true,
+            'unused-config.yaml',
+          ),
+          isFalse);
+      expect(service.recentLogs, contains('attempt=1 outcome=notCompleted'));
+      expect(service.isRunning, isFalse);
+      expect(service.connectivityWarning, isNull);
+      expect(notices, isEmpty);
+    });
+
+    test('late healthy reuse cannot finish a replacement trace or set running',
+        () async {
+      final service = _TestClashService()..requestConnectionIntent(true);
+      addTearDown(service.dispose);
+      final result = Completer<bool>();
+      final pending = service.startWithSmartRuleRecovery(
+        () => result.future,
+        () async {},
+        () => true,
+        'unused-config.yaml',
+      );
+      await Future<void>.delayed(Duration.zero);
+      service.requestConnectionIntent(false);
+      service.setRunning(false);
+      service.requestConnectionIntent(true);
+      result.complete(true);
+      expect(await pending, isTrue);
+      expect(service.isRunning, isFalse);
+      expect(
+          service.recentLogs, isNot(contains('attempt=2 outcome=localReady')));
+      service.createConnectionProgressReporter()('正在准备节点和分流规则…');
+      service.setRunning(true);
+      expect(service.recentLogs, contains('attempt=2 outcome=localReady'));
+    });
+
+    test('late progress cannot append timing into a replaced attempt', () {
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+      service.requestConnectionIntent(true);
+      final old = service.createConnectionProgressReporter();
+      old('正在检查连接端口…');
+      service.requestConnectionIntent(true);
+      final current = service.createConnectionProgressReporter();
+      current('正在准备节点和分流规则…');
+      final currentLogs = service.recentLogs;
+      old('正在请求系统授权，请留意授权弹窗…');
+      expect(service.recentLogs, currentLogs);
+      service.setRunning(true);
+      expect(service.recentLogs, contains('attempt=2 outcome=localReady'));
+      expect(service.recentLogs, isNot(contains('系统授权与提权交接')));
+    });
+
+    test('old reporter cannot write into recovery under the same intent', () {
+      final service = _TestClashService()..requestConnectionIntent(true);
+      addTearDown(service.dispose);
+      final old = service.createConnectionProgressReporter();
+      service.setRunning(true);
+      service.setAutoRecoveryInProgress(true);
+      final recovery = service.createConnectionProgressReporter();
+      final logs = service.recentLogs;
+      old('正在准备节点和分流规则…');
+      expect(service.recentLogs, logs);
+      recovery('正在启动连接服务…');
+      service.setRunning(true);
+      expect(service.recentLogs, contains('attempt=2 outcome=localReady'));
+      expect(service.recentLogs, contains('连接阶段：启动连接服务；'));
+    });
+
+    test('old recovery release cannot finish a newer connection trace', () {
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+      service.requestConnectionIntent(true);
+      service.setRunning(true);
+      service.setAutoRecoveryInProgress(true);
+      service.createConnectionProgressReporter()('正在检查连接端口…');
+      service.requestConnectionIntent(true);
+      service.setAutoRecoveryInProgress(false);
+      service.createConnectionProgressReporter()('正在准备节点和分流规则…');
+      service.setRunning(true);
+      expect(service.recentLogs, contains('attempt=3 outcome=localReady'));
+      expect(service.recentLogs,
+          isNot(contains('attempt=3 outcome=notCompleted')));
+    });
+
+    test('throwing log observers cannot fail startup or intent cancellation',
+        () {
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+      service.onLog = (_) => throw StateError('observer failed');
+      service.requestConnectionIntent(true);
+      service.createConnectionProgressReporter()('正在准备节点和分流规则…');
+      expect(service.connectionProgress, '正在准备节点和分流规则…');
+      service.setRunning(true);
+      expect(service.isRunning, isTrue);
+      service.requestConnectionIntent(false);
+      expect(service.connectionDesired, isFalse);
+      expect(service.publishConnectionLoss, returnsNormally);
+      expect(service.isRunning, isFalse);
+    });
+
+    test('reentrant logging preserves the newly requested trace', () {
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+      var replaced = false;
+      service.onLog = (_) {
+        if (replaced) return;
+        replaced = true;
+        service.requestConnectionIntent(true);
+      };
+      service.requestConnectionIntent(true);
+      final old = service.createConnectionProgressReporter();
+      old('正在准备节点和分流规则…');
+      expect(service.connectionProgress, isNull);
+      final current = service.createConnectionProgressReporter();
+      current('正在启动连接服务…');
+      service.setRunning(true);
+      expect(service.recentLogs, contains('attempt=2 outcome=localReady'));
+      final logs = service.recentLogs;
+      old('正在设置系统代理…');
+      expect(service.recentLogs, logs);
+    });
+  });
+
   group('update installation preparation', () {
     test('retries cleanup even when the UI is already disconnected', () async {
       final service = _UpdatePreparationClashService();
@@ -4035,6 +4190,8 @@ class _UpdatePreparationClashService extends _TestClashService {
 class _TestClashService extends ClashServiceBase
     with _ExplicitTestDiagnosticCapability {
   int refreshCalls = 0;
+
+  void publishConnectionLoss() => markConnectionLost();
 
   void publishDataPlaneWarning(String? warning) =>
       setConnectivityWarning(warning);

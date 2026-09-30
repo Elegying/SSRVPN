@@ -274,6 +274,36 @@ void main() {
     }
   });
 
+  test(
+      'confirmed foreign proxy fails health without bypassing disconnect debounce',
+      () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final subscription = server.listen((request) async {
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(jsonEncode({'version': 'test'}));
+      await request.response.close();
+    });
+    final service = _UncertainProxyOwnershipClashService()
+      ..updateSettings(AppSettings(apiPort: server.port))
+      ..requestConnectionIntent(true)
+      ..setRunning(true)
+      ..ownershipStatus = SystemProxyOwnershipStatus.externallyChanged;
+    try {
+      expect(await service.healthCheck(), isFalse);
+      expect(service.lastHealthCheckError,
+          startsWith(desktopSystemProxyOwnershipLostPrefix));
+      expect(service.isRunning, isTrue);
+      expect(service.connectionDesired, isTrue);
+      service.ownershipStatus = SystemProxyOwnershipStatus.owned;
+      expect(await service.healthCheck(), isTrue);
+      expect(service.lastHealthCheckError, isNull);
+    } finally {
+      service.dispose();
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
   test('system proxy ownership and data-plane warnings recover separately',
       () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);

@@ -202,6 +202,13 @@ in `clash_service_diagnostics.dart`; platform services may add only native
 checks and safe repairs. A repair must require SSRVPN ownership and must not
 silently disconnect an active session.
 
+Connection timing events use fixed phase labels and numeric durations in the existing bounded,
+redacted logger. They add no network probe, home warning or automatic upload. `localReady`
+means the local runtime reported readiness, not end-to-end application success. Android
+optional `startupTimings` fields never replace committed native authority fields or extend
+permission/start deadlines. Ignore malformed metrics and unknown fields without changing
+the original result; a failing diagnostic sink must not affect startup or cancellation.
+
 ## Service Responsibility Map
 
 | Scope | Responsibility |
@@ -214,8 +221,11 @@ silently disconnect an active session.
 | `update_service.dart` | Stable shared update facade, metadata validation, and public update API |
 | `update_service_download.dart` | Bounded download, cancellation, redirect, and temporary-file handling |
 | `update_service_publication.dart` | Verified publication, recovery, replacement locks, and atomic cleanup |
+| `SSRVPN_Windows/lib/services/clash_service_config_validation.dart` | Private config-validator process, bounded timeout, cancellation and exit classification |
 | `clash_service_base.dart` | Shared lifecycle facade and platform contract |
 | `clash_service_diagnostics.dart` | Bounded diagnostic collection, stable failure mapping, and redacted reports |
+| `clash_service_connection_progress.dart`, `connection_phase_trace.dart` | Intent-owned monotonic phase timings and factual local-session loss records |
+| `NativeVpnStartTiming.kt` | Request-local Android permission wait and native startup timings |
 | `SSRVPN_MacOS/lib/services/settings_service.dart` | Settings migration and serialized persistence orchestration |
 | `macos_private_file_store.dart` | Atomic private-file writes, permissions, verification, and temporary-file cleanup |
 | `SSRVPN_MacOS/macos/Runner/AppDelegate.swift` | Native application, core-process, proxy-lifecycle, and termination transaction orchestration |

@@ -138,6 +138,7 @@ class ConnectionOrchestrator {
     String? nodeName, {
     required int connectionGeneration,
   }) async {
+    final reportProgress = clashService.createConnectionProgressReporter();
     await settingsService.waitForPendingWrites();
     if (!_isCurrent(connectionGeneration)) {
       return const AndroidConnectionOutcome();
@@ -155,6 +156,7 @@ class ConnectionOrchestrator {
     try {
       var started = false;
       for (var attempt = 0; attempt < 2; attempt++) {
+        reportProgress('正在检查连接端口…');
         final settings = await clashService.prepareForStart(preferredSettings);
         if (!_isCurrent(connectionGeneration)) {
           return const AndroidConnectionOutcome();
@@ -164,6 +166,7 @@ class ConnectionOrchestrator {
         }
         runtimePortNotice = clashService.lastRuntimePortAdjustmentMessage;
 
+        reportProgress('正在准备节点和分流规则…');
         final config = await clashService.generateClashConfigAsync(
           rawYaml,
           settings,
@@ -176,6 +179,7 @@ class ConnectionOrchestrator {
           return const AndroidConnectionOutcome(message: '订阅已更新，请重新连接');
         }
 
+        reportProgress('正在保存本次连接设置…');
         preparedConfigPath = await clashService.writeConfig(config);
         if (!_isCurrent(connectionGeneration)) {
           return const AndroidConnectionOutcome();
@@ -184,6 +188,7 @@ class ConnectionOrchestrator {
           return const AndroidConnectionOutcome(message: '订阅已更新，请重新连接');
         }
 
+        reportProgress('正在启用 VPN，请留意系统授权弹窗…');
         started = await clashService.start(
           nodeName: nodeName,
           preparedConfigPath: preparedConfigPath,

@@ -1133,7 +1133,8 @@ for needle in \
 done
 for needle in \
   "capturedState" \
-  "result.success(capturedState)"; do
+  'val diagnosticDetails = mapOf("startupTimings" to timing.snapshot())' \
+  'result.success(capturedState?.plus(diagnosticDetails))'; do
   grep -Fq "$needle" "$MAIN_ACTIVITY" || {
     echo "Android immutable start result guard failed: missing '$needle'" >&2
     exit 1

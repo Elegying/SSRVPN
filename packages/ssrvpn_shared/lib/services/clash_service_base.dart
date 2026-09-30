@@ -23,6 +23,7 @@ import '../utils/node_display_policy.dart';
 import '../utils/private_node_latency_policy.dart';
 import '../utils/connection_intent_tracker.dart';
 import '../utils/connection_transition_queue.dart';
+import '../utils/connection_phase_trace.dart';
 import '../utils/runtime_config_name_policy.dart';
 import 'app_diagnostic_history_store.dart';
 import 'desktop_connection_coordinator.dart';
@@ -91,6 +92,9 @@ abstract class ClashServiceBase
   final Set<void Function()> _statusListeners = {};
 
   String? _connectionProgress;
+  ConnectionPhaseTrace? _connectionPhaseTrace;
+  ConnectionPhaseTrace? _recoveryPhaseTrace;
+  int _connectionTimingSequence = 0;
   final Set<void Function()> _connectionProgressListeners = {};
   bool _autoRecoveryInProgress = false;
 
@@ -149,7 +153,9 @@ abstract class ClashServiceBase
   int requestConnectionIntent(bool connected) {
     _connectionProgress = null;
     if (!connected) clearDesktopConnectionRecoveryPlan();
-    return _connectionIntent.request(connected);
+    final generation = _connectionIntent.request(connected);
+    _recordConnectionTimingIntent(generation, connected);
+    return generation;
   }
 
   @override
@@ -673,6 +679,10 @@ abstract class ClashServiceBase
         isConnectionIntentCurrent(connectionGeneration, connected: true);
   }
 
+  @override
+  void Function(bool) _captureTimingCompletion() =>
+      _connectionTimingCompletion();
+
   // ── 状态管理 ──
 
   /// A native runtime can replace its session without reporting a stopped
@@ -685,6 +695,7 @@ abstract class ClashServiceBase
       _resetDataPlaneObservationSession();
     }
     _isRunning = running;
+    if (running) _finishConnectionTiming(ConnectionTimingOutcome.localReady);
   }
 
   /// Records an unexpected core loss. Unlike an intentional stop during an
@@ -697,6 +708,7 @@ abstract class ClashServiceBase
     _resetDataPlaneObservationSession();
     _isRunning = false;
     _notifyStatusChanged();
+    _recordConnectionLoss();
   }
 
   void setLastStartError(String? error) {
@@ -735,6 +747,7 @@ abstract class ClashServiceBase
   // ── 资源释放 ──
 
   void dispose() {
+    _finishConnectionTiming(ConnectionTimingOutcome.disposed);
     stopStatusMonitor();
     clearDesktopConnectionRecoveryPlan();
     _directHttpClient?.close();

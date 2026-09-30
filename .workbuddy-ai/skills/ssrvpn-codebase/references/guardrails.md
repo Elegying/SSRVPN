@@ -1,6 +1,6 @@
 # 门禁全表：改之前先看会不会撞墙
 
-> **核心警告：上限卡得很死。** 实测零余量/紧余量不止一处：`Windows/clash_service_lifecycle.dart` 1736/1740（余4）、`subscription_service_persistence.dart` 196/196、`desktop_connection_coordinator.dart` 188/188（零余量）；`system_proxy_models.dart` 129/130、Windows `system_proxy_service.dart` 1314/1320、`CoreProcessSupport.swift` 238/240（余量见下表）。**加几行就 fail 是常态，不是意外。**
+> **核心警告：上限卡得很死。** 实测零余量/紧余量不止一处：`Windows/clash_service_lifecycle.dart` 1683/1690（余7）、`subscription_service_persistence.dart` 196/196、`desktop_connection_coordinator.dart` 188/188（零余量）；`system_proxy_models.dart` 129/130、Windows `system_proxy_service.dart` 1314/1320、`CoreProcessSupport.swift` 238/240（余量见下表）。**加几行就 fail 是常态，不是意外。**
 > 守卫脚本用 `raise SystemExit`，**遇错即停**：修好一处才暴露下一处。
 > 验证时一次性算完所有数值，别打地鼠。
 
@@ -22,12 +22,13 @@
 
 | 文件 | 当前 | 上限 | 余量 | 必须的 part |
 |---|---|---|---|---|
-| `SSRVPN_Android/lib/services/clash_service.dart` | 836 | **850** | 14 ⚠️ | `clash_service_native_bridge.dart`、`clash_service_snapshot_cleanup.dart`、`clash_service_config.dart`、`clash_service_country.dart`、`clash_service_data_plane.dart` |
-| `packages/ssrvpn_shared/lib/services/clash_service_base.dart` | 746 | **760** | 14 ⚠️ | `clash_service_config_support.dart`、`clash_service_diagnostics.dart`、`clash_service_runtime_support.dart`、`clash_service_health_monitor.dart`、`clash_service_rule_provider_support.dart` |
+| `SSRVPN_Android/lib/services/clash_service.dart` | 839 | **850** | 11 ⚠️ | `clash_service_native_bridge.dart`、`clash_service_snapshot_cleanup.dart`、`clash_service_config.dart`、`clash_service_country.dart`、`clash_service_data_plane.dart` |
+| `packages/ssrvpn_shared/lib/services/clash_service_base.dart` | 759 | **760** | 1 ⚠️ | `clash_service_config_support.dart`、`clash_service_diagnostics.dart`、`clash_service_runtime_support.dart`、`clash_service_health_monitor.dart`、`clash_service_rule_provider_support.dart` |
 | `SSRVPN_MacOS/lib/services/clash_service.dart` | 419 | **550** | 131 | `clash_service_config.dart`、`clash_service_lifecycle.dart` |
-| `SSRVPN_Windows/lib/services/clash_service.dart` | 214 | **550** | 336 | `clash_service_config.dart`、`clash_service_lifecycle.dart` |
+| `SSRVPN_Windows/lib/services/clash_service.dart` | 219 | **550** | 331 | `clash_service_config.dart`、`clash_service_lifecycle.dart`、`clash_service_config_validation.dart` |
+| `SSRVPN_Windows/lib/services/clash_service_config_validation.dart` | 59 | **80** | 21 | （宿主声明 part） |
 | `SSRVPN_Windows/lib/services/clash_service_process_support.dart` | 28 | **35** | 7 ⚠️ | （宿主声明 part） |
-| `SSRVPN_Windows/lib/services/clash_service_lifecycle.dart` | **1736** | **1740** | **4** ⚠️ | （无，遗留热点） |
+| `SSRVPN_Windows/lib/services/clash_service_lifecycle.dart` | **1683** | **1690** | **7** ⚠️ | （无，遗留热点） |
 
 > 注：`ClashServiceBase` 实际挂 **7 个 mixin**（另有 `_ClashDataPlaneSupport`、`_ClashLatencySupport`，来自 `clash_service_data_plane_support.dart` 与 `clash_service_latency_support.dart`），但守卫脚本**只校验上面 5 个 part 的存在与声明**。删掉后两个文件守卫不会报，但编译会挂。
 
@@ -140,6 +141,7 @@ macOS 与 Windows：`setSystemProxy` / `clearSystemProxy` **只能**出现在 `c
 | macOS | `lib/services/system_proxy_snapshot.dart` | **80.0%** |
 | Windows | `lib/services/clash_service_lifecycle.dart` | 51.0% |
 | Windows | `lib/services/clash_service_process_support.dart` | **90.0%** |
+| Windows | `lib/services/clash_service_config_validation.dart` | **90.0%** |
 
 覆盖率从 `<pkg>/coverage/lcov.info` 读取（shared 无 lcov 时回退 Dart VM coverage）。
 

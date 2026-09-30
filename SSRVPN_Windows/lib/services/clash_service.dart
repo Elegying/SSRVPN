@@ -16,6 +16,7 @@ import '../src/services/windows_core_pid_record.dart';
 import '../src/services/windows_powershell.dart';
 
 part 'clash_service_config.dart';
+part 'clash_service_config_validation.dart';
 part 'clash_service_diagnostics.dart';
 part 'clash_service_recovery_policy.dart';
 part 'clash_service_lifecycle.dart';
@@ -34,7 +35,11 @@ const List<String> _geoLookupHosts = [
 /// 通过 spawn mihomo.exe 子进程启动核心，使用 REST API 控制。
 /// 支持 TUN 模式（需管理员权限）和系统代理模式。
 class ClashService extends ClashServiceBase
-    with PhysicalTcpLatency, _WindowsClashConfig, _WindowsCoreLifecycle {
+    with
+        PhysicalTcpLatency,
+        _WindowsClashConfig,
+        _WindowsCoreValidation,
+        _WindowsCoreLifecycle {
   ClashService({
     WindowsTunRuntimeProbe? tunRuntimeProbe,
     WindowsTunResidualProbe? tunResidualProbe,

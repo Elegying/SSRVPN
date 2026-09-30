@@ -44,6 +44,8 @@ class MainActivity : FlutterActivity() {
     private var myStartClaimId: String? = null
     @Volatile
     private var myStartPayloadId: String? = null
+    @Volatile
+    private var myStartTiming: NativeVpnStartTiming? = null
     private var methodChannel: MethodChannel? = null
     // 监听 VPN 状态广播（磁贴断开/连接），实时推送给 Flutter 更新 UI
     private var vpnStateReceiver: BroadcastReceiver? = null
@@ -310,11 +312,13 @@ class MainActivity : FlutterActivity() {
             "startCoreWithVpn: request accepted apiPort=$apiPort"
         )
         val completed = AtomicBoolean(false)
+        val timing = NativeVpnStartTiming(android.os.SystemClock::elapsedRealtimeNanos)
         lateinit var callback: (Boolean, String, Map<String, Any?>?) -> Unit
         lateinit var timeoutRunnable: Runnable
         lateinit var requestId: String
         timeoutRunnable = Runnable {
             if (!completed.compareAndSet(false, true)) return@Runnable
+            if (myStartTiming === timing) myStartTiming = null
             vpnPermissionRequestPending = false
             if (startTimeoutRunnable === timeoutRunnable) {
                 startTimeoutRunnable = null
@@ -339,12 +343,14 @@ class MainActivity : FlutterActivity() {
                 result.error(
                     "CORE_TIMEOUT",
                     "VPN 启动超时，请重新连接；若持续失败请打开诊断与运行日志",
-                    null
+                    mapOf("startupTimings" to timing.snapshot())
                 )
             }
         }
         callback = callback@{ success, message, capturedState ->
             if (!completed.compareAndSet(false, true)) return@callback
+            val diagnosticDetails = mapOf("startupTimings" to timing.snapshot())
+            if (myStartTiming === timing) myStartTiming = null
             Log.d(
                 "MainActivity",
                 "VPN start result: success=$success " +
@@ -368,7 +374,7 @@ class MainActivity : FlutterActivity() {
             runOnActiveUiThread("Unable to deliver VPN start result") {
                 if (success) {
                     requestNotificationPermissionOnce()
-                    result.success(capturedState)
+                    result.success(capturedState?.plus(diagnosticDetails))
                 } else {
                     val errorCode = if (message == "用户拒绝了 VPN 权限") {
                         "PERMISSION_DENIED"
@@ -377,7 +383,7 @@ class MainActivity : FlutterActivity() {
                             capturedState
                         )
                     }
-                    result.error(errorCode, message, null)
+                    result.error(errorCode, message, diagnosticDetails)
                 }
             }
         }
@@ -410,11 +416,13 @@ class MainActivity : FlutterActivity() {
             startPayloadId = myStartPayloadId
         )
         startTimeoutRunnable = timeoutRunnable
+        myStartTiming = timing
 
         try {
             val vpnIntent = VpnService.prepare(this)
             if (vpnIntent != null) {
                 Log.d("MainActivity", "Requesting VPN permission...")
+                timing.beginPermissionWait()
                 vpnPermissionRequestPending = true
                 startActivityForResult(vpnIntent, VPN_REQUEST_CODE)
             } else {
@@ -677,6 +685,7 @@ class MainActivity : FlutterActivity() {
         }
         myStartClaimId = claimId
         try {
+            myStartTiming?.beginServiceStart()
             startVpnService(serviceIntent)
         } catch (error: Exception) {
             val category = NativeCoreStartFailureCategory.from(error)
@@ -715,6 +724,7 @@ class MainActivity : FlutterActivity() {
                 return
             }
             vpnPermissionRequestPending = false
+            myStartTiming?.endPermissionWait()
             if (resultCode == Activity.RESULT_OK) {
                 Log.d("MainActivity", "VPN permission granted!")
                 startVpnServiceWithTimeout()

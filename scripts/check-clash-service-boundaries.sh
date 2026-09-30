@@ -35,14 +35,15 @@ services = {
     Path("SSRVPN_Windows/lib/services/clash_service.dart"): (
         550,
         ("clash_service_config.dart", "clash_service_lifecycle.dart",
-         "clash_service_process_support.dart"),
+         "clash_service_process_support.dart", "clash_service_config_validation.dart"),
     ),
 }
 
 # The Windows lifecycle is a legacy orchestration hotspot. New responsibilities
 # must leave this file; behavior regressions are checked by critical coverage.
-services[Path("SSRVPN_Windows/lib/services/clash_service_lifecycle.dart")] = (1740, ())
+services[Path("SSRVPN_Windows/lib/services/clash_service_lifecycle.dart")] = (1690, ())
 services[Path("SSRVPN_Windows/lib/services/clash_service_process_support.dart")] = (35, ())
+services[Path("SSRVPN_Windows/lib/services/clash_service_config_validation.dart")] = (80, ())
 
 for path, (limit, parts) in services.items():
     source = path.read_text(encoding="utf-8")
@@ -61,6 +62,12 @@ windows_support = windows_lifecycle.with_name("clash_service_process_support.dar
 for declaration in ("enum _VerifiedCoreTermination {", "Future<bool> terminateCoreProcess("):
     if declaration in windows_lifecycle.read_text() or declaration not in windows_support.read_text():
         raise SystemExit(f"{windows_support}: process support responsibility returned to orchestration")
+
+windows_validation = windows_lifecycle.with_name("clash_service_config_validation.dart")
+validation_declaration = "Future<bool> validateConfig("
+if (validation_declaration in windows_lifecycle.read_text() or
+        validation_declaration not in windows_validation.read_text()):
+    raise SystemExit(f"{windows_validation}: validation responsibility returned to orchestration")
 
 update_service = Path("packages/ssrvpn_shared/lib/services/update_service.dart")
 update_source = update_service.read_text(encoding="utf-8")
