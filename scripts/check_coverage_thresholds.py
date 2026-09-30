@@ -27,7 +27,7 @@ CRITICAL_FILE_THRESHOLDS = {
         "lib/services/system_proxy_snapshot.dart": 80.0,
     },
     "SSRVPN_Windows": {
-        "lib/services/clash_service_lifecycle.dart": 51.0,
+        "lib/services/clash_service_lifecycle.dart": 58.0,
         "lib/services/clash_service_process_support.dart": 90.0,
         "lib/services/clash_service_config_validation.dart": 90.0,
     },

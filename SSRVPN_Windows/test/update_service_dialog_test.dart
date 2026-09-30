@@ -941,7 +941,7 @@ Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
   final deadline = DateTime.now().add(const Duration(seconds: 30));
   while (finder.evaluate().isEmpty && DateTime.now().isBefore(deadline)) {
     await Future<void>.delayed(const Duration(milliseconds: 10));
-    await tester.pump(const Duration(milliseconds: 20));
+    await tester.pump(const Duration(milliseconds: 400));
   }
   expect(finder, findsOneWidget,
       reason: 'dialog did not reach the expected state; visible text: '
