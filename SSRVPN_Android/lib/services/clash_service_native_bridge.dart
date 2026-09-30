@@ -87,6 +87,39 @@ typedef _NativeConnectionState = ({
 });
 
 extension AndroidNativeBridge on ClashService {
+  void _logNativeStartupTiming(Object? value) {
+    if (value is! Map) return;
+    final timing = value['startupTimings'];
+    if (timing is! Map) return;
+    final authorization = timing['authorizationWaitMs'];
+    final service = timing['serviceStartMs'];
+    final total = timing['totalMs'];
+    final requested = timing['authorizationRequested'];
+    bool valid(Object? value) =>
+        value is int && value >= 0 && value <= 604800000;
+    if (!valid(authorization) ||
+        !valid(service) ||
+        !valid(total) ||
+        requested is! bool) {
+      return;
+    }
+    final authorizationMs = authorization as int;
+    final serviceMs = service as int;
+    final totalMs = total as int;
+    if (authorizationMs + serviceMs > totalMs ||
+        (!requested && authorizationMs != 0)) {
+      return;
+    }
+    try {
+      log(
+          'Android 原生启动计时：授权等待 ${authorizationMs}ms；'
+          '服务启动与结果确认 ${serviceMs}ms；原生请求累计 ${totalMs}ms',
+          event: 'connection_timing');
+    } catch (_) {
+      // A diagnostic sink failure cannot change the native startup result.
+    }
+  }
+
   Future<String?> _androidDiagnosticDataPlaneWarning() async {
     if (!isRunning) return null;
     final nativeState = await _queryNativeConnectionState();

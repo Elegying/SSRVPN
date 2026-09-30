@@ -380,6 +380,27 @@ void main() {
       expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
     });
 
+    test('healthy runtime reuse closes timing without a replacement process',
+        () async {
+      final tempDir =
+          await Directory.systemTemp.createTemp('ssrvpn_macos_reuse_timing_');
+      final service = _HealthyReuseClashService();
+      addTearDown(() async {
+        await service.flushLogs();
+        service.dispose();
+        await tempDir.delete(recursive: true);
+      });
+      await service.init(AppSettings(),
+          dataDir: tempDir.path, skipCoreProbes: true);
+      service
+        ..setRunning(true)
+        ..requestConnectionIntent(true);
+      expect(await service.start(), isTrue);
+      expect(service.recentLogs, contains('outcome=localReady'));
+      expect(service.recentLogs, isNot(contains('Mihomo 进程已创建')));
+      expect(service.isRunning, isTrue);
+    });
+
     test('运行时配置仅允许当前用户读写', () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'ssrvpn_macos_private_config_',
@@ -2861,6 +2882,11 @@ class _PlannedHealthRecoveryClashService extends ClashService {
     setRunning(true);
     return true;
   }
+}
+
+class _HealthyReuseClashService extends ClashService {
+  @override
+  Future<bool> healthCheck() async => true;
 }
 
 class _ApiHealthyClashService extends ClashService {

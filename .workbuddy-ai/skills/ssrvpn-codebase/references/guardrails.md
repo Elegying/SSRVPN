@@ -22,8 +22,8 @@
 
 | 文件 | 当前 | 上限 | 余量 | 必须的 part |
 |---|---|---|---|---|
-| `SSRVPN_Android/lib/services/clash_service.dart` | 836 | **850** | 14 ⚠️ | `clash_service_native_bridge.dart`、`clash_service_snapshot_cleanup.dart`、`clash_service_config.dart`、`clash_service_country.dart`、`clash_service_data_plane.dart` |
-| `packages/ssrvpn_shared/lib/services/clash_service_base.dart` | 746 | **760** | 14 ⚠️ | `clash_service_config_support.dart`、`clash_service_diagnostics.dart`、`clash_service_runtime_support.dart`、`clash_service_health_monitor.dart`、`clash_service_rule_provider_support.dart` |
+| `SSRVPN_Android/lib/services/clash_service.dart` | 838 | **850** | 12 ⚠️ | `clash_service_native_bridge.dart`、`clash_service_snapshot_cleanup.dart`、`clash_service_config.dart`、`clash_service_country.dart`、`clash_service_data_plane.dart` |
+| `packages/ssrvpn_shared/lib/services/clash_service_base.dart` | 758 | **760** | 2 ⚠️ | `clash_service_config_support.dart`、`clash_service_diagnostics.dart`、`clash_service_runtime_support.dart`、`clash_service_health_monitor.dart`、`clash_service_rule_provider_support.dart` |
 | `SSRVPN_MacOS/lib/services/clash_service.dart` | 419 | **550** | 131 | `clash_service_config.dart`、`clash_service_lifecycle.dart` |
 | `SSRVPN_Windows/lib/services/clash_service.dart` | 214 | **550** | 336 | `clash_service_config.dart`、`clash_service_lifecycle.dart` |
 | `SSRVPN_Windows/lib/services/clash_service_process_support.dart` | 28 | **35** | 7 ⚠️ | （宿主声明 part） |

@@ -167,4 +167,6 @@ CI/Release 的 macOS runner 是 `macos-15`（自带 Xcode 16，支持 `MACOSX_DE
 
 `mise exec flutter@3.44.1 -- bash scripts/test-client-reliability.sh`
 按包目录执行共享健康/故障/URI/出口策略及三端旧配置往返测试，最后验证 Windows 有界退出、
-外部观察与恢复所有权。测试由现有全量 CI 自动发现；本入口不替代 make verify 或目标平台验收。
+外部观察与恢复所有权、配置校验的进程退出/取消和阶段计时所有权。Android 原生等待计时
+另随 `scripts/test-android-native.sh` 执行；健康连接复用随三端服务全量测试执行。
+测试由现有全量 CI 自动发现；本入口不替代 make verify 或目标平台验收。

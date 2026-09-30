@@ -3,6 +3,28 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
+  test('phase timing stays informational in the user diagnostic conclusion',
+      () {
+    final report = AppDiagnosticReport(
+      generatedAt: DateTime.utc(2026, 9, 30),
+      checks: const [
+        AppDiagnosticCheck(
+          id: 'runtime',
+          title: '运行状态',
+          status: AppDiagnosticStatus.passed,
+          summary: '本地服务正常',
+        )
+      ],
+      recentLogs: '[2026-09-30T02:00:00Z] [INFO] [connection_timing] '
+          '连接阶段：系统授权与提权交接；耗时 6000ms；累计 6050ms；'
+          'attempt=1 outcome=advanced',
+    );
+    expect(report.userConclusion, '运行正常，未发现异常');
+    expect(report.readableLogs.single.category, '连接耗时');
+    expect(report.readableLogs.single.requiresAttention, isFalse);
+    expect(report.toText(), contains('耗时 6000ms'));
+  });
+
   test('rule readiness failures are not described as unreachable core API', () {
     final waiting = AppFailure.fromMessage('CORE_API_UNAVAILABLE: 分流规则尚未就绪');
     expect(waiting.code, AppErrorCode.coreStartTimeout);

@@ -29,6 +29,11 @@ proxies:
 
 class _RealHttpOverrides extends HttpOverrides {}
 
+class _HealthyReuseClashService extends ClashService {
+  @override
+  Future<bool> healthCheck() async => true;
+}
+
 class _SnapshotWriteObservationService extends ClashService {
   void Function(String)? onConfigWritten;
 
@@ -2151,6 +2156,73 @@ secret: rejected-test-secret
     },
   );
 
+  test('healthy runtime reuse completes timing without a native restart',
+      () async {
+    final service = _HealthyReuseClashService()
+      ..setRunning(true)
+      ..requestConnectionIntent(true);
+    addTearDown(service.dispose);
+    expect(await service.start(), isTrue);
+    expect(service.isRunning, isTrue);
+    expect(service.connectionDesired, isTrue);
+    expect(service.recentLogs, contains('outcome=localReady'));
+  });
+
+  test('native timings stay diagnostic and reject invalid or secret fields',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp('ssrvpn_native_timing_');
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString('proxies: []');
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+    const valid = <String, Object>{
+      'authorizationRequested': true,
+      'authorizationWaitMs': 5000,
+      'serviceStartMs': 25,
+      'totalMs': 5025,
+      'apiSecret': 'never-print-this-secret',
+    };
+    final cases = <({Map<String, Object> timing, bool accepted})>[
+      (timing: valid, accepted: true),
+      (timing: {...valid, 'authorizationWaitMs': -1}, accepted: false),
+      (timing: {...valid, 'totalMs': 604800001}, accepted: false),
+      (timing: {...valid, 'serviceStartMs': 25.5}, accepted: false),
+      (timing: {...valid, 'authorizationRequested': false}, accepted: false),
+      (timing: {...valid, 'totalMs': 5000}, accepted: false),
+    ];
+    for (final entry in cases) {
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'startCoreWithVpn') {
+          throw PlatformException(
+              code: 'PERMISSION_DENIED',
+              message: 'never-print-this-secret',
+              details: {'startupTimings': entry.timing});
+        }
+        return null;
+      });
+      final service = ClashService()
+        ..setPaths(configDir: dir.path, configPath: config.path)
+        ..updateSettings(AppSettings());
+      addTearDown(service.dispose);
+      service.onLog = (line) {
+        if (line.contains('[connection_timing]')) {
+          throw StateError('diagnostic observer unavailable');
+        }
+      };
+      expect(await service.start(nodeName: 'A'), isFalse);
+      expect(service.lastStartError, '用户拒绝了 VPN 权限');
+      expect(service.recentLogs.contains('授权等待 5000ms'), entry.accepted);
+      expect(service.recentLogs, isNot(contains('never-print-this-secret')));
+      expect(service.connectivityWarning, isNull);
+    }
+  });
+
   test('native component failure asks for an official reinstall', () async {
     SharedPreferences.setMockInitialValues({});
     const channel = MethodChannel('com.ssrvpn/native');
@@ -2369,6 +2441,13 @@ secret: rejected-test-secret
             'transitioning': false,
             'protectedConfigPath': config.path,
             'sessionGeneration': 73,
+            'startupTimings': {
+              'authorizationRequested': false,
+              'authorizationWaitMs': 0,
+              'serviceStartMs': 25,
+              'totalMs': 30,
+              'apiSecret': 'ignored-diagnostic-secret',
+            },
           };
         case 'syncSettings':
           syncArguments = call.arguments as Map<Object?, Object?>;
@@ -2389,6 +2468,8 @@ secret: rejected-test-secret
       isTrue,
     );
     expect(runtimeSecret, isNot(rawSecret));
+    expect(service.recentLogs, contains('授权等待 0ms'));
+    expect(service.recentLogs, isNot(contains('ignored-diagnostic-secret')));
     expect(startArguments?['apiSecret'], runtimeSecret);
     expect(syncArguments?['apiSecret'], runtimeSecret);
     expect(startArguments?['bypassDomesticApps'], isTrue);

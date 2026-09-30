@@ -427,6 +427,7 @@ class ClashService extends ClashServiceBase
       });
       _ensureStartCurrent(startToken);
 
+      _logNativeStartupTiming(result);
       final returnedState = await _parseNativeConnectionState(result);
       _ensureStartCurrent(startToken);
       if (!_acceptNativeStartState(result, returnedState)) {
@@ -485,6 +486,7 @@ class ClashService extends ClashServiceBase
         log('连接已取消');
         return false;
       }
+      _logNativeStartupTiming(e.details);
       final nativeCategory = _nativeCoreStartFailureCategories[e.code];
       if (nativeCategory != null) {
         log('❌ VPN 核心启动失败: cause=$nativeCategory');

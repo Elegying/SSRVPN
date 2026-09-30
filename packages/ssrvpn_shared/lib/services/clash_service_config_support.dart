@@ -5,29 +5,36 @@ mixin _ClashConfigSupport {
   bool get isRunning;
   String? get lastStartError;
 
+  void Function() _captureTimingCompletion();
+
   Future<bool> startWithSmartRuleRecovery(
     Future<bool> Function() start,
     Future<void> Function() stopFailedStart,
     bool Function() isCurrent,
     String path,
-  ) =>
-      SmartRuleRecovery(configDir).run(
-        configPath: path,
-        start: start,
-        stopFailedStart: stopFailedStart,
-        isCurrent: isCurrent,
-        isRunning: () => isRunning,
-        failureReason: () => lastStartError,
-        selectVersion: (version) async {
-          stageSmartRuleVersionForNextConnection(version);
-          await applyPendingSmartRules();
-          if (_smartRuleProviderPathPrefix !=
-              SmartRuleBundle.providerPathPrefix(version)) {
-            throw const FormatException('恢复规则未能应用');
-          }
-        },
-        log: (message) => log(message, event: 'rule_recovery'),
-      );
+  ) async {
+    final completeTiming = _captureTimingCompletion();
+    final started = await SmartRuleRecovery(configDir).run(
+      configPath: path,
+      start: start,
+      stopFailedStart: stopFailedStart,
+      isCurrent: isCurrent,
+      isRunning: () => isRunning,
+      failureReason: () => lastStartError,
+      selectVersion: (version) async {
+        stageSmartRuleVersionForNextConnection(version);
+        await applyPendingSmartRules();
+        if (_smartRuleProviderPathPrefix !=
+            SmartRuleBundle.providerPathPrefix(version)) {
+          throw const FormatException('恢复规则未能应用');
+        }
+      },
+      log: (message) => log(message, event: 'rule_recovery'),
+    );
+    if (started && isCurrent()) completeTiming();
+    return started;
+  }
+
   String? _smartRuleProviderPathPrefix;
   String? _pendingSmartRuleVersion;
   List<String> _androidAppRules = const [];

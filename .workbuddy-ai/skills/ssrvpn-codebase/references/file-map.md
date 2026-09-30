@@ -47,6 +47,7 @@ SSRVPN/
 | 公网 IP 显示 | `shared/lib/services/public_ip_info_service.dart`、`shared/lib/models/public_ip_info.dart` |
 | **策略 / 校验规则** | `shared/lib/utils/*policy*.dart`（force_proxy_site / node_country / node_display / proxy_dependency / proxy_option / proxy_transport / subscription_url / runtime_config_name / runtime_port_conflict / statistics_visibility / private_node_latency） |
 | 常量 | `shared/lib/constants/app_constants.dart`（**契约常量写这里，调用点显式传参**） |
+| 连接阶段耗时 | `shared/lib/utils/connection_phase_trace.dart`、`clash_service_connection_progress.dart`；Android 原生 `NativeVpnStartTiming.kt` |
 | 日志与脱敏 | `shared/lib/utils/app_logger.dart`、`log_redactor.dart`、`bounded_file_logger.dart` |
 | 队列 / 并发原语 | `shared/lib/utils/recovering_serial_queue.dart`、`connection_transition_queue.dart`、`async_lazy.dart`、`best_effort_cleanup.dart` |
 

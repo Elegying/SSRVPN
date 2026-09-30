@@ -18,6 +18,192 @@ ClashService _createTestService() => ClashService(
     );
 
 void main() {
+  group('validator process outcomes', () {
+    late Directory fixture;
+    late File validator;
+    late File config;
+
+    setUpAll(() async {
+      fixture =
+          await Directory.systemTemp.createTemp('ssrvpn_validator_fixture_');
+      final source =
+          File('${fixture.path}${Platform.pathSeparator}validator.dart');
+      await source.writeAsString(r'''
+import 'dart:async';
+import 'dart:io';
+Future<void> main(List<String> args) async {
+  final config = args.contains('-t') ? File(args.last).readAsStringSync() : '';
+  if (config.contains('fixtureWait')) {
+    File('${args.last}.started').writeAsStringSync('ready');
+    await Future<void>.delayed(const Duration(minutes: 1));
+  }
+  stdout.write(Platform.environment['SSRVPN_FIXTURE_STDOUT'] ?? '');
+  stderr.write(Platform.environment['SSRVPN_FIXTURE_STDERR'] ?? '');
+  final configuredExit = RegExp(r'# fixtureExit=(-?\d+)').firstMatch(config)?.group(1);
+  exit(int.parse(Platform.environment['SSRVPN_FIXTURE_EXIT'] ?? configuredExit ?? '0'));
+}
+''');
+      validator = File('${fixture.path}${Platform.pathSeparator}validator.exe');
+      final compiled = await Process.run(_dartExecutable(),
+          ['compile', 'exe', source.path, '-o', validator.path]);
+      expect(compiled.exitCode, 0,
+          reason: '${compiled.stdout}\n${compiled.stderr}');
+      config = File('${fixture.path}${Platform.pathSeparator}config.yaml');
+    });
+    setUp(() async {
+      await config.writeAsString('mixed-port: 7890\n');
+      final marker = File('${config.path}.started');
+      if (await marker.exists()) await marker.delete();
+    });
+    tearDownAll(() async => fixture.delete(recursive: true));
+
+    _InspectableLifecycleClashService service() {
+      final result = _InspectableLifecycleClashService(
+        systemProxyService: _ControlledStopProxy(),
+      )
+        ..setCorePath(validator.path)
+        ..setPaths(configDir: fixture.path, configPath: config.path);
+      addTearDown(result.dispose);
+      return result;
+    }
+
+    test('successful validation retains a safe idle runtime', () async {
+      final core = service();
+      expect(await core.runConfigValidation(), isTrue);
+      expect(core.lastStartError, isNull);
+      expect(core.isRunning, isFalse);
+      expect(core.connectionDesired, isFalse);
+      expect(await config.readAsString(), 'mixed-port: 7890\n');
+    });
+
+    test('healthy runtime reuse closes timing without rerunning validation',
+        () async {
+      final core = _HealthyReuseLifecycleClashService(
+        systemProxyService: _ControlledStopProxy(),
+      )
+        ..setCorePath(validator.path)
+        ..setPaths(configDir: fixture.path, configPath: config.path)
+        ..setRunning(true)
+        ..requestConnectionIntent(true);
+      addTearDown(core.dispose);
+      expect(await core.start(), isTrue);
+      expect(core.recentLogs, contains('outcome=localReady'));
+      expect(core.recentLogs, isNot(contains('正在校验')));
+      expect(core.isRunning, isTrue);
+    });
+
+    test('stderr takes precedence over stdout for an unknown failure',
+        () async {
+      final core = service();
+      expect(
+          await core.runConfigValidation({
+            'SSRVPN_FIXTURE_EXIT': '1',
+            'SSRVPN_FIXTURE_STDOUT': 'fixture stdout',
+            'SSRVPN_FIXTURE_STDERR': 'fixture stderr',
+          }),
+          isFalse);
+      expect(core.lastStartError, 'Mihomo 配置校验失败: fixture stderr');
+    });
+
+    test('stdout remains actionable when a failed validator has no stderr',
+        () async {
+      final core = service();
+      expect(
+          await core.runConfigValidation({
+            'SSRVPN_FIXTURE_EXIT': '1',
+            'SSRVPN_FIXTURE_STDOUT': 'fixture stdout',
+          }),
+          isFalse);
+      expect(core.lastStartError, 'Mihomo 配置校验失败: fixture stdout');
+    });
+
+    test('empty failure output gets an actionable bounded fallback', () async {
+      final core = service();
+      expect(await core.runConfigValidation({'SSRVPN_FIXTURE_EXIT': '1'}),
+          isFalse);
+      expect(core.lastStartError, 'Mihomo 配置校验失败，请打开运行日志查看具体配置错误');
+    });
+
+    test('timeout outcome cannot be accepted as a successful validator',
+        () async {
+      final core = service();
+      expect(await core.runConfigValidation({'SSRVPN_FIXTURE_EXIT': '124'}),
+          isFalse);
+      expect(core.lastStartError, contains('配置校验响应超时'));
+      expect(core.isRunning, isFalse);
+    });
+
+    test('missing core blocks startup before any process commit', () async {
+      final core = service()..setCorePath('${fixture.path}/missing-core.exe');
+      expect(await core.start(), isFalse);
+      expect(core.lastStartError, contains('找不到 mihomo.exe'));
+      expect(core.isRunning, isFalse);
+      expect(core.recentLogs, isNot(contains('Mihomo 进程已创建')));
+    });
+
+    test('missing runtime config blocks startup before validation', () async {
+      final core = service()
+        ..setPaths(
+            configDir: fixture.path,
+            configPath: '${fixture.path}/missing.yaml');
+      expect(await core.start(), isFalse);
+      expect(core.lastStartError, '找不到生成的 Mihomo 配置文件');
+      expect(core.recentLogs, isNot(contains('正在校验')));
+    });
+
+    test('failed validation prevents core creation and preserves the config',
+        () async {
+      const rejected = 'mixed-port: 7890\n# fixtureExit=1\n';
+      await config.writeAsString(rejected);
+      final core = service()..requestConnectionIntent(true);
+      expect(await core.start(), isFalse);
+      expect(core.lastStartError, 'Mihomo 配置校验失败，请打开运行日志查看具体配置错误');
+      expect(core.isRunning, isFalse);
+      expect(core.recentLogs, isNot(contains('Mihomo 进程已创建')));
+      expect(await config.readAsString(), rejected);
+    });
+
+    test('cancellation outcome propagates without becoming a config failure',
+        () async {
+      final core = service();
+      await expectLater(
+          core.runConfigValidation({'SSRVPN_FIXTURE_EXIT': '125'}),
+          throwsException);
+      expect(core.lastStartError, isNull);
+    });
+
+    test('missing Windows dependencies retain their specific explanation',
+        () async {
+      final core = service();
+      expect(
+          await core
+              .runConfigValidation({'SSRVPN_FIXTURE_EXIT': '-1073741515'}),
+          isFalse);
+      expect(core.lastStartError, 'Mihomo 无法在此电脑运行: 缺少运行库或依赖 DLL');
+    }, skip: !Platform.isWindows);
+
+    test('interrupting a live validator releases startup without core commit',
+        () async {
+      await config.writeAsString('mixed-port: 7890\n# fixtureWait\n');
+      final marker = File('${config.path}.started');
+      final core = service()..requestConnectionIntent(true);
+      final starting = core.start();
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      while (!await marker.exists() && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(await marker.exists(), isTrue);
+      core.interruptPendingStart();
+      expect(await starting.timeout(const Duration(seconds: 5)), isFalse);
+      expect(core.lastStartError, '连接已取消');
+      expect(core.isRunning, isFalse);
+      expect(
+          await File('${fixture.path}${Platform.pathSeparator}mihomo.pid')
+              .exists(),
+          isFalse);
+    });
+  });
+
   test('periodic health timeout covers the Windows ownership probe budget', () {
     final service = _InspectableHealthTimeoutClashService();
 
@@ -606,9 +792,19 @@ class _InspectableLifecycleClashService extends ClashService {
   Future<bool> removeCorePid(WindowsCorePidRecord record) =>
       deleteCorePid(expectedRecord: record);
 
-  Future<bool> runConfigValidation() => validateConfig(const {});
+  Future<bool> runConfigValidation(
+          [Map<String, String> environment = const {}]) =>
+      validateConfig(environment);
 
   Future<void> probeCoreVersion() => logCoreVersion();
+}
+
+class _HealthyReuseLifecycleClashService
+    extends _InspectableLifecycleClashService {
+  _HealthyReuseLifecycleClashService({required super.systemProxyService});
+
+  @override
+  Future<bool> healthCheck() async => true;
 }
 
 String _dartExecutable() {
