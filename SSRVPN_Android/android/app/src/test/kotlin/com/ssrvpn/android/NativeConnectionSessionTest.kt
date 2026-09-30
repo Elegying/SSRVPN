@@ -10,7 +10,7 @@ class NativeConnectionSessionTest {
     @Test
     fun `tile start cannot interleave with retention reference capture`() {
         val gate = StartGenerationGate()
-        val config = java.io.File.createTempFile("ssrvpn-rule-tile", ".yaml")
+        val config = java.nio.file.Files.createTempFile("ssrvpn-rule-tile", ".yaml").toFile()
         config.writeText("rule-providers: {p: {path: ./providers/bundles/1.0.0/a.yaml}}")
         val executor = java.util.concurrent.Executors.newFixedThreadPool(2)
         val entered = java.util.concurrent.CountDownLatch(1)
