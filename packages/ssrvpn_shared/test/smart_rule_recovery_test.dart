@@ -428,4 +428,54 @@ proxies:
         '1.0.0');
     expect(await restarted.rejects('2.0.0'), isTrue);
   });
+  test('two staged updates across restart retain confirmed and saved snapshots',
+      () async {
+    await confirmOld();
+    final saved = <File, List<int>>{};
+    for (final version in ['1.0.0', '2.0.0', '3.0.0']) {
+      if (version != '1.0.0') await install(version);
+      final snapshot = File('${root.path}/config-snapshot-$version.yaml');
+      await File(configPath).copy(snapshot.path);
+      saved[snapshot] = await snapshot.readAsBytes();
+      for (final name in names) {
+        final provider = File('${root.path}/providers/bundles/$version/$name');
+        saved[provider] = await provider.readAsBytes();
+      }
+    }
+    final journal = File('${root.path}/providers/rule-recovery.json');
+    final confirmedRecord = await journal.readAsBytes();
+    recovery = SmartRuleRecovery(root.path, fileNames: names);
+    expect(await recovery.hasConfirmedVersion, isTrue);
+    expect(await recovery.repairRejectedSelection(), isNull);
+    expect(await journal.readAsBytes(), confirmedRecord);
+    expect(
+        await SmartRuleBundle.readInstalledVersion(root.path,
+            expectedFileNames: names),
+        '3.0.0');
+
+    final candidateConfig =
+        loadYaml(await File(configPath).readAsString()) as Map;
+    error = 'CORE_START_RULES: missing';
+    var starts = 0;
+    expect(await run(() async => ++starts == 2), isTrue);
+    expect(starts, 2);
+    expect(selected, ['1.0.0']);
+    expect(await recovery.rejects('3.0.0'), isTrue);
+    expect(
+        SmartRuleRecovery.configVersion(await File(configPath).readAsString()),
+        '1.0.0');
+    final restored = loadYaml(await File(configPath).readAsString()) as Map;
+    expect(restored['proxies'], candidateConfig['proxies']);
+    for (final entry in saved.entries) {
+      expect(await entry.key.readAsBytes(), entry.value,
+          reason: entry.key.uri.pathSegments.last);
+    }
+    final restarted = SmartRuleRecovery(root.path, fileNames: names);
+    expect(await restarted.hasConfirmedVersion, isTrue);
+    expect(await restarted.repairRejectedSelection(), '1.0.0');
+    expect(
+        await SmartRuleBundle.readInstalledVersion(root.path,
+            expectedFileNames: names),
+        '1.0.0');
+  });
 }

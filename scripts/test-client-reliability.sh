@@ -10,6 +10,7 @@ bash scripts/check-flutter-version.sh
   test/connection_fault_sequence_test.dart \
   test/clash_service_base_test.dart \
   test/connection_phase_trace_test.dart test/app_diagnostics_test.dart \
+  test/smart_rule_recovery_test.dart \
   test/proxy_egress_policy_test.dart \
   test/subscription_uri_compatibility_test.dart)
 for app in SSRVPN_Android SSRVPN_MacOS SSRVPN_Windows; do
