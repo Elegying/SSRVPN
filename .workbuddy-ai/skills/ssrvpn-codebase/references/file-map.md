@@ -75,6 +75,7 @@ SSRVPN/
 - 凭据：`windows_dpapi_secret_store.dart`（DPAPI）
 - 系统代理恢复日志 I/O：`system_proxy_recovery_journal.dart`（`system_proxy_service.dart` 的私有 extension part；锁与事务顺序仍在主服务）
 - 有界进程退出支持：`clash_service_process_support.dart`（同库 part，原退出顺序与结果语义不变）
+- 配置校验：`clash_service_config_validation.dart`（同库私有 mixin，进程退出/取消回归先于拆分）
 - 生命周期：`clash_service_lifecycle.dart`（**遗留热点，新职责别往里加**；`setSystemProxy`/`clearSystemProxy` 只能在这里）
 - 恢复策略：`clash_service_recovery_policy.dart`、`clash_service_tun_recovery.dart`、`clash_service_start_preparation.dart`
 - 原生侧：`windows/runner/launcher_main.cpp`（守卫 `check-windows-launcher-security.sh`）、安装器 `installer/program_files_transaction.ps1`

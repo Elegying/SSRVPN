@@ -34,7 +34,9 @@ SSRVPN 的共享更新、macOS 原生应用委托、Windows 系统代理、Andro
    恢复动作与取消状态迁入同一 Dart library 的模型 part。原生恢复日志读取、备份写入和激活提交
    迁入同库 `system_proxy_recovery_journal.dart`；锁、回滚、清理和公开方法仍由服务编排，
    不增加对象或公开接口。Windows 有界进程退出函数与退出结果枚举迁入同库
-   `clash_service_process_support.dart`，保持公开函数签名、信号顺序和超时语义。
+   `clash_service_process_support.dart`，保持公开函数签名、信号顺序和超时语义。配置校验
+   迁入私有 `clash_service_config_validation.dart`，先用合成进程证明退出与取消行为，
+   方法正文逐字保持；生命周期仍拥有启动取消与核心路径，不扩大公开接口。
 6. Android VPN Service 与 Windows 安装事务在本轮不做跨对象重排。前者已有通知、代际、
    TUN FD、会话和恢复策略边界；后者承担 PowerShell 5.1 下的跨重启文件、注册表、快捷方式
    原子回滚。没有新增目标平台故障注入证据前，只增加规模护栏，不为降低行数继续拆分。

@@ -221,6 +221,7 @@ the original result; a failing diagnostic sink must not affect startup or cancel
 | `update_service.dart` | Stable shared update facade, metadata validation, and public update API |
 | `update_service_download.dart` | Bounded download, cancellation, redirect, and temporary-file handling |
 | `update_service_publication.dart` | Verified publication, recovery, replacement locks, and atomic cleanup |
+| `SSRVPN_Windows/lib/services/clash_service_config_validation.dart` | Private config-validator process, bounded timeout, cancellation and exit classification |
 | `clash_service_base.dart` | Shared lifecycle facade and platform contract |
 | `clash_service_diagnostics.dart` | Bounded diagnostic collection, stable failure mapping, and redacted reports |
 | `clash_service_connection_progress.dart`, `connection_phase_trace.dart` | Intent-owned monotonic phase timings and factual local-session loss records |
