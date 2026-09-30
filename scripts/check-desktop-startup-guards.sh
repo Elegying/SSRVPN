@@ -146,9 +146,9 @@ if (
 ):
     raise SystemExit("Windows stop does not await an exited-core PID cleanup")
 
-helper_start = windows_source.index("Future<bool> terminateCoreProcess(")
-helper_end = windows_source.index("mixin _WindowsCoreLifecycle", helper_start)
-helper = windows_source[helper_start:helper_end]
+helper_source = paths[1].with_name("clash_service_process_support.dart").read_text(encoding="utf-8")
+helper_start = helper_source.index("Future<bool> terminateCoreProcess(")
+helper = helper_source[helper_start:]
 required_termination_guards = (
     "ProcessSignal.sigterm",
     "exitCode.timeout(gracefulTimeout)",
