@@ -16,7 +16,7 @@ on:
           - windows-public-installer
           - windows-installer-archive
       tag:
-        description: Immutable release tag required by oss-rollback or windows-public-installer
+        description: Release tag for rollback/public installer; optional single archive baseline (v5.0.19 recovery)
         required: false
         type: string
 permissions:
@@ -28,6 +28,9 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.task == 'windows-installer-archive' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
     concurrency:
       group: windows-installer-archive
       cancel-in-progress: false
@@ -39,13 +42,15 @@ jobs:
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Archive only missing, hash-pinned historical EXEs
         env:
+          GH_TOKEN: ${{ github.token }}
+          BASELINE_TAG: ${{ inputs.tag }}
           OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
           OSS_ENDPOINT: ${{ vars.ALIYUN_OSS_ENDPOINT }}
           OSS_REGION: cn-qingdao
           OSS_BUCKET: ${{ vars.ALIYUN_OSS_BUCKET }}
           OSS_PREFIX: ${{ vars.ALIYUN_OSS_PREFIX }}
-        run: python3 scripts/archive_windows_installer_baselines.py --upload --report "$RUNNER_TEMP/installer-archive/report.json"
+        run: python3 scripts/archive_windows_installer_baselines.py --upload --tag "$BASELINE_TAG" --report "$RUNNER_TEMP/installer-archive/report.json"
       - name: Archive verification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
