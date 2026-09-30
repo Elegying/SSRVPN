@@ -5,7 +5,7 @@ mixin _ClashConfigSupport {
   bool get isRunning;
   String? get lastStartError;
 
-  void Function() _captureTimingCompletion();
+  void Function(bool) _captureTimingCompletion();
 
   Future<bool> startWithSmartRuleRecovery(
     Future<bool> Function() start,
@@ -31,7 +31,7 @@ mixin _ClashConfigSupport {
       },
       log: (message) => log(message, event: 'rule_recovery'),
     );
-    if (started && isCurrent()) completeTiming();
+    if (isCurrent()) completeTiming(started);
     return started;
   }
 

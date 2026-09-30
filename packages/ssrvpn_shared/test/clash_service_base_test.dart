@@ -103,6 +103,26 @@ void main() {
       expect(service.recentLogs, completedLogs);
     });
 
+    test('a failed owned start closes timing without publishing a warning',
+        () async {
+      final service = _TestClashService()..requestConnectionIntent(true);
+      addTearDown(service.dispose);
+      final notices = <Object>[];
+      service.onRuntimeNotice = notices.add;
+      expect(
+          await service.startWithSmartRuleRecovery(
+            () async => false,
+            () async {},
+            () => true,
+            'unused-config.yaml',
+          ),
+          isFalse);
+      expect(service.recentLogs, contains('attempt=1 outcome=notCompleted'));
+      expect(service.isRunning, isFalse);
+      expect(service.connectivityWarning, isNull);
+      expect(notices, isEmpty);
+    });
+
     test('late healthy reuse cannot finish a replacement trace or set running',
         () async {
       final service = _TestClashService()..requestConnectionIntent(true);

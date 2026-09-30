@@ -680,7 +680,8 @@ abstract class ClashServiceBase
   }
 
   @override
-  void Function() _captureTimingCompletion() => _connectionTimingCompletion();
+  void Function(bool) _captureTimingCompletion() =>
+      _connectionTimingCompletion();
 
   // ── 状态管理 ──
 

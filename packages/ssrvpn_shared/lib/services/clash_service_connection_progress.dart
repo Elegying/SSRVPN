@@ -61,14 +61,16 @@ extension ClashConnectionProgress on ClashServiceBase {
     };
   }
 
-  void Function() _connectionTimingCompletion() {
+  void Function(bool) _connectionTimingCompletion() {
     final trace = _connectionPhaseTrace;
     final generation = captureAutomaticRestartIntent();
-    return () {
+    return (started) {
       if (generation != null &&
           isConnectionIntentCurrent(generation, connected: true) &&
           identical(trace, _connectionPhaseTrace)) {
-        _finishConnectionTiming(ConnectionTimingOutcome.localReady);
+        _finishConnectionTiming(started
+            ? ConnectionTimingOutcome.localReady
+            : ConnectionTimingOutcome.notCompleted);
       }
     };
   }
