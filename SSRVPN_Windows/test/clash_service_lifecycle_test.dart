@@ -26,6 +26,9 @@ void main() {
     setUpAll(() async {
       fixture =
           await Directory.systemTemp.createTemp('ssrvpn_validator_fixture_');
+      // Windows temporary paths may contain '/', while production identity
+      // capture requires the canonical native path returned by Windows.
+      fixture = Directory(await fixture.resolveSymbolicLinks());
       final source =
           File('${fixture.path}${Platform.pathSeparator}validator.dart');
       await source.writeAsString(r'''
