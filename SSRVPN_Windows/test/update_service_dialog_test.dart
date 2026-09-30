@@ -688,144 +688,27 @@ void main() {
 
   testWidgets('Windows update action downloads to Desktop without changing URL',
       (tester) async {
-    final desktop =
-        Directory.systemTemp.createTempSync('ssrvpn-windows-desktop-');
-    addTearDown(() {
-      if (desktop.existsSync()) desktop.deleteSync(recursive: true);
-    });
-    final bytes = utf8.encode('verified-windows-installer');
-    final stalePart = File(
-      '${desktop.path}/SSRVPN_Setup_v8.8.8.exe.part.1_2_3',
-    );
-    stalePart.writeAsStringSync('stale partial download', flush: true);
-    stalePart.setLastModifiedSync(
-      DateTime.now().subtract(const Duration(days: 2)),
-    );
-    final response = Completer<http.Response>();
-    Uri? requestedUrl;
-    addTearDown(() {
-      if (!response.isCompleted) {
-        response.completeError(StateError('test download cancelled'));
-      }
-    });
-    late BuildContext context;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Builder(
-          builder: (value) {
-            context = value;
-            return const SizedBox.shrink();
-          },
-        ),
-      ),
-    );
-    final updateDialog = UpdateService.showUpdateDialog(
-      context,
-      latestVersion: '9.9.9',
-      currentVersion: '1.0.0',
-      downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
-      changelog: '修复 Windows 更新流程',
-      sha256: sha256.convert(bytes).toString(),
-      desktopDirectory: desktop,
-      client: MockClient((request) {
-        requestedUrl = request.url;
-        return response.future;
-      }),
-      filePublisher: (source, destination) async {
-        await source.copy(destination.path);
-      },
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('下载到桌面'), findsOneWidget);
-    expect(find.text('立即更新'), findsNothing);
-    await tester.runAsync(() => tester.tap(find.text('下载到桌面')));
-    await tester.pump();
-    final progressDescription = find.text(
-      '下载并通过 SHA-256 校验后保存到桌面，不会自动启动；'
-      '仅带有效专属标记的应用内安装包会在安装成功后自动清理；'
-      '未带标记的已有文件会保留。',
-    );
-    await _pumpUntilFound(tester, progressDescription);
-
-    final showedDesktopProgress = progressDescription.evaluate().isNotEmpty;
-    final stalePartSurvivedUntilDownloadStarted = stalePart.existsSync();
-
-    response.complete(http.Response.bytes(bytes, HttpStatus.ok));
-    final completionMessage = find.text(
-      '最新版安装包已下载到桌面并完成安全标记。请手动安装；'
-      '安装成功后会自动清理，取消或失败时保留。',
-    );
-    await _pumpUntilFound(tester, completionMessage);
-
-    final showedCompletion = completionMessage.evaluate().isNotEmpty;
-
-    final installers = desktop
-        .listSync()
-        .whereType<File>()
-        .where((file) => file.path.toLowerCase().endsWith('.exe'))
-        .toList();
-    final marker = File(
-      '${installers.single.path}.ssrvpn-verified-update',
-    );
-
-    final acknowledgement = find.text('知道了');
-    if (acknowledgement.evaluate().isNotEmpty) {
-      await tester.tap(acknowledgement.last);
-      await tester.pumpAndSettle();
-    }
-    for (var attempt = 0; attempt < 100; attempt++) {
-      if (!SharedUpdateService.isVerifiedDownloadInProgress) break;
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-      await tester.pump(const Duration(milliseconds: 20));
-    }
-    await updateDialog;
-    expect(showedDesktopProgress, isTrue);
-    expect(stalePartSurvivedUntilDownloadStarted, isTrue);
-    expect(showedCompletion, isTrue);
-    expect(SharedUpdateService.isVerifiedDownloadInProgress, isFalse);
-    expect(
-      requestedUrl,
-      Uri.parse('https://example.com/SSRVPN_Setup.exe'),
-    );
-    expect(installers, hasLength(1));
-    expect(installers.single.readAsBytesSync(), bytes);
-    expect(installers.single.path, contains('SSRVPN_Setup_v9.9.9.exe'));
-    final markerLines = marker.readAsLinesSync();
-    expect(markerLines, hasLength(4));
-    expect(
-      markerLines.take(3),
-      <String>[
-        'ssrvpn-verified-update-v2',
-        'SSRVPN_Setup_v9.9.9.exe',
-        sha256.convert(bytes).toString(),
-      ],
-    );
-    expect(markerLines[3], matches(RegExp(r'^[a-f0-9]{64}$')));
-    expect(
-      File('${installers.single.path}:ssrvpn-update-owner').readAsStringSync(),
-      markerLines[3],
-    );
-    expect(stalePart.existsSync(), isTrue);
-    expect(desktop.listSync(), hasLength(Platform.isWindows ? 3 : 4));
-  });
-
-  testWidgets(
-    'pre-existing verified installer is disclosed as retained after install',
-    (tester) async {
-      final desktop = Directory.systemTemp.createTempSync(
-        'ssrvpn-windows-existing-installer-dialog-',
-      );
+    await tester.runAsync(() async {
+      final desktop =
+          Directory.systemTemp.createTempSync('ssrvpn-windows-desktop-');
       addTearDown(() {
         if (desktop.existsSync()) desktop.deleteSync(recursive: true);
       });
-      final bytes = utf8.encode('manually-saved-official-installer');
-      final installer = File('${desktop.path}/SSRVPN_Setup_v9.9.9.exe');
-      final marker = File('${installer.path}.ssrvpn-verified-update');
-      installer.writeAsBytesSync(bytes, flush: true);
-
+      final bytes = utf8.encode('verified-windows-installer');
+      final stalePart = File(
+        '${desktop.path}/SSRVPN_Setup_v8.8.8.exe.part.1_2_3',
+      );
+      stalePart.writeAsStringSync('stale partial download', flush: true);
+      stalePart.setLastModifiedSync(
+        DateTime.now().subtract(const Duration(days: 2)),
+      );
+      final response = Completer<http.Response>();
+      Uri? requestedUrl;
+      addTearDown(() {
+        if (!response.isCompleted) {
+          response.completeError(StateError('test download cancelled'));
+        }
+      });
       late BuildContext context;
       await tester.pumpWidget(
         MaterialApp(
@@ -837,63 +720,183 @@ void main() {
           ),
         ),
       );
-
-      final download = UpdateService.showUpdateDialog(
+      final updateDialog = UpdateService.showUpdateDialog(
         context,
         latestVersion: '9.9.9',
         currentVersion: '1.0.0',
         downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
-        changelog: '',
+        changelog: '修复 Windows 更新流程',
         sha256: sha256.convert(bytes).toString(),
         desktopDirectory: desktop,
-        client: MockClient((_) async {
-          throw StateError('matching existing installer must skip download');
+        client: MockClient((request) {
+          requestedUrl = request.url;
+          return response.future;
         }),
         filePublisher: (source, destination) async {
-          throw StateError('matching existing installer must not be published');
+          await source.copy(destination.path);
         },
       );
       await tester.pumpAndSettle();
-      await tester.runAsync(() => tester.tap(find.text('下载到桌面')));
-      await tester.pump();
 
-      const retainedMessage = '桌面已有通过 SHA-256 校验的同版本安装包。请手动安装；'
-          '该文件未由本次下载认领，安装后会保留。';
-      await _pumpUntilFound(tester, find.text(retainedMessage));
-      expect(find.text(retainedMessage), findsOneWidget);
-      expect(marker.existsSync(), isFalse);
-      await tester.tap(find.text('知道了').last);
-      await tester.pumpAndSettle();
-      await download;
-      expect(installer.readAsBytesSync(), bytes);
+      expect(find.text('下载到桌面'), findsOneWidget);
+      expect(find.text('立即更新'), findsNothing);
+      await tester.tap(find.text('下载到桌面'));
+      await tester.pump();
+      final progressDescription = find.text(
+        '下载并通过 SHA-256 校验后保存到桌面，不会自动启动；'
+        '仅带有效专属标记的应用内安装包会在安装成功后自动清理；'
+        '未带标记的已有文件会保留。',
+      );
+      await _pumpUntilFound(tester, progressDescription);
+
+      final showedDesktopProgress = progressDescription.evaluate().isNotEmpty;
+      final stalePartSurvivedUntilDownloadStarted = stalePart.existsSync();
+
+      response.complete(http.Response.bytes(bytes, HttpStatus.ok));
+      final completionMessage = find.text(
+        '最新版安装包已下载到桌面并完成安全标记。请手动安装；'
+        '安装成功后会自动清理，取消或失败时保留。',
+      );
+      await _pumpUntilFound(tester, completionMessage);
+
+      final showedCompletion = completionMessage.evaluate().isNotEmpty;
+
+      final installers = desktop
+          .listSync()
+          .whereType<File>()
+          .where((file) => file.path.toLowerCase().endsWith('.exe'))
+          .toList();
+      final marker = File(
+        '${installers.single.path}.ssrvpn-verified-update',
+      );
+
+      final acknowledgement = find.text('知道了');
+      if (acknowledgement.evaluate().isNotEmpty) {
+        await tester.tap(acknowledgement.last);
+        await tester.pumpAndSettle();
+      }
+      for (var attempt = 0; attempt < 100; attempt++) {
+        if (!SharedUpdateService.isVerifiedDownloadInProgress) break;
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      await updateDialog;
+      expect(showedDesktopProgress, isTrue);
+      expect(stalePartSurvivedUntilDownloadStarted, isTrue);
+      expect(showedCompletion, isTrue);
+      expect(SharedUpdateService.isVerifiedDownloadInProgress, isFalse);
+      expect(
+        requestedUrl,
+        Uri.parse('https://example.com/SSRVPN_Setup.exe'),
+      );
+      expect(installers, hasLength(1));
+      expect(installers.single.readAsBytesSync(), bytes);
+      expect(installers.single.path, contains('SSRVPN_Setup_v9.9.9.exe'));
+      final markerLines = marker.readAsLinesSync();
+      expect(markerLines, hasLength(4));
+      expect(
+        markerLines.take(3),
+        <String>[
+          'ssrvpn-verified-update-v2',
+          'SSRVPN_Setup_v9.9.9.exe',
+          sha256.convert(bytes).toString(),
+        ],
+      );
+      expect(markerLines[3], matches(RegExp(r'^[a-f0-9]{64}$')));
+      expect(
+        File('${installers.single.path}:ssrvpn-update-owner')
+            .readAsStringSync(),
+        markerLines[3],
+      );
+      expect(stalePart.existsSync(), isTrue);
+      expect(desktop.listSync(), hasLength(Platform.isWindows ? 3 : 4));
+    });
+  });
+
+  testWidgets(
+    'pre-existing verified installer is disclosed as retained after install',
+    (tester) async {
+      await tester.runAsync(() async {
+        final desktop = Directory.systemTemp.createTempSync(
+          'ssrvpn-windows-existing-installer-dialog-',
+        );
+        addTearDown(() {
+          if (desktop.existsSync()) desktop.deleteSync(recursive: true);
+        });
+        final bytes = utf8.encode('manually-saved-official-installer');
+        final installer = File('${desktop.path}/SSRVPN_Setup_v9.9.9.exe');
+        final marker = File('${installer.path}.ssrvpn-verified-update');
+        installer.writeAsBytesSync(bytes, flush: true);
+
+        late BuildContext context;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Builder(
+              builder: (value) {
+                context = value;
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        );
+
+        final download = UpdateService.showUpdateDialog(
+          context,
+          latestVersion: '9.9.9',
+          currentVersion: '1.0.0',
+          downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+          changelog: '',
+          sha256: sha256.convert(bytes).toString(),
+          desktopDirectory: desktop,
+          client: MockClient((_) async {
+            throw StateError('matching existing installer must skip download');
+          }),
+          filePublisher: (source, destination) async {
+            throw StateError(
+                'matching existing installer must not be published');
+          },
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('下载到桌面'));
+        await tester.pump();
+
+        const retainedMessage = '桌面已有通过 SHA-256 校验的同版本安装包。请手动安装；'
+            '该文件未由本次下载认领，安装后会保留。';
+        await _pumpUntilFound(tester, find.text(retainedMessage));
+        expect(find.text(retainedMessage), findsOneWidget);
+        expect(marker.existsSync(), isFalse);
+        await tester.tap(find.text('知道了').last);
+        await tester.pumpAndSettle();
+        await download;
+        expect(installer.readAsBytesSync(), bytes);
+      });
     },
   );
 
   testWidgets(
     'marker publication failure explains that the installer needs manual deletion',
     (tester) async {
-      final desktop = Directory.systemTemp.createTempSync(
-        'ssrvpn-windows-marker-failure-dialog-',
-      );
-      addTearDown(() {
-        if (desktop.existsSync()) desktop.deleteSync(recursive: true);
-      });
-      final bytes = utf8.encode('verified-windows-installer');
-      late BuildContext context;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Builder(
-            builder: (value) {
-              context = value;
-              return const SizedBox.shrink();
-            },
-          ),
-        ),
-      );
-
-      late Future<void> download;
       await tester.runAsync(() async {
-        download = UpdateService.downloadUpdateToDesktop(
+        final desktop = Directory.systemTemp.createTempSync(
+          'ssrvpn-windows-marker-failure-dialog-',
+        );
+        addTearDown(() {
+          if (desktop.existsSync()) desktop.deleteSync(recursive: true);
+        });
+        final bytes = utf8.encode('verified-windows-installer');
+        late BuildContext context;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Builder(
+              builder: (value) {
+                context = value;
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        );
+
+        final download = UpdateService.downloadUpdateToDesktop(
           context,
           AppUpdateInfo(
             version: '9.9.9',
@@ -912,20 +915,20 @@ void main() {
             ).create();
           },
         );
+
+        await _pumpUntilFound(tester, find.text('下载完成'));
+
+        const expectedMessage = '安装包已下载到桌面并通过 SHA-256 校验，但安装后无法自动删除。'
+            '请手动安装；安装完成后请自行删除桌面安装包。';
+        final showedExpectedMessage =
+            find.text(expectedMessage).evaluate().isNotEmpty;
+        expect(find.text('下载完成'), findsOneWidget);
+        await tester.tap(find.text('知道了').last);
+        await tester.pumpAndSettle();
+        await download;
+
+        expect(showedExpectedMessage, isTrue);
       });
-
-      await _pumpUntilFound(tester, find.text('下载完成'));
-
-      const expectedMessage = '安装包已下载到桌面并通过 SHA-256 校验，但安装后无法自动删除。'
-          '请手动安装；安装完成后请自行删除桌面安装包。';
-      final showedExpectedMessage =
-          find.text(expectedMessage).evaluate().isNotEmpty;
-      expect(find.text('下载完成'), findsOneWidget);
-      await tester.tap(find.text('知道了').last);
-      await tester.pumpAndSettle();
-      await tester.runAsync(() => download);
-
-      expect(showedExpectedMessage, isTrue);
     },
   );
 }
@@ -936,12 +939,10 @@ Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
   // Re-entering fake time between every IO tick can strand completion callbacks.
   // Advance past the 320ms transition without extending the real-time deadline.
   final deadline = DateTime.now().add(const Duration(seconds: 30));
-  await tester.runAsync(() async {
-    while (finder.evaluate().isEmpty && DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-      await tester.pump(const Duration(milliseconds: 400));
-    }
-  });
+  while (finder.evaluate().isEmpty && DateTime.now().isBefore(deadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    await tester.pump(const Duration(milliseconds: 20));
+  }
   expect(finder, findsOneWidget,
       reason: 'dialog did not reach the expected state; visible text: '
           '${tester.widgetList<Text>(find.byType(Text)).map((text) => text.data).toList()}');

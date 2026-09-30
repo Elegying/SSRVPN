@@ -195,7 +195,9 @@ Future<void> _pumpUntilFound(WidgetTester tester, Finder finder,
   while (deadline.elapsed < const Duration(seconds: 10)) {
     if (finder.evaluate().isNotEmpty) return;
     await Future<void>.delayed(const Duration(milliseconds: 10));
-    await tester.pump();
+    // Real I/O does not advance the binding's fake animation clock. Complete
+    // delayed dialog removal while retaining the same wall-clock deadline.
+    await tester.pump(const Duration(milliseconds: 20));
   }
   final visible = find
       .byType(Text)
