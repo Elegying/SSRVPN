@@ -946,11 +946,11 @@ Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
   // These tests assert download states, not intermediate glass animation frames.
   // Keep file/port events and frame callbacks in the same real async zone.
   // Re-entering fake time between every IO tick can strand completion callbacks.
-  // Advance past the 320ms transition without extending the real-time deadline.
+  // Yield real I/O between frames; do not outrun the download timeout clock.
   final deadline = DateTime.now().add(const Duration(seconds: 30));
   while (finder.evaluate().isEmpty && DateTime.now().isBefore(deadline)) {
-    await Future<void>.delayed(const Duration(milliseconds: 10));
-    await tester.pump(const Duration(milliseconds: 400));
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 100));
   }
   expect(finder, findsOneWidget,
       reason: 'dialog did not reach the expected state; visible text: '
