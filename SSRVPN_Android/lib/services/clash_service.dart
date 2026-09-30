@@ -487,6 +487,7 @@ class ClashService extends ClashServiceBase
         return false;
       }
       _logNativeStartupTiming(e.details);
+      if (startToken != _startGeneration) return false;
       final nativeCategory = _nativeCoreStartFailureCategories[e.code];
       if (nativeCategory != null) {
         log('❌ VPN 核心启动失败: cause=$nativeCategory');

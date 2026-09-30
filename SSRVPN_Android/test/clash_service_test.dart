@@ -2223,6 +2223,50 @@ secret: rejected-test-secret
     }
   });
 
+  test('timing observer cancellation cannot overwrite a newer start error',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp('ssrvpn_timing_cancel_');
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString('proxies: []');
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'startCoreWithVpn') {
+        throw PlatformException(code: 'PERMISSION_DENIED', details: {
+          'startupTimings': {
+            'authorizationRequested': true,
+            'authorizationWaitMs': 10,
+            'serviceStartMs': 0,
+            'totalMs': 10,
+          },
+        });
+      }
+      return null;
+    });
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: config.path)
+      ..updateSettings(AppSettings());
+    addTearDown(() async {
+      service.dispose();
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+    Future<void>? stopping;
+    service.onLog = (line) {
+      if (!line.contains('Android 原生启动计时')) return;
+      stopping = service.stop();
+      service.setLastStartError('newer request owns this error');
+    };
+    expect(await service.start(), isFalse);
+    expect(stopping, isNotNull);
+    await stopping;
+    expect(service.lastStartError, 'newer request owns this error');
+    expect(service.recentLogs, isNot(contains('用户拒绝了 VPN 权限')));
+    expect(service.isRunning, isFalse);
+  });
+
   test('native component failure asks for an official reinstall', () async {
     SharedPreferences.setMockInitialValues({});
     const channel = MethodChannel('com.ssrvpn/native');
