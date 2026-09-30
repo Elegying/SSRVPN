@@ -39,6 +39,17 @@ updates:
           - "minor"
           - "patch"
     ignore:
+      # Bounded deferrals for Flutter 3.44.1; review with the next SDK migration.
+      # meta 1.19.0 conflicts with Flutter's exact 1.18.0 pin.
+      - dependency-name: "meta"
+        versions: ["1.19.0"]
+      # test 1.31.1 requires test_api 0.7.12; flutter_test pins 0.7.11.
+      - dependency-name: "test"
+        versions: ["1.31.1"]
+      # 0.6 moves the tray API; 0.7 also requires Flutter 3.47 / Dart 3.13.
+      # Keep 0.5.x patch updates eligible; migrate the macOS tray explicitly.
+      - dependency-name: "tray_manager"
+        versions: [">=0.6.0 <0.8.0"]
       - dependency-name: "*"
         update-types:
           - "version-update:semver-major"
