@@ -61,7 +61,20 @@ function Write-CorePidRecord {
   if (-not $livePath.Equals(
       $expectedPath,
       [StringComparison]::OrdinalIgnoreCase)) {
-    throw 'The core identity fixture resolved an unexpected executable path.'
+    # Only paths below this disposable fixture root are shown. Unexpected
+    # external images retain a basename, never the host user's directory.
+    $paths = @($expectedPath, $livePath) | ForEach-Object {
+      if ($_.StartsWith($testRoot + [IO.Path]::DirectorySeparatorChar,
+          [StringComparison]::OrdinalIgnoreCase)) {
+        '<fixture>' + $_.Substring($testRoot.Length)
+      } else {
+        '<external>\' + [IO.Path]::GetFileName($_)
+      }
+    }
+    $caller = @(Get-PSCallStack)[1].ScriptLineNumber
+    throw ('The core identity fixture resolved an unexpected executable path.' +
+      " pid=$($Process.Id); callerLine=$caller; attempts=$($attempt + 1);" +
+      " expected=$($paths[0]); actual=$($paths[1])")
   }
   $record = [ordered]@{
     version = 1
@@ -506,6 +519,36 @@ exit $LASTEXITCODE
     -PidPath $pidFile `
     -Process $ownedA `
     -ExpectedCorePath $corePath
+  # A live same-name process from another directory must never produce a
+  # record claiming the installed core's identity, or overwrite an old record.
+  $rejectedPidFile = Join-Path $processBin 'ssrvpn\rejected.pid'
+  $sentinel = 'existing-identity-must-remain'
+  foreach ($hasRecord in @($false, $true)) {
+    if ($hasRecord) {
+      [IO.File]::WriteAllText($rejectedPidFile, $sentinel)
+    }
+    $rejection = ''
+    try {
+      Write-CorePidRecord -PidPath $rejectedPidFile -Process $unrelated `
+        -ExpectedCorePath $corePath
+    } catch {
+      $rejection = $_.Exception.Message
+    }
+    if ($rejection -notlike '*unexpected executable path.*' -or
+        $rejection -notlike '*expected=<fixture>*actual=<fixture>*' -or
+        $rejection.Contains($testRoot)) {
+      throw 'Foreign identity fixture was accepted or its diagnostic was unsafe.'
+    }
+    if ($hasRecord) {
+      if ([IO.File]::ReadAllText($rejectedPidFile) -cne $sentinel) {
+        throw 'Foreign identity fixture overwrote an existing identity record.'
+      }
+    } elseif (Test-Path -LiteralPath $rejectedPidFile) {
+      throw 'Foreign identity fixture created an identity record.'
+    }
+  }
+  Remove-Item -LiteralPath $rejectedPidFile -Force
+
   $tunMarkerPath = Join-Path (
     [System.IO.Path]::GetDirectoryName($pidFile)
   ) 'tun_teardown.pending'
