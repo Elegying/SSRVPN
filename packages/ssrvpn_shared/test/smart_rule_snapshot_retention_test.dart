@@ -61,6 +61,26 @@ void main() {
     }
   });
 
+  test('uppercase config extensions still protect referenced snapshots',
+      () async {
+    await config('${root.path}/saved.YAML', [2]);
+    expect(await prune(), 1);
+    expect(await provider(2).exists(), isTrue);
+  });
+
+  test('noncanonical bundle casing defers deletion on every platform',
+      () async {
+    final path = '${root.path}/config.yaml';
+    await config(path, [2]);
+    final file = File(path);
+    await file.writeAsString(
+        (await file.readAsString()).replaceAll('/bundles/', '/BUNDLES/'));
+    await expectLater(prune(), throwsA(isA<FormatException>()));
+    for (var v = 1; v <= 6; v++) {
+      expect(await provider(v).exists(), isTrue);
+    }
+  });
+
   test('semantic sorting preserves 10 before 6 rather than string order',
       () async {
     await provider(10).parent.create(recursive: true);

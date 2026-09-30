@@ -66,7 +66,7 @@ abstract final class SmartRuleSnapshotRetention {
         if (path is! String) {
           throw const FormatException('规则快照 provider 路径无效');
         }
-        if (!path.contains('bundles')) continue;
+        if (!path.toLowerCase().contains('bundles')) continue;
         final match =
             RegExp(r'^\./providers/bundles/([^/]+)/([^/]+)$').firstMatch(path);
         if (match == null || !fileNames.contains(match[2])) {
@@ -87,7 +87,8 @@ abstract final class SmartRuleSnapshotRetention {
         }
         if (type == FileSystemEntityType.directory) {
           scan(Directory(entity.path));
-        } else if (RegExp(r'\.(yaml|yml|json)$').hasMatch(entity.path)) {
+        } else if (RegExp(r'\.(yaml|yml|json)$', caseSensitive: false)
+            .hasMatch(entity.path)) {
           readConfig(entity.path);
         }
       }
