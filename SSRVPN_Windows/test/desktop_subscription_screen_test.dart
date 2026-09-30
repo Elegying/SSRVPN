@@ -192,10 +192,12 @@ void main() {
 Future<void> _pumpUntilFound(WidgetTester tester, Finder finder,
     {String Function()? diagnostics}) async {
   final deadline = Stopwatch()..start();
-  while (deadline.elapsed < const Duration(seconds: 10)) {
+  while (deadline.elapsed < const Duration(seconds: 30)) {
     if (finder.evaluate().isNotEmpty) return;
-    await Future<void>.delayed(const Duration(milliseconds: 10));
-    await tester.pump();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    // Real I/O does not advance the binding's fake animation clock. Complete
+    // dialog removal, yielding real I/O between bounded animation steps.
+    await tester.pump(const Duration(milliseconds: 100));
   }
   final visible = find
       .byType(Text)

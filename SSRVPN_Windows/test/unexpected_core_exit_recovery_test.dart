@@ -527,7 +527,44 @@ void main() {
       service.calls.where((call) => call == 'recovery-start'),
       hasLength(2),
     );
+    expect(await service.recoverAfterHealthCheckFailure(generation), isFalse);
+    expect(
+        service.calls.where((call) => call == 'recovery-start'), hasLength(2));
+    expect(service.calls.where((call) => call == 'stop'), hasLength(3));
+    expect(service.isRunning, isFalse);
   });
+
+  for (final externallyChanged in [false, true]) {
+    test('failed cleanup prevents recovery, external=$externallyChanged',
+        () async {
+      final notices = <RuntimeNotice>[];
+      final service = _FailedHealthCleanupClashService(externallyChanged)
+        ..onRuntimeNotice = notices.add
+        ..setRunning(true);
+      addTearDown(service.dispose);
+      var generated = 0;
+      service.rememberDesktopConnectionRecoveryPlan(
+        preferredSettings: AppSettings(),
+        generateConfig: (_, __) async {
+          generated++;
+          return 'fixture config';
+        },
+        isRevisionCurrent: () => true,
+      );
+      final generation = service.requestConnectionIntent(true);
+      expect(await service.recoverAfterHealthCheckFailure(generation), isFalse);
+      expect(service.calls, ['health', 'stop']);
+      expect(generated, 0);
+      expect(service.connectionDesired, !externallyChanged);
+      expect(service.isRunning, !externallyChanged);
+      if (externallyChanged) {
+        expect(notices.single.level, RuntimeNoticeLevel.error);
+        expect(notices.single.message, contains('不会重新接管代理'));
+      } else {
+        expect(service.recentLogs, contains('健康检查恢复时停止 Mihomo 失败'));
+      }
+    });
+  }
 
   test('unexpected-exit recovery waits for the connection transition queue',
       () async {
@@ -880,6 +917,25 @@ class _PlannedHealthRecoveryClashService extends ClashService {
     calls.add('recovery-start');
     setRunning(true);
     return true;
+  }
+}
+
+class _FailedHealthCleanupClashService
+    extends _PlannedHealthRecoveryClashService {
+  _FailedHealthCleanupClashService(this.externallyChanged);
+
+  final bool externallyChanged;
+
+  @override
+  Future<SystemProxyOwnershipStatus> inspectSystemProxyOwnership() async =>
+      externallyChanged
+          ? SystemProxyOwnershipStatus.externallyChanged
+          : SystemProxyOwnershipStatus.owned;
+
+  @override
+  Future<void> stop() async {
+    calls.add('stop');
+    throw StateError('fixture cleanup failed');
   }
 }
 

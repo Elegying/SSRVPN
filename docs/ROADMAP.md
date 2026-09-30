@@ -66,7 +66,7 @@ Explorer 中的可见性、UAC 取消和交互安装结果仍待 Windows 11 人�
 
 - macOS 最低支持已调整为 13.0；打包和 DMG smoke 必须递归验证全部 Mach-O 与压缩核心的最低系统版本，不得只检查主程序 Info.plist。
 - Windows 配置校验已在实际进程成功/失败/取消回归后迁入同库私有 part。
-- 继续提高 Windows `clash_service_lifecycle.dart` 的行为覆盖率；当前渐进门槛为 51%，新增启动、提交、回滚或停止分支时同步提高证据和门槛。
+- 继续提高 Windows `clash_service_lifecycle.dart` 的行为覆盖率；当前渐进门槛为 58%，新增启动、提交、回滚或停止分支时同步提高证据和门槛。
 - 已完成共享更新 façade、macOS 原生核心/应用支持和 Windows 代理模型的第一轮低风险职责拆分；后续继续遵守 [ADR-010](decisions/010-risk-controlled-maintainability-boundaries.md)，只处理有新增行为证据的切片。
 - Android VPN Service 与 Windows 安装回滚继续作为受规模护栏保护的热点；只有目标平台故障注入能先证明取消、所有权和恢复不变量时，才进行下一轮跨对象拆分。
 - 保持共享领域逻辑单一来源，平台层只承载 OS 集成与差异文案。

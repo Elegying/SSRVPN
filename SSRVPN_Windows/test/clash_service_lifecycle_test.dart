@@ -26,12 +26,26 @@ void main() {
     setUpAll(() async {
       fixture =
           await Directory.systemTemp.createTemp('ssrvpn_validator_fixture_');
+      // Windows temporary paths may contain '/', while production identity
+      // capture requires the canonical native path returned by Windows.
+      fixture = Directory(await fixture.resolveSymbolicLinks());
       final source =
           File('${fixture.path}${Platform.pathSeparator}validator.dart');
       await source.writeAsString(r'''
 import 'dart:async';
 import 'dart:io';
 Future<void> main(List<String> args) async {
+  if (!args.contains('-t')) {
+    File('${args.last}.spawned').writeAsStringSync('$pid');
+    stdout.writeln('fixture runtime stdout');
+    stderr.writeln('fixture runtime stderr');
+    final deadline = DateTime.now().add(const Duration(minutes: 1));
+    while (DateTime.now().isBefore(deadline)) {
+      if (File('${args.last}.exit').existsSync()) exit(19);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    return;
+  }
   final config = args.contains('-t') ? File(args.last).readAsStringSync() : '';
   if (config.contains('fixtureWait')) {
     File('${args.last}.started').writeAsStringSync('ready');
@@ -52,8 +66,10 @@ Future<void> main(List<String> args) async {
     });
     setUp(() async {
       await config.writeAsString('mixed-port: 7890\n');
-      final marker = File('${config.path}.started');
-      if (await marker.exists()) await marker.delete();
+      for (final suffix in ['started', 'spawned', 'exit']) {
+        final marker = File('${config.path}.$suffix');
+        if (await marker.exists()) await marker.delete();
+      }
     });
     tearDownAll(() async => fixture.delete(recursive: true));
 
@@ -66,6 +82,151 @@ Future<void> main(List<String> args) async {
       addTearDown(result.dispose);
       return result;
     }
+
+    _StartupLifecycleClashService startup(_ControlledStopProxy proxy) {
+      final core = _StartupLifecycleClashService(systemProxyService: proxy)
+        ..setCorePath(validator.path)
+        ..setPaths(configDir: fixture.path, configPath: config.path)
+        ..requestConnectionIntent(true);
+      addTearDown(() async {
+        try {
+          await core.stop();
+        } finally {
+          core.dispose();
+        }
+      });
+      return core;
+    }
+
+    test('identity capture failure stops only the held uncommitted child',
+        () async {
+      final proxy = _ControlledStopProxy();
+      final core = startup(proxy);
+      expect(await core.start(), isFalse);
+      expect(core.recentLogs, contains('Mihomo 进程已创建'));
+      expect(core.recentLogs, contains('启动异常'));
+      expect(core.recentLogs, contains('核心已停止'));
+      expect(core.isRunning, isFalse);
+      expect(proxy.setCalls, 0);
+      expect(core.observationSchedules, 0);
+      expect(await File('${fixture.path}/mihomo.pid').exists(), isFalse);
+      expect(await config.readAsString(), 'mixed-port: 7890\n');
+    }, skip: Platform.isWindows);
+
+    test('unexpected validation exception keeps cleanup and config intact',
+        () async {
+      final proxy = _ControlledStopProxy();
+      final core = _ThrowingValidationClashService(systemProxyService: proxy)
+        ..setCorePath(validator.path)
+        ..setPaths(configDir: fixture.path, configPath: config.path);
+      addTearDown(core.dispose);
+      expect(await core.start(), isFalse);
+      expect(core.lastStartError, isNotNull);
+      expect(core.isRunning, isFalse);
+      expect(proxy.setCalls, 0);
+      expect(proxy.clearCalls, 1);
+      expect(core.recentLogs, contains('启动异常'));
+      expect(await config.readAsString(), 'mixed-port: 7890\n');
+      expect(await File('${config.path}.spawned').exists(), isFalse);
+    });
+
+    test('real Windows child commits exact identity before acquiring proxy',
+        () async {
+      final proxy = _ControlledStopProxy();
+      final core = startup(proxy);
+      proxy.set = () async {
+        final record = WindowsCorePidRecord.tryParse(
+            await File('${fixture.path}/mihomo.pid').readAsString());
+        expect(record, isNotNull);
+        expect(record!.canonicalExecutablePath.toLowerCase(),
+            validator.path.toLowerCase());
+        expect(record.pid,
+            int.parse(await File('${config.path}.spawned').readAsString()));
+        expect(core.isRunning, isFalse);
+        return true;
+      };
+      expect(await core.start(), isTrue);
+      expect(core.isRunning, isTrue);
+      expect(proxy.setCalls, 1);
+      expect(core.healthCalls, 2);
+      expect(core.observationSchedules, 1);
+      await core.stop();
+      expect(core.isRunning, isFalse);
+      expect(await File('${fixture.path}/mihomo.pid').exists(), isFalse);
+      expect(await config.readAsString(), 'mixed-port: 7890\n');
+    }, skip: !Platform.isWindows);
+
+    test('real Windows proxy refusal rolls back child and durable identity',
+        () async {
+      final proxy = _ControlledStopProxy()
+        ..lastError = 'fixture proxy refused'
+        ..set = () async => false;
+      final core = startup(proxy);
+      expect(await core.start(), isFalse);
+      expect(core.lastStartError, 'fixture proxy refused');
+      expect(core.isRunning, isFalse);
+      expect(proxy.setCalls, 1);
+      expect(proxy.clearCalls, 1);
+      expect(core.observationSchedules, 0);
+      expect(await File('${fixture.path}/mihomo.pid').exists(), isFalse);
+    }, skip: !Platform.isWindows);
+
+    test('real Windows cancellation rejects a late successful proxy commit',
+        () async {
+      final proxy = _ControlledStopProxy();
+      final core = startup(proxy);
+      final entered = Completer<void>();
+      final release = Completer<bool>();
+      proxy.set = () {
+        entered.complete();
+        return release.future;
+      };
+      final first = core.start();
+      expect(identical(first, core.start()), isTrue);
+      await entered.future.timeout(const Duration(seconds: 20));
+      core.requestConnectionIntent(false);
+      final stopping = core.stop();
+      expect(core.isRunning, isFalse);
+      release.complete(true);
+      expect(await first, isFalse);
+      await stopping;
+      expect(core.lastStartError, '连接已取消');
+      expect(core.connectionDesired, isFalse);
+      expect(proxy.setCalls, 1);
+      expect(core.observationSchedules, 0);
+      expect(await File('${fixture.path}/mihomo.pid').exists(), isFalse);
+    }, skip: !Platform.isWindows);
+
+    test('real Windows final health failure prevents connection commit',
+        () async {
+      final proxy = _ControlledStopProxy();
+      final core = startup(proxy)..health = (call) async => call == 1;
+      expect(await core.start(), isFalse);
+      expect(core.lastStartError, contains('提交期间失去响应'));
+      expect(core.isRunning, isFalse);
+      expect(proxy.setCalls, 1);
+      expect(proxy.clearCalls, 1);
+      expect(core.observationSchedules, 0);
+      expect(await File('${fixture.path}/mihomo.pid').exists(), isFalse);
+    }, skip: !Platform.isWindows);
+
+    test('real Windows exit cleans identity without restoring cancelled intent',
+        () async {
+      final proxy = _ControlledStopProxy();
+      final core = startup(proxy);
+      expect(await core.start(), isTrue);
+      core.requestConnectionIntent(false);
+      await File('${config.path}.exit').writeAsString('exit');
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      while (core.isRunning && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(core.isRunning, isFalse);
+      expect(core.connectionDesired, isFalse);
+      expect(await File('${fixture.path}/mihomo.pid').exists(), isFalse);
+      expect(proxy.setCalls, 1);
+      expect(core.recentLogs, contains('进程已退出，退出码: 19'));
+    }, skip: !Platform.isWindows);
 
     test('successful validation retains a safe idle runtime', () async {
       final core = service();
@@ -822,6 +983,42 @@ class _HealthyReuseLifecycleClashService
   Future<bool> healthCheck() async => true;
 }
 
+// Keep production spawn, identity persistence, rollback and verified termination.
+// Only readiness and registry-facing proxy operations are controlled by tests.
+class _StartupLifecycleClashService extends _InspectableLifecycleClashService {
+  _StartupLifecycleClashService({required super.systemProxyService});
+
+  int healthCalls = 0;
+  int observationSchedules = 0;
+  Future<bool> Function(int call) health = (_) async => true;
+
+  @override
+  Future<bool> healthCheck() => health(++healthCalls);
+
+  @override
+  bool get enablePeriodicHealthMonitor => false;
+
+  @override
+  Future<void> observeDataPlaneHealth() async {}
+
+  @override
+  void scheduleDataPlaneObservation({
+    bool rerunIfActive = false,
+    Duration delay = Duration.zero,
+  }) {
+    observationSchedules++;
+  }
+}
+
+class _ThrowingValidationClashService
+    extends _InspectableLifecycleClashService {
+  _ThrowingValidationClashService({required super.systemProxyService});
+
+  @override
+  Future<bool> validateConfig(Map<String, String> environment) async =>
+      throw const FileSystemException('fixture validation read failed');
+}
+
 String _dartExecutable() {
   if (File(
     Platform.resolvedExecutable,
@@ -887,8 +1084,27 @@ Future<String> _preparePackagedCore(Directory temp) async {
 // system_proxy_recovery_test covers the concrete Windows transaction engine.
 class _ControlledStopProxy implements SystemProxyService {
   Future<bool> Function() clear = () async => true;
+  Future<bool> Function() set = () async => true;
   int clearCalls = 0;
+  int setCalls = 0;
   int recoveryCalls = 0;
+
+  @override
+  bool get ownershipChangedSinceLastAcquisition => false;
+
+  @override
+  Future<SystemProxyOwnershipStatus>
+      currentSystemProxyOwnershipStatus() async =>
+          SystemProxyOwnershipStatus.owned;
+
+  @override
+  Future<bool> setSystemProxy(String host, int port,
+      {Future<void>? cancellation}) {
+    expect(host, '127.0.0.1');
+    expect(port, greaterThan(0));
+    setCalls++;
+    return set();
+  }
 
   @override
   Future<bool> retryPendingRecovery() async {
