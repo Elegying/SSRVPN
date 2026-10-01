@@ -13,11 +13,13 @@ import '../services/windows_tun_runtime_probe.dart';
 import '../services/windows_start_transaction.dart';
 import '../services/windows_version_provider.dart';
 import '../src/services/windows_core_pid_record.dart';
+import '../src/services/windows_core_identity_failure.dart';
 import '../src/services/windows_powershell.dart';
 
 part 'clash_service_config.dart';
 part 'clash_service_config_validation.dart';
 part 'clash_service_diagnostics.dart';
+part 'clash_service_identity.dart';
 part 'clash_service_recovery_policy.dart';
 part 'clash_service_lifecycle.dart';
 part 'clash_service_process_support.dart';

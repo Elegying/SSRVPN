@@ -73,7 +73,8 @@ extension _SubscriptionTransaction on _SubscriptionPersistence {
           ..url = saved.url
           ..lastUpdate = saved.lastUpdate
           ..enabled = saved.enabled
-          ..autoUpdate = saved.autoUpdate;
+          ..autoUpdate = saved.autoUpdate
+          ..disabledSourceYaml = saved.disabledSourceYaml;
       }
       _rawYaml = snapshot.yaml;
       _allNodes = snapshot.nodes;

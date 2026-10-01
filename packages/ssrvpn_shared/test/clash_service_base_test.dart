@@ -20,6 +20,24 @@ import 'package:ssrvpn_shared/services/smart_rule_bundle.dart';
 import 'package:ssrvpn_shared/utils/runtime_config_name_policy.dart';
 
 void main() {
+  test('manual diagnostic cannot publish after disconnect and reconnect',
+      () async {
+    final service = _SessionHealthClashService();
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+    final report = service.runDiagnostics();
+    await service.firstHealthStarted.future;
+    service.requestConnectionIntent(false);
+    service.setRunning(false);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+    service.firstHealth.complete(false);
+    await report;
+    expect(service.lastHealthCheckError, isNull);
+    expect(service.connectivityWarning, isNull);
+  });
+
   test('IPv6 diagnostics use only recent evidence and tolerate old cores',
       () async {
     var payload = <String, dynamic>{};

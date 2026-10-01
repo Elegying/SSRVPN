@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_windows/services/clash_service.dart';
 import 'package:ssrvpn_windows/src/services/windows_core_pid_record.dart';
+import 'package:ssrvpn_windows/src/services/windows_core_identity_failure.dart';
 
 void main() {
   const canonicalPath = r'C:\Program Files\SSRVPN\bin\mihomo.exe';
@@ -253,8 +254,34 @@ void main() {
     process.completeExit(1);
     capture.complete(replacementIdentity);
 
-    await expectLater(result, throwsStateError);
+    await expectLater(
+        result,
+        throwsA(isA<WindowsCoreIdentityFailure>().having((error) => error.kind,
+            'kind', WindowsCoreIdentityFailureKind.execution)));
     expect(persisted, isEmpty);
+    expect(establishment.capturedIdentity, isNull);
+  });
+
+  test('failed spawn exit observation retains a redacted system cause',
+      () async {
+    final process = _FakeProcess();
+    final establishment = WindowsCoreIdentityEstablishment(process,
+        spawnStartedAtUtcFileTime: BigInt.one,
+        spawnReturnedAtUtcFileTime: BigInt.from(2));
+    final result = establishment.establish(
+        capture: (_) => Completer<WindowsCorePidRecord>().future,
+        persist: (_) async => fail('identity must not be persisted'),
+        ensureStartCurrent: () {});
+    process._exit.completeError(ProcessException(
+        'private-command', ['password=fixture-secret'], 'Access denied', 5));
+    await expectLater(
+        result,
+        throwsA(isA<WindowsCoreIdentityFailure>()
+            .having(
+                (e) => e.kind, 'kind', WindowsCoreIdentityFailureKind.execution)
+            .having((e) => e.reason, 'system cause', contains('osError=5'))
+            .having((e) => e.reason, 'safe cause',
+                isNot(contains('fixture-secret')))));
     expect(establishment.capturedIdentity, isNull);
   });
 
@@ -278,7 +305,8 @@ void main() {
         persist: (identity) async => persisted.add(identity),
         ensureStartCurrent: () {},
       ),
-      throwsStateError,
+      throwsA(isA<WindowsCoreIdentityFailure>().having((error) => error.kind,
+          'kind', WindowsCoreIdentityFailureKind.mismatch)),
     );
 
     expect(persisted, isEmpty);
@@ -312,7 +340,10 @@ void main() {
     process.completeExit(23);
     releasePersist.complete();
 
-    await expectLater(result, throwsStateError);
+    await expectLater(
+        result,
+        throwsA(isA<WindowsCoreIdentityFailure>().having((error) => error.kind,
+            'kind', WindowsCoreIdentityFailureKind.execution)));
     // The captured identity remains available only so failed-start cleanup can
     // remove the exact durable record; establish never returns it as running.
     expect(establishment.capturedIdentity, identity);

@@ -6,6 +6,7 @@ class Subscription {
     this.lastUpdate,
     this.enabled = true,
     this.autoUpdate = true,
+    this.disabledSourceYaml,
   });
 
   final String id;
@@ -15,11 +16,17 @@ class Subscription {
   bool enabled;
   bool autoUpdate;
 
+  /// Offline source retained only while this subscription is disabled.
+  String? disabledSourceYaml;
+
   factory Subscription.fromJson(Map<String, dynamic> json) => Subscription(
         id: json['id']?.toString() ?? '',
         name: json['name']?.toString() ?? '',
         url: json['url']?.toString() ?? '',
         lastUpdate: _parseDate(json['lastUpdate']),
+        disabledSourceYaml: json['disabledSourceYaml'] is String
+            ? json['disabledSourceYaml'] as String
+            : null,
         enabled: json['enabled'] is bool ? json['enabled'] as bool : true,
         autoUpdate:
             json['autoUpdate'] is bool ? json['autoUpdate'] as bool : true,
@@ -32,6 +39,8 @@ class Subscription {
         'lastUpdate': lastUpdate?.toIso8601String(),
         'enabled': enabled,
         'autoUpdate': autoUpdate,
+        if (disabledSourceYaml != null)
+          'disabledSourceYaml': disabledSourceYaml,
       };
 
   static DateTime? _parseDate(Object? value) {

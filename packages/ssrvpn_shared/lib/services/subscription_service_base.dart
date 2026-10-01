@@ -201,18 +201,27 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
       }
       final control =
           SubscriptionRefreshControl(timeout: defaultBatchRefreshTimeout);
-      final cachedSources =
+      var cachedSources =
           _rawYaml == null ? null : await _cachedSourceYamls(control);
       if (updated.url == previous.url) {
-        // A refresh ahead of this edit may have committed a newer timestamp.
-        // Metadata edits must preserve the service's latest refresh result.
+        // Preserve newer refresh timestamps when editing metadata.
         updated.lastUpdate = previous.lastUpdate;
+      }
+      updated.disabledSourceYaml = updated.enabled
+          ? null
+          : cachedSources?[updated.id] ?? previous.disabledSourceYaml;
+      if (updated.enabled && previous.disabledSourceYaml != null) {
+        (cachedSources ??= <String, String>{})[updated.id] =
+            previous.disabledSourceYaml!;
       }
       _subscriptions[index] = updated;
       try {
         if (updated.url != previous.url) {
           final sources = cachedSources ?? <String, String>{};
           sources[updated.id] = await _fetchValidatedSource(updated, control);
+          if (!updated.enabled) {
+            updated.disabledSourceYaml = sources[updated.id];
+          }
           final processed =
               await _mergeSourceYamls(sources, control, refreshed: {updated});
           await _commitSubscriptionCache(processed, [updated], control);
@@ -237,8 +246,6 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
     final processed = await _mergeSourceYamls(sources, control);
     await _commitSubscriptionCache(processed, const [], control);
   }
-
-  // ── 刷新 ──
 
   /// 刷新所有订阅，返回合并后的 YAML；null 表示无订阅
   Future<String?> refreshAllSubscriptions({
@@ -515,8 +522,6 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
     notifyListeners();
   }
 
-  // ── 节点编辑 ──
-
   /// Preflight before a caller changes related preferences. The queued write
   /// repeats validation against its current state to cover intervening edits.
   void validateNodeUpdate(String originalName, Map<String, dynamic> config) {
@@ -570,8 +575,6 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
       await _commitDiskTransaction();
     });
   }
-
-  // ── YAML 合并 ──
 
   Future<void> setRawYaml(String yaml) {
     return _enqueueOperation(() => _setRawYaml(yaml));

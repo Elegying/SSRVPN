@@ -299,6 +299,7 @@ class DirectFetcher {
         physicalAddressLookup,
     SubscriptionRefreshCancellation? cancellation,
   }) async {
+    cancellation?.throwIfCancelled();
     final cancellationScope = _DirectFetchCancellationScope(cancellation);
     try {
       final deadline = DateTime.now().add(requestTimeout);
@@ -310,13 +311,20 @@ class DirectFetcher {
         return cap != null && value > cap ? cap : value;
       }
 
+      Future<T> wait<T>(Future<T> operation, {Duration? cap}) {
+        try {
+          return cancellationScope.wait(operation.timeout(remaining(cap: cap)));
+        } catch (_) {
+          // Deadline evaluation can fail after the Future has already started.
+          unawaited(operation.then<void>((_) {},
+              onError: (Object _, StackTrace __) {}));
+          rethrow;
+        }
+      }
+
       final shouldBindPhysicalSource = bindPhysicalSource ?? Platform.isMacOS;
       final physicalAddresses = shouldBindPhysicalSource
-          ? await cancellationScope
-              .wait(
-                (physicalAddressLookup ?? _physicalInterfaceAddresses)(),
-              )
-              .timeout(remaining())
+          ? await wait((physicalAddressLookup ?? _physicalInterfaceAddresses)())
           : <InternetAddressType, InternetAddress>{};
       final dohBindAddress = physicalAddresses[InternetAddressType.IPv4];
       var current = SubscriptionUrlPolicy.parse(url);
@@ -335,20 +343,15 @@ class DirectFetcher {
         if (hostAddress != null) {
           connectAddresses = [hostAddress];
         } else if (addressLookup != null) {
-          connectAddresses = await cancellationScope.wait(
-            addressLookup(host).timeout(remaining()),
-          );
+          connectAddresses = await wait(addressLookup(host));
         } else {
           List<String> ips = [];
-          ips = await cancellationScope
-              .wait(
-                _resolveViaDoH(host, dohBindAddress, cancellationScope),
-              )
-              .timeout(remaining());
+          ips = await wait(
+              _resolveViaDoH(host, dohBindAddress, cancellationScope));
           if (ips.isEmpty) {
-            final sys = await cancellationScope.wait(
-              InternetAddress.lookup(host)
-                  .timeout(remaining(cap: const Duration(seconds: 5))),
+            final sys = await wait(
+              InternetAddress.lookup(host),
+              cap: const Duration(seconds: 5),
             );
             ips = sys.map((a) => a.address).toList();
           }
@@ -384,9 +387,10 @@ class DirectFetcher {
               ),
             );
             stream = isHttps
-                ? await cancellationScope.waitAndTrackSocket(
-                    SecureSocket.secure(socket, host: host)
-                        .timeout(remaining(cap: _connectTimeout)),
+                ? await wait(
+                    cancellationScope.waitAndTrackSocket(
+                        SecureSocket.secure(socket, host: host)),
+                    cap: _connectTimeout,
                   )
                 : socket;
             break;
@@ -539,8 +543,9 @@ class _DirectFetchCancellationScope {
   Future<T> wait<T>(Future<T> operation) async {
     final activeCancellation = cancellation;
     if (activeCancellation == null) return operation;
-    activeCancellation.throwIfCancelled();
 
+    // The Future already started; even an earlier cancellation must attach
+    // its error handler before returning the cancelled result.
     final result = Completer<T>();
     final detach = activeCancellation.attach(() {
       if (!result.isCompleted) {

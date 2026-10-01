@@ -109,6 +109,7 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
   String get configDir;
 
   Future<bool> healthCheck();
+  Future<T> runDiagnosticInSession<T>(Future<T> Function() operation);
 
   Future<bool> diagnosticRecentIPv6Failure() async => false;
 
@@ -145,7 +146,10 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
     }
   }
 
-  Future<AppDiagnosticReport> runDiagnostics({
+  Future<AppDiagnosticReport> runDiagnostics({DateTime Function()? clock}) =>
+      runDiagnosticInSession(() => _runDiagnostics(clock: clock));
+
+  Future<AppDiagnosticReport> _runDiagnostics({
     DateTime Function()? clock,
   }) async {
     final checks = <AppDiagnosticCheck>[];

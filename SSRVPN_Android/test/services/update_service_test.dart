@@ -51,6 +51,32 @@ void main() {
       }
     });
 
+    test('chunked APK downloads keep cancellation observers bounded', () async {
+      final chunks = List<List<int>>.generate(64, (index) => [index]);
+      final bytes = chunks.expand((chunk) => chunk).toList();
+      final cancellation = _ObservedDownloadCancellation();
+      final file = await UpdateService.downloadUpdateApk(
+        AppUpdateInfo(
+            version: '9.9.9',
+            changelog: '',
+            downloadUrl: 'https://example.com/update.apk',
+            sha256: sha256.convert(bytes).toString()),
+        outputDirectory: tempDir,
+        client: _StreamClient((_) async =>
+            http.StreamedResponse(Stream.fromIterable(chunks), 200)),
+        cancellation: cancellation,
+        onProgress: (_, __) {
+          expect(cancellation.activeWaitCount, lessThanOrEqualTo(1));
+          expect(cancellation.observers, lessThanOrEqualTo(8));
+        },
+      );
+      expect(await file.readAsBytes(), bytes);
+      expect(cancellation.activeWaitCount, 0);
+      expect(cancellation.observers, lessThanOrEqualTo(8));
+      cancellation.cancel();
+      expect(await file.readAsBytes(), bytes);
+    });
+
     for (final cancel in [false, true]) {
       test(
           'real HTTP socket closes after ${cancel ? "cancel" : "timeout"} before headers',
@@ -920,6 +946,16 @@ class _StreamClient extends http.BaseClient {
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) =>
       _handler(request);
+}
+
+class _ObservedDownloadCancellation extends UpdateDownloadCancellation {
+  int observers = 0;
+
+  @override
+  Future<void> get whenCancelled {
+    observers++;
+    return super.whenCancelled;
+  }
 }
 
 class _TrackingStreamClient extends _StreamClient {

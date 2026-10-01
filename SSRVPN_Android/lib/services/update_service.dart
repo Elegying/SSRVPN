@@ -19,13 +19,40 @@ class UpdateDownloadCancelled implements Exception {
 class UpdateDownloadCancellation {
   final Completer<void> _cancelled = Completer<void>();
   void Function()? _abortRequest;
+  final Set<void Function()> _waiters = {};
 
   bool get isCancelled => _cancelled.isCompleted;
   Future<void> get whenCancelled => _cancelled.future;
 
+  @visibleForTesting
+  int get activeWaitCount => _waiters.length;
+
   void cancel() {
     if (!_cancelled.isCompleted) _cancelled.complete();
+    for (final cancelWait in List<void Function()>.of(_waiters)) {
+      cancelWait();
+    }
     _abortRequest?.call();
+  }
+
+  Future<T> _wait<T>(Future<T> operation) async {
+    final result = Completer<T>();
+    void cancelWait() {
+      if (!result.isCompleted) result.completeError(UpdateDownloadCancelled());
+    }
+
+    _waiters.add(cancelWait);
+    if (isCancelled) cancelWait();
+    operation.then((value) {
+      if (!result.isCompleted) result.complete(value);
+    }, onError: (Object error, StackTrace stack) {
+      if (!result.isCompleted) result.completeError(error, stack);
+    });
+    try {
+      return await result.future;
+    } finally {
+      _waiters.remove(cancelWait);
+    }
   }
 
   void _attach(void Function() abortRequest) {
@@ -233,13 +260,7 @@ class UpdateService {
     Future<T> operation,
     UpdateDownloadCancellation? cancellation,
   ) {
-    if (cancellation == null) return operation;
-    return Future.any<T>([
-      operation,
-      cancellation.whenCancelled.then<T>(
-        (_) => throw UpdateDownloadCancelled(),
-      ),
-    ]);
+    return cancellation == null ? operation : cancellation._wait(operation);
   }
 
   static Future<http.StreamedResponse> _sendResponse(

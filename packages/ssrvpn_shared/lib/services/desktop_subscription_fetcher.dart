@@ -359,9 +359,20 @@ class DesktopSubscriptionFetcher {
     }
 
     Future<T> waitFor<T>(Future<T> operation) {
-      if (control == null) return operation;
+      late Future<T> bounded;
+      try {
+        bounded = operation.timeout(remaining(), onTimeout: () {
+          throw TimeoutException('订阅请求超过绝对时限', requestTimeout);
+        });
+      } catch (_) {
+        // The operation started before the deadline check; consume late errors.
+        unawaited(operation.then<void>((_) {},
+            onError: (Object _, StackTrace __) {}));
+        rethrow;
+      }
+      if (control == null) return bounded;
       return control.wait(
-        operation,
+        bounded,
         onAbort: () => client.close(force: true),
       );
     }
@@ -371,7 +382,7 @@ class DesktopSubscriptionFetcher {
       final literal = InternetAddress.tryParse(uri.host);
       final resolved = literal == null
           ? await waitFor(
-              InternetAddress.lookup(uri.host).timeout(remaining()),
+              InternetAddress.lookup(uri.host),
             )
           : [literal];
       final addresses = SubscriptionFetchPolicy.validateResolvedAddresses(
@@ -392,7 +403,7 @@ class DesktopSubscriptionFetcher {
           ),
         );
       };
-      final request = await waitFor(client.getUrl(uri).timeout(remaining()));
+      final request = await waitFor(client.getUrl(uri));
       request
         ..followRedirects = false
         ..headers.set('User-Agent', userAgent)
@@ -402,7 +413,7 @@ class DesktopSubscriptionFetcher {
         request.headers.set(HttpHeaders.authorizationHeader, authorization);
       }
 
-      final response = await waitFor(request.close().timeout(remaining()));
+      final response = await waitFor(request.close());
       control?.throwIfStopped();
       final headers = <String, String>{};
       response.headers.forEach((name, values) {

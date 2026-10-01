@@ -178,13 +178,7 @@ Future<T> _awaitWithCancellation<T>(
   Future<T> operation,
   VerifiedUpdateCancellation? cancellation,
 ) {
-  if (cancellation == null) return operation;
-  return Future.any<T>([
-    operation,
-    cancellation.whenCancelled.then<T>(
-      (_) => throw VerifiedUpdateCancelled(),
-    ),
-  ]);
+  return cancellation == null ? operation : cancellation._wait(operation);
 }
 
 Future<http.StreamedResponse> _sendResponse(
