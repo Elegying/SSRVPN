@@ -9,6 +9,38 @@ import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('deadline exhaustion after request creation consumes its late error',
+      () async {
+    final uncaught = <Object>[];
+    final done = Completer<void>();
+    late _SlowRequestClient client;
+    runZonedGuarded(() async {
+      try {
+        client = _SlowRequestClient();
+        await expectLater(
+          HttpOverrides.runZoned(
+            () => DesktopSubscriptionFetcher.fetch(
+              'http://127.0.0.1:9/subscription',
+              allowDirectFetch: false,
+              maxRetries: 1,
+              requestTimeout: const Duration(milliseconds: 500),
+            ),
+            createHttpClient: (_) => client,
+          ),
+          throwsA(isA<TimeoutException>()),
+        );
+        client.request.completeError(const HttpException('late request error'));
+        await Future<void>.delayed(Duration.zero);
+      } finally {
+        done.complete();
+      }
+    }, (error, _) => uncaught.add(error));
+    await done.future;
+    expect(client.started, isTrue);
+    expect(client.closed, isTrue);
+    expect(uncaught, isEmpty);
+  });
+
   test('batch deadline closes a stalled compatibility retry socket', () async {
     final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
     final accepted = <Socket>[];
@@ -504,6 +536,25 @@ proxies:
     cipher: aes-128-gcm
     password: test
 ''';
+
+class _SlowRequestClient implements HttpClient {
+  final request = Completer<HttpClientRequest>();
+  bool started = false;
+  bool closed = false;
+
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) {
+    started = true;
+    sleep(const Duration(milliseconds: 600));
+    return request.future;
+  }
+
+  @override
+  void close({bool force = false}) => closed = true;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
 
 final _shadowrocketSubscription = base64Encode(
   utf8.encode(

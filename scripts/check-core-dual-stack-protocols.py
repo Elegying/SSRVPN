@@ -14,6 +14,7 @@ import struct
 import subprocess
 import tempfile
 import time
+import threading
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('dual', ROOT / 'scripts/check-core-dual-stack.py')
@@ -35,18 +36,44 @@ class Target(traffic.Target):
         super().do_GET()
 
 
+class UdpTrace:
+    """Bounded loopback evidence, correlated by a unique probe payload."""
+    def __init__(self):
+        self.started = time.monotonic()
+        self.lock = threading.Lock()
+        self.events = []
+        self.counts = {}
+
+    def record(self, event, probe, **details):
+        with self.lock:
+            self.counts[event] = self.counts.get(event, 0) + 1
+            self.events.append(dict(event=event, probe=probe.decode('ascii', errors='replace'),
+                                    elapsed_ms=round((time.monotonic() - self.started) * 1000, 3),
+                                    **details))
+            self.events = self.events[-64:]
+
+    def snapshot(self):
+        with self.lock:
+            return dict(counts=dict(self.counts), timeline=list(self.events))
+
+
+UDP_TRACE = UdpTrace()
+
+
 class Echo(socketserver.BaseRequestHandler):
     def handle(self):
         payload, transport = self.request
         family = b'4' if self.server.address_family == socket.AF_INET else b'6'
-        transport.sendto(family + payload, self.client_address)
+        UDP_TRACE.record('echo_received', payload, family=family.decode(), bytes=len(payload))
+        sent = transport.sendto(family + payload, self.client_address)
+        UDP_TRACE.record('echo_sent', payload, family=family.decode(), bytes=sent)
 
 
 class UDP6(socketserver.ThreadingUDPServer):
     address_family = socket.AF_INET6
 
 
-def check_udp(mixed, target):
+def check_udp(mixed, target, case='fixture'):
     with socket.create_connection(('127.0.0.1', mixed), timeout=5) as control:
         control.sendall(b'\x05\x01\x00')
         with control.makefile('rb') as stream:
@@ -60,13 +87,20 @@ def check_udp(mixed, target):
                 client.settimeout(5)
                 # Reuse one association and source port, including a return to
                 # the first target, to exercise the live UDP NAT mapping.
-                for host, family in [('dual.fixture', b'4'), ('v6.fixture', b'6'), ('dual.fixture', b'4')]:
+                for sequence, (host, family) in enumerate([('dual.fixture', b'4'), ('v6.fixture', b'6'), ('dual.fixture', b'4')]):
                     encoded = host.encode()
-                    payload = b'protocol-udp-' + encoded
-                    client.sendto(b'\x00\x00\x00\x03' + bytes([len(encoded)]) + encoded + struct.pack('!H', target) + payload, ('127.0.0.1', port))
-                    reply, _ = client.recvfrom(4096)
+                    payload = f'protocol-udp-{case}-{time.monotonic_ns()}-{sequence}-'.encode() + encoded
+                    sent = client.sendto(b'\x00\x00\x00\x03' + bytes([len(encoded)]) + encoded + struct.pack('!H', target) + payload, ('127.0.0.1', port))
+                    UDP_TRACE.record('client_sent', payload, host=host, bytes=sent, relay_port=port)
+                    try:
+                        reply, _ = client.recvfrom(4096)
+                    except TimeoutError:
+                        UDP_TRACE.record('client_timeout', payload, host=host)
+                        raise
                     kind = reply[3]
                     offset = 10 if kind == 1 else 22 if kind == 4 else 7 + reply[4]
+                    UDP_TRACE.record('client_received', payload, host=host, bytes=len(reply),
+                                     matched=reply[offset:] == family + payload)
                     assert reply[offset:] == family + payload, reply
 
 
@@ -174,9 +208,11 @@ def main():
                             assert not Target.families, (case, 'PROXY failure leaked to direct IPv6', Target.families)
                         assert traffic.request(client['mixed-port'], f'http://dual.fixture:{target_port}/still-running', False)[0] == 200
                     else:
-                        check_udp(client['mixed-port'], udp_port)
+                        check_udp(client['mixed-port'], udp_port, case)
+                        print('UDP evidence: ' + json.dumps(UDP_TRACE.snapshot(), ensure_ascii=False))
                     print(f'PASS: {case} encrypted data, AAAA-preferring client, bounded failure/no DIRECT payload leak, surviving core')
                 except BaseException:
+                    print('UDP evidence: ' + json.dumps(UDP_TRACE.snapshot(), ensure_ascii=False))
                     for log in [client_log, server_log]:
                         log.flush()
                         log.seek(0)

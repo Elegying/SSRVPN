@@ -163,7 +163,11 @@ class _SubscriptionUriParser {
         'udp': true,
       };
 
-      final network = _normalizeNetwork(_stringFrom(json['net']));
+      final declaredNetwork = _normalizeNetwork(_stringFrom(json['net']));
+      final network = declaredNetwork == 'tcp' &&
+              _stringFrom(json['type'])?.toLowerCase() == 'http'
+          ? 'http'
+          : declaredNetwork;
       if (network != null) proxy['network'] = network;
 
       final tls = _stringFrom(json['tls'])?.toLowerCase();
@@ -210,7 +214,9 @@ class _SubscriptionUriParser {
       'udp': true,
     };
 
-    final network = _normalizeNetwork(query['type']);
+    // VLESS share links call HTTP/2 "http"; Mihomo's "http" is TCP camouflage.
+    final declaredNetwork = _normalizeNetwork(query['type']);
+    final network = declaredNetwork == 'http' ? 'h2' : declaredNetwork;
     if (network != null) proxy['network'] = network;
 
     final security = query['security']?.trim().toLowerCase();
@@ -240,6 +246,7 @@ class _SubscriptionUriParser {
       path: query['path'],
       host: query['host'],
       grpcServiceName: query['serviceName'],
+      xhttpMode: query['mode'],
     );
 
     if (security == 'reality') {
@@ -560,9 +567,14 @@ class _SubscriptionUriParser {
     String? path,
     String? host,
     String? grpcServiceName,
+    String? xhttpMode,
   }) {
-    if (network == 'ws') {
+    if (network == 'ws' || network == 'httpupgrade') {
       final wsOpts = <String, dynamic>{};
+      if (network == 'httpupgrade') {
+        proxy['network'] = 'ws';
+        wsOpts['v2ray-http-upgrade'] = true;
+      }
       _putIfNotEmpty(wsOpts, 'path', path);
       final headerHost = host?.trim();
       if (headerHost != null && headerHost.isNotEmpty) {
@@ -573,13 +585,25 @@ class _SubscriptionUriParser {
       final grpcOpts = <String, dynamic>{};
       _putIfNotEmpty(grpcOpts, 'grpc-service-name', grpcServiceName);
       if (grpcOpts.isNotEmpty) proxy['grpc-opts'] = grpcOpts;
-    } else if (network == 'h2' || network == 'http') {
+    } else if (network == 'h2') {
+      final h2Opts = <String, dynamic>{};
+      final hosts = _splitCsv(host);
+      if (hosts.isNotEmpty) h2Opts['host'] = hosts;
+      _putIfNotEmpty(h2Opts, 'path', path);
+      if (h2Opts.isNotEmpty) proxy['h2-opts'] = h2Opts;
+    } else if (network == 'http') {
       final httpOpts = <String, dynamic>{};
       final paths = _splitCsv(path);
       final hosts = _splitCsv(host);
       if (paths.isNotEmpty) httpOpts['path'] = paths;
-      if (hosts.isNotEmpty) httpOpts['host'] = hosts;
+      if (hosts.isNotEmpty) httpOpts['headers'] = {'Host': hosts};
       if (httpOpts.isNotEmpty) proxy['http-opts'] = httpOpts;
+    } else if (network == 'xhttp' && proxy['type'] == 'vless') {
+      final xhttpOpts = <String, dynamic>{};
+      _putIfNotEmpty(xhttpOpts, 'path', path);
+      _putIfNotEmpty(xhttpOpts, 'host', host);
+      _putIfNotEmpty(xhttpOpts, 'mode', xhttpMode);
+      if (xhttpOpts.isNotEmpty) proxy['xhttp-opts'] = xhttpOpts;
     }
   }
 
@@ -608,14 +632,13 @@ class _SubscriptionUriParser {
 
   static void _putUserInfo(Map<String, dynamic> proxy, String rawUserInfo) {
     if (rawUserInfo.isEmpty) return;
-    final userInfo = _decodeUriPart(rawUserInfo);
-    final separator = userInfo.indexOf(':');
+    final separator = rawUserInfo.indexOf(':');
     if (separator < 0) {
-      proxy['username'] = userInfo;
+      proxy['username'] = _decodeUriPart(rawUserInfo);
       return;
     }
-    final username = userInfo.substring(0, separator);
-    final password = userInfo.substring(separator + 1);
+    final username = _decodeUriPart(rawUserInfo.substring(0, separator));
+    final password = _decodeUriPart(rawUserInfo.substring(separator + 1));
     if (username.isNotEmpty) proxy['username'] = username;
     if (password.isNotEmpty) proxy['password'] = password;
   }

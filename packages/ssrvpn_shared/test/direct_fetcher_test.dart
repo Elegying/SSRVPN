@@ -469,6 +469,83 @@ void main() {
     }
   });
 
+  test('deadline exhaustion after lookup creation consumes its late error',
+      () async {
+    final uncaught = <Object>[];
+    final done = Completer<void>();
+    runZonedGuarded(() async {
+      try {
+        final lookup = Completer<List<InternetAddress>>();
+        await expectLater(
+          DirectFetcher.fetchResponse(
+            'https://synthetic.invalid/subscription',
+            bindPhysicalSource: false,
+            requestTimeout: const Duration(milliseconds: 500),
+            addressLookup: (_) {
+              sleep(const Duration(milliseconds: 600));
+              return lookup.future;
+            },
+          ),
+          throwsA(isA<TimeoutException>()),
+        );
+        lookup.completeError(const SocketException('late lookup error'));
+        await Future<void>.delayed(Duration.zero);
+      } finally {
+        done.complete();
+      }
+    }, (error, _) => uncaught.add(error));
+    await done.future;
+    expect(uncaught, isEmpty);
+  });
+
+  test('already cancelled requests do not start interface discovery', () async {
+    final cancellation = SubscriptionRefreshCancellation()..cancel();
+    var lookups = 0;
+    await expectLater(
+      DirectFetcher.fetchResponse(
+        'http://127.0.0.1:9/subscription',
+        cancellation: cancellation,
+        bindPhysicalSource: true,
+        physicalAddressLookup: () async {
+          lookups++;
+          return const {};
+        },
+      ),
+      throwsA(isA<SubscriptionRefreshCancelled>()),
+    );
+    expect(lookups, 0);
+  });
+
+  test('cancellation before wait registration consumes a late lookup error',
+      () async {
+    final uncaught = <Object>[];
+    final done = Completer<void>();
+    runZonedGuarded(() async {
+      try {
+        final cancellation = SubscriptionRefreshCancellation();
+        final lookup = Completer<Map<InternetAddressType, InternetAddress>>();
+        await expectLater(
+          DirectFetcher.fetchResponse(
+            'http://127.0.0.1:9/subscription',
+            cancellation: cancellation,
+            bindPhysicalSource: true,
+            physicalAddressLookup: () {
+              cancellation.cancel();
+              return lookup.future;
+            },
+          ),
+          throwsA(isA<SubscriptionRefreshCancelled>()),
+        );
+        lookup.completeError(const SocketException('synthetic lookup failure'));
+        await Future<void>.delayed(Duration.zero);
+      } finally {
+        done.complete();
+      }
+    }, (error, _) => uncaught.add(error));
+    await done.future;
+    expect(uncaught, isEmpty);
+  });
+
   test('fetchResponse deadline includes physical interface discovery',
       () async {
     final interfaces = Completer<Map<InternetAddressType, InternetAddress>>();

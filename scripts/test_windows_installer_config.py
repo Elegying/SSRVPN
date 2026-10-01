@@ -2631,7 +2631,20 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("mihomo.pid", lifecycle)
-        self.assertIn("_captureCorePidRecord(", lifecycle)
+        services = ROOT / "SSRVPN_Windows/lib/services"
+        identity = (services / "clash_service_identity.dart").read_text(encoding="utf-8")
+        host = (services / "clash_service.dart").read_text(encoding="utf-8")
+        self.assertIn("part 'clash_service_identity.dart';", host)
+        self.assertIn("part of 'clash_service.dart';", identity)
+        self.assertIn("_captureCorePidRecord(", identity)
+        for guard in (
+            "$process.MainModule.FileName",
+            "$process.SessionId -ne $currentSessionId",
+            "[StringComparison]::OrdinalIgnoreCase",
+            "$process.StartTime.ToUniversalTime().ToFileTimeUtc()",
+            "decodeWindowsCoreIdentity(result, corePid, _corePath)",
+        ):
+            self.assertIn(guard.replace("$", "\\$"), identity)
         identity_start = lifecycle.index("WindowsCoreIdentityEstablishment(")
         self.assertIn("startedProcess,", lifecycle[identity_start:])
         self.assertIn("spawnStartedAtUtcFileTime", lifecycle[identity_start:])

@@ -26,6 +26,37 @@ void main() {
     if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
+  test('chunked downloads keep cancellation Future observers bounded',
+      () async {
+    final chunks = List<List<int>>.generate(64, (index) => [index]);
+    final bytes = chunks.expand((chunk) => chunk).toList();
+    final cancellation = _ObservedUpdateCancellation();
+    final file = await SharedUpdateService.downloadVerifiedUpdate(
+      AppUpdateInfo(
+          version: '9.9.9',
+          changelog: '',
+          downloadUrl: 'https://example.com/update',
+          sha256: sha256.convert(bytes).toString()),
+      filePublisher: testVerifiedUpdatePublisher,
+      outputDirectory: tempDir,
+      fileName: 'SSRVPN.dmg',
+      client: _TrackingStreamClient(
+          (_) async => http.StreamedResponse(Stream.fromIterable(chunks), 200)),
+      cancellation: cancellation,
+      onProgress: (_, __) {
+        expect(cancellation.activeWaitCount, lessThanOrEqualTo(1));
+        expect(cancellation.observers, lessThanOrEqualTo(8),
+            reason:
+                'completed waits must not remain on the cancellation Future');
+      },
+    );
+    expect(await file.readAsBytes(), bytes);
+    expect(cancellation.activeWaitCount, 0);
+    expect(cancellation.observers, lessThanOrEqualTo(8));
+    cancellation.cancel();
+    expect(await file.readAsBytes(), bytes);
+  });
+
   for (final cancel in [false, true]) {
     test(
         'real HTTP socket closes after ${cancel ? "cancel" : "timeout"} before headers',
@@ -78,6 +109,7 @@ void main() {
       await started.future.timeout(const Duration(seconds: 2));
       if (cancel) cancellation.cancel();
       await failed;
+      expect(cancellation.activeWaitCount, 0);
       await closed.future.timeout(const Duration(seconds: 1));
       expect(client.closed, isFalse);
     });
@@ -1371,5 +1403,15 @@ Future<void> _waitForFile(File file) async {
       throw TimeoutException('Timed out waiting for ${file.path}');
     }
     await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
+
+class _ObservedUpdateCancellation extends VerifiedUpdateCancellation {
+  int observers = 0;
+
+  @override
+  Future<void> get whenCancelled {
+    observers++;
+    return super.whenCancelled;
   }
 }

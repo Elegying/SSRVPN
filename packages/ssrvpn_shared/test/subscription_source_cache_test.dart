@@ -60,6 +60,64 @@ void main() {
     await service.init(directory.path);
   }
 
+  test('disabled remote cache survives restart, rename and offline reenable',
+      () async {
+    final source = await addFeed('A', 'a', _yaml('A', 'a'));
+    await service.refreshAllSubscriptions();
+    await service.updateSubscription(Subscription(
+        id: source.id, name: source.name, url: source.url, enabled: false));
+    expect(service.allNodes, isEmpty);
+    await reload();
+    expect(service.subscriptions.single.disabledSourceYaml, isNotNull);
+    await service.updateSubscription(Subscription(
+        id: source.id, name: 'Renamed', url: source.url, enabled: false));
+    await reload();
+    await service.updateSubscription(
+        Subscription(id: source.id, name: 'Renamed', url: source.url));
+    expect(service.fetchCalls, 0);
+    expect(service.allNodes.single.server, 'a.invalid');
+    expect(service.allNodes.single.group, 'Renamed');
+    expect(service.subscriptions.single.disabledSourceYaml, isNull);
+    await reload();
+    expect(service.allNodes.single.server, 'a.invalid');
+  });
+
+  test('disabled URL replacement restores the new source offline', () async {
+    final source = await addFeed('A', 'a', _yaml('A', 'a'));
+    await service.refreshAllSubscriptions();
+    const url = 'https://new.invalid/sub';
+    service.responses[url] = _yaml('New', 'new');
+    await service.updateSubscription(Subscription(
+        id: source.id, name: source.name, url: url, enabled: false));
+    expect(service.allNodes, isEmpty);
+    await reload();
+    await service.updateSubscription(
+        Subscription(id: source.id, name: source.name, url: url));
+    expect(service.fetchCalls, 0);
+    expect(service.allNodes.single.server, 'new.invalid');
+  });
+
+  test('failed enable commit preserves the disabled snapshot for retry',
+      () async {
+    final source = await addFeed('A', 'a', _yaml('A', 'a'));
+    await service.refreshAllSubscriptions();
+    await service.updateSubscription(Subscription(
+        id: source.id, name: source.name, url: source.url, enabled: false));
+    final snapshot = service.subscriptions.single.disabledSourceYaml;
+    service.failMetadata = true;
+    await expectLater(
+        service.updateSubscription(
+            Subscription(id: source.id, name: source.name, url: source.url)),
+        throwsA(isA<FileSystemException>()));
+    expect(service.subscriptions.single.enabled, isFalse);
+    expect(service.subscriptions.single.disabledSourceYaml, snapshot);
+    await reload();
+    expect(service.allNodes, isEmpty);
+    await service.updateSubscription(
+        Subscription(id: source.id, name: source.name, url: source.url));
+    expect(service.allNodes.single.name, 'A');
+  });
+
   for (final local in [false, true]) {
     for (final retryExisting in [false, true]) {
       test(

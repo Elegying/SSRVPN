@@ -657,61 +657,6 @@ exit 4
         cancellation: cancellation,
       );
 
-  Future<WindowsCorePidRecord> _captureCorePidRecord(int corePid) async {
-    final encodedTrustedPath = base64Encode(utf8.encode(_corePath));
-    final script = '''
-\$trustedPath = [Text.Encoding]::UTF8.GetString(
-  [Convert]::FromBase64String('$encodedTrustedPath'))
-\$process = [Diagnostics.Process]::GetProcessById([int]$corePid)
-try {
-  \$process.Refresh()
-  if (\$process.HasExited) {
-    throw 'Mihomo exited before its durable identity was captured.'
-  }
-  \$livePath = [IO.Path]::GetFullPath(\$process.MainModule.FileName)
-  \$canonicalTrustedPath = [IO.Path]::GetFullPath(\$trustedPath)
-  \$currentSessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId
-  if (\$process.Id -ne [int]$corePid -or
-      \$process.SessionId -ne \$currentSessionId -or
-      -not \$livePath.Equals(
-        \$canonicalTrustedPath,
-        [StringComparison]::OrdinalIgnoreCase)) {
-    throw 'Mihomo identity did not match the process started by SSRVPN.'
-  }
-  \$creationTime = \$process.StartTime.ToUniversalTime().ToFileTimeUtc()
-  if (\$creationTime -le 0) {
-    throw 'Mihomo creation time was invalid.'
-  }
-  [ordered]@{
-    version = $windowsCorePidRecordVersion
-    pid = [int]$corePid
-    creationTimeUtcFileTime = \$creationTime.ToString(
-      [Globalization.CultureInfo]::InvariantCulture)
-    canonicalExecutablePath = \$livePath
-  } | ConvertTo-Json -Compress
-} finally {
-  \$process.Dispose()
-}
-''';
-    final result = await _runPowerShell(
-      script,
-      timeout: const Duration(seconds: 8),
-    );
-    if (result.exitCode != 0) {
-      throw StateError('无法读取新启动 Mihomo 的完整进程身份');
-    }
-    final record = WindowsCorePidRecord.tryParse(
-      result.stdout.toString().trim(),
-    );
-    if (record == null ||
-        record.pid != corePid ||
-        record.canonicalExecutablePath.toLowerCase() !=
-            _corePath.toLowerCase()) {
-      throw StateError('新启动 Mihomo 的进程身份校验失败');
-    }
-    return record;
-  }
-
   // ── clang-format off: Start / Stop ──
 
   /// 启动核心

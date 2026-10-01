@@ -45,6 +45,7 @@ List<AppDiagnosticCheck> buildWindowsPlatformDiagnosticChecks({
 }
 
 String _friendlyStartException(Object error) {
+  if (error is WindowsCoreIdentityFailure) return error.toString();
   final message = error.toString();
   final lower = message.toLowerCase();
   if (lower.contains('access is denied') ||

@@ -9,10 +9,28 @@ class ProxyTransportValidation {
     if (!_validTlsOptions(proxy)) return false;
     switch (type) {
       case 'vmess':
-        return const {'auto', 'none', 'aes-128-gcm', 'chacha20-poly1305'}
-            .contains(proxy['cipher'] ?? 'auto');
+        return const {
+          'auto',
+          'none',
+          'zero',
+          'aes-128-cfb',
+          'aes-128-gcm',
+          'chacha20-poly1305'
+        }.contains((proxy['cipher'] ?? 'auto').toString().toLowerCase());
       case 'vless':
-        return _validVlessEncryption(proxy['encryption']?.toString() ?? '');
+        final xhttp = proxy['xhttp-opts'];
+        return _validVlessEncryption(proxy['encryption']?.toString() ?? '') &&
+            (proxy['network'] != 'xhttp' ||
+                xhttp == null ||
+                (xhttp is Map &&
+                    const {
+                      null,
+                      '',
+                      'auto',
+                      'packet-up',
+                      'stream-up',
+                      'stream-one'
+                    }.contains(xhttp['mode'])));
       case 'ssr':
         final cipher = proxy['cipher']?.toString() ?? '';
         return (cipher == 'none' ||

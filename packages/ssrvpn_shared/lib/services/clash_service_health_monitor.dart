@@ -8,6 +8,14 @@ mixin _ClashHealthSupport {
   int? _activeHealthCheckEpoch;
 
   int? captureAutomaticRestartIntent();
+  int get _dataPlaneObservationEpoch;
+
+  Future<T> runDiagnosticInSession<T>(Future<T> Function() operation) =>
+      runZoned<Future<T>>(operation, zoneValues: {
+        _healthMonitorEpochZoneKey: _healthMonitorEpoch,
+        _healthIntentZoneKey: captureAutomaticRestartIntent() ?? -1,
+        _dataPlaneObservationEpochZoneKey: _dataPlaneObservationEpoch,
+      });
   http.Client? get apiClient;
   bool get hasLocalSmartRules;
   AppSettings get settings;

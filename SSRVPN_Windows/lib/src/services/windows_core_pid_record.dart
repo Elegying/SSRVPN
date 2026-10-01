@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'windows_core_identity_failure.dart';
+
 const int windowsCorePidRecordVersion = 1;
 const int maxWindowsCorePidRecordBytes = 4096;
 final BigInt _windowsFileTimeUnixEpochOffset =
@@ -166,12 +168,14 @@ final class WindowsCoreIdentityEstablishment {
       phase: 'capturing its durable identity',
     );
     if (identity.pid != process.pid) {
-      throw StateError('Captured Mihomo identity did not match the spawn PID');
+      throw WindowsCoreIdentityFailure(WindowsCoreIdentityFailureKind.mismatch,
+          'Captured Mihomo identity did not match the spawn PID');
     }
     final creationTime = BigInt.parse(identity.creationTimeUtcFileTime);
     if (creationTime < spawnStartedAtUtcFileTime ||
         creationTime > spawnReturnedAtUtcFileTime) {
-      throw StateError(
+      throw WindowsCoreIdentityFailure(
+        WindowsCoreIdentityFailureKind.mismatch,
         'Captured Mihomo identity was outside the exact spawn window',
       );
     }
@@ -209,7 +213,7 @@ final class WindowsCoreIdentityEstablishment {
       (exitCode) {
         if (!completion.isCompleted) {
           completion.completeError(
-            StateError(
+            WindowsCoreIdentityFailure(WindowsCoreIdentityFailureKind.execution,
                 'Spawned Mihomo exited with code $exitCode while $phase'),
           );
         }
@@ -217,7 +221,8 @@ final class WindowsCoreIdentityEstablishment {
       onError: (Object error, StackTrace stackTrace) {
         if (!completion.isCompleted) {
           completion.completeError(
-            StateError('Could not observe spawned Mihomo while $phase: $error'),
+            WindowsCoreIdentityFailure(
+                WindowsCoreIdentityFailureKind.execution, error),
             stackTrace,
           );
         }

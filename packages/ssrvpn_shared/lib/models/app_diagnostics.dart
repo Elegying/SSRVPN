@@ -115,6 +115,25 @@ class AppFailure {
 
   static AppFailure fromMessage(Object? error) {
     final text = error?.toString().trim().toLowerCase() ?? '';
+    if (text.contains('core_identity_')) {
+      final timeout = text.contains('core_identity_timeout:');
+      final summary = timeout
+          ? '读取连接服务身份超时，请稍后重试。'
+          : text.contains('core_identity_mismatch:')
+              ? '连接服务身份不符，已停止接管，请退出客户端后重试。'
+              : text.contains('core_identity_invaliddata:')
+                  ? '连接服务身份返回数据异常，请重试或复制诊断报告。'
+                  : '读取连接服务身份的系统命令执行失败，请查看运行日志。';
+      return AppFailure(
+        code: timeout
+            ? AppErrorCode.coreStartTimeout
+            : AppErrorCode.coreUnavailable,
+        title: '核心进程身份检查失败',
+        summary: summary,
+        message: summary,
+        recommendedAction: '请重试；持续失败请复制诊断报告，检查系统权限与安全软件。',
+      );
+    }
     if (text.contains('分流规则尚未就绪')) {
       return const AppFailure(
         code: AppErrorCode.coreStartTimeout,

@@ -4,6 +4,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/services/subscription_parser.dart';
 
 void main() {
+  for (final scheme in ['socks5', 'socks5-tls', 'http', 'https']) {
+    test('$scheme splits credentials before percent decoding', () {
+      final proxy = SubscriptionParser.proxyFromUri(
+          '$scheme://user%3Aname:pass%3Aword%2540@relay.invalid:443')!;
+      expect(proxy['username'], 'user:name');
+      expect(proxy['password'], 'pass:word%40');
+      final yaml = SubscriptionParser.uriListToYaml(
+          '$scheme://user%3Aname:pass%3Aword%2540@relay.invalid:443')!;
+      final node = SubscriptionParser.parseYaml(yaml).nodes.single;
+      expect(node.extra['username'], 'user:name');
+      expect(node.extra['password'], 'pass:word%40');
+      expect(
+          SubscriptionParser.proxyFromUri(
+              '$scheme://user%3Aname@relay.invalid:443')!['username'],
+          'user:name');
+    });
+  }
   for (final (link, field) in [
     (
       'hy2://fixture@relay.invalid:443?obfs=salamander&obfs-password=%20fixture%20',

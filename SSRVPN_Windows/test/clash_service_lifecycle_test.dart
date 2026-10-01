@@ -105,6 +105,8 @@ Future<void> main(List<String> args) async {
       expect(await core.start(), isFalse);
       expect(core.recentLogs, contains('Mihomo 进程已创建'));
       expect(core.recentLogs, contains('启动异常'));
+      expect(core.lastStartError, contains('CORE_IDENTITY_EXECUTION:'));
+      expect(core.lastStartError, isNot(contains('损坏')));
       expect(core.recentLogs, contains('核心已停止'));
       expect(core.isRunning, isFalse);
       expect(proxy.setCalls, 0);
@@ -343,17 +345,25 @@ Future<void> main(List<String> args) async {
       expect(core.lastStartError, 'Mihomo 无法在此电脑运行: 缺少运行库或依赖 DLL');
     }, skip: !Platform.isWindows);
 
+    test('early startup failure reports its reason without a second timeout',
+        () async {
+      final marker = File('${config.path}.started');
+      final watch = Stopwatch()..start();
+      await expectLater(
+          _waitForStartupMarker(marker, Future.value(false),
+              () => 'CORE_IDENTITY_EXECUTION: Access denied'),
+          throwsA(isA<StateError>().having((e) => e.message, 'startup cause',
+              contains('CORE_IDENTITY_EXECUTION: Access denied'))));
+      expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
+    });
+
     test('interrupting a live validator releases startup without core commit',
         () async {
       await config.writeAsString('mixed-port: 7890\n# fixtureWait\n');
       final marker = File('${config.path}.started');
       final core = service()..requestConnectionIntent(true);
       final starting = core.start();
-      final deadline = DateTime.now().add(const Duration(seconds: 10));
-      while (!await marker.exists() && DateTime.now().isBefore(deadline)) {
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      }
-      expect(await marker.exists(), isTrue);
+      await _waitForStartupMarker(marker, starting, () => core.lastStartError);
       core.interruptPendingStart();
       expect(await starting.timeout(const Duration(seconds: 5)), isFalse);
       expect(core.lastStartError, '连接已取消');
@@ -1141,4 +1151,24 @@ Future<ClashService> _initializedStopService(SystemProxyService proxy) async {
   });
   await service.init(AppSettings(), dataDir: temp.path, skipCoreProbes: true);
   return service;
+}
+
+Future<void> _waitForStartupMarker(
+    File marker, Future<bool> startup, String? Function() failureReason) async {
+  var completed = false;
+  Object? startupError;
+  startup.then((_) => completed = true, onError: (Object error) {
+    startupError = error;
+    completed = true;
+  });
+  final watch = Stopwatch()..start();
+  while (!await marker.exists()) {
+    if (completed) {
+      throw StateError('启动提前结束: ${startupError ?? failureReason()}');
+    }
+    if (watch.elapsed >= const Duration(seconds: 10)) {
+      throw TimeoutException('等待启动标记超时: ${failureReason()}');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
 }
