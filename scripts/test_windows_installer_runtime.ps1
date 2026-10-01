@@ -200,6 +200,23 @@ public static class Program {
     Copy-Item -LiteralPath $corePath -Destination $copyPath
   }
 
+  # Load only the existing production lookup functions; never execute cleanup.
+  $tokens = $null
+  $parseErrors = $null
+  $stopAst = [System.Management.Automation.Language.Parser]::ParseInput(
+    $stopSource, [ref]$tokens, [ref]$parseErrors)
+  if ($parseErrors.Count -ne 0) { throw 'Cannot parse production process lookup.' }
+  foreach ($functionName in @('Get-ProcessesAtPath', 'Test-ExactPath')) {
+    $definitions = @($stopAst.FindAll({
+      param($node)
+      $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq $functionName
+    }, $true))
+    if ($definitions.Count -ne 1) { throw 'Production process lookup is ambiguous.' }
+    Invoke-Expression $definitions[0].Extent.Text
+  }
+  $currentSessionId = (Get-Process -Id $PID -ErrorAction Stop).SessionId
+
   # Sample the module-derived path immediately after spawn, before CIM waits.
   # A mismatch is diagnostic evidence, never permission to accept a wrong path.
   $startupModuleDifferences = 0
@@ -211,6 +228,14 @@ public static class Program {
         $modulePath = [string]$startupChild.Path
         if ($modulePath) { $moduleName = [IO.Path]::GetFileName($modulePath) }
       } catch {}
+      $startupIdentities = @(Get-ProcessesAtPath -Name 'mihomo.exe' `
+        -ExpectedPath $corePath)
+      $expectedCreation = $startupChild.StartTime.ToUniversalTime().ToFileTimeUtc()
+      if ($startupIdentities.Count -ne 1 -or
+          $startupIdentities[0].ProcessId -ne $startupChild.Id -or
+          [uint64]$startupIdentities[0].CreationTimeUtcFileTime -ne [uint64]$expectedCreation) {
+        throw "Production startup lookup did not retain exact child identity; sample=$sample"
+      }
       Write-CorePidRecord -PidPath (Join-Path $testRoot 'startup.pid') `
         -Process $startupChild -ExpectedCorePath $corePath
       if ($moduleName -ine 'mihomo.exe') {
@@ -228,7 +253,7 @@ public static class Program {
       $startupChild.Dispose()
     }
   }
-  Write-Host "Startup identity regression: 40 exact-path records; module differences=$startupModuleDifferences"
+  Write-Host "Startup identity regression: 40 production lookups and exact-path records; module differences=$startupModuleDifferences"
 
   # A foreign-NAMED fixture owns the app-wide mutex while no SSRVPN-named
   # process holds it. Same-named copies anywhere must be stopped by name
