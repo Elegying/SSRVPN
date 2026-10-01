@@ -9,15 +9,31 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
 GITHUB_BASE = "https://github.com/Elegying/SSRVPN/releases/download"
 ARCHIVE_BASE = "https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases"
 OBJECT_BASE = "oss://nikuaimobi/ssrvpn/releases"
+# Original successful v5.0.19 Release run, not a rebuild of the old sources.
+V5019 = {
+    "tag": "v5.0.19",
+    "url": ARCHIVE_BASE + "/v5.0.19/SSRVPN_Setup.exe",
+    "originalUrl": GITHUB_BASE + "/v5.0.19/SSRVPN_Setup.exe",
+    "sha256": "318cea6884f9652fb653f6c304fd9aa7e8cefbc587a95a85ed7d7960b3c80da9",
+}
+V5019_ARTIFACT = {
+    "runId": 36004003483,
+    "artifactId": 10810332465,
+    "commit": "08ea7c346c52f46bf216943b77f29732c5b2824d",
+    "sha256": "803b25e4314fae020f1db7119e3f5a5677af02b619662be170b1b3d3dcb267b2",
+    "bytes": 33009589,
+    "installerBytes": 33527178,
+}
 
 
-def load_sources():
+def load_sources(selected_tag=""):
     sources = json.loads(
         (ROOT / "scripts/windows_legacy_installer_sources.json").read_text(encoding="utf-8")
     )
@@ -36,6 +52,12 @@ def load_sources():
             raise ValueError("Unexpected original source")
     if not sources:
         raise ValueError("Empty historical baseline list")
+    if selected_tag == V5019["tag"]:
+        return [dict(V5019)]
+    if selected_tag:
+        sources = [source for source in sources if source["tag"] == selected_tag]
+        if not sources:
+            raise ValueError("Unknown historical baseline tag")
     return sources
 
 
@@ -64,6 +86,29 @@ def verify(path, expected):
         raise ValueError("Historical installer SHA-256 mismatch; no overwrite allowed")
 
 
+def recover_v5019_artifact(target):
+    """Read only the pinned EXE from the original, digest-pinned Actions ZIP."""
+    archive_path = target.with_suffix(".zip")
+    with archive_path.open("wb") as stream:
+        subprocess.run(
+            ["gh", "api", "repos/Elegying/SSRVPN/actions/artifacts/"
+             f"{V5019_ARTIFACT['artifactId']}/zip"],
+            stdout=stream, check=True, timeout=180,
+        )
+    if archive_path.stat().st_size != V5019_ARTIFACT["bytes"]:
+        raise ValueError("Original v5.0.19 artifact size mismatch")
+    verify(archive_path, V5019_ARTIFACT["sha256"])
+    with zipfile.ZipFile(archive_path) as archive:
+        if archive.namelist().count("SSRVPN_Setup.exe") != 1:
+            raise ValueError("Original v5.0.19 artifact must contain one installer")
+        info = archive.getinfo("SSRVPN_Setup.exe")
+        if info.file_size != V5019_ARTIFACT["installerBytes"]:
+            raise ValueError("Original v5.0.19 installer size mismatch")
+        # Never extract paths or execute any archived content.
+        target.write_bytes(archive.read(info))
+    verify(target, V5019["sha256"])
+
+
 def archive_one(source, directory, upload):
     target = directory / "archive.exe"
     if fetch(source["url"], target):
@@ -74,7 +119,9 @@ def archive_one(source, directory, upload):
             raise RuntimeError(f"Missing archive for {source['tag']}")
         original = directory / "original.exe"
         if not fetch(source["originalUrl"], original):
-            raise RuntimeError(f"Missing original baseline for {source['tag']}")
+            if source != V5019:
+                raise RuntimeError(f"Missing original baseline for {source['tag']}")
+            recover_v5019_artifact(original)
         verify(original, source["sha256"])
         # Match the release workflow's immutable-object policy. A concurrent
         # creation is accepted only after anonymous readback verifies its bytes.
@@ -87,10 +134,13 @@ def archive_one(source, directory, upload):
             raise RuntimeError("Uploaded baseline is not publicly readable")
         verify(target, source["sha256"])
         action = "archived-and-verified"
-    return {
+    result = {
         "tag": source["tag"], "url": source["url"], "originalUrl": source["originalUrl"],
         "sha256": source["sha256"], "bytes": target.stat().st_size, "action": action,
     }
+    if source == V5019:
+        result["pinnedRecoveryArtifact"] = dict(V5019_ARTIFACT)
+    return result
 
 
 def require_upload_environment():
@@ -111,11 +161,12 @@ def require_upload_environment():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--upload", action="store_true", help="Fill missing archives; main maintenance only")
+    parser.add_argument("--tag", default="", help="One pinned baseline; v5.0.19 supports original Actions artifact recovery")
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args()
     if args.upload:
         require_upload_environment()
-    sources = load_sources()
+    sources = load_sources(args.tag)
     results = []
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="ssrvpn-baselines-") as temporary:

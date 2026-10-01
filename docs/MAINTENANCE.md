@@ -100,6 +100,23 @@ The shared test contract exercises each platform's actual subscription and
 configuration entrypoints; the existing full CI package suites discover it.
 See [testing strategy](TESTING.md) for behavior boundaries and full merge gates.
 
+## Recover a missing historical Windows regression baseline
+
+Run `Maintenance` on `main` with task `windows-installer-archive` and tag
+`v5.0.19` to restore only that exact missing historical EXE. The job refuses
+non-main uploads, keeps existing objects unchanged, and verifies anonymous
+readback against the installer hash used by the MAX_PATH regression. It never
+updates the current release, aliases, or `latest.json`.
+
+If the retired GitHub Release URL is missing, recovery uses the original
+[v5.0.19 Release run](https://github.com/Elegying/SSRVPN/actions/runs/36004003483)
+artifact `10810332465`, validating both ZIP and EXE size/SHA-256. That original
+artifact is scheduled to expire on 2026-10-01 at 13:11:50 UTC; after expiration,
+recovery fails closed and needs a separately reviewed source with identical
+bytes. A rebuild is not an acceptable historical regression fixture. Leaving
+the tag blank retains the existing legacy-catalog archive behavior. Inspect
+the `windows-installer-archive` evidence before rerunning Windows policy CI.
+
 ## Pull Request Rules
 
 - Work from `feature/*`, `fix/*`, or `chore/*` branches; keep `main` stable.
