@@ -50,6 +50,21 @@ from replacing execution. A missing, skipped or failing contract fails the job.
 CI preserves per-platform JSON identity/results and Go JSONL events as the
 `core-contracts` artifact, including failures.
 
+Failure reports include `phase`, `failure_kind`, `error_type` and the original
+error. Toolchain/network prerequisites are reported as `environment`; pinned
+version or source identity rejection as `integrity`. Go events name failed tests
+as `contract-failure`; a nonzero Go exit without a failing test is `execution`
+(inspect the per-platform `.stderr.log` and `.jsonl` for build, dependency or
+runner errors). Missing passing contracts remain `contract-incomplete`.
+`setup` denotes an unclassified prerequisite failure. A contract failure requires
+investigation of the production path and test fixture; it alone does not prove
+a production defect. Go event interpretation lives in `core-contract-events.py`,
+separate from source/toolchain orchestration. Every failure still blocks the job;
+the runner never retries tests automatically or relaxes identity checks. Reusing
+a report directory clears the selected platform's old event/stderr logs first.
+Helper `SystemExit` rejections retain their diagnostics and allow `all` to check
+the remaining platforms before returning failure.
+
 To reproduce locally without changing bundled binaries or generating a release:
 
 ```bash

@@ -200,6 +200,36 @@ public static class Program {
     Copy-Item -LiteralPath $corePath -Destination $copyPath
   }
 
+  # Sample the module-derived path immediately after spawn, before CIM waits.
+  # A mismatch is diagnostic evidence, never permission to accept a wrong path.
+  $startupModuleDifferences = 0
+  for ($sample = 0; $sample -lt 40; $sample++) {
+    $startupChild = Start-Process -FilePath $corePath -PassThru
+    try {
+      $moduleName = '<unavailable>'
+      try {
+        $modulePath = [string]$startupChild.Path
+        if ($modulePath) { $moduleName = [IO.Path]::GetFileName($modulePath) }
+      } catch {}
+      Write-CorePidRecord -PidPath (Join-Path $testRoot 'startup.pid') `
+        -Process $startupChild -ExpectedCorePath $corePath
+      if ($moduleName -ine 'mihomo.exe') {
+        $startupModuleDifferences++
+        Write-Host "Startup identity sample=$sample pid=$($startupChild.Id) module=$moduleName executable=mihomo.exe"
+      }
+    } finally {
+      $startupChild.Refresh()
+      if (-not $startupChild.HasExited) {
+        $startupChild.Kill()
+        if (-not $startupChild.WaitForExit(5000)) {
+          throw 'Startup identity fixture did not stop within five seconds.'
+        }
+      }
+      $startupChild.Dispose()
+    }
+  }
+  Write-Host "Startup identity regression: 40 exact-path records; module differences=$startupModuleDifferences"
+
   # A foreign-NAMED fixture owns the app-wide mutex while no SSRVPN-named
   # process holds it. Same-named copies anywhere must be stopped by name
   # (ADR-021); a foreign-named holder must still abort the stopper before it
