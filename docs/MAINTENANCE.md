@@ -39,6 +39,34 @@ This guide keeps local development, GitHub automation, and releases aligned.
 5. Repeat for `SSRVPN_MacOS` and `SSRVPN_Windows` when shared behavior or common models change.
 6. Keep `CHANGELOG.md` updated under `Unreleased`.
 
+## Flutter Dependency Deferrals
+
+The current Flutter 3.44.1 toolchain cannot accept the updates proposed in
+[PR #281](https://github.com/Elegying/SSRVPN/pull/281) and
+[PR #284](https://github.com/Elegying/SSRVPN/pull/284) unchanged:
+
+- Flutter fixes `meta` at 1.18.0, conflicting with `meta` 1.19.0.
+- `flutter_test` fixes `test_api` at 0.7.11, while `test` 1.31.1 requires 0.7.12.
+- `tray_manager` 0.6 replaces the default API used by the macOS tray;
+  0.7 additionally requires Flutter 3.47 / Dart 3.13. The 0.6 SDK minimum alone
+  is compatible, but its API migration still needs explicit implementation.
+
+Dependabot defers only those exact `meta`/`test` versions and the tray 0.6–0.7
+series. Compatible tray 0.5.x patches and other ordinary minor/patch updates
+remain eligible. See the pinned
+[Flutter dependencies](https://github.com/flutter/flutter/blob/3.44.1/packages/flutter/pubspec.yaml),
+[Flutter test dependencies](https://github.com/flutter/flutter/blob/3.44.1/packages/flutter_test/pubspec.yaml),
+[test 1.31.1 manifest](https://github.com/dart-lang/test/blob/test-v1.31.1/pkgs/test/pubspec.yaml), and
+[tray migration notes](https://github.com/leanflutter/tray_manager/blob/de4d2867ce32b6477a8d9210576ad50d6084d0cb/CHANGELOG.md).
+
+At the next `.fvmrc` upgrade or macOS tray migration, reassess and remove the
+matching exceptions and update their regression cases. Verify tray menus,
+callbacks, tooltip updates and shutdown on macOS, then resolve and commit the
+workspace lockfile and pass `flutter pub get --enforce-lockfile` plus `make verify`.
+Do not override SDK pins to force resolution. Keep reviewing vulnerability alerts:
+ignored versions can also affect security-update candidates and require explicit
+reassessment if a security fix falls within a deferred range.
+
 ## Pinned Core Behavior Matrix
 
 The required `Prepare verified core assets` CI job runs

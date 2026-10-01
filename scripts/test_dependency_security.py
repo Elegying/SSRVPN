@@ -44,6 +44,47 @@ class DependencySecurityTest(unittest.TestCase):
                 self.assertIn(f'- "{package}"', isolated)
                 self.assertIn(f'- "{package}"', general.split("exclude-patterns:", 1)[1])
 
+    def test_known_incompatible_pub_updates_have_bounded_deferrals(self) -> None:
+        dependabot = (ROOT / ".github/dependabot.yml").read_text()
+        pub = dependabot.split('  - package-ecosystem: "pub"\n', 1)[1]
+        pub = pub.split('  - package-ecosystem:', 1)[0]
+        ignore = pub.split("    ignore:\n", 1)[1].split(
+            "    open-pull-requests-limit:", 1
+        )[0]
+        entries = dict(re.findall(
+            r'      - dependency-name: "([^"]+)"\n'
+            r'        versions: \["([^"]+)"\]',
+            ignore,
+        ))
+        # Deliberately bounded: new releases still receive compatibility review.
+        # Revise these cases alongside the exceptions during an SDK/API migration.
+        self.assertEqual(entries, {
+            "meta": "1.19.0",
+            "test": "1.31.1",
+            "tray_manager": ">=0.6.0 <0.8.0",
+        })
+        self.assertEqual(ignore.count("dependency-name:"), 4)
+        self.assertIn(
+            '      - dependency-name: "*"\n'
+            '        update-types:\n'
+            '          - "version-update:semver-major"',
+            ignore,
+        )
+        # Do not turn the targeted exceptions into a blanket minor/patch freeze.
+        self.assertNotIn("version-update:semver-minor", ignore)
+        self.assertNotIn("version-update:semver-patch", ignore)
+
+    def test_pub_deferrals_do_not_disable_other_ecosystems(self) -> None:
+        dependabot = (ROOT / ".github/dependabot.yml").read_text()
+        for ecosystem in ("github-actions", "gradle"):
+            block = dependabot.split(
+                f'  - package-ecosystem: "{ecosystem}"\n', 1
+            )[1].split('  - package-ecosystem:', 1)[0]
+            self.assertIn('interval: "weekly"', block)
+            self.assertIn("open-pull-requests-limit: 3", block)
+            for package in ("meta", "test", "tray_manager"):
+                self.assertNotIn(f'dependency-name: "{package}"', block)
+
     def test_local_flutter_action_preserves_fixed_upstream_source(self) -> None:
         action_dir = ROOT / ".github/actions/setup-flutter"
         expected_blobs = {
