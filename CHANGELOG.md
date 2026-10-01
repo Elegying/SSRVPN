@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Android 同一 VPN 会话的原生状态同步保留物理网络观察基线，避免网络切换广播或回到前台时重置比较状态、漏掉重新探测；新会话仍清除旧观察，连接状态与自动恢复归属不变。
+
 ## [5.0.24] - 2026-09-30
 
 ### 维护与安装说明

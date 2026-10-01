@@ -489,7 +489,9 @@ extension AndroidNativeBridge on ClashService {
       // A restored native session may skip its brief stopped snapshot while
       // Flutter is suspended. Retire observations from the previous core.
       setRunning(true, newSession: sessionChanged);
-      startStatusMonitor();
+      // Same-session broadcasts must not erase the physical-network baseline
+      // or postpone the existing data-plane observation timer.
+      if (!nativeWasRunning || sessionChanged) startStatusMonitor();
     } else {
       stopStatusMonitor();
       if (terminalUnexpectedStop) {
