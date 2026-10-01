@@ -107,6 +107,16 @@ cleanup and version identity). It does not replace Android JNI/device tests,
 native Windows/macOS TUN, or the existing real-core protocol probes. Adding a
 shared test through the copy manifest automatically adds it to all three runs.
 
+## Test Fixture Timing
+
+Subscription source-isolation tests assert fetch calls and persisted node state
+directly. Unrelated sources reject any unexpected fetch immediately, and a local
+import also runs with 1.1 seconds of injected persistence delay. These are
+dependency-boundary tests, not one-second disk benchmarks: `Future.timeout`
+does not cancel the underlying transaction and can leave Windows teardown racing
+an open file. Await completion under the normal test deadline before deleting
+the fixture; retain dedicated performance gates for latency requirements.
+
 ## Client Reliability Iteration
 
 For connection health, runtime generation, or legacy configuration changes, run
