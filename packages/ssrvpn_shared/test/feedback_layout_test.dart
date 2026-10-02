@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'dart:async';
+import 'package:ssrvpn_shared/widgets/ssrvpn_home_shell.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_app_surface.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/services/clash_service_base.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_settings_page.dart';
@@ -116,23 +118,30 @@ void main() {
     await capture('diagnostic');
     expect(find.text('暂时无法访问'), findsOneWidget);
     final core = _SettingsCore();
-    await tester.pumpWidget(host(SsrvpnSettingsPage(
-        settings: AppSettings(glassEffectLevel: GlassEffectLevel.none),
-        core: core,
-        dataDirectory: '/tmp',
-        onAppearanceChanged: (
-            {glassEffectLevel,
-            backgroundStyle,
-            customBackgroundPath,
-            dynamicBackground}) async {},
-        onPortChanged: (_) async {},
-        checkForUpdate: () async => null,
-        onUpdateFound: (_) {})));
+    await tester.pumpWidget(host(SsrvpnHomeShell(
+        extendBehindNavigation: true,
+        navigation: SsrvpnBottomNavigation(
+            currentIndex: 2, version: '5.0.27', onTap: (_) {}),
+        body: SsrvpnSettingsPage(
+            settings: AppSettings(glassEffectLevel: GlassEffectLevel.none),
+            core: core,
+            dataDirectory: '/tmp',
+            onAppearanceChanged: (
+                {glassEffectLevel,
+                backgroundStyle,
+                customBackgroundPath,
+                dynamicBackground}) async {},
+            onPortChanged: (_) async {},
+            checkForUpdate: () async => null,
+            onUpdateFound: (_) {}))));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     await capture('settings');
     await tester.scrollUntilVisible(find.text('检查规则更新'), 200,
         scrollable: find.byType(Scrollable).first);
+    await Scrollable.ensureVisible(tester.element(find.text('检查规则更新')),
+        alignment: .4);
+    await tester.pump();
     await tester.tap(find.text('检查规则更新'));
     await tester.pump();
     await tester.tap(find.text('检查规则更新'));
@@ -140,6 +149,28 @@ void main() {
     core.result.complete('规则更新完成，下次连接生效');
     await tester.pumpAndSettle();
     expect(find.text('规则更新完成，下次连接生效'), findsOneWidget);
+    final notice = find.byKey(const Key('settings-notice'));
+    expect(tester.widget<Material>(notice).color!.a, 1);
+    expect(tester.getRect(notice).bottom,
+        lessThan(tester.getRect(find.text('版本号：5.0.27')).top));
+    await capture('settings-notice');
+    await tester.pump(const Duration(seconds: 3));
+    await tester.ensureVisible(find.text('检查软件更新'));
+    await tester.tap(find.text('检查软件更新'));
+    await tester.pump();
+    expect(find.text('规则更新完成，下次连接生效'), findsNothing);
+    expect(find.text('当前已是最新版本'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3));
+    expect(find.text('当前已是最新版本'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3));
+    expect(notice, findsNothing);
+    await tester.ensureVisible(find.text('检查软件更新'));
+    await tester.tap(find.text('检查软件更新'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('关闭提示'));
+    await tester.pump();
+    expect(notice, findsNothing);
     expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
   });
 }

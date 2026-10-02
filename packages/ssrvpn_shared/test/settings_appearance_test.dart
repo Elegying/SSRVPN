@@ -337,21 +337,21 @@ void main() {
     expect(calls, 1);
     expect(settings.proxyPort, 7890);
     expect(find.text('8000'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('检查更新'), 250,
+    await tester.scrollUntilVisible(find.text('检查软件更新'), 250,
         scrollable: find.byType(Scrollable).first);
-    await tester.tap(find.text('检查更新'));
+    await tester.tap(find.text('检查软件更新'));
     await tester.pump();
     await tester.scrollUntilVisible(find.text('检查更新失败，请检查网络后重试'), 200,
         scrollable: find.byType(Scrollable).first);
     expect(foundUpdate, isNull);
-    await tester.ensureVisible(find.text('检查更新'));
-    await tester.tap(find.text('检查更新'));
+    await tester.ensureVisible(find.text('检查软件更新'));
+    await tester.tap(find.text('检查软件更新'));
     await tester.pump();
     await tester.scrollUntilVisible(find.text('当前已是最新版本'), 200,
         scrollable: find.byType(Scrollable).first);
     expect(find.text('当前已是最新版本'), findsOneWidget);
-    await tester.ensureVisible(find.text('检查更新'));
-    await tester.tap(find.text('检查更新'));
+    await tester.ensureVisible(find.text('检查软件更新'));
+    await tester.tap(find.text('检查软件更新'));
     await tester.pump();
     expect(foundUpdate?.version, '9.0.0');
     expect(tester.takeException(), isNull);

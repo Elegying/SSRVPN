@@ -1,6 +1,7 @@
 import 'ssrvpn_site_diagnostic.dart';
 import '../utils/site_routing_suggestion.dart';
 import 'dart:io';
+import 'dart:async';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -51,7 +52,19 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
   bool _saving = false;
   bool _checking = false;
   bool _checkingRules = false;
-  String? _notice;
+  String? _noticeText;
+  Timer? _noticeTimer;
+  String? get _notice => _noticeText;
+  set _notice(String? value) {
+    _noticeTimer?.cancel();
+    _noticeText = value;
+    if (value != null) {
+      _noticeTimer = Timer(const Duration(seconds: 6), () {
+        if (mounted) setState(() => _noticeText = null);
+      });
+    }
+  }
+
   String? _portError;
   @override
   void initState() {
@@ -67,6 +80,7 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
   @override
   void dispose() {
     widget.core.removeStatusListener(_refresh);
+    _noticeTimer?.cancel();
     _port.dispose();
     super.dispose();
   }
@@ -213,6 +227,42 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
     return SafeArea(
         bottom: false,
         child: Column(children: [
+          if (_saving) const LinearProgressIndicator(),
+          if (_notice != null)
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                  horizontalPadding, 8, horizontalPadding, 4),
+              child: Material(
+                key: const Key('settings-notice'),
+                color: Theme.of(context)
+                    .colorScheme
+                    .surfaceContainerHigh
+                    .withAlpha(255),
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 14, top: 4, bottom: 4),
+                  child: Row(children: [
+                    Expanded(
+                        child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxHeight: 112),
+                            child: SingleChildScrollView(
+                                child: Semantics(
+                                    liveRegion: true,
+                                    child: Text(_notice!,
+                                        style: TextStyle(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurface,
+                                            fontSize: 14,
+                                            height: 1.4)))))),
+                    IconButton(
+                        tooltip: '关闭提示',
+                        icon: const Icon(Icons.close, size: 20),
+                        onPressed: () => setState(() => _notice = null)),
+                  ]),
+                ),
+              ),
+            ),
           Expanded(
               child: ListView(
                   key: const PageStorageKey('settings-page'),
@@ -275,6 +325,9 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                 ]),
                 const SizedBox(height: 12),
                 _section('连接', [
+                  const Text('代理端口',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 12),
                   TextField(
                       controller: _port,
                       keyboardType: TextInputType.number,
@@ -283,7 +336,10 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                         LengthLimitingTextInputFormatter(5)
                       ],
                       decoration: InputDecoration(
-                          labelText: '代理端口',
+                          hintText: '输入代理端口',
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 12),
+                          border: const OutlineInputBorder(),
                           helperMaxLines: 3,
                           errorMaxLines: 3,
                           helperText: '下次在应用内连接生效',
@@ -319,7 +375,7 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                   ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.system_update_outlined),
-                      title: const Text('检查更新'),
+                      title: const Text('检查软件更新'),
                       trailing: _checking
                           ? const SizedBox(
                               width: 20,
@@ -357,16 +413,6 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                           })),
                 ]),
               ])),
-          if (_saving) const LinearProgressIndicator(),
-          if (_notice != null)
-            Padding(
-                padding: EdgeInsets.fromLTRB(
-                    horizontalPadding, 8, horizontalPadding, 8),
-                child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 120),
-                    child: SingleChildScrollView(
-                        child: Semantics(
-                            liveRegion: true, child: Text(_notice!))))),
         ]));
   }
 
@@ -374,14 +420,26 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
       padding: const EdgeInsets.all(14),
       child: Material(
           type: MaterialType.transparency,
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Text(title,
-                style:
-                    const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
-            ...children
-          ])));
+          child: ListTileTheme(
+              data: ListTileThemeData(
+                  minLeadingWidth: 24,
+                  horizontalTitleGap: 12,
+                  minVerticalPadding: 8,
+                  titleTextStyle: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: Theme.of(context).colorScheme.onSurface)),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(title,
+                        style: const TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 10),
+                    ...children
+                  ]))));
 
   /// Drifting repaints the wallpaper every frame and drags the glass above it
   /// along, so the switch is offered only for the one background that can move.
@@ -400,7 +458,6 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                 () => widget.onAppearanceChanged(dynamicBackground: value),
                 value ? '已开启动态背景' : '已关闭动态背景')
             : null,
-        secondary: const Icon(Icons.motion_photos_on_outlined),
         title:
             const Text('动态背景', style: TextStyle(fontWeight: FontWeight.w600)));
   }
