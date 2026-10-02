@@ -33,6 +33,7 @@ class _SsrvpnClipboardImportState extends State<SsrvpnClipboardImport>
   int _epoch = 0;
   Route<dynamic>? _promptRoute;
   final _seen = <String>{};
+  String? _failedFingerprint;
   @override
   void initState() {
     super.initState();
@@ -80,8 +81,16 @@ class _SsrvpnClipboardImportState extends State<SsrvpnClipboardImport>
         return;
       }
       final candidate = NodeImportPolicy.candidate(data?.text);
+      final fingerprint = candidate == null
+          ? null
+          : sha256.convert(utf8.encode(candidate)).toString();
+      // A failed attempt stays quiet until the clipboard changes. Retain only
+      // its digest so copying the node again can request a new confirmation.
+      if (_failedFingerprint != null && fingerprint != _failedFingerprint) {
+        _seen.remove(_failedFingerprint);
+        _failedFingerprint = null;
+      }
       if (candidate == null || widget.alreadyImported(candidate)) return;
-      final fingerprint = sha256.convert(utf8.encode(candidate)).toString();
       if (_seen.contains(fingerprint)) return;
       // Do not retain node credentials in deduplication history.
       if (_seen.length >= 128) _seen.remove(_seen.first);
@@ -93,7 +102,7 @@ class _SsrvpnClipboardImportState extends State<SsrvpnClipboardImport>
             ModalRoute.of(context)?.isCurrent == false) {
           return;
         }
-        _seen.add(fingerprint);
+        _seen.add(fingerprint!);
         var declined = false;
         final accepted = await showSsrvpnGlassDialog<bool>(
           context: context,
@@ -125,11 +134,33 @@ class _SsrvpnClipboardImportState extends State<SsrvpnClipboardImport>
           return;
         }
         if (accepted != true || !mounted || !_active) return;
-        final message = await widget.onImport(candidate);
+        String message;
+        try {
+          message = await widget.onImport(candidate);
+        } catch (_) {
+          message = '导入失败，请检查节点代码后点击重试';
+        } finally {
+          if (!widget.alreadyImported(candidate)) {
+            _failedFingerprint = fingerprint;
+          }
+        }
         if (mounted) {
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(SnackBar(content: Text(message)));
+          ).showSnackBar(SnackBar(
+            content: Text(message),
+            action: _failedFingerprint == fingerprint
+                ? SnackBarAction(
+                    label: '重试',
+                    onPressed: () {
+                      _seen.remove(fingerprint);
+                      if (_failedFingerprint == fingerprint) {
+                        _failedFingerprint = null;
+                      }
+                      _check();
+                    })
+                : null,
+          ));
         }
       });
     } catch (_) {
@@ -171,7 +202,7 @@ class SsrvpnServiceClipboardImport extends StatelessWidget {
               ? '节点已导入'
               : result.status == SubscriptionAddStatus.duplicate
                   ? '节点已存在'
-                  : '导入失败，请检查节点代码后重试';
+                  : '导入失败，请检查节点代码后点击重试';
         },
         child: child,
       );

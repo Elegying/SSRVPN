@@ -5,6 +5,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:image/image.dart' as img;
 import 'package:zxing2/qrcode.dart';
 import 'qr_png_guard.dart';
+import 'qr_jpeg_guard.dart';
 import 'qr_webp_frame.dart';
 
 class QrImageDecoder {
@@ -45,8 +46,23 @@ class QrImageDecoder {
     try {
       final bytes = validateQrPngData(sourceBytes, maxPixels: maxPixels);
       // Reject oversized headers before allocating the decoded pixel buffer.
-      var decoder = img.findDecoderForData(bytes);
-      final info = decoder?.startDecode(bytes);
+      img.Decoder? decoder;
+      if (bytes.length >= 2 && bytes[0] == 0xff && bytes[1] == 0xd8) {
+        validateQrJpegData(bytes, maxPixels: maxPixels);
+        decoder = img.JpegDecoder();
+      } else if (img.PngDecoder().isValidFile(bytes)) {
+        decoder = img.PngDecoder();
+      } else if (bytes.length >= 12 &&
+          String.fromCharCodes(bytes.sublist(0, 4)) == 'RIFF' &&
+          String.fromCharCodes(bytes.sublist(8, 12)) == 'WEBP') {
+        decoder = img.WebPDecoder();
+      }
+      // Only the three supported formats enter their audited allocation paths.
+      if (decoder == null) {
+        send.send(null);
+        return;
+      }
+      final info = decoder.startDecode(bytes);
       if (info == null ||
           info.width < 1 ||
           info.height < 1 ||
@@ -59,7 +75,7 @@ class QrImageDecoder {
           info.hasAnimation) {
         decoder = qrWebPFirstFrame(bytes, info);
       }
-      var picture = decoder!.decodeFrame(0);
+      var picture = decoder.decodeFrame(0);
       if (picture == null) {
         send.send(false);
         return;
