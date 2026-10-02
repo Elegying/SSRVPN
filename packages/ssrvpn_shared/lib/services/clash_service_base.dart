@@ -134,6 +134,7 @@ abstract class ClashServiceBase
     if (_canPublishHealthCheckResult) _lastHealthCheckError = value;
   }
 
+  @override
   int get runtimeProxyPort => _settings.proxyPort;
   int get runtimeSocksPort => _settings.socksPort;
   @override

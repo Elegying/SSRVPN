@@ -1,3 +1,5 @@
+import 'package:file_selector/file_selector.dart';
+import 'ssrvpn_qr_import_button.dart';
 import 'ssrvpn_liquid_glass.dart';
 import 'dart:async';
 
@@ -12,6 +14,7 @@ import 'ssrvpn_subscription_error_dialog.dart';
 part 'ssrvpn_subscription_header.dart';
 part 'ssrvpn_subscription_connection_card.dart';
 part 'ssrvpn_subscription_add_card.dart';
+part 'ssrvpn_subscription_empty_state.dart';
 
 enum SsrvpnSubscriptionConnectionStatus {
   disconnected,
@@ -40,8 +43,10 @@ class SsrvpnSubscriptionView extends StatefulWidget {
     this.onRefreshSubscription,
     this.refreshingSubscriptionId,
     this.refreshFailureDetails = const [],
+    this.pickQrImage,
   });
 
+  final Future<XFile?> Function()? pickQrImage;
   final List<Subscription> subscriptions;
   final TextEditingController urlController;
   final bool isAdding;
@@ -172,7 +177,7 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             slivers: [
               SliverPadding(
-                padding: EdgeInsets.fromLTRB(sidePadding, 18, sidePadding,
+                padding: EdgeInsets.fromLTRB(sidePadding, 12, sidePadding,
                     30 + MediaQuery.paddingOf(context).bottom),
                 sliver: SliverMainAxisGroup(slivers: [
                   SliverToBoxAdapter(
@@ -188,7 +193,7 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
                           currentNodeName: widget.currentNodeName,
                         ),
                       ],
-                      const SizedBox(height: 26),
+                      const SizedBox(height: 16),
                       _SubscriptionAddCard(
                         urlController: widget.urlController,
                         inputFocusNode: _inputFocusNode,
@@ -196,8 +201,9 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
                         isAdding: widget.isAdding,
                         isBusy: widget.isBusy,
                         onAdd: widget.onAdd,
+                        pickQrImage: widget.pickQrImage,
                       ),
-                      const SizedBox(height: 30),
+                      const SizedBox(height: 16),
                       _SubscriptionListHeader(
                         count: widget.subscriptions.length,
                         isRefreshing: widget.isRefreshing,
@@ -393,7 +399,7 @@ class _SubscriptionCard extends StatelessWidget {
         platform == TargetPlatform.macOS ||
         platform == TargetPlatform.linux;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Semantics(
         container: true,
         label: subscription.name,
@@ -405,7 +411,7 @@ class _SubscriptionCard extends StatelessWidget {
           onSecondaryTapUp:
               isDesktop && onEdit != null ? (_) => onEdit!() : null,
           child: SsrvpnSurfaceCard(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(14),
             radius: 22,
             child: Column(
               children: [
@@ -542,42 +548,6 @@ class _SubscriptionCard extends StatelessWidget {
               ],
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SubscriptionEmptyState extends StatelessWidget {
-  const _SubscriptionEmptyState();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 54),
-      child: Center(
-        child: Column(
-          children: [
-            Icon(
-              Icons.rss_feed_rounded,
-              size: 52,
-              color: SsrvpnUiTokens.textTertiary,
-            ),
-            SizedBox(height: 14),
-            Text(
-              '暂无订阅',
-              style: TextStyle(
-                color: SsrvpnUiTokens.textSecondary,
-                fontSize: 17,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            SizedBox(height: 5),
-            Text(
-              '在上方粘贴订阅链接开始使用',
-              style: TextStyle(color: SsrvpnUiTokens.textTertiary),
-            ),
-          ],
         ),
       ),
     );

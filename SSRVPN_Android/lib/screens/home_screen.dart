@@ -281,6 +281,7 @@ class HomeScreenState extends State<HomeScreen>
     await Navigator.of(context).push<void>(
       SsrvpnGlassPageRoute(
         builder: (routeContext) => SsrvpnNodeSelectionPage(
+          preferenceDirectory: context.read<ClashService>().configDir,
           ownerStateListenable: Listenable.merge([
             _nodeSelectionRefresh,
             context.read<SettingsService>(),

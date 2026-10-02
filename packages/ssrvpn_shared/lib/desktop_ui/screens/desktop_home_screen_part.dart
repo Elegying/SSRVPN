@@ -141,7 +141,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final keepConnection = _isConnected &&
         !_isConnecting &&
         HomeNodeController.connectionUnchanged(
-            runtimeNodes, controller.nodes, _selectedNode?.name);
+          runtimeNodes,
+          controller.nodes,
+          _selectedNode?.name,
+        );
     if (keepConnection) {
       _retainedRuntimeNodes ??= List<ProxyNode>.from(_nodes);
     }
@@ -164,8 +167,11 @@ class _HomeScreenState extends State<HomeScreen> {
       core.rememberDesktopConnectionRecoveryPlan(
         preferredSettings: context.read<SettingsService>().settings,
         generateConfig: (settings, preferredNodeName) =>
-            core.generateClashConfigAsync(yaml, settings,
-                preferredNodeName: preferredNodeName),
+            core.generateClashConfigAsync(
+          yaml,
+          settings,
+          preferredNodeName: preferredNodeName,
+        ),
         isRevisionCurrent: () => subService.revision == revision,
         preferredNodeName: _selectedNode?.name,
       );
@@ -297,12 +303,16 @@ class _HomeScreenState extends State<HomeScreen> {
       await _applyRoutingSites(sites, forceDirect: forceDirect);
     } catch (error) {
       AppLogger.warning(
-          'RoutingSites', '保存${forceDirect ? '强制直连' : '强制代理'}网站失败: $error');
+        'RoutingSites',
+        '保存${forceDirect ? '强制直连' : '强制代理'}网站失败: $error',
+      );
       if (!_canUpdateUi) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('${forceDirect ? '强制直连' : '强制代理'}网站保存失败，请重试'),
-        duration: const Duration(seconds: 3),
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${forceDirect ? '强制直连' : '强制代理'}网站保存失败，请重试'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
     }
   }
 
@@ -711,6 +721,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await Navigator.of(context).push<void>(
       SsrvpnGlassPageRoute(
         builder: (routeContext) => SsrvpnNodeSelectionPage(
+          preferenceDirectory: context.read<ClashService>().configDir,
           ownerStateListenable: Listenable.merge([
             _nodeSelectionRefresh,
             context.read<SettingsService>(),
@@ -765,7 +776,8 @@ class _HomeScreenState extends State<HomeScreen> {
             unawaited(
               Navigator.of(context).push<bool>(
                 SsrvpnGlassPageRoute(
-                    builder: (_) => NodeEditScreen(node: node)),
+                  builder: (_) => NodeEditScreen(node: node),
+                ),
               ),
             );
           },

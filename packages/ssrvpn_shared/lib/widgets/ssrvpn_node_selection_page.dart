@@ -3,6 +3,9 @@ import 'ssrvpn_liquid_glass.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../services/node_pin_store.dart';
+import '../utils/node_search_policy.dart';
+import 'ssrvpn_liquid_dialog.dart';
 import '../models/app_settings.dart';
 import '../models/proxy_node.dart';
 import '../utils/node_display_policy.dart';
@@ -11,6 +14,7 @@ import 'country_flag_icon.dart';
 import 'ssrvpn_app_surface.dart';
 import 'ssrvpn_global_mode_dialog.dart';
 
+part 'ssrvpn_node_selection_extras.dart';
 part 'ssrvpn_node_selection_controls.dart';
 part 'ssrvpn_node_selection_latency.dart';
 part 'ssrvpn_node_selection_keyboard.dart';
@@ -28,6 +32,8 @@ class SsrvpnNodeSelectionPage extends StatefulWidget {
   const SsrvpnNodeSelectionPage({
     super.key,
     this.ownerStateListenable,
+    this.preferenceDirectory,
+    this.pinStoreFactory,
     required this.nodesOf,
     required this.selectedNodeNameOf,
     required this.proxyModeOf,
@@ -56,6 +62,8 @@ class SsrvpnNodeSelectionPage extends StatefulWidget {
 
   /// Emits when the owner-backed getters may return different values while
   /// this route remains mounted above its owner.
+  final String? preferenceDirectory;
+  final NodePinStore Function(String)? pinStoreFactory;
   final Listenable? ownerStateListenable;
   final ValueGetter<List<ProxyNode>> nodesOf;
   final ValueGetter<String?> selectedNodeNameOf;
@@ -94,6 +102,9 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
   late bool? _enableTun;
   String _subscription = _allSubscriptions;
   bool _sortByLatency = false;
+  String _searchQuery = '';
+  NodePinStore? _pins;
+  bool _pinBusy = false, _searchOpen = false;
   bool _actionBusy = false;
   bool _closeRequested = false;
   void _updateSelectionState(VoidCallback action) => setState(action);
@@ -107,6 +118,7 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
   void initState() {
     super.initState();
     _syncFromOwner();
+    _initPins();
     HardwareKeyboard.instance.addHandler(_handleHardwareKeyEvent);
     widget.ownerStateListenable?.addListener(_handleOwnerStateChanged);
   }
@@ -127,6 +139,7 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
   @override
   void dispose() {
     widget.ownerStateListenable?.removeListener(_handleOwnerStateChanged);
+    _pins?.dispose();
     HardwareKeyboard.instance.removeHandler(_handleHardwareKeyEvent);
     super.dispose();
   }
@@ -170,21 +183,6 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
     }
   }
 
-  List<String> _subscriptionNames(List<ProxyNode> nodes) {
-    final names = nodes
-        .map((node) => node.group.trim())
-        .where((group) => group.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
-    return names;
-  }
-
-  List<ProxyNode> _visibleNodes(List<ProxyNode> nodes, String subscription) {
-    if (subscription == _allSubscriptions) return nodes;
-    return nodes.where((node) => node.group.trim() == subscription).toList();
-  }
-
   @override
   Widget build(BuildContext context) {
     final nodes = widget.nodesOf();
@@ -203,8 +201,9 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
       });
     }
     final filteredNodes = _visibleNodes(nodes, effectiveSubscription);
-    final visibleNodes =
-        _sortByLatency ? _latencySortedNodes(filteredNodes) : filteredNodes;
+    final visibleNodes = _pinSorted(
+      _sortByLatency ? _latencySortedNodes(filteredNodes) : filteredNodes,
+    );
     final selectedNode = nodes.cast<ProxyNode?>().firstWhere(
           (node) => node?.name == _selectedNodeName,
           orElse: () => null,
@@ -243,6 +242,8 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
           groups: groups,
           value: effectiveSubscription,
           sortByLatency: _sortByLatency,
+          searching: _searchQuery.isNotEmpty,
+          onSearchPressed: _openSearch,
           onChanged: (value) {
             setState(() => _subscription = value);
           },
@@ -252,28 +253,31 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
         ),
         if (widget.onTestNodes != null) ...[
           Wrap(
-              spacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                TextButton(
-                  onPressed: testingBusy
-                      ? null
-                      : () => setState(() {
-                            _selectingTests = !_selectingTests;
-                            _testSelection.clear();
-                          }),
-                  child: Text(_selectingTests ? '退出多选' : '选择测速节点'),
-                ),
-                Text(_selectingTests
+            spacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              TextButton(
+                onPressed: testingBusy
+                    ? null
+                    : () => setState(() {
+                          _selectingTests = !_selectingTests;
+                          _testSelection.clear();
+                        }),
+                child: Text(_selectingTests ? '退出多选' : '选择测速节点'),
+              ),
+              Text(
+                _selectingTests
                     ? '已选 ${nodesToTest.length} 个节点'
-                    : '测速范围：当前分组 ${nodesToTest.length} 个节点'),
-                if (batchRunning && widget.onCancelTest != null)
-                  TextButton.icon(
-                    onPressed: _stopRequested ? null : _stopTests,
-                    icon: const Icon(Icons.stop_rounded),
-                    label: Text(_stopRequested ? '正在结束当前检测…' : '停止测速'),
-                  ),
-              ]),
+                    : '测速范围：当前分组 ${nodesToTest.length} 个节点',
+              ),
+              if (batchRunning && widget.onCancelTest != null)
+                TextButton.icon(
+                  onPressed: _stopRequested ? null : _stopTests,
+                  icon: const Icon(Icons.stop_rounded),
+                  label: Text(_stopRequested ? '正在结束当前检测…' : '停止测速'),
+                ),
+            ],
+          ),
           const Text('测速仅检测连接延迟，不代表下载速度或长期稳定性。'),
         ],
         const SizedBox(height: 12),
@@ -317,9 +321,10 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
                             slivers: [
                               SliverToBoxAdapter(child: controls),
                               if (visibleNodes.isEmpty)
-                                const SliverFillRemaining(
+                                SliverFillRemaining(
                                   hasScrollBody: false,
-                                  child: _NodeEmptyState(),
+                                  child: _NodeEmptyState(
+                                      filtered: _searchQuery.isNotEmpty),
                                 )
                               else
                                 SliverPadding(

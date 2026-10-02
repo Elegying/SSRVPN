@@ -527,7 +527,14 @@ jobs:
       - run: flutter analyze
         working-directory: SSRVPN_Windows
 
-      - run: bash scripts/run-flutter-coverage.sh SSRVPN_Windows
+      - id: windows_coverage
+        run: bash scripts/run-flutter-coverage.sh SSRVPN_Windows
+      # Preserve the failed suite result; this serial replay only adds evidence.
+      - name: Diagnose Windows identity timeout in isolation
+        if: failure() && steps.windows_coverage.outcome == 'failure'
+        timeout-minutes: 5
+        working-directory: SSRVPN_Windows
+        run: flutter test --no-pub --concurrency=1 --reporter expanded test/clash_service_lifecycle_test.dart --plain-name "real Windows child commits exact identity before acquiring proxy"
       - run: bash scripts/check-coverage-thresholds.sh SSRVPN_Windows
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

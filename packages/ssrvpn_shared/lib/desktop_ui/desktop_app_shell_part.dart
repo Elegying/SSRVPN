@@ -164,6 +164,9 @@ Widget _buildSettingsPage(BuildContext context) {
     dataDirectory: service.appearanceDirectory,
     onAppearanceChanged: service.updateAppearance,
     onPortChanged: service.updateProxyPort,
+    onRoutingSitesChanged: (sites, direct) => direct
+        ? service.updateForceDirectSites(sites)
+        : service.updateForceProxySites(sites),
     checkForUpdate: () => UpdateService.checkForUpdate(
       UpdateService.appVersion,
       localProxyPort: () => core.isRunning ? core.runtimeProxyPort : null,

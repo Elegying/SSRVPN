@@ -1,4 +1,9 @@
 import plistlib
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -7,6 +12,35 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FreeDesktopDistributionTest(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "darwin", "requires macOS codesign")
+    def test_package_resigning_retains_runtime_entitlements(self) -> None:
+        expected = plistlib.loads(
+            (ROOT / "SSRVPN_MacOS/macos/Runner/Release.entitlements").read_bytes()
+        )
+        script = (ROOT / "SSRVPN_MacOS/tool/package_macos.sh").read_text()
+        refresh = next(line for line in script.splitlines()
+                       if line.startswith("/usr/bin/codesign --force"))
+        with tempfile.TemporaryDirectory(prefix="ssrvpn-signature-") as folder:
+            app = Path(folder) / "Fixture.app"
+            binary = app / "Contents/MacOS/Fixture"
+            binary.parent.mkdir(parents=True)
+            shutil.copy("/usr/bin/true", binary)
+            (app / "Contents/Info.plist").write_bytes(plistlib.dumps({
+                "CFBundleExecutable": "Fixture", "CFBundlePackageType": "APPL",
+                "CFBundleIdentifier": "com.ssrvpn.signature-fixture",
+            }))
+            subprocess.run([
+                "/usr/bin/codesign", "--force", "--sign", "-", "--entitlements",
+                str(ROOT / "SSRVPN_MacOS/macos/Runner/Release.entitlements"), str(app)
+            ], check=True, capture_output=True)
+            subprocess.run([part.replace("$APP_PATH", str(app))
+                            for part in shlex.split(refresh)],
+                           check=True, capture_output=True)
+            result = subprocess.run([
+                "/usr/bin/codesign", "-d", "--entitlements", ":-", str(app)
+            ], check=True, capture_output=True)
+            self.assertEqual(plistlib.loads(result.stdout) if result.stdout else {}, expected)
+
     def test_official_release_injects_usage_config_on_all_platforms(self) -> None:
         release = (ROOT / ".github/workflows/release.yml").read_text()
         self.assertIn(

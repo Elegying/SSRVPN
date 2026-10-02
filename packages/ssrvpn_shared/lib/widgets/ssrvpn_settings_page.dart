@@ -1,4 +1,7 @@
+import 'ssrvpn_site_diagnostic.dart';
+import '../utils/site_routing_suggestion.dart';
 import 'dart:io';
+import 'dart:async';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -24,7 +27,10 @@ class SsrvpnSettingsPage extends StatefulWidget {
       required this.onPortChanged,
       required this.checkForUpdate,
       required this.onUpdateFound,
-      this.pickBackgroundImage});
+      this.pickBackgroundImage,
+      this.onRoutingSitesChanged});
+  final Future<void> Function(List<String> sites, bool direct)?
+      onRoutingSitesChanged;
   final Future<XFile?> Function()? pickBackgroundImage;
   final AppSettings settings;
   final ClashServiceBase core;
@@ -43,9 +49,24 @@ class SsrvpnSettingsPage extends StatefulWidget {
 
 class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
   late final TextEditingController _port;
+  final _siteDiagnosticFocus = FocusNode();
+  final _runtimeLogFocus = FocusNode();
   bool _saving = false;
   bool _checking = false;
-  String? _notice;
+  bool _checkingRules = false;
+  String? _noticeText;
+  Timer? _noticeTimer;
+  String? get _notice => _noticeText;
+  set _notice(String? value) {
+    _noticeTimer?.cancel();
+    _noticeText = value;
+    if (value != null) {
+      _noticeTimer = Timer(const Duration(seconds: 6), () {
+        if (mounted) setState(() => _noticeText = null);
+      });
+    }
+  }
+
   String? _portError;
   @override
   void initState() {
@@ -61,7 +82,10 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
   @override
   void dispose() {
     widget.core.removeStatusListener(_refresh);
+    _noticeTimer?.cancel();
     _port.dispose();
+    _siteDiagnosticFocus.dispose();
+    _runtimeLogFocus.dispose();
     super.dispose();
   }
 
@@ -90,6 +114,7 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
             : null;
     setState(() => _portError = error);
     if (error != null) return;
+    FocusScope.of(context).unfocus();
     await _save(() => widget.onPortChanged(value!), '代理端口已保存，下次在应用内连接生效');
   }
 
@@ -111,6 +136,22 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
       }
     } finally {
       if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  Future<void> _checkRules() async {
+    if (_checkingRules) return;
+    setState(() {
+      _checkingRules = true;
+      _notice = null;
+    });
+    try {
+      final message = await widget.core.checkRuleUpdates();
+      if (mounted) setState(() => _notice = message);
+    } catch (_) {
+      if (mounted) setState(() => _notice = '规则检查失败，请稍后重试');
+    } finally {
+      if (mounted) setState(() => _checkingRules = false);
     }
   }
 
@@ -190,154 +231,231 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
         };
     return SafeArea(
         bottom: false,
-        child: ListView(
-            key: const PageStorageKey('settings-page'),
-            padding: EdgeInsets.fromLTRB(horizontalPadding, 24,
-                horizontalPadding, MediaQuery.paddingOf(context).bottom + 24),
-            children: [
-              const Text('设置',
-                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 22),
-              _section('外观', [
-                const Text('液态玻璃特效',
-                    style: TextStyle(fontWeight: FontWeight.w600)),
-                const SizedBox(height: 12),
-                Wrap(spacing: 10, runSpacing: 8, children: [
-                  for (final level in GlassEffectLevel.values)
-                    ChoiceChip(
-                        label: Text(['无', '低', '中', '高'][level.index]),
-                        selected: level == selectedLevel,
-                        onSelected: _saving
-                            ? null
-                            : (_) => _save(
-                                () => widget.onAppearanceChanged(
-                                    glassEffectLevel: level),
-                                '特效档位已保存'))
-                ]),
-                const SizedBox(height: 20),
-                const Text('主题背景',
-                    style: TextStyle(fontWeight: FontWeight.w600)),
-                const SizedBox(height: 12),
-                Wrap(spacing: 12, runSpacing: 12, children: [
-                  for (final style in BackgroundStyle.values
-                      .where((s) => s != BackgroundStyle.custom))
-                    _backgroundChoice(style)
-                ]),
-                _backgroundMotionSwitch(),
-                const SizedBox(height: 12),
-                Wrap(spacing: 8, runSpacing: 8, children: [
-                  OutlinedButton.icon(
-                      onPressed: _saving ? null : _pickBackground,
-                      icon: const Icon(Icons.add_photo_alternate_outlined),
-                      label: Text(widget.settings.customBackgroundPath.isEmpty
-                          ? '添加背景图'
-                          : '更换背景图')),
-                  if (widget.settings.customBackgroundPath.isNotEmpty)
-                    ChoiceChip(
-                        label: const Text('自定义'),
-                        selected: widget.settings.backgroundStyle ==
-                            BackgroundStyle.custom,
-                        onSelected: _saving
-                            ? null
-                            : (_) => _save(
-                                () => widget.onAppearanceChanged(
-                                    backgroundStyle: BackgroundStyle.custom),
-                                '已使用自定义背景')),
-                ]),
-                const SizedBox(height: 12),
-                const Text('支持 JPG、PNG、WebP 静态图片，最大 20 MB。',
-                    style: TextStyle(
-                        fontSize: 12, height: 1.5, color: Colors.white70)),
-              ]),
-              const SizedBox(height: 18),
-              _section('连接', [
-                TextField(
-                    controller: _port,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(5)
-                    ],
-                    decoration: InputDecoration(
-                        labelText: '代理端口',
-                        helperMaxLines: 3,
-                        errorMaxLines: 3,
-                        helperText: '下次在应用内连接生效',
-                        errorText: _portError),
-                    onSubmitted: _saving ? null : (_) => _savePort()),
-                const SizedBox(height: 12),
-                Text(
-                    widget.core.isRunning
-                        ? '当前实际端口：${widget.core.runtimeProxyPort}'
-                        : '已保存端口：${widget.settings.proxyPort}',
+        child: Column(children: [
+          if (_saving) const LinearProgressIndicator(),
+          if (_notice != null)
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                  horizontalPadding, 8, horizontalPadding, 4),
+              child: Material(
+                key: const Key('settings-notice'),
+                color: Theme.of(context)
+                    .colorScheme
+                    .surfaceContainerHigh
+                    .withAlpha(255),
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 14, top: 4, bottom: 4),
+                  child: Row(children: [
+                    Expanded(
+                        child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxHeight: 112),
+                            child: SingleChildScrollView(
+                                child: Semantics(
+                                    liveRegion: true,
+                                    child: Text(_notice!,
+                                        style: TextStyle(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurface,
+                                            fontSize: 14,
+                                            height: 1.4)))))),
+                    IconButton(
+                        tooltip: '关闭提示',
+                        icon: const Icon(Icons.close, size: 20),
+                        onPressed: () => setState(() => _notice = null)),
+                  ]),
+                ),
+              ),
+            ),
+          Expanded(
+              child: ListView(
+                  key: const PageStorageKey('settings-page'),
+                  padding: EdgeInsets.fromLTRB(
+                      horizontalPadding,
+                      12,
+                      horizontalPadding,
+                      MediaQuery.paddingOf(context).bottom + 24),
+                  children: [
+                const Text('设置',
                     style:
-                        const TextStyle(fontSize: 12, color: Colors.white70)),
-                const SizedBox(height: 8),
-                const Text('连接时检查占用；临时调整不修改已保存端口。其他应用请使用当前实际端口。',
-                    style: TextStyle(
-                        fontSize: 12, height: 1.5, color: Colors.white70)),
-                const SizedBox(height: 10),
-                Align(
-                    alignment: Alignment.centerRight,
-                    child: FilledButton(
-                        onPressed: _saving ? null : _savePort,
-                        child: const Text('保存端口'))),
-              ]),
-              const SizedBox(height: 18),
-              _section('应用', [
-                ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.system_update_outlined),
-                    title: const Text('检查更新'),
-                    trailing: _checking
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.chevron_right),
-                    onTap: _checking ? null : _checkUpdate),
-                ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.subject_outlined),
-                    title: const Text('运行日志'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => showSsrvpnDiagnosticsDialog(context,
+                        TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 14),
+                _section('外观', [
+                  const Text('液态玻璃特效',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 12),
+                  Wrap(spacing: 10, runSpacing: 8, children: [
+                    for (final level in GlassEffectLevel.values)
+                      ChoiceChip(
+                          label: Text(['无', '低', '中', '高'][level.index]),
+                          selected: level == selectedLevel,
+                          onSelected: _saving
+                              ? null
+                              : (_) => _save(
+                                  () => widget.onAppearanceChanged(
+                                      glassEffectLevel: level),
+                                  '特效档位已保存'))
+                  ]),
+                  const SizedBox(height: 12),
+                  const Text('主题背景',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 12),
+                  Wrap(spacing: 12, runSpacing: 12, children: [
+                    for (final style in BackgroundStyle.values
+                        .where((s) => s != BackgroundStyle.custom))
+                      _backgroundChoice(style)
+                  ]),
+                  _backgroundMotionSwitch(),
+                  const SizedBox(height: 12),
+                  Wrap(spacing: 8, runSpacing: 8, children: [
+                    OutlinedButton.icon(
+                        onPressed: _saving ? null : _pickBackground,
+                        icon: const Icon(Icons.add_photo_alternate_outlined),
+                        label: Text(widget.settings.customBackgroundPath.isEmpty
+                            ? '添加背景图'
+                            : '更换背景图')),
+                    if (widget.settings.customBackgroundPath.isNotEmpty)
+                      ChoiceChip(
+                          label: const Text('自定义'),
+                          selected: widget.settings.backgroundStyle ==
+                              BackgroundStyle.custom,
+                          onSelected: _saving
+                              ? null
+                              : (_) => _save(
+                                  () => widget.onAppearanceChanged(
+                                      backgroundStyle: BackgroundStyle.custom),
+                                  '已使用自定义背景')),
+                  ]),
+                ]),
+                const SizedBox(height: 12),
+                _section('连接', [
+                  const Text('代理端口',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 12),
+                  TextField(
+                      controller: _port,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(5)
+                      ],
+                      decoration: InputDecoration(
+                          hintText: '输入代理端口',
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 12),
+                          border: const OutlineInputBorder(),
+                          helperMaxLines: 3,
+                          errorMaxLines: 3,
+                          helperText: '下次在应用内连接生效',
+                          errorText: _portError),
+                      onSubmitted: _saving ? null : (_) => _savePort()),
+                  const SizedBox(height: 12),
+                  Text(
+                      widget.core.isRunning
+                          ? '当前实际端口：${widget.core.runtimeProxyPort}'
+                          : '已保存端口：${widget.settings.proxyPort}',
+                      style:
+                          const TextStyle(fontSize: 12, color: Colors.white70)),
+                  const SizedBox(height: 10),
+                  Align(
+                      alignment: Alignment.centerRight,
+                      child: FilledButton(
+                          onPressed: _saving ? null : _savePort,
+                          child: const Text('保存端口'))),
+                ]),
+                const SizedBox(height: 12),
+                _section('应用', [
+                  ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.rule_folder_outlined),
+                      title: const Text('检查规则更新'),
+                      trailing: _checkingRules
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.chevron_right),
+                      onTap: _checkingRules ? null : _checkRules),
+                  ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.system_update_outlined),
+                      title: const Text('检查软件更新'),
+                      trailing: _checking
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.chevron_right),
+                      onTap: _checking ? null : _checkUpdate),
+                  ListTile(
+                      focusNode: _siteDiagnosticFocus,
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.travel_explore),
+                      title: const Text('网站访问诊断'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () {
+                        _siteDiagnosticFocus.requestFocus();
+                        showSsrvpnSiteDiagnostic(context, widget.core,
+                            onAddRoutingSite:
+                                widget.onRoutingSitesChanged == null
+                                    ? null
+                                    : (host, direct) async {
+                                        final sites = addDiagnosticRoutingSite(
+                                            widget.settings, host,
+                                            direct: direct);
+                                        await widget.onRoutingSitesChanged!(
+                                            sites, direct);
+                                      });
+                      }),
+                  ListTile(
+                      focusNode: _runtimeLogFocus,
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.subject_outlined),
+                      title: const Text('运行日志'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () {
+                        _runtimeLogFocus.requestFocus();
+                        showSsrvpnDiagnosticsDialog(context,
                             runDiagnostics: widget.core.runDiagnostics,
                             loadHistory: widget.core.loadDiagnosticHistory,
                             repair: widget.core.repairDiagnosticIssue,
                             onMessage: (message) {
                           if (mounted) setState(() => _notice = message);
-                        })),
-              ]),
-              if (_saving)
-                const Padding(
-                    padding: EdgeInsets.only(top: 16),
-                    child: LinearProgressIndicator()),
-              if (_notice != null)
-                Padding(
-                    padding: const EdgeInsets.only(top: 16),
-                    child: Semantics(liveRegion: true, child: Text(_notice!))),
-            ]));
+                        });
+                      }),
+                ]),
+              ])),
+        ]));
   }
 
   Widget _section(String title, List<Widget> children) => SsrvpnLiquidSurface(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(14),
       child: Material(
           type: MaterialType.transparency,
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Text(title,
-                style:
-                    const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            ...children
-          ])));
+          child: ListTileTheme(
+              data: ListTileThemeData(
+                  minLeadingWidth: 24,
+                  horizontalTitleGap: 12,
+                  minVerticalPadding: 8,
+                  titleTextStyle: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: Theme.of(context).colorScheme.onSurface)),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(title,
+                        style: const TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 10),
+                    ...children
+                  ]))));
 
   /// Drifting repaints the wallpaper every frame and drags the glass above it
   /// along, so the switch is offered only for the one background that can move.
-  /// Two things can make the switch inert: a background with no movable
-  /// wallpaper, and the system "reduce motion" preference. Both are reported
-  /// here instead of leaving a toggle that looks on yet cannot be tapped.
   Widget _backgroundMotionSwitch() {
     final reducedMotion = MediaQuery.disableAnimationsOf(context);
     final supported =
@@ -353,16 +471,8 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                 () => widget.onAppearanceChanged(dynamicBackground: value),
                 value ? '已开启动态背景' : '已关闭动态背景')
             : null,
-        secondary: const Icon(Icons.motion_photos_on_outlined),
         title:
-            const Text('动态背景', style: TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text(
-            !supported
-                ? '仅「壁纸」背景支持动态效果'
-                : reducedMotion
-                    ? '系统已开启「减少动态效果」，壁纸将保持静止'
-                    : '壁纸缓慢流动。关闭后画面静止，可明显降低 GPU 与电量占用',
-            style: const TextStyle(fontSize: 12, height: 1.5)));
+            const Text('动态背景', style: TextStyle(fontWeight: FontWeight.w600)));
   }
 
   Widget _backgroundChoice(BackgroundStyle style) {

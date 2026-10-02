@@ -8,6 +8,7 @@ class _SubscriptionAddCard extends StatelessWidget {
     required this.isAdding,
     required this.isBusy,
     required this.onAdd,
+    this.pickQrImage,
   });
 
   final TextEditingController urlController;
@@ -16,23 +17,24 @@ class _SubscriptionAddCard extends StatelessWidget {
   final bool isAdding;
   final bool isBusy;
   final VoidCallback onAdd;
+  final Future<XFile?> Function()? pickQrImage;
 
   @override
   Widget build(BuildContext context) {
     return SsrvpnSurfaceCard(
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(
+              const Icon(
                 Icons.add_circle_outline_rounded,
                 color: SsrvpnUiTokens.accent,
                 size: 24,
               ),
-              SizedBox(width: 10),
-              Expanded(
+              const SizedBox(width: 10),
+              const Expanded(
                 child: Text(
                   '添加订阅',
                   style: TextStyle(
@@ -42,9 +44,15 @@ class _SubscriptionAddCard extends StatelessWidget {
                   ),
                 ),
               ),
+              SsrvpnQrImportButton(
+                enabled: !isBusy,
+                controller: urlController,
+                onAdd: onAdd,
+                pickImage: pickQrImage,
+              ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 10),
           SsrvpnLiquidField(
               child: TextField(
             key: const Key('ssrvpn-subscription-input'),
@@ -54,7 +62,8 @@ class _SubscriptionAddCard extends StatelessWidget {
             keyboardType: TextInputType.text,
             textInputAction: TextInputAction.done,
             autocorrect: false,
-            enableSuggestions: false,
+            enableSuggestions: true,
+            enableIMEPersonalizedLearning: false,
             scrollPadding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
             onSubmitted: isBusy ? null : (_) => onAdd(),
             decoration: InputDecoration(
@@ -64,7 +73,7 @@ class _SubscriptionAddCard extends StatelessWidget {
               fillColor: Colors.transparent,
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 16,
-                vertical: 17,
+                vertical: 12,
               ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(18),
@@ -76,10 +85,10 @@ class _SubscriptionAddCard extends StatelessWidget {
               ),
             ),
           )),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
           ConstrainedBox(
             key: addActionKey,
-            constraints: const BoxConstraints(minHeight: 52),
+            constraints: const BoxConstraints(minHeight: 48),
             child: SizedBox(
               width: double.infinity,
               child: SsrvpnLiquidSurface(
@@ -99,7 +108,7 @@ class _SubscriptionAddCard extends StatelessWidget {
                       ),
                       padding: const EdgeInsets.symmetric(
                         horizontal: 16,
-                        vertical: 14,
+                        vertical: 10,
                       ),
                     ),
                     child: isAdding

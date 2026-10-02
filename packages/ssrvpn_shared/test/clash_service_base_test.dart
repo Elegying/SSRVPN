@@ -2300,6 +2300,18 @@ proxies:
       );
     });
 
+    test('manual rule check reports disconnected and verification failure',
+        () async {
+      final service = _ApiClashService();
+      addTearDown(service.dispose);
+      expect(await service.checkRuleUpdates(), contains('请先连接'));
+      service.setPaths(configDir: '/tmp', configPath: '/tmp/config.yaml');
+      service.setRunning(true);
+      service.ruleChannelFiles = {'version.json': '{}'};
+      expect(await service.checkRuleUpdates(), contains('检查失败'));
+      expect(service.ruleChannelRequests, ['version.json']);
+    });
+
     test('same installed version fetches only tiny version metadata', () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'ssrvpn_rule_provider_same_',
@@ -2330,7 +2342,7 @@ proxies:
       service.updateSettings(AppSettings(apiPort: 1));
       service.setRunning(true);
 
-      await service.runRuleProviderRefresh();
+      expect(await service.checkRuleUpdates(), contains('全部适用规则已是最新版本'));
 
       expect(service.ruleChannelRequests, ['version.json']);
       expect(service.recentLogs, contains('无需下载'));
@@ -2352,10 +2364,10 @@ proxies:
         service.setPaths(
             configDir: tempDir.path, configPath: '${tempDir.path}/config.yaml');
         service.setRunning(true);
-        final pending = service.runRuleProviderRefresh();
+        final pending = service.checkRuleUpdates();
         await reached.future;
         // A duplicate call must not start a second request or overwrite its version.
-        await service.runRuleProviderRefresh();
+        expect(await service.checkRuleUpdates(), contains('正在检查中'));
         expect(service.ruleChannelRequests, ['version.json']);
         if (endSession == 'dispose') {
           service.dispose();
@@ -2367,7 +2379,7 @@ proxies:
           service.setRunning(true);
         }
         release.complete();
-        await pending;
+        expect(await pending, contains('连接已变化'));
         expect(service.ruleChannelRequests, ['version.json']);
         expect(tempDir.listSync(), isEmpty);
         expect(service.recentLogs, isNot(contains('后台检查失败')));
@@ -2442,7 +2454,7 @@ proxies:
         final currentConfig =
             loadYaml(service.buildConfig(yaml, service.settings)) as YamlMap;
 
-        await service.runRuleProviderRefresh();
+        expect(await service.checkRuleUpdates(), contains('下次连接生效'));
         expect(service.ruleChannelRequests, [
           'version.json',
           'manifest.json',

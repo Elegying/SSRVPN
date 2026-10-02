@@ -1905,6 +1905,10 @@ void main() {
     await tester.pumpWidget(view(0));
     await tester.tap(find.byKey(const Key('ssrvpn-subscription-input')));
     await tester.pump();
+    expect(tester.testTextInput.setClientArgs!['enableSuggestions'], isTrue);
+    expect(tester.testTextInput.setClientArgs!['obscureText'], isFalse);
+    expect(tester.testTextInput.setClientArgs!['enableIMEPersonalizedLearning'],
+        isFalse);
     await tester.pumpWidget(view(300));
     await tester.pumpAndSettle();
 

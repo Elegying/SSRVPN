@@ -38,7 +38,10 @@ void main() {
     final subscriptionInput = tester.widget<TextField>(find.byType(TextField));
     expect(subscriptionInput.keyboardType, TextInputType.text);
     expect(subscriptionInput.autocorrect, isFalse);
-    expect(subscriptionInput.enableSuggestions, isFalse);
+    // Disabled suggestions become Android VISIBLE_PASSWORD in Flutter 3.44.1.
+    expect(subscriptionInput.enableSuggestions, isTrue);
+    expect(subscriptionInput.obscureText, isFalse);
+    expect(subscriptionInput.enableIMEPersonalizedLearning, isFalse);
     final scrollable = find
         .descendant(
           of: find.byKey(const Key('initial-subscription-dialog-scroll')),

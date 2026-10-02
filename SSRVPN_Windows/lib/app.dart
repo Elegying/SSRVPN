@@ -32,6 +32,7 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart'
         safeUserFacingFailureMessage,
         safeUserFacingFailureWithAction;
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_clipboard_import.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'screens/home_screen.dart';
@@ -479,15 +480,17 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
     }
 
     final desktopShell = CrashReportPrompt(
-      child: _DesktopAppShell(
-        safeMode: widget.startupFlags.safeMode,
-        startupFailureMessages: StartupStatus.instance.failures
-            .map((failure) => failure.userSummary)
-            .toList(growable: false),
-        runtimeNotice: _runtimeNotice,
-        currentIndex: _currentIndex,
-        onIndexChanged: (index) => setState(() => _currentIndex = index),
-      ),
+      child: SsrvpnServiceClipboardImport(
+          service: _subscriptionService!,
+          child: _DesktopAppShell(
+            safeMode: widget.startupFlags.safeMode,
+            startupFailureMessages: StartupStatus.instance.failures
+                .map((failure) => failure.userSummary)
+                .toList(growable: false),
+            runtimeNotice: _runtimeNotice,
+            currentIndex: _currentIndex,
+            onIndexChanged: (index) => setState(() => _currentIndex = index),
+          )),
     );
 
     return MultiProvider(

@@ -65,6 +65,7 @@ extension _NodeSelectionLatency on _SsrvpnNodeSelectionPageState {
   }) {
     final card = _NodeSelectionCard(
       node: node,
+      pinned: _pins?.contains(node) ?? false,
       countryCode: widget.countryCodeOf(node),
       latency: widget.latencyOf(node),
       selected: node.name == _selectedNodeName,
@@ -75,18 +76,21 @@ extension _NodeSelectionLatency on _SsrvpnNodeSelectionPageState {
       testingBusy: testingBusy,
       onSelect: () => _runAction(() => widget.onSelectNode(node)),
       onTest: () => _runAction(() => widget.onTestLatency(node)),
-      onSecondaryTapDown: widget.onSecondaryTapDown == null
-          ? null
-          : (details) => widget.onSecondaryTapDown!(node, details),
+      onSecondaryTapDown: _pins != null
+          ? (details) => _openNodeMenu(node, details)
+          : widget.onSecondaryTapDown == null
+              ? null
+              : (details) => widget.onSecondaryTapDown!(node, details),
       onLongPress: widget.onLongPressNode == null
           ? null
           : () => widget.onLongPressNode!(node),
     );
-    if (!_selectingTests) return card;
-    return Row(children: [
-      Semantics(
-        label: '选择测速节点 ${node.name}',
-        child: Checkbox(
+    if (!_selectingTests) return _pinActions(node, card);
+    return Row(
+      children: [
+        Semantics(
+          label: '选择测速节点 ${node.name}',
+          child: Checkbox(
             value: _testSelection.contains(node.name),
             onChanged: testingBusy
                 ? null
@@ -96,9 +100,11 @@ extension _NodeSelectionLatency on _SsrvpnNodeSelectionPageState {
                       } else {
                         _testSelection.remove(node.name);
                       }
-                    })),
-      ),
-      Expanded(child: card),
-    ]);
+                    }),
+          ),
+        ),
+        Expanded(child: card),
+      ],
+    );
   }
 }

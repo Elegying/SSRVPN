@@ -189,7 +189,10 @@ void main() {
     );
     expect(subscriptionInput.keyboardType, TextInputType.text);
     expect(subscriptionInput.autocorrect, isFalse);
-    expect(subscriptionInput.enableSuggestions, isFalse);
+    // Disabled suggestions become Android VISIBLE_PASSWORD in Flutter 3.44.1.
+    expect(subscriptionInput.enableSuggestions, isTrue);
+    expect(subscriptionInput.obscureText, isFalse);
+    expect(subscriptionInput.enableIMEPersonalizedLearning, isFalse);
     expect(find.text('主订阅'), findsOneWidget);
     expect(find.text('刷新成功'), findsOneWidget);
     expect(find.text('已启用'), findsOneWidget);
