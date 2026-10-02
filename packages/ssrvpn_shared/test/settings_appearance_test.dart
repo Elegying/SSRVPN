@@ -63,8 +63,8 @@ void main() {
                     checkForUpdate: () async => null,
                     onUpdateFound: (_) {})))));
     for (var i = 0; i < 2; i++) {
-      await tester.ensureVisible(find.text('更换背景图'));
-      await tester.tap(find.text('更换背景图'));
+      await tester.ensureVisible(find.text('自定义'));
+      await tester.tap(find.text('自定义'));
       await tester.pump();
     }
     expect(selections, 2);
@@ -100,7 +100,9 @@ void main() {
       addTearDown(() => dir.delete(recursive: true));
       var settings = AppSettings(
           glassEffectLevel: GlassEffectLevel.none,
-          backgroundStyle: BackgroundStyle.custom,
+          backgroundStyle: outcome == 'success'
+              ? BackgroundStyle.flowing
+              : BackgroundStyle.custom,
           customBackgroundPath: old.path);
       final core = _Core();
       addTearDown(core.dispose);
@@ -133,8 +135,8 @@ void main() {
                     checkForUpdate: () async => null,
                     onUpdateFound: (_) {},
                   ))))));
-      await tester.ensureVisible(find.text('更换背景图'));
-      await tester.runAsync(() => tester.tap(find.text('更换背景图')));
+      await tester.ensureVisible(find.text('自定义'));
+      await tester.runAsync(() => tester.tap(find.text('自定义')));
       for (var i = 0; i < 100 && find.text('使用这张背景').evaluate().isEmpty; i++) {
         await tester.runAsync(
             () => Future<void>.delayed(const Duration(milliseconds: 10)));
@@ -169,6 +171,11 @@ void main() {
       });
       expect(settings.customBackgroundPath,
           outcome == 'success' ? imported.path : old.path);
+      if (outcome == 'success') {
+        expect(settings.backgroundStyle, BackgroundStyle.custom);
+        expect(find.text('自定义背景已应用'), findsOneWidget);
+        expect(find.text('背景预览'), findsNothing);
+      }
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     });
@@ -390,14 +397,13 @@ void main() {
                       checkForUpdate: () async => null,
                       onUpdateFound: (_) {}));
             }))));
-    SwitchListTile tile() =>
-        tester.widget<SwitchListTile>(find.byType(SwitchListTile));
+    Switch tile() => tester.widget<Switch>(find.byType(Switch));
     await tester.scrollUntilVisible(find.text('动态背景'), 200,
         scrollable: find.byType(Scrollable).first);
     await tester.ensureVisible(find.text('动态背景'));
     expect(tile().value, isFalse);
     expect(tile().onChanged, isNotNull);
-    await tester.tap(find.byType(SwitchListTile));
+    await tester.tap(find.byType(Switch));
     await tester.pump();
     expect(reported, isTrue);
     expect(tile().value, isTrue);
@@ -437,8 +443,7 @@ void main() {
                         onPortChanged: (_) async {},
                         checkForUpdate: () async => null,
                         onUpdateFound: (_) {}))))));
-    SwitchListTile tile() =>
-        tester.widget<SwitchListTile>(find.byType(SwitchListTile));
+    Switch tile() => tester.widget<Switch>(find.byType(Switch));
     await tester.scrollUntilVisible(find.text('动态背景'), 200,
         scrollable: find.byType(Scrollable).first);
     await tester.ensureVisible(find.text('动态背景'));
