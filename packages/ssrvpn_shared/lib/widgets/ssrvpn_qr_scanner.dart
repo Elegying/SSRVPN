@@ -200,8 +200,15 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
       _pendingImage = null;
       _imageNotice = null;
     });
-    await _stop();
     try {
+      await _stop();
+      // Native shutdown can outlive a back gesture or an app switch.
+      if (!mounted ||
+          _done ||
+          WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed ||
+          ModalRoute.of(context)?.isCurrent == false) {
+        return;
+      }
       final file = widget.pickImage != null
           ? await widget.pickImage!()
           : await openFile(

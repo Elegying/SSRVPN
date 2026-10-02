@@ -53,6 +53,72 @@ class _Scanner extends MobileScannerPlatform {
 }
 
 void main() {
+  for (final action in ['closed', 'closing', 'background']) {
+    testWidgets('$action while camera stops must not open the gallery later',
+        (tester) async {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      final original = MobileScannerPlatform.instance;
+      final scanner = _Scanner();
+      MobileScannerPlatform.instance = scanner;
+      addTearDown(() async {
+        MobileScannerPlatform.instance = original;
+        await scanner.codes.close();
+      });
+      final input = TextEditingController(text: 'existing draft');
+      addTearDown(input.dispose);
+      var picks = 0;
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: SsrvpnQrImportButton(
+        enabled: true,
+        controller: input,
+        onAdd: () => fail('must not import'),
+        pickImage: () async {
+          picks++;
+          return null;
+        },
+      ))));
+      await tester.tap(find.byKey(const Key('ssrvpn-qr-import')));
+      await tester.pumpAndSettle();
+      scanner.pendingStop = Completer<void>();
+      await tester.ensureVisible(find.text('选择二维码图片'));
+      await tester.tap(find.text('选择二维码图片'));
+      await tester.pump();
+      expect(picks, 0);
+      if (action == 'background') {
+        tester.binding
+            .handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+        await tester.pump();
+      } else {
+        await tester.pageBack();
+        if (action == 'closed') {
+          await tester.pumpAndSettle();
+        } else {
+          await tester.pump(); // Route still mounted during its exit animation.
+        }
+      }
+      scanner.pendingStop!.complete();
+      scanner.pendingStop = null;
+      await tester.pumpAndSettle();
+      expect(picks, 0,
+          reason: 'a closed scanner no longer owns the gallery action');
+      expect(input.text, 'existing draft');
+      if (action == 'background') {
+        tester.binding
+            .handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+        await tester.pumpAndSettle();
+        expect(picks, 0);
+        expect(find.text('选择二维码图片'), findsOneWidget);
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+      } else {
+        expect(find.text('扫描二维码'), findsNothing);
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    }, skip: Platform.isWindows);
+  }
   testWidgets('gallery errors remain visible after the camera restarts',
       (tester) async {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
