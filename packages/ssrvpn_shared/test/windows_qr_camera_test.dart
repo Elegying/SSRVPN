@@ -81,4 +81,20 @@ void main() {
     expect(platform.disposed, [7]);
     await platform.events.close();
   });
+  testWidgets('timed-out device creation releases a late native device',
+      (tester) async {
+    final platform = FakeCamera()..pendingCreate = Completer<int>();
+    final camera = SsrvpnWindowsQrCamera(platform: platform);
+    final opening = camera.initialize();
+    final failure = expectLater(opening, throwsA(isA<TimeoutException>()));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 11));
+    await failure;
+    platform.pendingCreate!.complete(7);
+    await tester.pump();
+    expect(camera.isInitialized, isFalse);
+    expect(platform.disposed, [7]);
+    await camera.dispose();
+    await platform.events.close();
+  });
 }

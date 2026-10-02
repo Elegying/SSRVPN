@@ -100,7 +100,7 @@ class _SsrvpnClipboardImportState extends State<SsrvpnClipboardImport>
             _promptRoute = ModalRoute.of(ctx);
             return SsrvpnLiquidAlertDialog(
               title: const Text('发现剪贴板节点'),
-              content: const Text('是否导入复制的节点？节点代码不会显示或写入日志。'),
+              content: const Text('是否导入复制的节点？'),
               actions: [
                 TextButton(
                   onPressed: () => dismissSsrvpnDialog(ctx, false),
