@@ -5,6 +5,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:image/image.dart' as img;
 import 'package:zxing2/qrcode.dart';
 import 'qr_png_guard.dart';
+import 'qr_webp_frame.dart';
 
 class QrImageDecoder {
   static const maxBytes = 12 * 1024 * 1024;
@@ -40,10 +41,11 @@ class QrImageDecoder {
   }
 
   static void _decode((SendPort, Uint8List) input) {
-    final (send, bytes) = input;
+    final (send, sourceBytes) = input;
     try {
+      final bytes = validateQrPngData(sourceBytes, maxPixels: maxPixels);
       // Reject oversized headers before allocating the decoded pixel buffer.
-      final decoder = img.findDecoderForData(bytes);
+      var decoder = img.findDecoderForData(bytes);
       final info = decoder?.startDecode(bytes);
       if (info == null ||
           info.width < 1 ||
@@ -52,7 +54,11 @@ class QrImageDecoder {
         send.send(false);
         return;
       }
-      validateQrPngData(bytes);
+      if (decoder is img.WebPDecoder &&
+          info is img.WebPInfo &&
+          info.hasAnimation) {
+        decoder = qrWebPFirstFrame(bytes, info);
+      }
       var picture = decoder!.decodeFrame(0);
       if (picture == null) {
         send.send(false);

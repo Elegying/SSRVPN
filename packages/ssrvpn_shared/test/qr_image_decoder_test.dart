@@ -6,7 +6,100 @@ import 'package:image/image.dart' as img;
 import 'package:ssrvpn_shared/services/qr_image_decoder.dart';
 import 'qr_test_image.dart';
 
+// Lossless 392 x 392 QR fixture encoded as WebP.
+final _webpQr = base64Decode(
+    'UklGRoIBAABXRUJQVlA4THYBAAAvh8FhAA8w//M///MfeJDbSJIkSaa/0k5k9jxc7u4dENH/Cei/iPZFSKlIKvt9NaVKbVQhaV4YNjNUUlIJlyaJRI/c3FoqWbq0KUkayLDNA9tfkiRJsp/Xy9ptGd+9JmUvqcZUyLwvrVIkUUQoUg7MLNJUSJQKDmwqRaJKoyHIfTE0pPJqq6r7KqooERUSlyYFpZFUNETlwBJlpoGsKUkvX5UkyUwq7YjKfT1KQWXASzkxaUxry6yUA6OpYKSSEhG9elYRRqgiyR7EeUmKViMiJdSZFSJEnkRI95VSqGhXSUWll+9qragUiVKZifsq7ZIEDVJUOi+UNYSkUNnLeWU2RImoQSq5LxVUChVPhSMraZVkqZSRujAoqMzQUNJ+X5WUNSUUVaSk8yIoTVEkSmblvJ7Fg8xEKvO87JFCqYFKkg6sKYWEiCIq0oEhFUJJkmX28oFVtEtRqRRnhqgSbVq5sakk2UhJCr16V3ullNCkiio5r/8bAg==');
+
+Uint8List _animatedWebp(
+    {int canvas = 392, int frame = 392, Uint8List? encoded}) {
+  final image = encoded ?? _webpQr;
+  Uint8List chunk(String type, Uint8List payload) {
+    final result = Uint8List(8 + payload.length + (payload.length & 1));
+    result.setAll(0, ascii.encode(type));
+    ByteData.sublistView(result).setUint32(4, payload.length, Endian.little);
+    result.setAll(8, payload);
+    return result;
+  }
+
+  void uint24(Uint8List bytes, int offset, int value) {
+    for (var i = 0; i < 3; i++) {
+      bytes[offset + i] = (value >> (i * 8)) & 255;
+    }
+  }
+
+  final extended = Uint8List(10)..[0] = 2;
+  uint24(extended, 4, canvas - 1);
+  uint24(extended, 7, canvas - 1);
+  final frameData = Uint8List(16 + image.length - 12);
+  uint24(frameData, 6, frame - 1);
+  uint24(frameData, 9, frame - 1);
+  frameData.setAll(16, image.sublist(12));
+  final body = (BytesBuilder()
+        ..add(ascii.encode('WEBP'))
+        ..add(chunk('VP8X', extended))
+        ..add(chunk('ANIM', Uint8List(6)))
+        ..add(chunk('ANMF', frameData)))
+      .takeBytes();
+  final output = Uint8List(8 + body.length);
+  output.setAll(0, ascii.encode('RIFF'));
+  ByteData.sublistView(output).setUint32(4, body.length, Endian.little);
+  output.setAll(8, body);
+  return output;
+}
+
 void main() {
+  test('PNG ancillary chunk cannot redirect the decoder to unchecked IDAT',
+      () async {
+    // acTL claims an oversized payload containing a second IDAT/IEND stream.
+    // The old guard skipped that payload; image 4.10.1 consumed only 8 bytes.
+    final input = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAO2FjVEwAAAAAAAAAAAAAAAAAAAAXSURBVHicY2AYBaNgFIyCUTAKRsGIBAAIBQABVuARbgAAAABJRU5ErkJggluyyTkAAAALSURBVHicY2AAAgAABQABel6rPwAAAABJRU5ErkJggg==');
+    await expectLater(QrImageDecoder.decode(input), throwsFormatException);
+  });
+  test('animated WebP cannot hide frame dimensions behind a smaller canvas',
+      () async {
+    final input = _animatedWebp(canvas: 1, frame: 1);
+    final decoder = img.WebPDecoder();
+    expect(decoder.startDecode(input)!.width, 1);
+    expect(decoder.decodeFrame(0)!.width, 392);
+    await expectLater(QrImageDecoder.decode(input), throwsFormatException);
+  });
+  test('static and first animated WebP frames remain readable', () async {
+    const code = 'trojan://test-password@node.example.com:443#WebP';
+    expect(await QrImageDecoder.decode(_webpQr), code);
+    expect(await QrImageDecoder.decode(_animatedWebp()), code);
+  });
+  test('WebP rejects out-of-canvas, mismatched and nested frames', () async {
+    for (final input in [
+      _animatedWebp(canvas: 391),
+      _animatedWebp(frame: 1),
+      _animatedWebp(encoded: _animatedWebp()),
+    ]) {
+      await expectLater(QrImageDecoder.decode(input), throwsFormatException);
+    }
+  });
+  test('oversized encoded WebP frame is rejected before pixel allocation',
+      () async {
+    final encoded = Uint8List.fromList(_webpQr);
+    // VP8L header: 4096 x 4096, hidden behind a 392 x 392 animation frame.
+    ByteData.sublistView(encoded)
+        .setUint32(21, 4095 | (4095 << 14), Endian.little);
+    expect(img.WebPDecoder().startDecode(encoded)!.width, 4096);
+    await expectLater(QrImageDecoder.decode(_animatedWebp(encoded: encoded)),
+        throwsFormatException);
+    await expectLater(QrImageDecoder.decode(encoded), throwsFormatException);
+  });
+  test('WebP rejects truncated and inconsistent RIFF lengths', () async {
+    final input = _animatedWebp();
+    final badLength = Uint8List.fromList(input);
+    ByteData.sublistView(badLength).setUint32(4, 0xffffffff, Endian.little);
+    await expectLater(QrImageDecoder.decode(badLength), throwsFormatException);
+    // A shortened declared container must not expose its otherwise valid frame.
+    ByteData.sublistView(badLength).setUint32(4, 4, Endian.little);
+    await expectLater(QrImageDecoder.decode(badLength), throwsFormatException);
+    final truncated = input.sublist(0, input.length - 1);
+    await expectLater(QrImageDecoder.decode(truncated), throwsFormatException);
+  });
   test('PNG data cannot inflate beyond the declared pixel dimensions',
       () async {
     const code = 'trojan://test-password@node.example.com:443#Bounded';

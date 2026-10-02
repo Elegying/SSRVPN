@@ -9,7 +9,14 @@ Uint8List _chunk(String type, List<int> payload) {
   ByteData.sublistView(bytes).setUint32(0, payload.length);
   bytes.setAll(4, ascii.encode(type));
   bytes.setAll(8, payload);
-  // This guard counts bytes; CRC remains the image decoder's responsibility.
+  var crc = 0xffffffff;
+  for (final byte in bytes.sublist(4, bytes.length - 4)) {
+    crc ^= byte;
+    for (var bit = 0; bit < 8; bit++) {
+      crc = (crc >> 1) ^ ((crc & 1) != 0 ? 0xedb88320 : 0);
+    }
+  }
+  ByteData.sublistView(bytes).setUint32(bytes.length - 4, crc ^ 0xffffffff);
   return bytes;
 }
 
@@ -37,6 +44,49 @@ Uint8List _png(int side, int inflated,
 }
 
 void main() {
+  test('ancillary fixed-length parser differences are rejected', () {
+    final png = _png(1, 5);
+    for (final type in ['acTL', 'fcTL', 'pHYs', 'bKGD']) {
+      final malformed = (BytesBuilder()
+            ..add(png.sublist(0, 33))
+            ..add(_chunk(type, Uint8List(32)))
+            ..add(png.sublist(33)))
+          .takeBytes();
+      expect(() => validateQrPngData(malformed), throwsFormatException,
+          reason: type);
+    }
+  });
+  test('only checked pixel chunks reach the image decoder', () {
+    final png = _png(1, 5);
+    final metadata = (BytesBuilder()
+          ..add(png.sublist(0, 33))
+          ..add(_chunk('tEXt',
+              [120, 0, ..._chunk('IDAT', zlib.encode(Uint8List(2053)))]))
+          ..add(_chunk('acTL', Uint8List(8)))
+          ..add(_chunk('bKGD', Uint8List(6)))
+          ..add(png.sublist(33)))
+        .takeBytes();
+    expect(validateQrPngData(metadata), orderedEquals(png));
+  });
+  test('CRC, unknown critical chunks, trailing bytes and IDAT gaps fail closed',
+      () {
+    final png = _png(1, 5);
+    final badCrc = Uint8List.fromList(png)..[29] ^= 1;
+    final firstDataEnd = 33 + 12 + ByteData.sublistView(png).getUint32(33);
+    for (final invalid in [
+      badCrc,
+      Uint8List.fromList([...png, 0]),
+      Uint8List.fromList(
+          [...png.sublist(0, 33), ..._chunk('ABCD', []), ...png.sublist(33)]),
+      Uint8List.fromList([
+        ...png.sublist(0, firstDataEnd),
+        ..._chunk('tEXt', [120, 0]),
+        ...png.sublist(firstDataEnd)
+      ]),
+    ]) {
+      expect(() => validateQrPngData(invalid), throwsFormatException);
+    }
+  });
   test('normal, packed and Adam7 rows accept exact sizes across IDAT chunks',
       () {
     validateQrPngData(_png(9, 333)); // 9 rows of 36 bytes plus a filter byte.
