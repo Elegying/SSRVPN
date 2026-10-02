@@ -5,6 +5,7 @@ import 'package:ssrvpn_shared/widgets/ssrvpn_app_surface.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/services/clash_service_base.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_settings_page.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_glass.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -150,7 +151,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('规则更新完成，下次连接生效'), findsOneWidget);
     final notice = find.byKey(const Key('settings-notice'));
-    expect(tester.widget<Material>(notice).color!.a, 1);
+    expect(tester.widget<SsrvpnLiquidSurface>(notice).tint, isNull);
+    expect(
+        tester.getRect(notice).top,
+        greaterThanOrEqualTo(
+            tester.getRect(find.widgetWithText(ListTile, '检查规则更新')).bottom));
     expect(tester.getRect(notice).bottom,
         lessThan(tester.getRect(find.text('版本号：5.0.27')).top));
     await capture('settings-notice');
