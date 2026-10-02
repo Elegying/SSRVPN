@@ -45,7 +45,9 @@ void validateQrJpegData(Uint8List bytes, {int maxPixels = 16000000}) {
             h > 4 ||
             v < 1 ||
             v > 4 ||
-            bytes[component + 2] > 3) throw invalid;
+            bytes[component + 2] > 3) {
+          throw invalid;
+        }
         if (h > maxH) maxH = h;
         if (v > maxV) maxV = v;
         blocksPerMcu += h * v;
