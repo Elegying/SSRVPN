@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -20,6 +21,16 @@ class _MemoryPins extends NodePinStore {
   }
 }
 
+class _DelayedPins extends _MemoryPins {
+  final ready = Completer<void>();
+  @override
+  Future<void> load() async {
+    await ready.future;
+    keys.add('日本 Premium');
+    notifyListeners();
+  }
+}
+
 void main() {
   final nodes = [
     ProxyNode(
@@ -37,13 +48,14 @@ void main() {
   ];
   Widget page(
           {String? directory,
+          _MemoryPins? pins,
           TargetPlatform platform = TargetPlatform.android}) =>
       MaterialApp(
           theme: ThemeData.dark().copyWith(platform: platform),
           home: Scaffold(
               body: SsrvpnNodeSelectionPage(
             preferenceDirectory: directory,
-            pinStoreFactory: (_) => _MemoryPins(),
+            pinStoreFactory: (_) => pins ?? _MemoryPins(),
             nodesOf: () => nodes,
             selectedNodeNameOf: () => null,
             proxyModeOf: () => ProxyMode.rule,
@@ -133,6 +145,31 @@ void main() {
     expect(find.text('置顶'), findsOneWidget);
     await tester.tap(find.text('置顶'));
     await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+  testWidgets('stored pins finish loading before a desktop toggle is offered',
+      (tester) async {
+    final pins = _DelayedPins();
+    await tester.pumpWidget(page(
+        directory: '/test-pins', pins: pins, platform: TargetPlatform.windows));
+    await tester.pumpAndSettle();
+    final jp = find.byKey(const ValueKey('ssrvpn-node-select-日本 Premium'));
+    Future<void> click() async {
+      final gesture = await tester.startGesture(tester.getCenter(jp),
+          kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
+      await gesture.up();
+      await tester.pumpAndSettle();
+    }
+
+    await click();
+    expect(find.text('置顶'), findsNothing);
+    pins.ready.complete();
+    await tester.pumpAndSettle();
+    await click();
+    expect(find.text('取消置顶'), findsOneWidget);
+    await tester.tap(find.text('取消置顶'));
+    await tester.pumpAndSettle();
+    expect(pins.keys, isEmpty);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 }

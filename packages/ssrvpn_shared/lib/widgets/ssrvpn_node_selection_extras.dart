@@ -28,10 +28,13 @@ extension _NodeSelectionExtras on _SsrvpnNodeSelectionPageState {
     final store =
         widget.pinStoreFactory?.call(directory) ?? NodePinStore(directory);
     _pins = store;
+    _pinBusy = true;
     store.addListener(() {
       if (mounted) _updateSelectionState(() {});
     });
-    store.load();
+    store.load().whenComplete(() {
+      if (mounted) _updateSelectionState(() => _pinBusy = false);
+    }).ignore();
   }
 
   List<ProxyNode> _pinSorted(List<ProxyNode> nodes) => [
@@ -99,6 +102,7 @@ extension _NodeSelectionExtras on _SsrvpnNodeSelectionPageState {
   }
 
   Future<void> _openNodeMenu(ProxyNode node, TapDownDetails details) async {
+    if (_pinBusy) return;
     final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
     final selected = await showSsrvpnLiquidMenu<String>(
       context: context,
