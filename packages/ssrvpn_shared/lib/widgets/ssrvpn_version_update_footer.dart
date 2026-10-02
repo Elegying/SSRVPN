@@ -60,10 +60,10 @@ class SsrvpnVersionUpdateFooter extends StatelessWidget {
               foregroundColor: updateActionColor,
               padding: const EdgeInsets.symmetric(horizontal: 6),
               minimumSize: const Size(48, 48),
-              textStyle: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-              ),
+              textStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
             ),
             child: fitHomeText
                 ? const SizedBox(

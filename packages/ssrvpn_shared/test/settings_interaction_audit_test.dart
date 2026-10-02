@@ -51,10 +51,6 @@ void main() {
       if (folder != null) {
         for (final entry in {
           'AuditCJK': '/System/Library/Fonts/STHeiti Medium.ttc',
-          'Ahem': '/System/Library/Fonts/STHeiti Medium.ttc',
-          'Roboto': '/System/Library/Fonts/STHeiti Medium.ttc',
-          '.AppleSystemUIFont': '/System/Library/Fonts/STHeiti Medium.ttc',
-          'PingFang SC': '/System/Library/Fonts/STHeiti Medium.ttc',
           'MaterialIcons':
               '${Platform.environment['FLUTTER_ROOT']}/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
         }.entries) {
@@ -94,7 +90,7 @@ void main() {
                           extendBehindNavigation: true,
                           navigation: SsrvpnBottomNavigation(
                               currentIndex: 2,
-                              version: '5.0.27',
+                              version: AppConstants.appVersion,
                               availableVersion: available?.version,
                               onUpdateTap: () {},
                               onTap: (_) {}),
