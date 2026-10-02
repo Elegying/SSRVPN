@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_qr_import_button.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_qr_scanner.dart';
+import 'qr_test_image.dart';
 
 class _DeniedWindowsCamera extends CameraPlatform {
   @override
@@ -52,6 +53,102 @@ class _Scanner extends MobileScannerPlatform {
 }
 
 void main() {
+  testWidgets('gallery errors remain visible after the camera restarts',
+      (tester) async {
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    final original = MobileScannerPlatform.instance;
+    final scanner = _Scanner();
+    MobileScannerPlatform.instance = scanner;
+    addTearDown(() async {
+      MobileScannerPlatform.instance = original;
+      await scanner.codes.close();
+    });
+    await tester.pumpWidget(MaterialApp(
+        home: SsrvpnQrScanner(
+      pickImage: () async => XFile.fromData(qrPicture('ordinary text')),
+    )));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('选择二维码图片'));
+    await tester.tap(find.text('选择二维码图片'));
+    for (var attempt = 0; attempt < 500; attempt++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await tester.pump();
+      if (find.text('正在识别').evaluate().isEmpty) break;
+    }
+    await tester.pumpAndSettle();
+    expect(scanner.starts, 2);
+    expect(find.text('未识别到有效节点或订阅链接，请换一个二维码'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  }, skip: Platform.isWindows);
+  for (final close in [false, true]) {
+    testWidgets('gallery result received while inactive: close=$close',
+        (tester) async {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      final original = MobileScannerPlatform.instance;
+      final scanner = _Scanner()..denied = true;
+      MobileScannerPlatform.instance = scanner;
+      final originalCamera = CameraPlatform.instance;
+      CameraPlatform.instance = _DeniedWindowsCamera();
+      addTearDown(() async {
+        MobileScannerPlatform.instance = original;
+        CameraPlatform.instance = originalCamera;
+        await scanner.codes.close();
+      });
+      const code = 'trojan://test-password@node.example.com:443#Gallery';
+      final input = TextEditingController(text: 'existing draft');
+      addTearDown(input.dispose);
+      final picked = Completer<XFile?>();
+      var imports = 0;
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: SsrvpnQrImportButton(
+                  enabled: true,
+                  controller: input,
+                  onAdd: () => imports++,
+                  pickImage: () => picked.future))));
+      await tester.tap(find.byKey(const Key('ssrvpn-qr-import')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('选择二维码图片'));
+      await tester.tap(find.text('选择二维码图片'));
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.runAsync(() async {
+        picked.complete(XFile.fromData(qrPicture(code)));
+      });
+      // Image decoding runs in a real isolate, outside the widget test clock.
+      for (var attempt = 0; attempt < 500; attempt++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pump();
+        if (find.text('正在识别').evaluate().isEmpty) break;
+      }
+      expect(find.text('正在识别'), findsNothing);
+      expect(find.text('导入二维码'), findsNothing);
+      expect(imports, 0);
+      expect(input.text, 'existing draft');
+      if (close) {
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+      }
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      if (close) {
+        expect(find.text('导入二维码'), findsNothing);
+        expect(input.text, 'existing draft');
+      } else {
+        expect(find.text('导入二维码'), findsOneWidget);
+        await tester.tap(find.text('导入'));
+        await tester.pumpAndSettle();
+        expect(imports, 1);
+        expect(input.text, code);
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+  }
   testWidgets('reopening waits for the old route to release its camera',
       (tester) async {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);

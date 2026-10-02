@@ -46,7 +46,7 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
   Future<void>? _stopping;
   int _epoch = 0;
   bool _starting = false, _picking = false, _capturing = false, _done = false;
-  String? _notice;
+  String? _notice, _imageNotice, _pendingImage;
   int _cameraFailures = 0;
   bool get _active =>
       mounted &&
@@ -71,7 +71,14 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
   }
 
   Future<void> _start() async {
-    if (!_active || _starting) return;
+    if (!_active) return;
+    final image = _pendingImage;
+    if (image != null) {
+      _pendingImage = null;
+      _accept(image);
+      return;
+    }
+    if (_starting) return;
     _starting = true;
     final epoch = _epoch;
     SsrvpnWindowsQrCamera? initializing;
@@ -188,7 +195,11 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
 
   Future<void> _pick() async {
     if (_picking || _done) return;
-    setState(() => _picking = true);
+    setState(() {
+      _picking = true;
+      _pendingImage = null;
+      _imageNotice = null;
+    });
     await _stop();
     try {
       final file = widget.pickImage != null
@@ -205,14 +216,19 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
       if (!mounted || file == null) return;
       final value = await QrImageDecoder.read(file);
       if (!mounted) return;
-      _picking = false;
       if (value != null) {
-        _accept(value);
+        // The picker/decoder can finish before the OS resumes the app.
+        // Keep only a validated candidate for this route; ask after resuming.
+        _pendingImage =
+            NodeImportPolicy.candidate(value, allowSubscription: true);
+        if (_pendingImage == null) {
+          _imageNotice = '未识别到有效节点或订阅链接，请换一个二维码';
+        }
       } else {
-        setState(() => _notice = '图片中未找到二维码，请选择清晰的二维码图片');
+        _imageNotice = '图片中未找到二维码，请选择清晰的二维码图片';
       }
     } catch (_) {
-      if (mounted) setState(() => _notice = '图片读取失败、过大或格式不支持，请裁剪二维码后重试');
+      if (mounted) _imageNotice = '图片读取失败、过大或格式不支持，请裁剪二维码后重试';
     } finally {
       _picking = false;
       if (mounted) {
@@ -225,6 +241,7 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
   @override
   void dispose() {
     _done = true;
+    _pendingImage = null;
     _stop().whenComplete(() async {
       if (_scanner != null) {
         try {
@@ -275,11 +292,12 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
                                     child: Text('无法使用相机，可选择二维码图片')),
                               ),
                       ),
-                      if (_notice != null)
+                      if (_imageNotice != null || _notice != null)
                         Padding(
                           padding: const EdgeInsets.all(16),
                           child: Semantics(
-                              liveRegion: true, child: Text(_notice!)),
+                              liveRegion: true,
+                              child: Text((_imageNotice ?? _notice)!)),
                         ),
                       Padding(
                         padding: const EdgeInsets.all(16),
