@@ -107,6 +107,7 @@ class _SubscriptionAddCard extends StatelessWidget {
                             width: 20,
                             height: 20,
                             child: CircularProgressIndicator(
+                              semanticsLabel: '正在添加订阅',
                               strokeWidth: 2,
                               color: Colors.white,
                             ),

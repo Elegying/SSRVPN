@@ -14,16 +14,18 @@ enum WindowsCoreIdentityFailureKind {
 /// Only bounded, redacted diagnostic text crosses the startup boundary.
 class WindowsCoreIdentityFailure implements Exception {
   WindowsCoreIdentityFailure(this.kind, Object reason)
-      : reason = LogRedactor.sanitize(reason is ProcessException
+      : reason = LogRedactor.sanitize(_redactPaths(reason is ProcessException
                 ? '${reason.message}; osError=${reason.errorCode}'
-                : reason.toString())
-            .replaceAll(RegExp(r'[\r\n]+'), ' ')
-            .replaceAll(
-                RegExp(r'"(?:[A-Za-z]:[\\/]|\\\\)[^"\r\n]*(?:"|$)'
-                    r"|'(?:[A-Za-z]:[\\/]|\\\\)[^'\r\n]*(?:'|$)"),
-                '[本地路径]')
-            .replaceAll(
-                RegExp(r'''(?:[A-Za-z]:[\\/]|\\\\)[^\s"']+'''), '[本地路径]');
+                : reason.toString()))
+            .replaceAll(RegExp(r'[\r\n]+'), ' ');
+
+  static String _redactPaths(String text) => text
+      .replaceAll(RegExp(r'"(?:[A-Za-z]:[\\/]|\\\\)[^"\r\n]*(?:"|$)'), '[本地路径]')
+      .replaceAll(
+          RegExp(r"'(?:[A-Za-z]:[\\/]|\\\\)[^\r\n]*'"
+              r"|'(?:[A-Za-z]:[\\/]|\\\\)[^\r\n]*$"),
+          '[本地路径]')
+      .replaceAll(RegExp(r'''(?:[A-Za-z]:[\\/]|\\\\)[^;\r\n"]+'''), '[本地路径]');
 
   final WindowsCoreIdentityFailureKind kind;
   final String reason;

@@ -143,7 +143,7 @@ macOS 与 Windows：`setSystemProxy` / `clearSystemProxy` **只能**出现在 `c
 | Windows | `lib/services/clash_service_process_support.dart` | **90.0%** |
 | Windows | `lib/services/clash_service_config_validation.dart` | **90.0%** |
 
-覆盖率从 `<pkg>/coverage/lcov.info` 读取（shared 无 lcov 时回退 Dart VM coverage）。
+覆盖率仅从 `<pkg>/coverage/lcov.info` 读取；shared 也必须提供完整 LCOV，缺失时门禁失败，不再回退 Dart VM coverage。
 
 ## 5. 核心资产（**不可协商**）
 

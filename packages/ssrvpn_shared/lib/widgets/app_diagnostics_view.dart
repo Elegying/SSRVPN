@@ -140,20 +140,22 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
       return Semantics(
         liveRegion: true,
         child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.error_outline, color: theme.colorScheme.error),
-              const SizedBox(height: 8),
-              const Text('诊断未能完成'),
-              const SizedBox(height: 4),
-              Text(
-                '没有修改任何系统状态，请稍后重试。',
-                style: theme.textTheme.bodySmall,
-              ),
-              const SizedBox(height: 8),
-              FilledButton.tonal(onPressed: _load, child: const Text('重试')),
-            ],
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.error_outline, color: theme.colorScheme.error),
+                const SizedBox(height: 8),
+                const Text('诊断未能完成'),
+                const SizedBox(height: 4),
+                Text(
+                  '没有修改任何系统状态，请稍后重试。',
+                  style: theme.textTheme.bodySmall,
+                ),
+                const SizedBox(height: 8),
+                FilledButton.tonal(onPressed: _load, child: const Text('重试')),
+              ],
+            ),
           ),
         ),
       );
@@ -174,13 +176,7 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
           child: TextButton.icon(
             onPressed: _copyReport,
             icon: const Icon(Icons.copy, size: 18),
-            label: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 56),
-              child: const FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text('复制报告'),
-              ),
-            ),
+            label: const Text('复制报告'),
           ),
         ),
       ),
@@ -198,20 +194,13 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.refresh, size: 18),
-            label: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 56),
-              child: const FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text('重新检查'),
-              ),
-            ),
+            label: const Text('重新检查'),
           ),
         ),
       ),
     ];
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return ListView(
       children: [
         Semantics(
           liveRegion: true,
@@ -244,41 +233,66 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
           ),
         ],
         const SizedBox(height: 8),
-        Expanded(
-          child: ListView(
+        for (final check in report.checks)
+          _DiagnosticCheckTile(
+            check: check,
+            repairing: _repairing == check.repairAction,
+            repairEnabled: !_loading && _repairing == null,
+            onRepair: check.repairAction == null
+                ? null
+                : () => _repair(check.repairAction!),
+          ),
+        if (readableLogs.isNotEmpty)
+          ExpansionTile(
+            leading: const Icon(Icons.article_outlined, size: 20),
+            title: Text('最近运行记录（${readableLogs.length}）'),
+            subtitle: const Text('已按本地时间整理，并隐藏内部标识'),
+            initiallyExpanded:
+                readableLogs.any((entry) => entry.requiresAttention),
             children: [
-              for (final check in report.checks)
-                _DiagnosticCheckTile(
-                  check: check,
-                  repairing: _repairing == check.repairAction,
-                  repairEnabled: !_loading && _repairing == null,
-                  onRepair: check.repairAction == null
-                      ? null
-                      : () => _repair(check.repairAction!),
+              for (final entry in readableLogs) _ReadableLogTile(entry: entry),
+            ],
+          ),
+        if (report.recentLogs.trim().isNotEmpty)
+          ExpansionTile(
+            leading: const Icon(Icons.code_rounded, size: 20),
+            title: const Text('技术明细（已脱敏）'),
+            subtitle: const Text('仅在需要深入排障时查看'),
+            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: SelectableText(
+                  LogRedactor.sanitizeForDisplay(report.recentLogs),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontFamily: 'monospace',
+                    height: 1.5,
+                  ),
                 ),
-              if (readableLogs.isNotEmpty)
+              ),
+            ],
+          ),
+        if (_history.isNotEmpty)
+          ExpansionTile(
+            leading: const Icon(Icons.history, size: 20),
+            title: Text('本地诊断历史（${_history.length}）'),
+            subtitle: const Text('仅保留最近 20 份已脱敏报告'),
+            children: [
+              for (final entry in _history)
                 ExpansionTile(
-                  leading: const Icon(Icons.article_outlined, size: 20),
-                  title: Text('最近运行记录（${readableLogs.length}）'),
-                  subtitle: const Text('已按本地时间整理，并隐藏内部标识'),
-                  initiallyExpanded:
-                      readableLogs.any((entry) => entry.requiresAttention),
-                  children: [
-                    for (final entry in readableLogs)
-                      _ReadableLogTile(entry: entry),
-                  ],
-                ),
-              if (report.recentLogs.trim().isNotEmpty)
-                ExpansionTile(
-                  leading: const Icon(Icons.code_rounded, size: 20),
-                  title: const Text('技术明细（已脱敏）'),
-                  subtitle: const Text('仅在需要深入排障时查看'),
+                  title: Text(
+                    entry.generatedAt.toLocal().toIso8601String(),
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                  subtitle: Text(
+                    '失败 ${entry.failureCount} · 提醒 ${entry.warningCount}',
+                  ),
                   childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                   children: [
                     Align(
                       alignment: Alignment.centerLeft,
                       child: SelectableText(
-                        LogRedactor.sanitizeForDisplay(report.recentLogs),
+                        entry.reportText,
                         style: theme.textTheme.bodySmall?.copyWith(
                           fontFamily: 'monospace',
                           height: 1.5,
@@ -287,41 +301,8 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
                     ),
                   ],
                 ),
-              if (_history.isNotEmpty)
-                ExpansionTile(
-                  leading: const Icon(Icons.history, size: 20),
-                  title: Text('本地诊断历史（${_history.length}）'),
-                  subtitle: const Text('仅保留最近 20 份已脱敏报告'),
-                  children: [
-                    for (final entry in _history)
-                      ExpansionTile(
-                        title: Text(
-                          entry.generatedAt.toLocal().toIso8601String(),
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                        subtitle: Text(
-                          '失败 ${entry.failureCount} · 提醒 ${entry.warningCount}',
-                        ),
-                        childrenPadding:
-                            const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                        children: [
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: SelectableText(
-                              entry.reportText,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                fontFamily: 'monospace',
-                                height: 1.5,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                  ],
-                ),
             ],
           ),
-        ),
       ],
     );
   }

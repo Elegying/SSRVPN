@@ -916,6 +916,39 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(try String(contentsOf: stateURL, encoding: .utf8), contents)
   }
 
+  func testMalformedLiveProxyOutputPreservesRecoverySnapshot() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+    let stateURL = directory.appendingPathComponent("system_proxy.json")
+    let contents = """
+    {"_ownedProxyHost":"127.0.0.1","_ownedProxyPort":7890,"Wi-Fi":{"web":{"enabled":false,"server":"","port":0},"secureWeb":{"enabled":false,"server":"","port":0},"socks":{"enabled":false,"server":"","port":0}}}
+    """
+    let outputs = [
+      "",
+      "An unexpected error occurred.\n",
+      "Enabled: Maybe\nServer: 127.0.0.1\nPort: 7890\n",
+      "Enabled: Yes\nServer: 127.0.0.1\nPort: invalid\n",
+      "Enabled: Yes\nPort: 7890\n",
+      "Enabled: No\nEnabled: Yes\nServer: 127.0.0.1\nPort: 7890\n",
+    ]
+    for output in outputs {
+      try Data(contents.utf8).write(to: stateURL)
+      var mutationCalls = 0
+      let restored = AppDelegate().restoreProxyFixture(
+        at: stateURL,
+        proxyCommandRunner: { _, arguments in
+          if arguments.first?.hasPrefix("-set") == true { mutationCalls += 1 }
+          return ProxyCommandResult(succeeded: true, output: output)
+        }
+      )
+      XCTAssertFalse(restored, "Unexpectedly accepted: \(output)")
+      XCTAssertEqual(mutationCalls, 0)
+      XCTAssertEqual(try? String(contentsOf: stateURL, encoding: .utf8), contents)
+    }
+  }
+
   func testUnderscorePrefixedProxyServiceIsRestored() throws {
     let delegate = AppDelegate()
     let directory = FileManager.default.temporaryDirectory

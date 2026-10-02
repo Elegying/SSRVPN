@@ -262,6 +262,7 @@ class RenderLiquidGlass extends RenderProxyBox
   set shape(LiquidShape value) {
     if (_shape == value) return;
     _shape = value;
+    if (hasSize) _lastPath = shape.getOuterPath(Offset.zero & size);
     markNeedsPaint();
     _updateBlendGroupLink();
   }

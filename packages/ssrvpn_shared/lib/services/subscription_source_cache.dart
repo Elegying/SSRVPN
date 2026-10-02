@@ -10,6 +10,48 @@ import 'subscription_yaml_merger.dart';
 /// Source snapshots live in the existing atomic YAML cache. Stable ownership
 /// survives renames; shared nodes retain every owner after deduplication.
 class SubscriptionSourceCache {
+  /// Retain trusted runtime names separately from provider names while disabled.
+  static String? disabledSnapshot(String? yaml, String id) {
+    if (yaml == null) return null;
+    final document = BoundedYaml.load(yaml);
+    if (document is! Map || document['proxies'] is! List) return null;
+    final proxies = [
+      for (final proxy
+          in (document['proxies'] as List).whereType<Map<Object?, Object?>>())
+        if (proxy[SubscriptionParser.proxySourceIdsKey] is List &&
+            (proxy[SubscriptionParser.proxySourceIdsKey] as List).contains(id))
+          {
+            ...proxy,
+            SubscriptionParser.proxySourceIdsKey: [id]
+          }
+    ];
+    return proxies.isEmpty ? null : _encodeSnapshot(proxies);
+  }
+
+  static String? restoreNames(String? currentYaml, List<String> disabledYamls) {
+    if (disabledYamls.isEmpty) return currentYaml;
+    final proxies = <Object?>[];
+    var bytes = 0;
+    for (final yaml in [currentYaml, ...disabledYamls]) {
+      if (yaml == null) continue;
+      bytes += utf8.encode(yaml).length;
+      if (bytes > SubscriptionYamlMerger.maxMergedInputBytes) {
+        throw const YamlResourceLimitException('订阅名称快照超过大小上限');
+      }
+      final document = BoundedYaml.load(yaml);
+      if (document is Map && document['proxies'] is List) {
+        proxies.addAll(document['proxies'] as List);
+      }
+    }
+    return _encodeSnapshot(proxies);
+  }
+
+  static String _encodeSnapshot(List<Object?> proxies) {
+    final result = jsonEncode({'proxies': proxies});
+    BoundedYaml.validate(result);
+    return result;
+  }
+
   static Map<String, String> extract(
     String? yaml,
     Map<String, String> sourceNames, {

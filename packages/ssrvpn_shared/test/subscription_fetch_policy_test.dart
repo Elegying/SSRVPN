@@ -15,6 +15,48 @@ class _PolicyResponse {
 }
 
 void main() {
+  test('mapped IPv4 literals retain IPv4 safety restrictions', () {
+    for (final ipv4 in [
+      '0.0.0.0',
+      '169.254.169.254',
+      '224.0.0.1',
+      '198.18.0.1',
+      '198.19.255.254',
+    ]) {
+      final address = InternetAddress('::ffff:$ipv4');
+      expect(
+        () => SubscriptionFetchPolicy.validateResolvedAddresses(
+          Uri.parse('https://[${address.address}]/feed'),
+          [address],
+        ),
+        throwsA(isA<SubscriptionAddressException>()),
+        reason: 'Mapped $ipv4 must retain the literal IPv4 restriction',
+      );
+    }
+    for (final ipv4 in ['127.0.0.1', '192.168.1.1', '1.1.1.1']) {
+      final address = InternetAddress('::ffff:$ipv4');
+      expect(
+        SubscriptionFetchPolicy.validateResolvedAddresses(
+          Uri.parse('https://[${address.address}]/feed'),
+          [address],
+        ),
+        [address],
+      );
+    }
+  });
+
+  test('mapped IPv4 fake addresses are recognized without broadening the pool',
+      () {
+    for (final ipv4 in ['198.18.0.1', '198.19.255.254']) {
+      expect(SubscriptionFetchPolicy.isFakeIp(InternetAddress('::ffff:$ipv4')),
+          isTrue);
+    }
+    for (final ipv4 in ['192.168.1.1', '1.1.1.1', '198.20.0.1']) {
+      expect(SubscriptionFetchPolicy.isFakeIp(InternetAddress('::ffff:$ipv4')),
+          isFalse);
+    }
+  });
+
   test('cancel after a refusal prevents the next compatibility request',
       () async {
     final cancellation = SubscriptionRefreshCancellation();

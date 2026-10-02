@@ -51,6 +51,9 @@ mixin _SubscriptionPersistence on ChangeNotifier {
     final subsFile = File('$_cacheDir/subscriptions.json');
     if (await subsFile.exists()) {
       try {
+        if (await subsFile.length() > BoundedYaml.maxInputBytes) {
+          throw const YamlResourceLimitException('订阅列表超过 20 MB 存储上限');
+        }
         final content = utf8.decode(await subsFile.readAsBytes());
         final decoded = jsonDecode(content);
         if (decoded is! List) {
@@ -99,9 +102,7 @@ mixin _SubscriptionPersistence on ChangeNotifier {
         rethrow;
       } catch (e) {
         await backupBadFile(
-          cacheFile,
-          'subscription_cache.yaml parse failed: $e',
-        );
+            cacheFile, 'subscription_cache.yaml parse failed: $e');
         _rawYaml = null;
         _allNodes = [];
         _allGroups = [];
@@ -123,8 +124,7 @@ mixin _SubscriptionPersistence on ChangeNotifier {
   }
 
   Future<void> saveLatencyResults(List<ProxyNode> testedNodes) async {
-    // A refresh may be staging a replacement while the UI still owns the last
-    // committed snapshot. Accept only objects belonging to that visible state.
+    // Accept probes only for the visible committed snapshot during refreshes.
     final current = (_transactionSnapshot?.nodes ?? _allNodes).toSet();
     try {
       await _latencyCache?.record(testedNodes.where(current.contains));
@@ -170,9 +170,8 @@ mixin _SubscriptionPersistence on ChangeNotifier {
 
   Future<void> writeStringAtomically(File file, String content) async {
     await file.parent.create(recursive: true);
-    final temp = File(
-      '${file.path}.tmp.${DateTime.now().microsecondsSinceEpoch}',
-    );
+    final temp =
+        File('${file.path}.tmp.${DateTime.now().microsecondsSinceEpoch}');
     try {
       await temp.writeAsString(content, flush: true);
       await temp.rename(file.path);

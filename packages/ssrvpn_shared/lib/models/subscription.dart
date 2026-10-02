@@ -7,6 +7,7 @@ class Subscription {
     this.enabled = true,
     this.autoUpdate = true,
     this.disabledSourceYaml,
+    this.disabledNamesTrusted = false,
   });
 
   final String id;
@@ -19,6 +20,9 @@ class Subscription {
   /// Offline source retained only while this subscription is disabled.
   String? disabledSourceYaml;
 
+  /// Set only when the app captures names from its committed runtime cache.
+  bool disabledNamesTrusted;
+
   factory Subscription.fromJson(Map<String, dynamic> json) => Subscription(
         id: json['id']?.toString() ?? '',
         name: json['name']?.toString() ?? '',
@@ -27,6 +31,7 @@ class Subscription {
         disabledSourceYaml: json['disabledSourceYaml'] is String
             ? json['disabledSourceYaml'] as String
             : null,
+        disabledNamesTrusted: json['disabledNamesTrusted'] == true,
         enabled: json['enabled'] is bool ? json['enabled'] as bool : true,
         autoUpdate:
             json['autoUpdate'] is bool ? json['autoUpdate'] as bool : true,
@@ -41,6 +46,8 @@ class Subscription {
         'autoUpdate': autoUpdate,
         if (disabledSourceYaml != null)
           'disabledSourceYaml': disabledSourceYaml,
+        if (disabledSourceYaml != null && disabledNamesTrusted)
+          'disabledNamesTrusted': true,
       };
 
   static DateTime? _parseDate(Object? value) {

@@ -436,7 +436,7 @@ class _SubscriptionCard extends StatelessWidget {
                                 isMobile ? TooltipTriggerMode.tap : null,
                             child: Text(
                               subscription.name,
-                              maxLines: 1,
+                              maxLines: 3,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 color: SsrvpnUiTokens.textPrimary,
@@ -482,45 +482,49 @@ class _SubscriptionCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 14),
-                Row(
+                Wrap(
+                  spacing: 18,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: subscription.enabled
-                            ? SsrvpnUiTokens.success
-                            : SsrvpnUiTokens.error,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 7),
-                    Text(
-                      subscription.enabled ? '已启用' : '已禁用',
-                      style: TextStyle(
-                        color: subscription.enabled
-                            ? SsrvpnUiTokens.success
-                            : SsrvpnUiTokens.error,
-                        fontSize: 12,
-                      ),
-                    ),
-                    const SizedBox(width: 18),
-                    const Icon(
-                      Icons.access_time_rounded,
-                      size: 15,
-                      color: SsrvpnUiTokens.textTertiary,
-                    ),
-                    const SizedBox(width: 5),
-                    Expanded(
-                      child: Text(
-                        _formatUpdateTime(subscription.lastUpdate),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: SsrvpnUiTokens.textTertiary,
-                          fontSize: 12,
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: subscription.enabled
+                                ? SsrvpnUiTokens.success
+                                : SsrvpnUiTokens.error,
+                            shape: BoxShape.circle,
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 7),
+                        Text(
+                          subscription.enabled ? '已启用' : '已禁用',
+                          style: TextStyle(
+                            color: subscription.enabled
+                                ? SsrvpnUiTokens.success
+                                : SsrvpnUiTokens.error,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Text.rich(
+                      TextSpan(children: [
+                        const WidgetSpan(
+                          alignment: PlaceholderAlignment.middle,
+                          child: Icon(Icons.access_time_rounded,
+                              size: 15, color: SsrvpnUiTokens.textTertiary),
+                        ),
+                        TextSpan(
+                            text:
+                                ' ${_formatUpdateTime(subscription.lastUpdate)}'),
+                      ]),
+                      style: const TextStyle(
+                          color: SsrvpnUiTokens.textTertiary, fontSize: 12),
                     ),
                     TextButton.icon(
                       onPressed: onRefresh,

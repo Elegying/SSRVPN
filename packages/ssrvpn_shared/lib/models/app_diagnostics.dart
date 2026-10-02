@@ -902,6 +902,9 @@ class AppDiagnosticReport {
       readableDiagnosticLogs(recentLogs);
 
   String get userConclusion {
+    if (checks.any((check) => check.id == 'session_changed')) {
+      return '诊断期间连接已变化，请重新检查';
+    }
     final failureCount = checks
         .where((check) => check.status == AppDiagnosticStatus.failed)
         .length;

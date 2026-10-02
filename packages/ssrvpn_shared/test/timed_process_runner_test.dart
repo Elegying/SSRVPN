@@ -5,6 +5,20 @@ import 'package:ssrvpn_shared/services/timed_process_runner.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('invalid output is reported through the awaited process operation',
+      () async {
+    const invalidByteCommand = r"printf '\377'";
+    for (final redirect in ['', '>&2', r">&2; printf '\377'"]) {
+      await expectLater(
+        TimedProcessRunner.run(
+          '/bin/sh',
+          ['-c', '$invalidByteCommand $redirect; sleep 0.1'],
+        ),
+        throwsFormatException,
+      );
+    }
+  }, skip: Platform.isWindows ? 'uses POSIX invalid-byte output' : false);
+
   test('cancellation terminates a running process before its timeout',
       () async {
     final cancellation = Completer<void>();

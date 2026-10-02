@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:yaml/yaml.dart';
 
 import '../constants/app_constants.dart';
@@ -21,7 +23,53 @@ abstract final class BoundedYaml {
   static dynamic load(String source,
       {int collectionLimit = maxCollectionItems}) {
     validate(source, collectionLimit: collectionLimit);
-    return loadYaml(source);
+    final node = loadYamlNode(source);
+    _validateExpansion(node, collectionLimit);
+    return node.value;
+  }
+
+  static void _validateExpansion(YamlNode root, int collectionLimit) {
+    final measured =
+        HashMap<YamlNode, ({int items, int depth, int bytes})>.identity();
+    ({int items, int depth, int bytes}) measure(YamlNode node, int depth) {
+      _checkDepth(depth);
+      final cached = measured[node];
+      if (cached != null) {
+        _checkDepth(depth + cached.depth);
+        return cached;
+      }
+      final children = switch (node) {
+        YamlList() => node.nodes,
+        YamlMap() => [
+            for (final entry in node.nodes.entries) ...[
+              entry.key as YamlNode,
+              entry.value
+            ]
+          ],
+        _ => const <YamlNode>[],
+      };
+      var items = node is YamlList
+          ? node.length
+          : node is YamlMap
+              ? node.length
+              : 0;
+      var height = node is YamlScalar ? 0 : 1;
+      var bytes =
+          node.value is String ? _validateUtf8Length(node.value as String) : 0;
+      for (final child in children) {
+        final size = measure(child, depth + 1);
+        items += size.items;
+        bytes += size.bytes;
+        if (size.depth + 1 > height) height = size.depth + 1;
+        if (items > collectionLimit || bytes > maxInputBytes) {
+          throw const YamlResourceLimitException('YAML 别名展开超过元素或大小上限');
+        }
+      }
+      _checkDepth(depth + height);
+      return measured[node] = (items: items, depth: height, bytes: bytes);
+    }
+
+    measure(root, 0);
   }
 
   static void validate(String source,
@@ -33,9 +81,12 @@ abstract final class BoundedYaml {
     var aliasReferences = 0;
     var collectionItems = 0;
     int? blockScalarIndent;
+    int? plainScalarIndent;
     var inSingleQuote = false;
     var inDoubleQuote = false;
     var escaped = false;
+    var scalarMayStart = true;
+    var plainScalar = false;
 
     void addCollectionItems([int count = 1]) {
       collectionItems += count;
@@ -52,12 +103,21 @@ abstract final class BoundedYaml {
           : rawLine;
       final trimmedLeft = line.trimLeft();
       if (trimmedLeft.isEmpty) continue;
+      if (!inSingleQuote && !inDoubleQuote && trimmedLeft.startsWith('#')) {
+        continue;
+      }
       final indent = line.length - trimmedLeft.length;
 
       final scalarIndent = blockScalarIndent;
       if (scalarIndent != null) {
         if (indent > scalarIndent) continue;
         blockScalarIndent = null;
+      }
+      if (plainScalarIndent != null) {
+        if (indent > plainScalarIndent && !trimmedLeft.startsWith('#')) {
+          continue;
+        }
+        plainScalarIndent = null;
       }
 
       final continuedQuotedScalar = inSingleQuote || inDoubleQuote;
@@ -74,6 +134,10 @@ abstract final class BoundedYaml {
         }
       }
 
+      if (flowClosers.isEmpty && !continuedQuotedScalar) {
+        scalarMayStart = true;
+        plainScalar = false;
+      }
       final visible = StringBuffer();
       for (var index = 0; index < trimmedLeft.length; index++) {
         final codeUnit = trimmedLeft.codeUnitAt(index);
@@ -105,28 +169,60 @@ abstract final class BoundedYaml {
             (index == 0 || _isWhitespace(trimmedLeft.codeUnitAt(index - 1)))) {
           break;
         }
-        if (codeUnit == _doubleQuote) {
+        if (codeUnit == _doubleQuote && scalarMayStart) {
           inDoubleQuote = true;
           escaped = false;
+          scalarMayStart = false;
+          plainScalar = false;
           continue;
         }
-        if (codeUnit == _singleQuote) {
+        if (codeUnit == _singleQuote && scalarMayStart) {
           inSingleQuote = true;
+          scalarMayStart = false;
+          plainScalar = false;
           continue;
         }
 
         visible.writeCharCode(codeUnit);
-        if (codeUnit == _openSquare) {
+        final separated = index + 1 == trimmedLeft.length ||
+            _isWhitespace(trimmedLeft.codeUnitAt(index + 1));
+        if (_isWhitespace(codeUnit)) continue;
+        if (scalarMayStart && (codeUnit == 0x26 || codeUnit == 0x21)) {
+          // Tags and anchors precede a scalar without changing its style.
+          while (index + 1 < trimmedLeft.length &&
+              !_isWhitespace(trimmedLeft.codeUnitAt(index + 1))) {
+            index++;
+          }
+          continue;
+        }
+        if (codeUnit == _colon &&
+            (separated ||
+                (flowClosers.isNotEmpty &&
+                    index + 1 < trimmedLeft.length &&
+                    const {_singleQuote, _doubleQuote, _openSquare, _openBrace}
+                        .contains(trimmedLeft.codeUnitAt(index + 1))))) {
+          scalarMayStart = true;
+          plainScalar = false;
+        } else if (scalarMayStart &&
+            (codeUnit == _dash || codeUnit == _question) &&
+            separated) {
+          continue;
+        } else if (codeUnit == _openSquare && scalarMayStart) {
           flowClosers.add(_closeSquare);
-        } else if (codeUnit == _openBrace) {
+        } else if (codeUnit == _openBrace && scalarMayStart) {
           flowClosers.add(_closeBrace);
         } else if ((codeUnit == _closeSquare || codeUnit == _closeBrace) &&
             flowClosers.isNotEmpty &&
             flowClosers.last == codeUnit) {
           flowClosers.removeLast();
+          scalarMayStart = false;
+          plainScalar = false;
         } else if (codeUnit == _comma && flowClosers.isNotEmpty) {
           addCollectionItems();
+          scalarMayStart = true;
+          plainScalar = false;
         } else if (codeUnit == _asterisk &&
+            scalarMayStart &&
             _isYamlTokenStart(trimmedLeft, index)) {
           aliasReferences++;
           if (aliasReferences > maxAliasReferences) {
@@ -134,6 +230,10 @@ abstract final class BoundedYaml {
               'YAML 别名引用过多（最多 256 个）',
             );
           }
+          scalarMayStart = false;
+        } else {
+          scalarMayStart = false;
+          plainScalar = true;
         }
 
         _checkDepth(
@@ -146,11 +246,18 @@ abstract final class BoundedYaml {
           !inDoubleQuote &&
           _endsWithBlockScalarMarker(visible.toString())) {
         blockScalarIndent = indent;
+      } else if (!inSingleQuote &&
+          !inDoubleQuote &&
+          flowClosers.isEmpty &&
+          plainScalar &&
+          visible.toString().trim() != '---' &&
+          visible.toString().trim() != '...') {
+        plainScalarIndent = indent;
       }
     }
   }
 
-  static void _validateUtf8Length(String source) {
+  static int _validateUtf8Length(String source) {
     var bytes = 0;
     for (final rune in source.runes) {
       bytes += rune <= 0x7f
@@ -166,6 +273,7 @@ abstract final class BoundedYaml {
         );
       }
     }
+    return bytes;
   }
 
   static Iterable<String> _lines(String source) sync* {

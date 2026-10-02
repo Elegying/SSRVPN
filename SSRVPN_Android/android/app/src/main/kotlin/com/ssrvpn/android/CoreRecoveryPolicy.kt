@@ -10,20 +10,30 @@ internal data class CoreRecoveryRequest(
 
 internal class CoreRecoveryBudget(
     initialAttempt: Int,
-    private val stableHealthMillis: Long = 120_000L
+    private val stableHealthMillis: Long = 120_000L,
+    private val maxHealthySampleGapMillis: Long = 15_000L
 ) {
     var attempt: Int = initialAttempt
         private set
     private var healthySinceMillis: Long? = null
+    private var lastHealthyMillis: Long? = null
 
     fun observeHealth(isHealthy: Boolean?, monotonicMillis: Long) {
         if (attempt == 0) return
         if (isHealthy != true) {
             healthySinceMillis = null
+            lastHealthyMillis = null
             return
         }
+        val previous = lastHealthyMillis
+        lastHealthyMillis = monotonicMillis
         val healthySince = healthySinceMillis
-        if (healthySince == null) {
+        // Missing observations cannot prove continuous health after suspend,
+        // a stalled monitor or a clock rollback.
+        if (healthySince == null || previous == null ||
+            monotonicMillis < previous ||
+            monotonicMillis - previous > maxHealthySampleGapMillis
+        ) {
             healthySinceMillis = monotonicMillis
             return
         }

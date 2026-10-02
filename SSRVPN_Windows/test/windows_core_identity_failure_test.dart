@@ -6,6 +6,28 @@ import 'package:ssrvpn_windows/src/services/windows_core_identity_failure.dart';
 import 'package:ssrvpn_windows/src/services/windows_core_pid_record.dart';
 
 void main() {
+  test('spaces and apostrophes leave no path suffix in diagnostic export', () {
+    for (final path in [
+      r"C:\Private O'Neil Folder\identity.json",
+      r"C:/Private O'Neil Folder/identity.json",
+      r"\\private-share\O'Neil Folder\identity.json"
+    ]) {
+      for (final quote in ['', "'", '"']) {
+        final error = WindowsCoreIdentityFailure(
+            WindowsCoreIdentityFailureKind.execution,
+            'Access denied reading $quote$path$quote; osError=5');
+        final report = AppDiagnosticReport(
+                generatedAt: DateTime.utc(2026),
+                checks: const [],
+                recentLogs: error.toString())
+            .toText();
+        expect(report, isNot(contains('Neil')));
+        expect(report, isNot(contains('Folder')));
+        expect(report, isNot(contains('identity.json')));
+        expect(report, contains('osError=5'));
+      }
+    }
+  });
   test('input truncation cannot expose an unterminated quoted path', () {
     for (final quote in ["'", '"']) {
       final path = r'C:\Private Folder\' + 'a' * 5000;
@@ -17,6 +39,15 @@ void main() {
       expect(error.toString(), contains('Access denied'));
       expect(error.toString().length, lessThan(650));
     }
+  });
+  test('quoted path redaction preserves a following reason without separators',
+      () {
+    final error = WindowsCoreIdentityFailure(
+        WindowsCoreIdentityFailureKind.execution,
+        r"Cannot open 'C:\Private O'Neil Folder\identity.json' osError=5");
+    expect(error.reason, isNot(contains('Folder')));
+    expect(error.reason, isNot(contains('identity.json')));
+    expect(error.reason, contains('osError=5'));
   });
   test('double-quoted paths retain no suffix after an apostrophe', () {
     for (final path in [

@@ -261,6 +261,7 @@ class SubscriptionFetchPolicy {
   }
 
   static bool _isForbiddenLiteral(InternetAddress address) {
+    address = _unmapIpv4(address);
     return _isUnspecified(address) ||
         address.isLinkLocal ||
         address.isMulticast ||
@@ -356,6 +357,7 @@ class SubscriptionFetchPolicy {
   /// Identifies synthetic destinations, never an exemption from address checks.
   /// Only our exact IPv6 pool is recognized; other ULA answers remain rejected.
   static bool isFakeIp(InternetAddress address) {
+    address = _unmapIpv4(address);
     final bytes = address.rawAddress;
     if (address.type == InternetAddressType.IPv6) {
       return _hasIpv6Prefix(bytes, _fakeIpv6Prefix, 64);
@@ -375,6 +377,12 @@ class SubscriptionFetchPolicy {
     }
     return true;
   }
+
+  // Mapped addresses reach the same IPv4 destination and retain its policy.
+  static InternetAddress _unmapIpv4(InternetAddress address) =>
+      _isIpv4Mapped(address.rawAddress)
+          ? InternetAddress.fromRawAddress(address.rawAddress.sublist(12))
+          : address;
 
   static bool _hasIpv6Prefix(
     List<int> bytes,

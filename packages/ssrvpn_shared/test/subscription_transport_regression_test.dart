@@ -6,6 +6,110 @@ import 'package:ssrvpn_shared/services/subscription_parser.dart';
 import 'package:ssrvpn_shared/services/subscription_node_editor.dart';
 
 void main() {
+  for (final options in <Map<String, Object?>>[
+    <String, Object?>{},
+    {'session-table': 'alphabet', 'session-length': '16-32'},
+    {'session-table': 'uuid', 'session-length': 'unused-invalid'},
+    {'session-table': '', 'session-length': 'unused-invalid'},
+    {'session-table': '01', 'session-length': '31'},
+    {
+      'sc-max-each-post-bytes': 1000,
+      'sc-min-posts-interval-ms': 1,
+      'reuse-settings': {'max-connections': 2}
+    },
+    {'sc-max-each-post-bytes': '+1 - +20', 'sc-min-posts-interval-ms': ' '},
+    {
+      'sc-max-each-post-bytes': '0-1',
+      'reuse-settings': {
+        'max-concurrency': '+0',
+        'max-connections': ' 1 - 2 ',
+        'h-max-request-times': '0'
+      }
+    },
+    {
+      'download-settings': {
+        'reuse-settings': {'max-connections': 'unused-invalid'}
+      }
+    },
+  ]) {
+    test('valid or unused XHTTP options $options remain intact', () {
+      final proxy = SubscriptionParser.proxyFromUri(
+          'vless://00000000-0000-4000-8000-000000000001@example.invalid:443?type=xhttp')!
+        ..['xhttp-opts'] = options;
+      final yaml = jsonEncode({
+        'proxies': [proxy]
+      });
+      expect(SubscriptionParser.parseYaml(yaml).nodes, hasLength(1));
+      expect(
+          ClashConfigGenerator.buildProxiesText(yaml), contains('xhttp-opts'));
+    });
+  }
+  for (final options in <Map<String, Object?>>[
+    {'session-table': 'alphabet', 'session-length': 'invalid'},
+    {'session-table': 'alphabet', 'session-length': '0'},
+    {'session-table': 'alphabet', 'session-length': '20-10'},
+    {'session-table': 'alphabet', 'session-length': '1'},
+    {'session-table': '0', 'session-length': '31'},
+    {'session_table': 'alphabet', 'SESSION_LENGTH': 'invalid'},
+    {
+      'session-table': ['alphabet']
+    },
+    {'session-length': <String, Object?>{}},
+    {'sc-max-each-post-bytes': 'bogus'},
+    {'sc-max-each-post-bytes': '0'},
+    {'sc-min-posts-interval-ms': '20-10'},
+    {'sc-min-posts-interval-ms': '0'},
+    {'sc-max-each-post-bytes': 1.5},
+    {'sc-max-each-post-bytes': 1.0},
+    {'sc-max-each-post-bytes': 9223372036854775808.0},
+    {
+      'download-settings': {
+        'reality-opts': {'public-key': 'invalid-key'}
+      }
+    },
+    {
+      'download-settings': {
+        'ech-opts': {'enable': true, 'config': 'invalid-base64'}
+      }
+    },
+    {
+      'reuse-settings': {'max-concurrency': 'bad'}
+    },
+    {
+      'reuse-settings': {'h-max-reusable-secs': '9223372036854775808'}
+    },
+    {'mode': 'stream-one', 'download-settings': <String, Object?>{}},
+    {
+      'reuse-settings': <String, Object?>{},
+      'download-settings': {
+        'reuse-settings': {'max-connections': 'bad'}
+      }
+    },
+  ]) {
+    test('invalid XHTTP options $options cannot poison healthy siblings', () {
+      final proxy = SubscriptionParser.proxyFromUri(
+          'vless://00000000-0000-4000-8000-000000000001@example.invalid:443?type=xhttp')!
+        ..['name'] = 'Invalid'
+        ..['xhttp-opts'] = options;
+      final yaml = jsonEncode({
+        'proxies': [
+          proxy,
+          {
+            'name': 'Healthy',
+            'type': 'socks5',
+            'server': '127.0.0.1',
+            'port': 1080
+          }
+        ]
+      });
+      expect(SubscriptionParser.parseYaml(yaml).nodes.map((n) => n.name),
+          ['Healthy']);
+      expect(ClashConfigGenerator.buildProxiesText(yaml),
+          isNot(contains('Invalid')));
+      expect(() => SubscriptionNodeEditor.prepare(yaml, 'Healthy', proxy),
+          throwsA(isA<FormatException>()));
+    });
+  }
   for (final mode in [
     '',
     'auto',

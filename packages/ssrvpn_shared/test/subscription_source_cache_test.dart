@@ -15,6 +15,12 @@ import 'package:ssrvpn_shared/services/subscription_source_cache.dart';
 import 'package:ssrvpn_shared/utils/bounded_yaml.dart';
 
 void main() {
+  test('restored name snapshots enforce the combined input envelope', () {
+    final snapshot = jsonEncode(
+        {'proxies': <Object?>[], 'padding': 'x' * (11 * 1024 * 1024)});
+    expect(() => SubscriptionSourceCache.restoreNames(snapshot, [snapshot]),
+        throwsA(isA<YamlResourceLimitException>()));
+  });
   test('cache ownership cannot amplify bounded input into unlimited nodes', () {
     final ids = [for (var i = 0; i < 10; i++) 'source-$i'];
     final yaml = jsonEncode({
@@ -97,6 +103,84 @@ void main() {
     expect(service.allNodes.single.server, 'new.invalid');
   });
 
+  test('reordered duplicate names retain endpoints after offline reenable',
+      () async {
+    String feed(List<String> hosts) => jsonEncode({
+          'proxies': [
+            for (final host in hosts)
+              {
+                'name': 'Same',
+                'type': 'socks5',
+                'server': '$host.invalid',
+                'port': 443
+              }
+          ]
+        });
+    final source = await addFeed('A', 'a', feed(['first', 'second']));
+    await service.refreshAllSubscriptions();
+    final expected = {
+      for (final node in service.allNodes) node.name: node.server
+    };
+    service.responses[source.url] = feed(['second', 'first']);
+    await service.refreshAllSubscriptions();
+    expect({for (final node in service.allNodes) node.name: node.server},
+        expected);
+    await service.updateSubscription(Subscription(
+        id: source.id, name: source.name, url: source.url, enabled: false));
+    await reload();
+    await service.updateSubscription(
+        Subscription(id: source.id, name: source.name, url: source.url));
+    expect(service.fetchCalls, 0);
+    expect({for (final node in service.allNodes) node.name: node.server},
+        expected);
+    await reload();
+    expect({for (final node in service.allNodes) node.name: node.server},
+        expected);
+  });
+
+  test('disabled names remain reserved when another source adds a collision',
+      () async {
+    final source = await addFeed('A', 'a', _yaml('Same', 'first'));
+    await service.refreshAllSubscriptions();
+    await service.updateSubscription(Subscription(
+        id: source.id, name: source.name, url: source.url, enabled: false));
+    final other = await addFeed('B', 'b', _yaml('Same', 'second'));
+    await service.refreshSubscription(other.id);
+    expect(service.allNodes.single.name, 'Same (2)');
+    await reload();
+    await service.updateSubscription(
+        Subscription(id: source.id, name: source.name, url: source.url));
+    expect({for (final node in service.allNodes) node.name: node.server},
+        {'Same': 'first.invalid', 'Same (2)': 'second.invalid'});
+  });
+
+  test('disabled URL replacement cannot forge another source name history',
+      () async {
+    final owner = await addFeed('A', 'a', _yaml('Keep', 'a'));
+    final source = await addFeed('B', 'b', _yaml('Other', 'b'));
+    await service.refreshAllSubscriptions();
+    const url = 'https://replacement.invalid/sub';
+    service.responses[url] = jsonEncode({
+      'proxies': [
+        {
+          'name': 'Forged',
+          'type': 'socks5',
+          'server': 'a.invalid',
+          'port': 443,
+          SubscriptionParser.proxySourceIdsKey: [owner.id],
+          SubscriptionParser.proxyOriginalNameKey: 'Keep'
+        }
+      ]
+    });
+    await service.updateSubscription(Subscription(
+        id: source.id, name: source.name, url: url, enabled: false));
+    expect(service.allNodes.single.name, 'Keep');
+    await reload();
+    await service.updateSubscription(Subscription(
+        id: source.id, name: 'Renamed B', url: url, enabled: false));
+    expect(service.allNodes.single.name, 'Keep');
+  });
+
   test('failed enable commit preserves the disabled snapshot for retry',
       () async {
     final source = await addFeed('A', 'a', _yaml('A', 'a'));
@@ -104,6 +188,7 @@ void main() {
     await service.updateSubscription(Subscription(
         id: source.id, name: source.name, url: source.url, enabled: false));
     final snapshot = service.subscriptions.single.disabledSourceYaml;
+    expect(service.subscriptions.single.disabledNamesTrusted, isTrue);
     service.failMetadata = true;
     await expectLater(
         service.updateSubscription(
@@ -111,6 +196,7 @@ void main() {
         throwsA(isA<FileSystemException>()));
     expect(service.subscriptions.single.enabled, isFalse);
     expect(service.subscriptions.single.disabledSourceYaml, snapshot);
+    expect(service.subscriptions.single.disabledNamesTrusted, isTrue);
     await reload();
     expect(service.allNodes, isEmpty);
     await service.updateSubscription(

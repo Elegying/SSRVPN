@@ -680,7 +680,6 @@ class SsrvpnVpnService : VpnService() {
         error?.let { throw it.asBridgeStartException() }
         return result ?: ""
     }
-
     private fun monitorCoreRunning(startToken: Long, request: CoreRecoveryRequest) =
         CoreLivenessMonitor.observeSession(
             startToken = startToken,
@@ -697,7 +696,8 @@ class SsrvpnVpnService : VpnService() {
                         VpnRuntimeHealth.hasProtectMonitor(protectMonitor?.thread)
                     },
                     isApiHealthy = { VpnRuntimeHealth.isApiHealthy(request.apiPort, request.apiSecret) },
-                    isApiPortReachable = { CorePortReleaseVerifier.isPortListening(request.apiPort) }
+                    isApiPortReachable = { CorePortReleaseVerifier.isPortListening(request.apiPort) },
+                    monotonicMillis = SystemClock::elapsedRealtime
                 )
             },
             onUnexpectedExit = { liveness ->

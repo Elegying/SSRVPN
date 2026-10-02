@@ -100,11 +100,11 @@ class CoreLivenessMonitorTest {
             currentGeneration = { 7 },
             isRunning = { true },
             recoveryAttempt = 2,
-            isBridgeRunning = { ++bridgeChecks <= 2 },
+            isBridgeRunning = { ++bridgeChecks <= 41 },
             isProtectMonitorRunning = { true },
             isApiHealthy = { true },
             monotonicMillis = { monotonicNow },
-            sleep = { monotonicNow = 120_000L }
+            sleep = { monotonicNow += it }
         )
 
         assertTrue(outcome.unexpectedExit)
@@ -115,6 +115,21 @@ class CoreLivenessMonitorTest {
                 outcome.recoveryAttempt
             )
         )
+    }
+
+    @Test
+    fun `healthy wake sample does not replenish native recovery attempts`() {
+        var now = 0L
+        var checks = 0
+        val outcome = CoreLivenessMonitor.waitForUnexpectedExit(
+            startToken = 7, currentGeneration = { 7 }, isRunning = { true },
+            recoveryAttempt = 2,
+            isBridgeRunning = { ++checks <= 2 },
+            isApiHealthy = { true }, monotonicMillis = { now },
+            sleep = { now += 120_000L }
+        )
+        assertTrue(outcome.unexpectedExit)
+        assertEquals(2, outcome.recoveryAttempt)
     }
 
     @Test
