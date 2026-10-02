@@ -78,6 +78,21 @@ from replacing execution. A missing, skipped or failing contract fails the job.
 CI preserves per-platform JSON identity/results and Go JSONL events as the
 `core-contracts` artifact, including failures.
 
+Failure reports include `phase`, `failure_kind`, `error_type` and the original
+error. Toolchain/network prerequisites are reported as `environment`; pinned
+version or source identity rejection as `integrity`. Go events name failed tests
+as `contract-failure`; a nonzero Go exit without a failing test is `execution`
+(inspect the per-platform `.stderr.log` and `.jsonl` for build, dependency or
+runner errors). Missing passing contracts remain `contract-incomplete`.
+`setup` denotes an unclassified prerequisite failure. A contract failure requires
+investigation of the production path and test fixture; it alone does not prove
+a production defect. Go event interpretation lives in `core-contract-events.py`,
+separate from source/toolchain orchestration. Every failure still blocks the job;
+the runner never retries tests automatically or relaxes identity checks. Reusing
+a report directory clears the selected platform's old event/stderr logs first.
+Helper `SystemExit` rejections retain their diagnostics and allow `all` to check
+the remaining platforms before returning failure.
+
 To reproduce locally without changing bundled binaries or generating a release:
 
 ```bash
@@ -91,6 +106,16 @@ resolver. This matrix checks upstream source compatibility and shared behavior
 cleanup and version identity). It does not replace Android JNI/device tests,
 native Windows/macOS TUN, or the existing real-core protocol probes. Adding a
 shared test through the copy manifest automatically adds it to all three runs.
+
+## Test Fixture Timing
+
+Subscription source-isolation tests assert fetch calls and persisted node state
+directly. Unrelated sources reject any unexpected fetch immediately, and a local
+import also runs with 1.1 seconds of injected persistence delay. These are
+dependency-boundary tests, not one-second disk benchmarks: `Future.timeout`
+does not cancel the underlying transaction and can leave Windows teardown racing
+an open file. Await completion under the normal test deadline before deleting
+the fixture; retain dedicated performance gates for latency requirements.
 
 ## Client Reliability Iteration
 

@@ -200,6 +200,61 @@ public static class Program {
     Copy-Item -LiteralPath $corePath -Destination $copyPath
   }
 
+  # Load only the existing production lookup functions; never execute cleanup.
+  $tokens = $null
+  $parseErrors = $null
+  $stopAst = [System.Management.Automation.Language.Parser]::ParseInput(
+    $stopSource, [ref]$tokens, [ref]$parseErrors)
+  if ($parseErrors.Count -ne 0) { throw 'Cannot parse production process lookup.' }
+  foreach ($functionName in @('Get-ProcessesAtPath', 'Test-ExactPath')) {
+    $definitions = @($stopAst.FindAll({
+      param($node)
+      $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq $functionName
+    }, $true))
+    if ($definitions.Count -ne 1) { throw 'Production process lookup is ambiguous.' }
+    Invoke-Expression $definitions[0].Extent.Text
+  }
+  $currentSessionId = (Get-Process -Id $PID -ErrorAction Stop).SessionId
+
+  # Sample the module-derived path immediately after spawn, before CIM waits.
+  # A mismatch is diagnostic evidence, never permission to accept a wrong path.
+  $startupModuleDifferences = 0
+  for ($sample = 0; $sample -lt 40; $sample++) {
+    $startupChild = Start-Process -FilePath $corePath -PassThru
+    try {
+      $moduleName = '<unavailable>'
+      try {
+        $modulePath = [string]$startupChild.Path
+        if ($modulePath) { $moduleName = [IO.Path]::GetFileName($modulePath) }
+      } catch {}
+      $startupIdentities = @(Get-ProcessesAtPath -Name 'mihomo.exe' `
+        -ExpectedPath $corePath)
+      $expectedCreation = $startupChild.StartTime.ToUniversalTime().ToFileTimeUtc()
+      if ($startupIdentities.Count -ne 1 -or
+          $startupIdentities[0].ProcessId -ne $startupChild.Id -or
+          [uint64]$startupIdentities[0].CreationTimeUtcFileTime -ne [uint64]$expectedCreation) {
+        throw "Production startup lookup did not retain exact child identity; sample=$sample"
+      }
+      Write-CorePidRecord -PidPath (Join-Path $testRoot 'startup.pid') `
+        -Process $startupChild -ExpectedCorePath $corePath
+      if ($moduleName -ine 'mihomo.exe') {
+        $startupModuleDifferences++
+        Write-Host "Startup identity sample=$sample pid=$($startupChild.Id) module=$moduleName executable=mihomo.exe"
+      }
+    } finally {
+      $startupChild.Refresh()
+      if (-not $startupChild.HasExited) {
+        $startupChild.Kill()
+        if (-not $startupChild.WaitForExit(5000)) {
+          throw 'Startup identity fixture did not stop within five seconds.'
+        }
+      }
+      $startupChild.Dispose()
+    }
+  }
+  Write-Host "Startup identity regression: 40 production lookups and exact-path records; module differences=$startupModuleDifferences"
+
   # A foreign-NAMED fixture owns the app-wide mutex while no SSRVPN-named
   # process holds it. Same-named copies anywhere must be stopped by name
   # (ADR-021); a foreign-named holder must still abort the stopper before it
