@@ -1,9 +1,16 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_qr_import_button.dart';
+
+class _DeniedWindowsCamera extends CameraPlatform {
+  @override
+  Future<List<CameraDescription>> availableCameras() async =>
+      throw CameraException('denied', 'camera denied');
+}
 
 class _Scanner extends MobileScannerPlatform {
   final codes = StreamController<BarcodeCapture?>.broadcast();
@@ -87,6 +94,9 @@ void main() {
   testWidgets(
       'camera denial leaves gallery selection and cancellation available',
       (tester) async {
+    final originalCamera = CameraPlatform.instance;
+    CameraPlatform.instance = _DeniedWindowsCamera();
+    addTearDown(() => CameraPlatform.instance = originalCamera);
     tester.view.physicalSize = const Size(320, 420);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);

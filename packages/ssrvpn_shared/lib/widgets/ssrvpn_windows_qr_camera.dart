@@ -8,6 +8,7 @@ class SsrvpnWindowsQrCamera {
   SsrvpnWindowsQrCamera({CameraPlatform? platform})
       : _platform = platform ?? CameraPlatform.instance;
   final CameraPlatform _platform;
+  final _pending = <void Function()>{};
   int? _id;
   bool _disposed = false;
   CameraInitializedEvent? _info;
@@ -15,8 +16,36 @@ class SsrvpnWindowsQrCamera {
   Completer<CameraInitializedEvent>? _ready;
   static const _timeout = Duration(seconds: 10);
   bool get isInitialized => !_disposed && _info != null;
+  Future<T> _wait<T>(Future<T> operation, {void Function()? onTimeout}) {
+    final result = Completer<T>();
+    late Timer timer;
+    void cancel() {
+      if (!result.isCompleted) {
+        result.completeError(StateError('camera closed'));
+      }
+    }
+
+    timer = Timer(_timeout, () {
+      onTimeout?.call();
+      if (!result.isCompleted) {
+        result.completeError(TimeoutException('camera operation timed out'));
+      }
+    });
+    _pending.add(cancel);
+    operation.then((value) {
+      if (!result.isCompleted) result.complete(value);
+    }, onError: (Object error, StackTrace stack) {
+      if (!result.isCompleted) result.completeError(error, stack);
+    });
+    if (_disposed) cancel();
+    return result.future.whenComplete(() {
+      timer.cancel();
+      _pending.remove(cancel);
+    });
+  }
+
   Future<void> initialize() async {
-    final cameras = await _platform.availableCameras().timeout(_timeout);
+    final cameras = await _wait(_platform.availableCameras());
     if (_disposed) return;
     if (cameras.isEmpty) throw StateError('no camera');
     final created = _platform
@@ -32,9 +61,8 @@ class SsrvpnWindowsQrCamera {
       _id = id;
       return id;
     });
-    final id = await created.timeout(_timeout, onTimeout: () {
+    final id = await _wait(created, onTimeout: () {
       _disposed = true;
-      throw TimeoutException('camera creation timed out');
     });
     if (_disposed || id == null) return;
     final ready = Completer<CameraInitializedEvent>();
@@ -45,10 +73,10 @@ class SsrvpnWindowsQrCamera {
       if (!ready.isCompleted) ready.completeError(error);
     });
     // Attach an error handler before initialization can fail or the timer expires.
-    final initialized = ready.future.timeout(_timeout);
+    final initialized = _wait(ready.future);
     initialized.ignore();
     try {
-      await _platform.initializeCamera(id).timeout(_timeout);
+      await _wait(_platform.initializeCamera(id));
       final info = await initialized;
       if (!_disposed &&
           info.previewWidth.isFinite &&
@@ -81,16 +109,16 @@ class SsrvpnWindowsQrCamera {
     if (!isInitialized || _id == null) throw StateError('camera unavailable');
     var expired = false;
     final captured = _platform.takePicture(_id!).then((file) async {
-      if (expired) {
+      if (expired || _disposed) {
         try {
           await File(file.path).delete();
         } catch (_) {}
       }
       return file;
     });
-    return captured.timeout(_timeout, onTimeout: () {
+    return _wait(captured).onError((error, stack) {
       expired = true;
-      throw TimeoutException('camera capture timed out');
+      Error.throwWithStackTrace(error!, stack);
     });
   }
 
@@ -102,6 +130,9 @@ class SsrvpnWindowsQrCamera {
 
   Future<void> dispose() async {
     _disposed = true;
+    for (final cancel in _pending.toList()) {
+      cancel();
+    }
     _info = null;
     final ready = _ready;
     _ready = null;

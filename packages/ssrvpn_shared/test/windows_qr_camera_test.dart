@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:flutter/material.dart';
@@ -10,9 +11,13 @@ class FakeCamera extends CameraPlatform {
   final disposed = <int>[];
   MediaSettings? settings;
   Completer<int>? pendingCreate;
+  Completer<List<CameraDescription>>? pendingCameras;
+  Completer<XFile>? pendingPicture;
   bool deny = false;
   @override
-  Future<List<CameraDescription>> availableCameras() async => [
+  Future<List<CameraDescription>> availableCameras() async =>
+      pendingCameras?.future ??
+      [
         const CameraDescription(
             name: 'test',
             lensDirection: CameraLensDirection.front,
@@ -42,7 +47,7 @@ class FakeCamera extends CameraPlatform {
 
   @override
   Future<XFile> takePicture(int id) async =>
-      XFile.fromData(Uint8List.fromList([1, 2, 3]));
+      pendingPicture?.future ?? XFile.fromData(Uint8List.fromList([1, 2, 3]));
   @override
   Widget buildPreview(int id) => const SizedBox();
 }
@@ -65,10 +70,12 @@ void main() {
     final platform = FakeCamera()..pendingCreate = Completer<int>();
     final camera = SsrvpnWindowsQrCamera(platform: platform);
     final opening = camera.initialize();
+    final failure = expectLater(opening, throwsStateError);
     await Future<void>.delayed(Duration.zero);
     await camera.dispose();
     platform.pendingCreate!.complete(7);
-    await opening;
+    await failure;
+    await Future<void>.delayed(Duration.zero);
     expect(camera.isInitialized, isFalse);
     expect(platform.disposed, [7]);
     await platform.events.close();
@@ -79,6 +86,20 @@ void main() {
     await expectLater(camera.initialize(), throwsA(isA<CameraException>()));
     await camera.dispose();
     expect(platform.disposed, [7]);
+    await platform.events.close();
+  });
+  testWidgets('closing cancels the timeout during stalled camera enumeration',
+      (tester) async {
+    final platform = FakeCamera()
+      ..pendingCameras = Completer<List<CameraDescription>>();
+    final camera = SsrvpnWindowsQrCamera(platform: platform);
+    final failure = expectLater(camera.initialize(), throwsStateError);
+    await tester.pump();
+    await camera.dispose();
+    await failure;
+    await tester.pump();
+    expect(camera.isInitialized, isFalse);
+    expect(platform.disposed, isEmpty);
     await platform.events.close();
   });
   testWidgets('timed-out device creation releases a late native device',
@@ -95,6 +116,26 @@ void main() {
     expect(camera.isInitialized, isFalse);
     expect(platform.disposed, [7]);
     await camera.dispose();
+    await platform.events.close();
+  });
+  test('closing cancels a capture and deletes a late temporary photo',
+      () async {
+    final directory = await Directory.systemTemp.createTemp('ssrvpn-camera-');
+    addTearDown(() => directory.delete(recursive: true));
+    final photo = await File('${directory.path}/frame.jpg').writeAsBytes([1]);
+    final platform = FakeCamera()..pendingPicture = Completer<XFile>();
+    final camera = SsrvpnWindowsQrCamera(platform: platform);
+    await camera.initialize();
+    final failure = expectLater(camera.takePicture(), throwsStateError);
+    await camera.dispose();
+    await failure;
+    platform.pendingPicture!.complete(XFile(photo.path));
+    // Wait for the asynchronous deletion without relying on filesystem timing.
+    for (var attempt = 0; attempt < 100 && await photo.exists(); attempt++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(await photo.exists(), isFalse);
+    expect(platform.disposed, [7]);
     await platform.events.close();
   });
 }
