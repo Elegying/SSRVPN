@@ -755,42 +755,6 @@ def evaluate_lcov(
     )
 
 
-def is_shared_source(source: str) -> bool:
-    if source.startswith("package:ssrvpn_shared/"):
-        relative = source.removeprefix("package:ssrvpn_shared/")
-        return relative == "ssrvpn_shared.dart" or relative.split("/", 1)[0] in {
-            "controllers",
-            "desktop_ui",
-            "models",
-            "services",
-            "utils",
-            "widgets",
-        }
-    return "/packages/ssrvpn_shared/lib/" in source
-
-
-def read_dart_vm_coverage(directory: Path) -> tuple[int, int]:
-    covered_lines: dict[tuple[str, int], int] = {}
-    for path in directory.rglob("*.vm.json"):
-        try:
-            data = json.loads(path.read_text(errors="ignore"))
-        except json.JSONDecodeError:
-            print(f"coverage: warning invalid JSON {path}")
-            continue
-        for entry in data.get("coverage", []):
-            source = entry.get("source", "")
-            if not is_shared_source(source):
-                continue
-            hits = entry.get("hits") or []
-            for index in range(0, len(hits), 2):
-                key = (source, int(hits[index]))
-                covered_lines[key] = max(
-                    covered_lines.get(key, 0),
-                    int(hits[index + 1]),
-                )
-    return len(covered_lines), sum(1 for count in covered_lines.values() if count > 0)
-
-
 def _print_report(report: CoverageReport) -> None:
     print(
         f"coverage: {report.target} {report.percent:.2f}% "
@@ -831,16 +795,6 @@ def run(root: Path, targets: Sequence[str]) -> int:
             )
             _print_report(report)
             failed = failed or not report.passed
-            continue
-
-        if target == "packages/ssrvpn_shared" and coverage_dir.exists():
-            found, hit = read_dart_vm_coverage(coverage_dir)
-            percent = hit / found * 100 if found else 0.0
-            print(
-                f"coverage: {target} {percent:.2f}% ({hit}/{found}), "
-                f"threshold {threshold:.2f}%"
-            )
-            failed = failed or found == 0 or percent + 1e-9 < threshold
             continue
 
         print(f"coverage: fail {target}, missing coverage output")

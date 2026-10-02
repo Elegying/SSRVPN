@@ -1912,10 +1912,15 @@ class AppDelegate: FlutterAppDelegate {
     guard result.succeeded, let output = result.output else {
       return nil
     }
-    let enabled = proxyLineValue(output, key: "Enabled").lowercased() == "yes"
-    let server = proxyLineValue(output, key: "Server")
-    let port = Int(proxyLineValue(output, key: "Port")) ?? 0
-    return enabled && server == ownedHost && port == ownedPort
+    guard
+      let enabled = proxyLineValue(output, key: "Enabled")?.lowercased(),
+      enabled == "yes" || enabled == "no",
+      let server = proxyLineValue(output, key: "Server"),
+      let rawPort = proxyLineValue(output, key: "Port"),
+      let port = Int(rawPort), (0...65_535).contains(port),
+      enabled == "no" || (!server.isEmpty && port > 0)
+    else { return nil }
+    return enabled == "yes" && server == ownedHost && port == ownedPort
   }
 
   private func executeProxyCommand(
@@ -1940,16 +1945,18 @@ class AppDelegate: FlutterAppDelegate {
     )
   }
 
-  private func proxyLineValue(_ output: String, key: String) -> String {
+  private func proxyLineValue(_ output: String, key: String) -> String? {
     let prefix = "\(key):"
+    var result: String?
     for line in output.split(separator: "\n") {
       let value = line.trimmingCharacters(in: .whitespacesAndNewlines)
       if value.hasPrefix(prefix) {
-        return String(value.dropFirst(prefix.count))
+        guard result == nil else { return nil }
+        result = String(value.dropFirst(prefix.count))
           .trimmingCharacters(in: .whitespacesAndNewlines)
       }
     }
-    return ""
+    return result
   }
 
   private func runProcess(

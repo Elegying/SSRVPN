@@ -5,6 +5,7 @@ import 'package:liquid_glass_widgets/src/renderer/rendering/liquid_glass_render_
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as glass;
 import 'package:liquid_glass_widgets/src/renderer/internal/multi_shader_builder.dart';
+import 'package:liquid_glass_widgets/src/renderer/liquid_glass.dart';
 
 const _shaderA =
     'packages/liquid_glass_widgets/shaders/liquid_glass_final_render.frag';
@@ -12,6 +13,27 @@ const _shaderB =
     'packages/liquid_glass_widgets/shaders/interactive_indicator.frag';
 
 void main() {
+  test('shape changes refresh the glass clip without a size change', () {
+    final render = RenderLiquidGlass(
+      shape: const glass.LiquidRoundedRectangle(borderRadius: 0),
+      glassContainsChild: true,
+      blendGroupLink: null,
+    );
+    addTearDown(render.dispose);
+    const constraints = BoxConstraints.tightFor(width: 100, height: 50);
+    render.layout(constraints);
+    expect(render.getPath().contains(const Offset(1, 1)), isTrue);
+
+    render.shape = const glass.LiquidRoundedRectangle(borderRadius: 24);
+    render.layout(constraints);
+    expect(render.getPath().contains(const Offset(1, 1)), isFalse);
+    expect(render.getPath().contains(const Offset(50, 25)), isTrue);
+
+    render.shape = const glass.LiquidRoundedRectangle(borderRadius: 0);
+    render.layout(constraints);
+    expect(render.getPath().contains(const Offset(1, 1)), isTrue);
+  });
+
   testWidgets('unchanged layout calls retain the local glass matte',
       (tester) async {
     final program =

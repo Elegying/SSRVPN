@@ -26,6 +26,25 @@ void main() {
     await directory.delete(recursive: true);
   });
 
+  test('startup quarantines oversized metadata without discarding its bytes',
+      () async {
+    final file = File('${directory.path}/$_metadata');
+    final content = '[]${' ' * (BoundedYaml.maxInputBytes - 1)}';
+    await file.writeAsString(content);
+    await service.loadFromDisk();
+    expect(service.subscriptions, isEmpty);
+    expect(await file.exists(), isFalse);
+    final backups = await directory
+        .list()
+        .where((entry) =>
+            entry is File &&
+            entry.path.contains('$_metadata.bad-') &&
+            !entry.path.endsWith('.reason.txt'))
+        .toList();
+    expect(backups, hasLength(1));
+    expect(await (backups.single as File).readAsString(), content);
+  });
+
   for (final failCommit in [false, true]) {
     test('readers only see the committed snapshot, failure=$failCommit',
         () async {

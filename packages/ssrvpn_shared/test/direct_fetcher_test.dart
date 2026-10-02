@@ -3,10 +3,36 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:ssrvpn_shared/services/direct_fetcher.dart';
+import 'package:ssrvpn_shared/services/subscription_fetch_policy.dart';
 import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('mapped IPv4 fake DNS answers use validated replacement addresses',
+      () async {
+    var replacementLookups = 0;
+    final replacement = InternetAddress('1.1.1.1');
+    final addresses = await DirectFetcher.resolveSystemAddresses(
+      Uri.parse('https://subscription.example/feed'),
+      systemLookup: (_) async => [InternetAddress('::ffff:198.18.0.1')],
+      dohLookup: (_) async {
+        replacementLookups++;
+        return [replacement];
+      },
+    );
+    expect(replacementLookups, 1);
+    expect(addresses, [replacement]);
+
+    await expectLater(
+      DirectFetcher.resolveSystemAddresses(
+        Uri.parse('https://subscription.example/feed'),
+        systemLookup: (_) async => [InternetAddress('::ffff:198.18.0.1')],
+        dohLookup: (_) async => [InternetAddress('::ffff:169.254.169.254')],
+      ),
+      throwsA(isA<SubscriptionAddressException>()),
+    );
+  });
+
   test(
       'Basic Auth survives relative redirects without leaking to another origin',
       () async {

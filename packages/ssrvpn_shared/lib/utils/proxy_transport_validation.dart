@@ -22,15 +22,7 @@ class ProxyTransportValidation {
         return _validVlessEncryption(proxy['encryption']?.toString() ?? '') &&
             (proxy['network'] != 'xhttp' ||
                 xhttp == null ||
-                (xhttp is Map &&
-                    const {
-                      null,
-                      '',
-                      'auto',
-                      'packet-up',
-                      'stream-up',
-                      'stream-one'
-                    }.contains(xhttp['mode'])));
+                (xhttp is Map && _validXhttp(xhttp)));
       case 'ssr':
         final cipher = proxy['cipher']?.toString() ?? '';
         return (cipher == 'none' ||
@@ -102,6 +94,96 @@ class ProxyTransportValidation {
                 (proxy['obfs-password']?.toString().isNotEmpty ?? false));
     }
     return true;
+  }
+
+  static bool _validXhttp(Map<Object?, Object?> options) {
+    if (!_validXhttpSession(options)) return false;
+    final mode = options['mode'];
+    if (!const {null, '', 'auto', 'packet-up', 'stream-up', 'stream-one'}
+        .contains(mode)) {
+      return false;
+    }
+    for (final key in ['sc-max-each-post-bytes', 'sc-min-posts-interval-ms']) {
+      if (!_validXhttpRange(options[key], positive: true)) return false;
+    }
+    final download = options['download-settings'];
+    if (download != null &&
+        (download is! Map ||
+            !_validTlsOptions(download) ||
+            mode == 'stream-one')) {
+      return false;
+    }
+    // The fixed cores construct the download reuse manager only when uplink
+    // reuse is enabled. Do not reject an unused download manager's settings.
+    return _validXhttpReuse(options['reuse-settings']) &&
+        (options['reuse-settings'] == null ||
+            download == null ||
+            _validXhttpReuse((download as Map)['reuse-settings']));
+  }
+
+  static bool _validXhttpReuse(Object? value) {
+    if (value == null) return true;
+    if (value is! Map) return false;
+    return const [
+      'max-concurrency',
+      'max-connections',
+      'c-max-reuse-times',
+      'h-max-request-times',
+      'h-max-reusable-secs'
+    ].every((key) => _validXhttpRange(value[key]));
+  }
+
+  static bool _validXhttpSession(Map<Object?, Object?> options) {
+    final table = options['session-table']?.toString() ?? '';
+    // Default and UUID generation do not consume session-length.
+    if (table.isEmpty || table == 'uuid') return true;
+    final length = options['session-length'];
+    if (!_validXhttpRange(length)) return false;
+    final text = length?.toString().trim() ?? '';
+    final range = (text.isEmpty ? '16-32' : text)
+        .split('-')
+        .map((part) => int.parse(part.trim()))
+        .toList();
+    if (range.first <= 0) return false;
+    final size = const {
+          'ALPHABET': 26,
+          'Alphabet': 52,
+          'BASE36': 36,
+          'Base62': 62,
+          'HEX': 16,
+          'alphabet': 26,
+          'base36': 36,
+          'hex': 16,
+          'number': 10,
+        }[table] ??
+        utf8.encode(table).length;
+    const requiredRoom = 1 << 31;
+    if (size == 1) return range.last - range.first + 1 >= requiredRoom;
+    // Saturate the entropy check before computing provider-sized powers.
+    if (range.last >= 31) return true;
+    var room = BigInt.zero;
+    for (var i = range.first; i <= range.last; i++) {
+      room += BigInt.from(size).pow(i);
+      if (room >= BigInt.from(requiredRoom)) return true;
+    }
+    return false;
+  }
+
+  /// Mirrors the pinned cores' ParseRange (including empty/default and +sign).
+  static bool _validXhttpRange(Object? value, {bool positive = false}) {
+    if (value == null) return true;
+    if (value is! String && value is! int) return false;
+    final text = value.toString().trim();
+    if (text.isEmpty) return true;
+    final parts = text.split('-');
+    if (parts.length > 2) return false;
+    final values = parts.map((part) {
+      final number = part.trim();
+      return RegExp(r'^\+?\d+$').hasMatch(number) ? int.tryParse(number) : null;
+    }).toList();
+    return values.every((n) => n != null) &&
+        values.last! >= values.first! &&
+        (!positive || values.last! > 0);
   }
 
   // Trojan-Go uses transport/shadowsocks/core, not sing-shadowsocks2.

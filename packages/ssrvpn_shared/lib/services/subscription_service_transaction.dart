@@ -74,6 +74,7 @@ extension _SubscriptionTransaction on _SubscriptionPersistence {
           ..lastUpdate = saved.lastUpdate
           ..enabled = saved.enabled
           ..autoUpdate = saved.autoUpdate
+          ..disabledNamesTrusted = saved.disabledNamesTrusted
           ..disabledSourceYaml = saved.disabledSourceYaml;
       }
       _rawYaml = snapshot.yaml;

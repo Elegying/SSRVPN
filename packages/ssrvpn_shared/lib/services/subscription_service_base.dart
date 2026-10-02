@@ -33,13 +33,9 @@ export 'subscription_refresh_result.dart';
 part 'subscription_service_persistence.dart';
 part 'subscription_service_transaction.dart';
 
-/// 订阅管理服务基类
-///
-/// 包含三端共享的订阅 CRUD、YAML 合并/解析、SSR 链接导入、磁盘持久化等逻辑。
-/// 各平台只需实现 [fetchSubscription] 提供平台特定的 HTTP 拉取策略。
+/// 共享订阅编排与持久化；平台通过 [fetchSubscription] 提供 HTTP 拉取。
 abstract class SubscriptionServiceBase extends ChangeNotifier
     with _SubscriptionPersistence {
-  /// 与 [AppConstants.maxSubscriptionBytes] 同源，避免多处各写一份 20 MB 字面量。
   static const int maxSubscriptionBytes = AppConstants.maxSubscriptionBytes;
   static const int processingIsolateThreshold =
       SubscriptionProcessing.isolateThreshold;
@@ -94,8 +90,6 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
     return response.body;
   }
 
-  // ── 订阅 CRUD ──
-
   Future<T> _enqueueOperation<T>(Future<T> Function() operation,
       {NodePreferenceStore? preferences}) {
     final result = _operationTail.then((_) {
@@ -139,7 +133,6 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
   }
 
   /// 通知监听器（子类实现，通常调用 ChangeNotifier.notifyListeners）
-  // Subclasses should provide their own resetInstanceForTesting()
 
   Future<void> removeSubscription(String id) {
     return _enqueueOperation(() => _removeSubscription(id));
@@ -207,12 +200,17 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
         // Preserve newer refresh timestamps when editing metadata.
         updated.lastUpdate = previous.lastUpdate;
       }
+      final snapshot = await SubscriptionProcessing.sourceSnapshot(_rawYaml,
+          updated.id, updated.enabled, previous.disabledSourceYaml, control);
+      final disabled = previous.disabledSourceYaml;
+      updated.disabledNamesTrusted = !updated.enabled &&
+          (snapshot != null || previous.disabledNamesTrusted);
       updated.disabledSourceYaml = updated.enabled
           ? null
-          : cachedSources?[updated.id] ?? previous.disabledSourceYaml;
-      if (updated.enabled && previous.disabledSourceYaml != null) {
+          : snapshot ?? cachedSources?[updated.id] ?? disabled;
+      if (updated.enabled && disabled != null) {
         (cachedSources ??= <String, String>{})[updated.id] =
-            previous.disabledSourceYaml!;
+            snapshot ?? disabled;
       }
       _subscriptions[index] = updated;
       try {
@@ -221,12 +219,16 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
           sources[updated.id] = await _fetchValidatedSource(updated, control);
           if (!updated.enabled) {
             updated.disabledSourceYaml = sources[updated.id];
+            updated.disabledNamesTrusted = false;
           }
           final processed =
               await _mergeSourceYamls(sources, control, refreshed: {updated});
           await _commitSubscriptionCache(processed, [updated], control);
         } else {
-          await _commitSubscriptionMetadata(cachedSources, control);
+          await _commitSubscriptionMetadata(cachedSources, control,
+              restoredNames: updated.enabled && previous.disabledNamesTrusted
+                  ? disabled
+                  : null);
         }
       } catch (error, stackTrace) {
         _subscriptions[index] = previous;
@@ -237,13 +239,15 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
   }
 
   Future<void> _commitSubscriptionMetadata(
-      Map<String, String>? sources, SubscriptionRefreshControl control) async {
+      Map<String, String>? sources, SubscriptionRefreshControl control,
+      {String? restoredNames}) async {
     if (sources == null) {
       await saveToDisk();
       notifyListeners();
       return;
     }
-    final processed = await _mergeSourceYamls(sources, control);
+    final processed =
+        await _mergeSourceYamls(sources, control, restoredNames: restoredNames);
     await _commitSubscriptionCache(processed, const [], control);
   }
 
@@ -279,7 +283,6 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
       _queueRefresh(
           SubscriptionRefreshControl(timeout: defaultBatchRefreshTimeout),
           onlyId: id);
-
   Future<SubscriptionBatchRefreshResult> _queueRefresh(
       SubscriptionRefreshControl control,
       {String? onlyId}) {
@@ -319,11 +322,9 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
         yaml: null,
       );
     }
-
     final cachedSources = await _cachedSourceYamls(control);
     final succeededSubs = <Subscription>[];
     final failures = <SubscriptionRefreshFailure>[];
-
     for (final sub in _subscriptions
         .where((s) => s.enabled && (onlyId == null || s.id == onlyId))) {
       control.throwIfStopped();
@@ -424,11 +425,11 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
               sub.id: normalizeSubscriptionContent(sub.url)!,
         },
       );
-
   Future<MergedSubscriptionResult> _mergeSourceYamls(
     Map<String, String> sources,
     SubscriptionRefreshControl control, {
     Set<Subscription> refreshed = const {},
+    String? restoredNames,
   }) async {
     final active = _subscriptions
         .where(
@@ -455,6 +456,14 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
         if (sources[''] != null) ''
       ],
       previousYaml: _rawYaml,
+      restoredNames: [
+        for (final sub in _subscriptions)
+          if (!sub.enabled &&
+              sub.disabledNamesTrusted &&
+              sub.disabledSourceYaml != null)
+            sub.disabledSourceYaml!,
+        if (restoredNames != null) restoredNames,
+      ],
     );
     return result.yaml.isEmpty
         ? MergedSubscriptionResult(
@@ -615,8 +624,6 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
     return SubscriptionYamlMerger.parseProxyItem(item);
   }
 
-  // ── 内容规范化 ──
-
   String? normalizeSubscriptionContent(String? content) {
     final trimmed = content?.trim();
     if (trimmed == null || trimmed.isEmpty) return null;
@@ -700,8 +707,6 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
     }
   }
 
-  // ── JSON/YAML 辅助 ──
-
   dynamic jsonValue(dynamic value) => SubscriptionNodeCodec.jsonValue(value);
 
   dynamic canonicalJsonValue(dynamic value) =>
@@ -712,8 +717,6 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
 
   Map<String, dynamic> normalizeProxyConfig(Map<String, dynamic> config) =>
       SubscriptionNodeCodec.normalizeProxyConfig(config);
-
-  // ── YAML 解析 ──
 
   /// 合并缓存与节点编辑提交前的最后一道尺寸闸门。
   ///
@@ -747,8 +750,6 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
       AppLogger.warning('SubscriptionService', 'YAML解析失败: $e');
     }
   }
-
-  // ── SSR 链接 ──
 
   bool isSsrLink(String input) {
     return input.trim().toLowerCase().startsWith('ssr://');
@@ -795,6 +796,4 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
     }
     return true;
   }
-
-  // Subclasses should provide their own resetInstanceForTesting()
 }

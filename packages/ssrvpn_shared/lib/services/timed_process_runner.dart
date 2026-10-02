@@ -157,6 +157,9 @@ class _ProcessCompletion {
 
 class _OutputCollector {
   _OutputCollector(Stream<List<int>> stream, this._maxCharacters) {
+    // Decoding can fail before the process exits and finish() starts awaiting
+    // the collector. Observe it immediately; finish() still reports the error.
+    _done.future.ignore();
     _subscription = stream.transform(utf8.decoder).listen(
       _capture,
       onDone: _complete,

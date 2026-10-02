@@ -1,5 +1,6 @@
 from contextlib import redirect_stderr
 import io
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -13,6 +14,25 @@ import check_coverage_thresholds as coverage  # noqa: E402
 
 
 class CheckCoverageThresholdsTests(unittest.TestCase):
+    def test_vm_only_output_cannot_bypass_production_source_completeness(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "packages/ssrvpn_shared"
+            sources = target / "lib/services"
+            sources.mkdir(parents=True)
+            (sources / "covered.dart").write_text("int covered() => 1;\n")
+            (sources / "missing.dart").write_text("int missing() => 0;\n")
+            output = target / "coverage"
+            output.mkdir()
+            (output / "only.vm.json").write_text(json.dumps({
+                "coverage": [{
+                    "source": "package:ssrvpn_shared/services/covered.dart",
+                    "hits": [1, 1],
+                }],
+            }))
+
+            self.assertEqual(coverage.run(root, ["packages/ssrvpn_shared"]), 1)
+
     def test_windows_lifecycle_floor_preserves_reviewed_evidence(self) -> None:
         self.assertGreaterEqual(
             coverage.CRITICAL_FILE_THRESHOLDS["SSRVPN_Windows"][

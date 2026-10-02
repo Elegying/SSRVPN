@@ -18,6 +18,19 @@ ClashService _createTestService() => ClashService(
     );
 
 void main() {
+  test('startup marker waiter reports a thrown startup without a second error',
+      () async {
+    final directory = await Directory.systemTemp.createTemp('ssrvpn-waiter-');
+    addTearDown(() => directory.delete(recursive: true));
+    final marker = File('${directory.path}/missing-marker');
+    final error = StateError('fixture startup failure');
+    await expectLater(
+      _waitForStartupMarker(marker, Future<bool>.error(error), () => 'fallback')
+          .timeout(const Duration(seconds: 1)),
+      throwsA(isA<StateError>().having((e) => e.message,
+          'original startup error', contains('fixture startup failure'))),
+    );
+  });
   group('validator process outcomes', () {
     late Directory fixture;
     late File validator;
@@ -1157,7 +1170,9 @@ Future<void> _waitForStartupMarker(
     File marker, Future<bool> startup, String? Function() failureReason) async {
   var completed = false;
   Object? startupError;
-  startup.then((_) => completed = true, onError: (Object error) {
+  startup.then<void>((_) {
+    completed = true;
+  }, onError: (Object error) {
     startupError = error;
     completed = true;
   });

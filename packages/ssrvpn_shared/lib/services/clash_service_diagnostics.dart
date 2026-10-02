@@ -35,6 +35,7 @@ String buildDataPlaneDiagnosticSummary({
 
 /// Read-only diagnostics and narrowly scoped, platform-owned repair hooks.
 mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
+  bool get _canPublishHealthCheckResult;
   static int _nextLogSession = 0;
   static const bool _kReleaseMode = bool.fromEnvironment('dart.vm.product');
 
@@ -135,19 +136,47 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
     String id,
     Future<T> Function() operation,
   ) async {
+    if (!_canPublishHealthCheckResult) throw const _DiagnosticSessionChanged();
     try {
       return await operation().timeout(diagnosticCheckTimeout);
     } on TimeoutException {
-      log('诊断检查 $id 超时');
+      if (_canPublishHealthCheckResult) log('诊断检查 $id 超时');
       return null;
     } catch (error) {
-      log('诊断检查 $id 失败: cause=${safeRuntimeErrorCode(error)}');
+      if (_canPublishHealthCheckResult) {
+        log('诊断检查 $id 失败: cause=${safeRuntimeErrorCode(error)}');
+      }
       return null;
+    } finally {
+      if (!_canPublishHealthCheckResult) {
+        throw const _DiagnosticSessionChanged();
+      }
     }
   }
 
   Future<AppDiagnosticReport> runDiagnostics({DateTime Function()? clock}) =>
-      runDiagnosticInSession(() => _runDiagnostics(clock: clock));
+      runDiagnosticInSession(() async {
+        try {
+          final report = await _runDiagnostics(clock: clock);
+          if (!_canPublishHealthCheckResult) {
+            throw const _DiagnosticSessionChanged();
+          }
+          return report;
+        } on _DiagnosticSessionChanged {
+          return AppDiagnosticReport(
+            generatedAt: (clock ?? DateTime.now)(),
+            checks: const [
+              AppDiagnosticCheck(
+                id: 'session_changed',
+                title: '连接已变化',
+                status: AppDiagnosticStatus.skipped,
+                summary: '诊断期间连接已变化，请重新检查',
+              )
+            ],
+            recentLogs: '',
+          );
+        }
+      });
 
   Future<AppDiagnosticReport> _runDiagnostics({
     DateTime Function()? clock,
@@ -376,9 +405,11 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
     );
     if (configDir.trim().isNotEmpty) {
       final operation = _diagnosticHistoryTail.then(
-        (_) => AppDiagnosticHistoryStore(
-          '$configDir${Platform.pathSeparator}diagnostic-history.json',
-        ).append(report),
+        (_) => _canPublishHealthCheckResult
+            ? AppDiagnosticHistoryStore(
+                '$configDir${Platform.pathSeparator}diagnostic-history.json',
+              ).append(report)
+            : Future<void>.value(),
       );
       _diagnosticHistoryTail = operation.catchError((Object error) {
         log('诊断历史写入失败');
@@ -395,4 +426,8 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
       '$configDir${Platform.pathSeparator}diagnostic-history.json',
     ).load();
   }
+}
+
+class _DiagnosticSessionChanged implements Exception {
+  const _DiagnosticSessionChanged();
 }

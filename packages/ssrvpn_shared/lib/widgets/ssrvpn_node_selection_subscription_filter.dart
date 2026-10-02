@@ -1,5 +1,7 @@
 part of 'ssrvpn_node_selection_page.dart';
 
+final _openSubscriptionPickers = Expando<bool>('ssrvpn subscription picker');
+
 class _SubscriptionFilter extends StatelessWidget {
   const _SubscriptionFilter({
     required this.groups,
@@ -16,69 +18,80 @@ class _SubscriptionFilter extends StatelessWidget {
   final VoidCallback onSortPressed;
 
   Future<void> _openPicker(BuildContext context) async {
-    final selected = await showSsrvpnGlassDialog<String>(
-      context: context,
-      builder: (dialogContext) => Dialog(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 36),
-        child: SsrvpnModalGlassPanel(
-          padding: const EdgeInsets.all(24),
-          key: const Key('ssrvpn-subscription-picker-glass'),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: 420,
-              maxHeight: (MediaQuery.sizeOf(dialogContext).height - 72)
-                  .clamp(180.0, 520.0),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Row(
-                  children: [
-                    Icon(
-                      Icons.rss_feed_rounded,
-                      color: SsrvpnUiTokens.primary,
-                    ),
-                    SizedBox(width: 10),
-                    Text(
-                      '选择订阅',
-                      style: TextStyle(
-                        fontSize: 19,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Flexible(
-                  child: ListView(
-                    key: const Key('ssrvpn-subscription-picker-list'),
-                    shrinkWrap: true,
+    final navigator = Navigator.of(context, rootNavigator: true);
+    if (_openSubscriptionPickers[navigator] == true) return;
+    _openSubscriptionPickers[navigator] = true;
+    String? selected;
+    try {
+      selected = await showSsrvpnGlassDialog<String>(
+        context: context,
+        builder: (dialogContext) => Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 28, vertical: 36),
+          child: SsrvpnModalGlassPanel(
+            padding: const EdgeInsets.all(24),
+            key: const Key('ssrvpn-subscription-picker-glass'),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: 420,
+                maxHeight: (MediaQuery.sizeOf(dialogContext).height - 72)
+                    .clamp(180.0, 520.0),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
                     children: [
-                      _SubscriptionPickerItem(
-                        label: '全部订阅',
-                        value: _allSubscriptions,
-                        selected: value == _allSubscriptions,
+                      Icon(
+                        Icons.rss_feed_rounded,
+                        color: SsrvpnUiTokens.primary,
                       ),
-                      ...groups.map(
-                        (group) => _SubscriptionPickerItem(
-                          label: group,
-                          value: group,
-                          selected: value == group,
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          '选择订阅',
+                          style: TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
                     ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 14),
+                  Flexible(
+                    child: ListView(
+                      key: const Key('ssrvpn-subscription-picker-list'),
+                      shrinkWrap: true,
+                      children: [
+                        _SubscriptionPickerItem(
+                          label: '全部订阅',
+                          value: _allSubscriptions,
+                          selected: value == _allSubscriptions,
+                        ),
+                        ...groups.map(
+                          (group) => _SubscriptionPickerItem(
+                            label: group,
+                            value: group,
+                            selected: value == group,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
-      ),
-    );
-    if (selected != null) onChanged(selected);
+      );
+    } finally {
+      _openSubscriptionPickers[navigator] = false;
+    }
+    if (context.mounted && selected != null) onChanged(selected);
   }
 
   @override

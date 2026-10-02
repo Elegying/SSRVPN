@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import '../models/subscription.dart';
 import 'ssrvpn_app_surface.dart';
 
+final _openSubscriptionEditors = Expando<bool>('ssrvpn subscription editor');
+
 class SsrvpnSubscriptionEditDraft {
   const SsrvpnSubscriptionEditDraft({required this.name, required this.url});
 
@@ -16,12 +18,19 @@ class SsrvpnSubscriptionEditDraft {
 Future<SsrvpnSubscriptionEditDraft?> showSsrvpnSubscriptionEditDialog(
   BuildContext context,
   Subscription subscription,
-) {
-  return showSsrvpnGlassDialog<SsrvpnSubscriptionEditDraft>(
-    context: context,
-    builder: (dialogContext) =>
-        _SubscriptionEditDialog(subscription: subscription),
-  );
+) async {
+  final navigator = Navigator.of(context, rootNavigator: true);
+  if (_openSubscriptionEditors[navigator] == true) return null;
+  _openSubscriptionEditors[navigator] = true;
+  try {
+    return await showSsrvpnGlassDialog<SsrvpnSubscriptionEditDraft>(
+      context: context,
+      builder: (dialogContext) =>
+          _SubscriptionEditDialog(subscription: subscription),
+    );
+  } finally {
+    _openSubscriptionEditors[navigator] = false;
+  }
 }
 
 class _SubscriptionEditDialog extends StatefulWidget {
@@ -87,26 +96,27 @@ class _SubscriptionEditDialogState extends State<_SubscriptionEditDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Row(
-                  children: [
-                    Icon(Icons.edit_rounded, color: SsrvpnUiTokens.primary),
-                    SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        '编辑订阅',
-                        style: TextStyle(
-                          fontSize: 19,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
                 Flexible(
                   child: SingleChildScrollView(
                     child: Column(
                       children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.edit_rounded,
+                                color: SsrvpnUiTokens.primary),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                '编辑订阅',
+                                style: TextStyle(
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 18),
                         SsrvpnLiquidField(
                             label: '订阅名称',
                             child: TextFormField(

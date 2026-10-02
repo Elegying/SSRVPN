@@ -52,12 +52,14 @@ class SubscriptionProcessing {
     required String standaloneGroupName,
     List<String>? sourceIds,
     String? previousYaml,
+    List<String> restoredNames = const [],
   }) {
     final input = _SubscriptionProcessingInput(
       yamls: List<String>.of(yamls),
       sourceNames: List<String>.of(sourceNames),
       sourceIds: sourceIds == null ? null : List<String>.of(sourceIds),
       previousYaml: previousYaml,
+      restoredNames: List.of(restoredNames),
       proxySourceKey: proxySourceKey,
       standaloneGroupName: standaloneGroupName,
       workerStartDelay: _workerStartDelayForTesting,
@@ -76,6 +78,13 @@ class SubscriptionProcessing {
             _workerStartDelayForTesting),
         control,
       );
+
+  static Future<String?> sourceSnapshot(String? yaml, String id, bool enabled,
+          String? disabledYaml, SubscriptionRefreshControl control) =>
+      _run(
+          _DisabledSnapshotInput(
+              yaml, id, enabled, disabledYaml, _workerStartDelayForTesting),
+          control);
 
   static Future<MergedSubscriptionResult> parseSnapshot(
     String yaml,
@@ -137,6 +146,21 @@ class _NormalizationInput extends _ProcessingInput<String?> {
 
   @override
   String? process() => SubscriptionParser.parseSubscriptionContent(content);
+}
+
+class _DisabledSnapshotInput extends _ProcessingInput<String?> {
+  const _DisabledSnapshotInput(this.yaml, this.id, this.enabled,
+      this.disabledYaml, super.workerStartDelay);
+  final String? yaml;
+  final String id;
+  final bool enabled;
+  final String? disabledYaml;
+  @override
+  int get workload => (enabled ? disabledYaml : yaml)?.length ?? 0;
+  @override
+  String? process() => enabled
+      ? SubscriptionSourceCache.extract(disabledYaml, {id: ''})[id]
+      : SubscriptionSourceCache.disabledSnapshot(yaml, id);
 }
 
 class _SourceCacheInput extends _ProcessingInput<Map<String, String>> {
@@ -215,6 +239,7 @@ class _SubscriptionProcessingInput
     required this.sourceNames,
     required this.sourceIds,
     required this.previousYaml,
+    required this.restoredNames,
     required this.proxySourceKey,
     required this.standaloneGroupName,
     required Duration workerStartDelay,
@@ -224,12 +249,14 @@ class _SubscriptionProcessingInput
   final List<String> sourceNames;
   final List<String>? sourceIds;
   final String? previousYaml;
+  final List<String> restoredNames;
   final String proxySourceKey;
   final String standaloneGroupName;
 
   @override
   int get workload => yamls.fold<int>(
-        previousYaml?.length ?? 0,
+        restoredNames.fold(
+            previousYaml?.length ?? 0, (sum, yaml) => sum + yaml.length),
         (sum, yaml) => sum + yaml.length,
       );
 
@@ -244,7 +271,8 @@ MergedSubscriptionResult _processSubscription(
     input.yamls,
     sourceNames: input.sourceNames,
     sourceIds: input.sourceIds,
-    previousYaml: input.previousYaml,
+    previousYaml: SubscriptionSourceCache.restoreNames(
+        input.previousYaml, input.restoredNames),
     proxySourceKey: input.proxySourceKey,
     standaloneGroupName: input.standaloneGroupName,
   );

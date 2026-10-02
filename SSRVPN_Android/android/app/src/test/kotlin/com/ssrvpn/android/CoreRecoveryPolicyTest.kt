@@ -8,10 +8,31 @@ import org.junit.Test
 
 class CoreRecoveryPolicyTest {
     @Test
+    fun `a long observation gap cannot replenish recovery attempts`() {
+        val budget = CoreRecoveryBudget(initialAttempt = 2)
+        budget.observeHealth(true, 0L)
+        budget.observeHealth(true, 120_000L)
+        assertEquals(2, budget.attempt)
+    }
+
+    @Test
+    fun `clock rollback restarts the stable observation window`() {
+        val budget = CoreRecoveryBudget(initialAttempt = 2)
+        for (now in 0L..117_000L step 3_000L) budget.observeHealth(true, now)
+        budget.observeHealth(true, 110_000L)
+        for (now in 113_000L..119_000L step 3_000L) budget.observeHealth(true, now)
+        budget.observeHealth(true, 120_000L)
+        assertEquals(2, budget.attempt)
+        for (now in 123_000L..228_000L step 3_000L) budget.observeHealth(true, now)
+        budget.observeHealth(true, 230_000L)
+        assertEquals(0, budget.attempt)
+    }
+
+    @Test
     fun `119 seconds of continuous health does not reset the recovery attempt`() {
         val budget = CoreRecoveryBudget(initialAttempt = 2)
 
-        budget.observeHealth(isHealthy = true, monotonicMillis = 0L)
+        for (now in 0L..117_000L step 3_000L) budget.observeHealth(true, now)
         budget.observeHealth(isHealthy = true, monotonicMillis = 119_999L)
 
         assertEquals(2, budget.attempt)
@@ -21,7 +42,7 @@ class CoreRecoveryPolicyTest {
     fun `120 seconds of continuous health resets the recovery attempt`() {
         val budget = CoreRecoveryBudget(initialAttempt = 2)
 
-        budget.observeHealth(isHealthy = true, monotonicMillis = 0L)
+        for (now in 0L..117_000L step 3_000L) budget.observeHealth(true, now)
         budget.observeHealth(isHealthy = true, monotonicMillis = 120_000L)
 
         assertEquals(0, budget.attempt)
@@ -36,6 +57,7 @@ class CoreRecoveryPolicyTest {
         budget.observeHealth(isHealthy = true, monotonicMillis = 30_000L)
         budget.observeHealth(isHealthy = null, monotonicMillis = 60_000L)
         budget.observeHealth(isHealthy = true, monotonicMillis = 60_000L)
+        for (now in 63_000L..177_000L step 3_000L) budget.observeHealth(true, now)
         budget.observeHealth(isHealthy = true, monotonicMillis = 179_999L)
         assertEquals(2, budget.attempt)
 

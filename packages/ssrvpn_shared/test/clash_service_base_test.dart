@@ -22,8 +22,13 @@ import 'package:ssrvpn_shared/utils/runtime_config_name_policy.dart';
 void main() {
   test('manual diagnostic cannot publish after disconnect and reconnect',
       () async {
+    final directory =
+        await Directory.systemTemp.createTemp('ssrvpn-diag-session-');
+    addTearDown(() => directory.delete(recursive: true));
     final service = _SessionHealthClashService();
     addTearDown(service.dispose);
+    service.setPaths(
+        configDir: directory.path, configPath: '${directory.path}/config.yaml');
     service.requestConnectionIntent(true);
     service.setRunning(true);
     final report = service.runDiagnostics();
@@ -33,9 +38,15 @@ void main() {
     service.requestConnectionIntent(true);
     service.setRunning(true);
     service.firstHealth.complete(false);
-    await report;
+    final result = await report;
     expect(service.lastHealthCheckError, isNull);
     expect(service.connectivityWarning, isNull);
+    expect(result.checks.map((check) => check.id), ['session_changed']);
+    expect(result.recentLogs, isEmpty);
+    expect(result.userConclusion, '诊断期间连接已变化，请重新检查');
+    expect(await service.loadDiagnosticHistory(), isEmpty);
+    expect(await File('${directory.path}/diagnostic-history.json').exists(),
+        isFalse);
   });
 
   test('IPv6 diagnostics use only recent evidence and tolerate old cores',

@@ -490,6 +490,9 @@ const _coreOptionFields = <String, Map<String, String>>{
     'uplink-http-method': 'string',
     'session-placement': 'string',
     'session-key': 'string',
+    // The newer macOS core consumes these; the older cores ignore them.
+    'session-table': 'string',
+    'session-length': 'string',
     'seq-placement': 'string',
     'seq-key': 'string',
     'uplink-data-placement': 'string',
