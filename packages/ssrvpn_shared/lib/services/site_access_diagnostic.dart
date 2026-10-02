@@ -33,6 +33,7 @@ class SiteAccessDiagnostic {
         InternetAddress.tryParse(host) != null ||
         !host.contains('.') ||
         host.endsWith('.') ||
+        host.endsWith('.lan') ||
         host.endsWith('.local') ||
         host.endsWith('.localhost') ||
         host.endsWith('.internal') ||

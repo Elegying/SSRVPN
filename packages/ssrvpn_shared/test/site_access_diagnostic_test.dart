@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/services/site_access_diagnostic.dart';
+import 'package:ssrvpn_shared/constants/app_constants.dart';
 
 void main() {
   test('proxy-generated 502 is not reported as a response from the website',
@@ -99,6 +100,61 @@ void main() {
                   : 1);
       expect(report.verdict, mode == 'error' ? '没有找到这个页面' : '无法完成网站跳转');
     });
+  }
+  final localHosts = {
+    'router.lan',
+    'ROUTER.LAN',
+    'nested.router.lan',
+    'router.internal',
+    for (final rule in AppConstants.defaultPrivateDirectRules)
+      if (rule.startsWith('DOMAIN-SUFFIX,')) 'router.${rule.split(',')[1]}',
+  };
+  for (final host in localHosts) {
+    test('rejects local target $host before any request', () async {
+      final proxy = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => proxy.close(force: true));
+      var calls = 0;
+      proxy.listen((request) {
+        calls++;
+        request.response.close();
+      });
+      await expectLater(
+        SiteAccessDiagnostic()
+            .inspect(Uri.parse('http://$host/'), proxyPort: proxy.port),
+        throwsFormatException,
+      );
+      expect(calls, 0);
+    });
+    for (final publicHops in [1, 2]) {
+      test('blocks redirect to $host after $publicHops public requests',
+          () async {
+        final proxy = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(() => proxy.close(force: true));
+        final seen = <String>[];
+        proxy.listen((request) {
+          seen.add(request.uri.host);
+          if (seen.length <= publicHops) {
+            request.response.statusCode = 302;
+            request.response.headers.set(
+                'location',
+                seen.length < publicHops
+                    ? 'http://other.example/next'
+                    : 'http://$host/private');
+          }
+          request.response.close();
+        });
+        final report = await SiteAccessDiagnostic().inspect(
+            Uri.parse('http://example.com/start'),
+            proxyPort: proxy.port);
+        expect(
+            seen,
+            publicHops == 1
+                ? ['example.com']
+                : ['example.com', 'other.example']);
+        expect(report.succeeded, isFalse);
+        expect(report.verdict, '无法完成网站跳转');
+      });
+    }
   }
   test('cancellation closes a pending network request without exposing URL',
       () async {
