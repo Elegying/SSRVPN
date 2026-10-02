@@ -10,8 +10,8 @@ class _SubscriptionHeader extends StatelessWidget {
     return Row(
       children: [
         Container(
-          width: 56,
-          height: 56,
+          width: 48,
+          height: 48,
           decoration: BoxDecoration(
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
@@ -30,7 +30,7 @@ class _SubscriptionHeader extends StatelessWidget {
           child:
               const Icon(Icons.rss_feed_rounded, color: Colors.white, size: 28),
         ),
-        const SizedBox(width: 18),
+        const SizedBox(width: 12),
         const Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -39,7 +39,7 @@ class _SubscriptionHeader extends StatelessWidget {
                 '订阅管理',
                 style: TextStyle(
                   color: SsrvpnUiTokens.textPrimary,
-                  fontSize: 27,
+                  fontSize: 24,
                   fontWeight: FontWeight.w800,
                 ),
               ),

@@ -1,4 +1,5 @@
 import 'ssrvpn_site_diagnostic.dart';
+import '../utils/site_routing_suggestion.dart';
 import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -25,7 +26,10 @@ class SsrvpnSettingsPage extends StatefulWidget {
       required this.onPortChanged,
       required this.checkForUpdate,
       required this.onUpdateFound,
-      this.pickBackgroundImage});
+      this.pickBackgroundImage,
+      this.onRoutingSitesChanged});
+  final Future<void> Function(List<String> sites, bool direct)?
+      onRoutingSitesChanged;
   final Future<XFile?> Function()? pickBackgroundImage;
   final AppSettings settings;
   final ClashServiceBase core;
@@ -308,8 +312,17 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                       leading: const Icon(Icons.travel_explore),
                       title: const Text('网站访问诊断'),
                       trailing: const Icon(Icons.chevron_right),
-                      onTap: () =>
-                          showSsrvpnSiteDiagnostic(context, widget.core)),
+                      onTap: () => showSsrvpnSiteDiagnostic(
+                          context, widget.core,
+                          onAddRoutingSite: widget.onRoutingSitesChanged == null
+                              ? null
+                              : (host, direct) async {
+                                  final sites = addDiagnosticRoutingSite(
+                                      widget.settings, host,
+                                      direct: direct);
+                                  await widget.onRoutingSitesChanged!(
+                                      sites, direct);
+                                })),
                   ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.subject_outlined),

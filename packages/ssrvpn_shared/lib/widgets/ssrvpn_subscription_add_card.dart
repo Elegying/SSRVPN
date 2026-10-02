@@ -22,7 +22,7 @@ class _SubscriptionAddCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SsrvpnSurfaceCard(
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -52,7 +52,7 @@ class _SubscriptionAddCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 10),
           SsrvpnLiquidField(
               child: TextField(
             key: const Key('ssrvpn-subscription-input'),
@@ -62,7 +62,8 @@ class _SubscriptionAddCard extends StatelessWidget {
             keyboardType: TextInputType.text,
             textInputAction: TextInputAction.done,
             autocorrect: false,
-            enableSuggestions: false,
+            enableSuggestions: true,
+            enableIMEPersonalizedLearning: false,
             scrollPadding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
             onSubmitted: isBusy ? null : (_) => onAdd(),
             decoration: InputDecoration(
@@ -72,7 +73,7 @@ class _SubscriptionAddCard extends StatelessWidget {
               fillColor: Colors.transparent,
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 16,
-                vertical: 17,
+                vertical: 12,
               ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(18),
@@ -84,10 +85,10 @@ class _SubscriptionAddCard extends StatelessWidget {
               ),
             ),
           )),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
           ConstrainedBox(
             key: addActionKey,
-            constraints: const BoxConstraints(minHeight: 52),
+            constraints: const BoxConstraints(minHeight: 48),
             child: SizedBox(
               width: double.infinity,
               child: SsrvpnLiquidSurface(
@@ -107,7 +108,7 @@ class _SubscriptionAddCard extends StatelessWidget {
                       ),
                       padding: const EdgeInsets.symmetric(
                         horizontal: 16,
-                        vertical: 14,
+                        vertical: 10,
                       ),
                     ),
                     child: isAdding

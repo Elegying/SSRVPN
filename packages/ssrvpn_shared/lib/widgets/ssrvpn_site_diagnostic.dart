@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import '../models/site_diagnostic_report.dart';
+import '../constants/app_constants.dart';
+import 'ssrvpn_site_diagnostic_result.dart';
 import '../services/clash_service_base.dart';
 import '../services/site_access_diagnostic.dart';
 import 'ssrvpn_glass_dialog_route.dart';
@@ -6,15 +9,25 @@ import 'ssrvpn_liquid_dialog.dart';
 
 Future<void> showSsrvpnSiteDiagnostic(
   BuildContext context,
-  ClashServiceBase core,
-) =>
+  ClashServiceBase core, {
+  Future<void> Function(String host, bool direct)? onAddRoutingSite,
+  SiteAccessDiagnostic Function() createDiagnostic = SiteAccessDiagnostic.new,
+}) =>
     showSsrvpnGlassDialog<void>(
       context: context,
-      builder: (_) => _SiteDiagnosticDialog(core: core),
+      builder: (_) => _SiteDiagnosticDialog(
+          core: core,
+          onAddRoutingSite: onAddRoutingSite,
+          createDiagnostic: createDiagnostic),
     );
 
 class _SiteDiagnosticDialog extends StatefulWidget {
-  const _SiteDiagnosticDialog({required this.core});
+  const _SiteDiagnosticDialog(
+      {required this.core,
+      this.onAddRoutingSite,
+      required this.createDiagnostic});
+  final SiteAccessDiagnostic Function() createDiagnostic;
+  final Future<void> Function(String host, bool direct)? onAddRoutingSite;
   final ClashServiceBase core;
   @override
   State<_SiteDiagnosticDialog> createState() => _SiteDiagnosticDialogState();
@@ -25,6 +38,11 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
   final _input = TextEditingController();
   SiteAccessDiagnostic? _running;
   String? _result;
+  SiteDiagnosticReport? _report;
+  String? _stage;
+  bool? _pendingDirect;
+  bool _savingRule = false;
+  bool _includeReference = true;
   int _epoch = 0;
   @override
   void initState() {
@@ -34,11 +52,17 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
   }
 
   void _changed() {
-    if (_running == null) return;
+    if (_running == null && _report == null) return;
     // Any core transition invalidates this advisory result; never repair or switch automatically.
     _epoch++;
     _running?.cancel();
-    if (mounted) setState(() => _result = '连接状态已变化，请重新诊断');
+    if (mounted) {
+      setState(() {
+        _report = null;
+        _pendingDirect = null;
+        _result = '连接状态已变化，请重新诊断';
+      });
+    }
   }
 
   @override
@@ -47,7 +71,11 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
   }
 
   Future<void> _run() async {
-    if (_running != null) return;
+    if (_running != null || _savingRule) return;
+    setState(() {
+      _report = null;
+      _pendingDirect = null;
+    });
     Uri target;
     try {
       target = SiteAccessDiagnostic.parseTarget(_input.text.trim());
@@ -65,7 +93,7 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
       return;
     }
     final epoch = ++_epoch;
-    final check = SiteAccessDiagnostic();
+    final check = widget.createDiagnostic();
     setState(() {
       _running = check;
       _result = null;
@@ -77,18 +105,43 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
           !core.isConnectionIntentCurrent(intent, connected: true)) {
         return;
       }
-      final message = await check.run(target, proxyPort: core.runtimeProxyPort);
+      var report = await check.inspect(target,
+          proxyPort: core.runtimeProxyPort,
+          apiPort: core.runtimeApiPort,
+          apiHeaders: core.apiHeaders(), onStage: (stage) {
+        if (mounted && epoch == _epoch) setState(() => _stage = stage);
+      });
+      if (!report.succeeded &&
+          _includeReference &&
+          mounted &&
+          epoch == _epoch &&
+          core.isConnectionIntentCurrent(intent, connected: true) &&
+          target.host !=
+              Uri.parse(AppConstants.fallbackConnectivityTestUrl).host) {
+        final reference = await check.inspect(
+            Uri.parse(AppConstants.fallbackConnectivityTestUrl),
+            proxyPort: core.runtimeProxyPort,
+            apiPort: core.runtimeApiPort,
+            apiHeaders: core.apiHeaders(), onStage: (stage) {
+          if (mounted && epoch == _epoch) {
+            setState(() => _stage = '补充检查参考站点：$stage');
+          }
+        });
+        report = report.withReference(reference);
+      }
       final current = await core.currentSelectedProxyName();
       if (!mounted ||
           epoch != _epoch ||
           !core.isConnectionIntentCurrent(intent, connected: true)) {
         return;
       }
-      setState(
-        () => _result = selected != current || core.isProxySelectionInProgress
-            ? '节点已变化，请重新诊断'
-            : message,
-      );
+      setState(() {
+        if (selected != current || core.isProxySelectionInProgress) {
+          _result = '节点已变化，请重新诊断';
+        } else {
+          _report = report;
+        }
+      });
     } catch (_) {
       if (mounted && epoch == _epoch) {
         setState(() => _result = '当前连接不可用，请重新连接后诊断');
@@ -96,6 +149,34 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
     } finally {
       check.cancel();
       if (mounted) setState(() => _running = null);
+    }
+  }
+
+  Future<void> _saveRule() async {
+    final report = _report;
+    final direct = _pendingDirect;
+    if (_savingRule ||
+        report == null ||
+        direct == null ||
+        widget.onAddRoutingSite == null) {
+      return;
+    }
+    setState(() => _savingRule = true);
+    try {
+      await widget.onAddRoutingSite!(report.host, direct);
+      if (mounted) {
+        setState(() {
+          _pendingDirect = null;
+          _report = null;
+          _result = '规则已保存；请重新连接后再诊断，当前连接尚未切换到新规则';
+        });
+      }
+    } on FormatException catch (error) {
+      if (mounted) setState(() => _result = error.message);
+    } catch (_) {
+      if (mounted) setState(() => _result = '保存失败，请重试；未确认规则生效');
+    } finally {
+      if (mounted) setState(() => _savingRule = false);
     }
   }
 
@@ -119,22 +200,78 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('按当前连接和路由规则检测网站响应。不会自动切换节点，结果不保存。'),
+                const Text(
+                    '查看网站经过的规则、出口与响应，并获得排查建议。不会自动切换节点；仅发送 HEAD，不读取正文，结果不保存。'),
                 const SizedBox(height: 16),
                 TextField(
                   key: const Key('ssrvpn-site-diagnostic-input'),
                   controller: _input,
                   maxLength: 2048,
-                  enabled: _running == null,
+                  enabled: _running == null && !_savingRule,
                   autocorrect: false,
-                  enableSuggestions: false,
+                  enableSuggestions: true,
+                  enableIMEPersonalizedLearning: false,
                   keyboardType: TextInputType.url,
                   decoration: const InputDecoration(
                     hintText: 'https://example.com',
                   ),
+                  onChanged: (_) => setState(() {
+                    _report = null;
+                    _result = null;
+                    _pendingDirect = null;
+                  }),
                   onSubmitted: (_) => _run(),
                 ),
-                if (_running != null) const LinearProgressIndicator(),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _includeReference,
+                  onChanged: _running != null || _savingRule
+                      ? null
+                      : (value) =>
+                          setState(() => _includeReference = value ?? false),
+                  title: const Text('失败时检查参考站点'),
+                  subtitle:
+                      const Text('通过当前规则访问 cp.cloudflare.com，帮助区分单站异常与出口问题。'),
+                  controlAffinity: ListTileControlAffinity.leading,
+                ),
+                if (_running != null) ...[
+                  const LinearProgressIndicator(),
+                  const SizedBox(height: 8),
+                  Text(_stage ?? '正在诊断…'),
+                ],
+                if (_report != null) ...[
+                  SsrvpnSiteDiagnosticResult(report: _report!),
+                  if (widget.onAddRoutingSite != null &&
+                      !_report!.succeeded) ...[
+                    const Text('调整此网站规则（可选）'),
+                    Wrap(spacing: 8, children: [
+                      TextButton(
+                          onPressed: _savingRule
+                              ? null
+                              : () => setState(() => _pendingDirect = false),
+                          child: const Text('添加强制代理')),
+                      TextButton(
+                          onPressed: _savingRule
+                              ? null
+                              : () => setState(() => _pendingDirect = true),
+                          child: const Text('添加强制直连')),
+                    ]),
+                    if (_pendingDirect != null) ...[
+                      Text(
+                          '将 ${_report!.host} 及其子域名加入${_pendingDirect! ? '强制直连（使用本地网络出口）' : '强制代理'}。不会覆盖已有规则，保存后需重新连接；不保证解决网站自身问题。'),
+                      Wrap(spacing: 8, children: [
+                        TextButton(
+                            onPressed: _savingRule
+                                ? null
+                                : () => setState(() => _pendingDirect = null),
+                            child: const Text('暂不修改')),
+                        FilledButton(
+                            onPressed: _savingRule ? null : _saveRule,
+                            child: Text(_savingRule ? '正在保存…' : '确认保存规则')),
+                      ]),
+                    ],
+                  ],
+                ],
                 if (_result != null)
                   Semantics(liveRegion: true, child: Text(_result!)),
               ],
@@ -143,7 +280,11 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
         ),
         actions: [
           TextButton(
-            onPressed: () => dismissSsrvpnDialog<void>(context),
+            onPressed: () {
+              _epoch++;
+              _running?.cancel();
+              dismissSsrvpnDialog<void>(context);
+            },
             child: const Text('关闭'),
           ),
           if (_running != null)
@@ -156,7 +297,9 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
               child: const Text('取消诊断'),
             )
           else
-            FilledButton(onPressed: _run, child: const Text('开始诊断')),
+            FilledButton(
+                onPressed: _savingRule ? null : _run,
+                child: const Text('开始诊断')),
         ],
       );
 }

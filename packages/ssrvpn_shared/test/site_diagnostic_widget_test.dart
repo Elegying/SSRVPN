@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/models/app_diagnostics.dart';
+import 'package:ssrvpn_shared/models/site_diagnostic_report.dart';
+import 'package:ssrvpn_shared/services/site_access_diagnostic.dart';
 import 'package:ssrvpn_shared/services/clash_service_base.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_site_diagnostic.dart';
 
@@ -28,6 +30,21 @@ class _Core extends ClashServiceBase {
       const AppRepairResult(success: false, message: '未连接');
 }
 
+class _Diagnostic extends SiteAccessDiagnostic {
+  @override
+  Future<SiteDiagnosticReport> inspect(Uri target,
+          {required int proxyPort,
+          int? apiPort,
+          Map<String, String> apiHeaders = const {},
+          void Function(String)? onStage}) async =>
+      SiteDiagnosticReport(
+          host: target.host,
+          summary: '连接失败',
+          failure: SiteFailure.connection,
+          route: const SiteRouteEvidence(
+              rule: 'Domain example.com', chain: ['REJECT']));
+}
+
 Future<void> _open(WidgetTester tester, _Core core) async {
   await tester.pumpWidget(MaterialApp(
     theme: ThemeData.dark(),
@@ -43,6 +60,50 @@ Future<void> _open(WidgetTester tester, _Core core) async {
 }
 
 void main() {
+  for (final fail in [false, true]) {
+    testWidgets(
+        'routing suggestion requires confirmation and reports persistence: fail=$fail',
+        (tester) async {
+      final core = _Core()..connected = true;
+      core.requestConnectionIntent(true);
+      var saves = 0;
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: Builder(
+                  builder: (context) => TextButton(
+                      onPressed: () => showSsrvpnSiteDiagnostic(context, core,
+                              createDiagnostic: _Diagnostic.new,
+                              onAddRoutingSite: (host, direct) async {
+                            expect(host, 'example.com');
+                            expect(direct, isFalse);
+                            saves++;
+                            if (fail) throw const FormatException('规则列表已满');
+                          }),
+                      child: const Text('诊断'))))));
+      await tester.tap(find.text('诊断'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const Key('ssrvpn-site-diagnostic-input')), 'example.com');
+      expect(tester.testTextInput.setClientArgs!['enableSuggestions'], isTrue);
+      await tester.tap(find.text('开始诊断'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('匹配规则：Domain example.com'), findsOneWidget);
+      await tester.ensureVisible(find.text('添加强制代理'));
+      await tester.tap(find.text('添加强制代理'));
+      await tester.pumpAndSettle();
+      expect(saves, 0);
+      await tester.ensureVisible(find.text('确认保存规则'));
+      await tester.tap(find.text('确认保存规则'));
+      await tester.pumpAndSettle();
+      expect(saves, 1);
+      expect(find.textContaining(fail ? '规则列表已满' : '当前连接尚未切换到新规则'),
+          findsOneWidget);
+      expect(core.connectionDesired, isTrue);
+      await tester.pumpWidget(const SizedBox());
+      core.dispose();
+    });
+  }
+
   testWidgets('invalid and disconnected targets leave the dialog usable',
       (tester) async {
     final core = _Core();

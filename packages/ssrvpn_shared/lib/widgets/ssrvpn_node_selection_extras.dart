@@ -72,7 +72,8 @@ extension _NodeSelectionExtras on _SsrvpnNodeSelectionPageState {
             autofocus: true,
             maxLength: NodeSearchPolicy.maxQueryLength,
             autocorrect: false,
-            enableSuggestions: false,
+            enableSuggestions: true,
+            enableIMEPersonalizedLearning: false,
             decoration: const InputDecoration(hintText: '输入节点名称、订阅或协议关键词'),
             onSubmitted: (value) => dismissSsrvpnDialog(ctx, value),
           ),
@@ -156,6 +157,8 @@ class _SwipePinNode extends StatefulWidget {
 
 class _SwipePinNodeState extends State<_SwipePinNode> {
   double _offset = 0;
+  double get _revealWidth =>
+      112 * MediaQuery.textScalerOf(context).scale(14) / 14;
   @override
   Widget build(BuildContext context) => ClipRect(
         child: Stack(
@@ -164,7 +167,7 @@ class _SwipePinNodeState extends State<_SwipePinNode> {
               left: 0,
               top: 0,
               bottom: 7,
-              width: 88,
+              width: _revealWidth,
               child: ExcludeSemantics(
                   excluding: _offset == 0,
                   child: TextButton(
@@ -174,28 +177,30 @@ class _SwipePinNodeState extends State<_SwipePinNode> {
                               await widget.onPin();
                             }
                           : null,
-                      child: Column(
+                      child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.push_pin_outlined),
+                            const Icon(Icons.push_pin_outlined, size: 18),
+                            const SizedBox(width: 6),
                             Flexible(
                                 child: Text(widget.pinned ? '取消置顶' : '置顶',
                                     textAlign: TextAlign.center,
-                                    maxLines: 2,
+                                    maxLines: 1,
                                     overflow: TextOverflow.ellipsis)),
                           ]))),
             ),
             GestureDetector(
               onHorizontalDragUpdate: widget.enabled
                   ? (details) => setState(
-                        () =>
-                            _offset = (_offset + details.delta.dx).clamp(0, 92),
+                        () => _offset = (_offset + details.delta.dx)
+                            .clamp(0, _revealWidth + 4),
                       )
                   : null,
               onHorizontalDragCancel: () => setState(() => _offset = 0),
               onHorizontalDragEnd: widget.enabled
-                  ? (_) => setState(() => _offset = _offset > 40 ? 92 : 0)
+                  ? (_) => setState(
+                      () => _offset = _offset > 40 ? _revealWidth + 4 : 0)
                   : null,
               child: Transform.translate(
                 offset: Offset(_offset, 0),

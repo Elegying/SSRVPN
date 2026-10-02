@@ -49,9 +49,14 @@ void main() {
   Widget page(
           {String? directory,
           _MemoryPins? pins,
-          TargetPlatform platform = TargetPlatform.android}) =>
+          TargetPlatform platform = TargetPlatform.android,
+          double scale = 1}) =>
       MaterialApp(
           theme: ThemeData.dark().copyWith(platform: platform),
+          builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!),
           home: Scaffold(
               body: SsrvpnNodeSelectionPage(
             preferenceDirectory: directory,
@@ -82,6 +87,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(
         find.byKey(const Key('ssrvpn-node-search-input')), '香港');
+    expect(tester.testTextInput.setClientArgs!['enableSuggestions'], isTrue);
+    expect(tester.testTextInput.setClientArgs!['obscureText'], isFalse);
+    expect(tester.testTextInput.setClientArgs!['enableIMEPersonalizedLearning'],
+        isFalse);
     await tester.tap(find.text('搜索'));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('ssrvpn-node-card-日本 Premium')),
@@ -129,6 +138,29 @@ void main() {
             .getTopLeft(
                 find.byKey(const ValueKey('ssrvpn-node-card-香港 Premium')))
             .dy));
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+  testWidgets('swipe pin label fits horizontally at large text size',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(page(directory: '/test-pins', scale: 2));
+    await tester.pumpAndSettle();
+    final node = find.byKey(const ValueKey('ssrvpn-node-card-日本 Premium'));
+    await tester.ensureVisible(node);
+    await tester.drag(node, const Offset(240, 0));
+    await tester.pumpAndSettle();
+    final text = find.text('置顶').last;
+    final button =
+        find.ancestor(of: text, matching: find.byType(TextButton)).first;
+    final icon = find.descendant(
+        of: button, matching: find.byIcon(Icons.push_pin_outlined));
+    expect(tester.getRect(icon).right, lessThan(tester.getRect(text).left));
+    expect(tester.getRect(text).bottom,
+        lessThanOrEqualTo(tester.getRect(button).bottom));
+    expect(tester.getRect(text).right,
+        lessThanOrEqualTo(tester.getRect(button).right));
+    expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
   testWidgets('desktop secondary click presents pin action', (tester) async {

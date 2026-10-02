@@ -610,7 +610,8 @@ class _InitialSubscriptionDialogState
                   maxLines: 4,
                   keyboardType: TextInputType.text,
                   autocorrect: false,
-                  enableSuggestions: false,
+                  enableSuggestions: true,
+                  enableIMEPersonalizedLearning: false,
                   decoration: GlassInputDecoration(
                     isDark: isDark,
                     hintText: 'https://… 或 ss://、trojan:// 等节点链接',
@@ -669,6 +670,9 @@ Widget _buildSettingsPage(BuildContext context) {
     pickBackgroundImage: pickAndroidBackgroundImage,
     onAppearanceChanged: service.updateAppearance,
     onPortChanged: service.updateProxyPort,
+    onRoutingSitesChanged: (sites, direct) => direct
+        ? service.updateForceDirectSites(sites)
+        : service.updateForceProxySites(sites),
     checkForUpdate: () =>
         UpdateService.checkForUpdate(UpdateService.appVersion),
     onUpdateFound: (update) {

@@ -177,7 +177,7 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             slivers: [
               SliverPadding(
-                padding: EdgeInsets.fromLTRB(sidePadding, 18, sidePadding,
+                padding: EdgeInsets.fromLTRB(sidePadding, 12, sidePadding,
                     30 + MediaQuery.paddingOf(context).bottom),
                 sliver: SliverMainAxisGroup(slivers: [
                   SliverToBoxAdapter(
@@ -193,7 +193,7 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
                           currentNodeName: widget.currentNodeName,
                         ),
                       ],
-                      const SizedBox(height: 26),
+                      const SizedBox(height: 16),
                       _SubscriptionAddCard(
                         urlController: widget.urlController,
                         inputFocusNode: _inputFocusNode,
@@ -203,7 +203,7 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
                         onAdd: widget.onAdd,
                         pickQrImage: widget.pickQrImage,
                       ),
-                      const SizedBox(height: 30),
+                      const SizedBox(height: 16),
                       _SubscriptionListHeader(
                         count: widget.subscriptions.length,
                         isRefreshing: widget.isRefreshing,
@@ -399,7 +399,7 @@ class _SubscriptionCard extends StatelessWidget {
         platform == TargetPlatform.macOS ||
         platform == TargetPlatform.linux;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Semantics(
         container: true,
         label: subscription.name,
@@ -411,7 +411,7 @@ class _SubscriptionCard extends StatelessWidget {
           onSecondaryTapUp:
               isDesktop && onEdit != null ? (_) => onEdit!() : null,
           child: SsrvpnSurfaceCard(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(14),
             radius: 22,
             child: Column(
               children: [

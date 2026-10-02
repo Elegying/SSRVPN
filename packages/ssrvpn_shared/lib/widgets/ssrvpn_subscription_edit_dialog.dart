@@ -145,7 +145,8 @@ class _SubscriptionEditDialogState extends State<_SubscriptionEditDialog> {
                               keyboardType: TextInputType.url,
                               textInputAction: TextInputAction.done,
                               autocorrect: false,
-                              enableSuggestions: false,
+                              enableSuggestions: true,
+                              enableIMEPersonalizedLearning: false,
                               maxLines: 3,
                               minLines: 1,
                               decoration: const InputDecoration(

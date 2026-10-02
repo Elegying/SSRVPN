@@ -34,6 +34,7 @@ class _SsrvpnClipboardImportState extends State<SsrvpnClipboardImport>
   Route<dynamic>? _promptRoute;
   final _seen = <String>{};
   String? _failedFingerprint;
+  GlobalKey? _noticeKey;
   @override
   void initState() {
     super.initState();
@@ -145,10 +146,15 @@ class _SsrvpnClipboardImportState extends State<SsrvpnClipboardImport>
           }
         }
         if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(
-            content: Text(message),
+          final messenger = ScaffoldMessenger.of(context);
+          // Remove only this flow's visible notice, not another feature's feedback.
+          if (_noticeKey?.currentContext != null) {
+            messenger.removeCurrentSnackBar();
+          }
+          final noticeKey = GlobalKey();
+          _noticeKey = noticeKey;
+          messenger.showSnackBar(SnackBar(
+            content: Text(message, key: noticeKey),
             action: _failedFingerprint == fingerprint
                 ? SnackBarAction(
                     label: '重试',

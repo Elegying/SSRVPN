@@ -66,12 +66,17 @@ void main() {
     addTearDown(() => tester.binding.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, null));
     var imports = 0;
+    var committed = false;
     await tester.pumpWidget(MaterialApp(
         home: Scaffold(
             body: SsrvpnClipboardImport(
-      alreadyImported: (_) => false,
+      alreadyImported: (_) => committed,
       onImport: (_) async {
         imports++;
+        if (imports > 1) {
+          committed = true;
+          return '节点已导入';
+        }
         return '导入失败，请检查节点代码后重试';
       },
       child: const Text('Home'),
@@ -87,6 +92,11 @@ void main() {
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
     final prompts = find.text('发现剪贴板节点').evaluate().length;
+    await tester.tap(find.text('导入'));
+    await tester.pumpAndSettle();
+    expect(find.text('节点已导入'), findsOneWidget);
+    expect(find.text('导入失败，请检查节点代码后重试'), findsNothing);
+    expect(find.text('重试'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
     expect(prompts, 1,
         reason:

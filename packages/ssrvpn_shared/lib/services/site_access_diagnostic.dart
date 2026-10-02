@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'dart:io';
+import '../models/site_diagnostic_report.dart';
+import 'site_route_monitor.dart';
 
 /// A user-triggered HEAD request through the local proxy and current routing rules.
 /// Does not fetch response bodies, follow redirects, or change connection state.
 class SiteAccessDiagnostic {
   HttpClient? _client;
+  SiteRouteMonitor? _monitor;
   bool _cancelled = false;
   static Uri parseTarget(String input) {
     if (input.length > 2048 || RegExp(r'[\x00-\x20\x7f]').hasMatch(input)) {
@@ -50,51 +53,97 @@ class SiteAccessDiagnostic {
   void cancel() {
     _cancelled = true;
     _client?.close(force: true);
+    _monitor?.close();
   }
 
-  Future<String> run(Uri target, {required int proxyPort}) async {
-    if (_cancelled) return '诊断已取消';
+  Future<String> run(Uri target, {required int proxyPort}) async =>
+      (await inspect(target, proxyPort: proxyPort)).summary;
+
+  Future<SiteDiagnosticReport> inspect(Uri target,
+      {required int proxyPort,
+      int? apiPort,
+      Map<String, String> apiHeaders = const {},
+      void Function(String)? onStage}) async {
+    parseTarget(target.toString());
+    final monitor = apiPort == null
+        ? null
+        : SiteRouteMonitor(apiPort, Map.unmodifiable(apiHeaders), target);
+    _monitor = monitor;
+    onStage?.call('准备记录本次访问路径…');
+    if (!_cancelled) await monitor?.start();
+    var summary = '诊断已取消';
+    var failure = SiteFailure.cancelled;
+    int? status;
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 8)
       ..findProxy = (_) => 'PROXY 127.0.0.1:$proxyPort';
+    client.connectionFactory = (uri, proxyHost, port) async {
+      if (_cancelled) throw const SocketException('Cancelled');
+      final task =
+          await Socket.startConnect(InternetAddress.loopbackIPv4, proxyPort);
+      return ConnectionTask.fromSocket(task.socket.then((socket) {
+        if (_cancelled) {
+          socket.destroy();
+          throw const SocketException('Cancelled');
+        }
+        monitor?.sourcePort = socket.port;
+        return socket;
+      }), task.cancel);
+    };
     _client = client;
     final clock = Stopwatch()..start();
     try {
-      final request = await client
-          .openUrl('HEAD', target)
-          .timeout(const Duration(seconds: 10));
-      if (_cancelled) {
-        request.abort();
-        return '诊断已取消';
+      if (!_cancelled) {
+        onStage?.call('按当前规则访问网站…');
+        final request = await client
+            .openUrl('HEAD', target)
+            .timeout(const Duration(seconds: 10));
+        if (_cancelled) throw const SocketException('Cancelled');
+        request.followRedirects = false;
+        request.headers.set(HttpHeaders.userAgentHeader, 'SSRVPN-Diagnostic');
+        final response =
+            await request.close().timeout(const Duration(seconds: 10));
+        status = response.statusCode;
+        failure =
+            status >= 200 && status < 400 ? SiteFailure.none : SiteFailure.http;
+        final elapsed = clock.elapsedMilliseconds;
+        summary = status >= 200 && status < 300
+            ? '访问成功 · HTTP $status · $elapsed ms'
+            : status >= 300 && status < 400
+                ? '收到重定向 · HTTP $status · $elapsed ms（未继续访问跳转地址）'
+                : status == 405 || status == 501
+                    ? '收到 HTTP $status；此响应不支持 HEAD 检测，无法确认网站可达'
+                    : '收到 HTTP $status · $elapsed ms；响应可能来自网站或代理';
       }
-      request.followRedirects = false;
-      request.headers.set(HttpHeaders.userAgentHeader, 'SSRVPN-Diagnostic');
-      final response = await request.close().timeout(
-            const Duration(seconds: 10),
-          );
-      final code = response.statusCode;
-      if (_cancelled) return '诊断已取消';
-      if (code >= 200 && code < 300) {
-        return '访问成功 · HTTP $code · ${clock.elapsedMilliseconds} ms';
-      }
-      if (code >= 300 && code < 400) {
-        return '收到重定向 · HTTP $code · ${clock.elapsedMilliseconds} ms（未继续访问跳转地址）';
-      }
-      if (code == 405 || code == 501) {
-        return '收到 HTTP $code；此响应不支持 HEAD 检测，无法确认网站可达';
-      }
-      return '收到 HTTP $code · ${clock.elapsedMilliseconds} ms；响应可能来自网站或代理，请检查当前节点、网站状态或登录要求';
     } on HandshakeException {
-      return _cancelled ? '诊断已取消' : 'TLS 验证失败，请检查网站证书和系统时间';
+      failure = SiteFailure.tls;
+      summary = 'TLS 验证失败';
     } on TimeoutException {
-      return _cancelled ? '诊断已取消' : '访问超时，请检查当前节点和网站状态';
+      failure = SiteFailure.timeout;
+      summary = '访问超时';
     } on SocketException {
-      return _cancelled ? '诊断已取消' : '连接失败，请检查当前连接、节点和网站域名';
+      failure = SiteFailure.connection;
+      summary = '连接失败';
     } catch (_) {
-      return _cancelled ? '诊断已取消' : '访问失败，请检查当前连接和网站地址';
+      failure = SiteFailure.connection;
+      summary = '访问失败';
     } finally {
+      if (!_cancelled) {
+        onStage?.call('核对匹配规则与实际出口…');
+        // Keep the CONNECT tunnel alive until its route has been captured.
+        try {
+          await monitor?.capture().timeout(const Duration(seconds: 2));
+        } catch (_) {}
+      }
+      monitor?.close();
       client.close(force: true);
       if (identical(_client, client)) _client = null;
     }
+    return SiteDiagnosticReport(
+        host: target.host,
+        summary: _cancelled ? '诊断已取消' : summary,
+        failure: _cancelled ? SiteFailure.cancelled : failure,
+        statusCode: status,
+        route: _cancelled ? null : monitor?.evidence);
   }
 }
