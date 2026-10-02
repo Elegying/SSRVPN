@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_qr_import_button.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_qr_scanner.dart';
 
 class _DeniedWindowsCamera extends CameraPlatform {
   @override
@@ -15,6 +16,8 @@ class _DeniedWindowsCamera extends CameraPlatform {
 class _Scanner extends MobileScannerPlatform {
   final codes = StreamController<BarcodeCapture?>.broadcast();
   bool denied = false;
+  Completer<void>? pendingStop;
+  Completer<void>? pendingStart;
   int starts = 0, stops = 0;
   @override
   Stream<BarcodeCapture?> get barcodesStream => codes.stream;
@@ -25,6 +28,7 @@ class _Scanner extends MobileScannerPlatform {
   @override
   Future<MobileScannerViewAttributes> start(StartOptions options) async {
     starts++;
+    await pendingStart?.future;
     if (denied) {
       throw const MobileScannerException(
           errorCode: MobileScannerErrorCode.permissionDenied);
@@ -40,6 +44,7 @@ class _Scanner extends MobileScannerPlatform {
   @override
   Future<void> stop() async {
     stops++;
+    await pendingStop?.future;
   }
 
   @override
@@ -47,6 +52,82 @@ class _Scanner extends MobileScannerPlatform {
 }
 
 void main() {
+  testWidgets('reopening waits for the old route to release its camera',
+      (tester) async {
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    final original = MobileScannerPlatform.instance;
+    final scanner = _Scanner();
+    MobileScannerPlatform.instance = scanner;
+    addTearDown(() async {
+      MobileScannerPlatform.instance = original;
+      await scanner.codes.close();
+    });
+    await tester.pumpWidget(
+        const MaterialApp(home: SsrvpnQrScanner(key: ValueKey('first'))));
+    await tester.pumpAndSettle();
+    scanner.pendingStop = Completer<void>();
+    await tester.pumpWidget(
+        const MaterialApp(home: SsrvpnQrScanner(key: ValueKey('second'))));
+    await tester.pump();
+    expect(scanner.starts, 1);
+    expect(scanner.stops, 1);
+    scanner.pendingStop!.complete();
+    scanner.pendingStop = null;
+    await tester.pumpAndSettle();
+    expect(scanner.starts, 2);
+    expect(scanner.stops, 1,
+        reason: 'old route cleanup must not stop the new session');
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    expect(scanner.stops, 2);
+  }, skip: Platform.isWindows);
+  testWidgets('closing during camera startup stops the late native session',
+      (tester) async {
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    final original = MobileScannerPlatform.instance;
+    final scanner = _Scanner()..pendingStart = Completer<void>();
+    MobileScannerPlatform.instance = scanner;
+    addTearDown(() async {
+      MobileScannerPlatform.instance = original;
+      await scanner.codes.close();
+    });
+    await tester.pumpWidget(const MaterialApp(home: SsrvpnQrScanner()));
+    await tester.pump();
+    expect(scanner.starts, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    scanner.pendingStart!.complete();
+    await tester.pumpAndSettle();
+    expect(scanner.stops, 1);
+    expect(tester.takeException(), isNull);
+  }, skip: Platform.isWindows);
+  testWidgets('resume waits for the previous native camera stop to finish',
+      (tester) async {
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    final original = MobileScannerPlatform.instance;
+    final scanner = _Scanner();
+    MobileScannerPlatform.instance = scanner;
+    addTearDown(() async {
+      MobileScannerPlatform.instance = original;
+      await scanner.codes.close();
+    });
+    await tester.pumpWidget(const MaterialApp(home: SsrvpnQrScanner()));
+    await tester.pumpAndSettle();
+    expect(scanner.starts, 1);
+    scanner.pendingStop = Completer<void>();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(scanner.starts, 1,
+        reason: 'the old native session still owns the camera');
+    scanner.pendingStop!.complete();
+    scanner.pendingStop = null;
+    await tester.pumpAndSettle();
+    expect(scanner.starts, 2);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  }, skip: Platform.isWindows);
   // Windows uses camera_windows; its adapter has separate lifecycle tests.
   testWidgets(
       'scanned node requires confirmation and cancel preserves an existing draft',

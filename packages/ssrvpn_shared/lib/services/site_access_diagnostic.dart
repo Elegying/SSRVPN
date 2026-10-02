@@ -78,12 +78,12 @@ class SiteAccessDiagnostic {
         return '访问成功 · HTTP $code · ${clock.elapsedMilliseconds} ms';
       }
       if (code >= 300 && code < 400) {
-        return '网站返回重定向 · HTTP $code · ${clock.elapsedMilliseconds} ms（未继续访问跳转地址）';
+        return '收到重定向 · HTTP $code · ${clock.elapsedMilliseconds} ms（未继续访问跳转地址）';
       }
       if (code == 405 || code == 501) {
-        return '已收到网站响应 · HTTP $code；网站不支持 HEAD 检测';
+        return '收到 HTTP $code；此响应不支持 HEAD 检测，无法确认网站可达';
       }
-      return '已收到网站响应 · HTTP $code · ${clock.elapsedMilliseconds} ms；请检查网站限制或登录要求';
+      return '收到 HTTP $code · ${clock.elapsedMilliseconds} ms；响应可能来自网站或代理，请检查当前节点、网站状态或登录要求';
     } on HandshakeException {
       return _cancelled ? '诊断已取消' : 'TLS 验证失败，请检查网站证书和系统时间';
     } on TimeoutException {

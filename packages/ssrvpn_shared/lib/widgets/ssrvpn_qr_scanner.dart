@@ -7,6 +7,24 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../services/qr_image_decoder.dart';
 import '../utils/node_import_policy.dart';
 
+// Native mobile-scanner sessions are process-wide, including across routes.
+Future<void>? _mobileCameraOperation;
+Future<void> _withMobileCamera(Future<void> Function() action) {
+  final previous = _mobileCameraOperation;
+  final result = () async {
+    if (previous != null) await previous;
+    await action();
+  }();
+  final settled = result.then<void>((_) {}, onError: (_, __) {});
+  _mobileCameraOperation = settled;
+  settled.then((_) {
+    if (identical(_mobileCameraOperation, settled)) {
+      _mobileCameraOperation = null;
+    }
+  });
+  return result;
+}
+
 class SsrvpnQrScanner extends StatefulWidget {
   const SsrvpnQrScanner({super.key, this.pickImage});
   final Future<XFile?> Function()? pickImage;
@@ -25,6 +43,7 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
         );
   SsrvpnWindowsQrCamera? _camera, _openingCamera;
   Timer? _timer;
+  Future<void>? _stopping;
   int _epoch = 0;
   bool _starting = false, _picking = false, _capturing = false, _done = false;
   String? _notice;
@@ -57,6 +76,9 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
     final epoch = _epoch;
     SsrvpnWindowsQrCamera? initializing;
     try {
+      // A native stop can outlive an inactive/resumed lifecycle round trip.
+      await _stopping;
+      if (!_active || epoch != _epoch) return;
       if (Platform.isWindows) {
         if (_camera != null) return;
         initializing = SsrvpnWindowsQrCamera();
@@ -70,9 +92,11 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
         setState(() => _notice = null);
         _timer = Timer.periodic(const Duration(seconds: 1), (_) => _capture());
       } else {
-        await _scanner!.start();
+        await _withMobileCamera(() async {
+          if (_active && epoch == _epoch) await _scanner!.start();
+        });
         if (!_active || epoch != _epoch) {
-          await _scanner.stop();
+          await _withMobileCamera(() => _scanner!.stop());
           return;
         }
         if (mounted) setState(() => _notice = null);
@@ -93,14 +117,19 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
     }
   }
 
-  Future<void> _stop() async {
+  Future<void> _stop() {
     _epoch++;
+    return _stopping ??= _stopCamera().whenComplete(() => _stopping = null);
+  }
+
+  Future<void> _stopCamera() async {
     _timer?.cancel();
     _timer = null;
     final camera = _camera;
     _camera = null;
-    await _openingCamera?.dispose();
+    final opening = _openingCamera;
     _openingCamera = null;
+    await opening?.dispose();
     if (camera != null) {
       try {
         await camera.dispose();
@@ -108,7 +137,7 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
     }
     if (!Platform.isWindows) {
       try {
-        await _scanner!.stop();
+        await _withMobileCamera(() => _scanner!.stop());
       } catch (_) {}
     }
   }
@@ -199,7 +228,7 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
     _stop().whenComplete(() async {
       if (_scanner != null) {
         try {
-          await _scanner.dispose();
+          await _withMobileCamera(() => _scanner.dispose());
         } catch (_) {}
       }
     });
