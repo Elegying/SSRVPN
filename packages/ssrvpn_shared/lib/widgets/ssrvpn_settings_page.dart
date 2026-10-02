@@ -49,6 +49,8 @@ class SsrvpnSettingsPage extends StatefulWidget {
 
 class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
   late final TextEditingController _port;
+  final _siteDiagnosticFocus = FocusNode();
+  final _runtimeLogFocus = FocusNode();
   bool _saving = false;
   bool _checking = false;
   bool _checkingRules = false;
@@ -82,6 +84,8 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
     widget.core.removeStatusListener(_refresh);
     _noticeTimer?.cancel();
     _port.dispose();
+    _siteDiagnosticFocus.dispose();
+    _runtimeLogFocus.dispose();
     super.dispose();
   }
 
@@ -110,6 +114,7 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
             : null;
     setState(() => _portError = error);
     if (error != null) return;
+    FocusScope.of(context).unfocus();
     await _save(() => widget.onPortChanged(value!), '代理端口已保存，下次在应用内连接生效');
   }
 
@@ -384,33 +389,41 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                           : const Icon(Icons.chevron_right),
                       onTap: _checking ? null : _checkUpdate),
                   ListTile(
+                      focusNode: _siteDiagnosticFocus,
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.travel_explore),
                       title: const Text('网站访问诊断'),
                       trailing: const Icon(Icons.chevron_right),
-                      onTap: () => showSsrvpnSiteDiagnostic(
-                          context, widget.core,
-                          onAddRoutingSite: widget.onRoutingSitesChanged == null
-                              ? null
-                              : (host, direct) async {
-                                  final sites = addDiagnosticRoutingSite(
-                                      widget.settings, host,
-                                      direct: direct);
-                                  await widget.onRoutingSitesChanged!(
-                                      sites, direct);
-                                })),
+                      onTap: () {
+                        _siteDiagnosticFocus.requestFocus();
+                        showSsrvpnSiteDiagnostic(context, widget.core,
+                            onAddRoutingSite:
+                                widget.onRoutingSitesChanged == null
+                                    ? null
+                                    : (host, direct) async {
+                                        final sites = addDiagnosticRoutingSite(
+                                            widget.settings, host,
+                                            direct: direct);
+                                        await widget.onRoutingSitesChanged!(
+                                            sites, direct);
+                                      });
+                      }),
                   ListTile(
+                      focusNode: _runtimeLogFocus,
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.subject_outlined),
                       title: const Text('运行日志'),
                       trailing: const Icon(Icons.chevron_right),
-                      onTap: () => showSsrvpnDiagnosticsDialog(context,
-                              runDiagnostics: widget.core.runDiagnostics,
-                              loadHistory: widget.core.loadDiagnosticHistory,
-                              repair: widget.core.repairDiagnosticIssue,
-                              onMessage: (message) {
-                            if (mounted) setState(() => _notice = message);
-                          })),
+                      onTap: () {
+                        _runtimeLogFocus.requestFocus();
+                        showSsrvpnDiagnosticsDialog(context,
+                            runDiagnostics: widget.core.runDiagnostics,
+                            loadHistory: widget.core.loadDiagnosticHistory,
+                            repair: widget.core.repairDiagnosticIssue,
+                            onMessage: (message) {
+                          if (mounted) setState(() => _notice = message);
+                        });
+                      }),
                 ]),
               ])),
         ]));
