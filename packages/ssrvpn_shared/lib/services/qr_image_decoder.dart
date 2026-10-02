@@ -66,8 +66,15 @@ class QrImageDecoder {
       }
       final pixels = Int32List(picture.width * picture.height);
       for (final pixel in picture) {
+        // Gallery PNGs may use transparent backgrounds or 16-bit channels.
+        // Render against white and normalize before supplying 8-bit RGB.
+        final opacity = pixel.aNormalized * 255;
+        final background = 255 - opacity;
+        final red = (pixel.rNormalized * opacity + background).round();
+        final green = (pixel.gNormalized * opacity + background).round();
+        final blue = (pixel.bNormalized * opacity + background).round();
         pixels[pixel.y * picture.width + pixel.x] =
-            (pixel.r.toInt() << 16) | (pixel.g.toInt() << 8) | pixel.b.toInt();
+            (red << 16) | (green << 8) | blue;
       }
       final source = RGBLuminanceSource(picture.width, picture.height, pixels);
       final reader = QRCodeReader();

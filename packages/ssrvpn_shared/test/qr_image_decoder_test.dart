@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
@@ -22,6 +23,29 @@ Uint8List qrPicture(String value, {bool invert = false}) {
 }
 
 void main() {
+  test('oversized dimensions are rejected from a valid PNG header', () async {
+    // 50,000 x 50,000 RGB pixels; valid IHDR CRC, no pixel allocation needed.
+    final header = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAw1AAAMNQCAIAAADEzaqdAAAAAElFTkSuQmCC');
+    await expectLater(QrImageDecoder.decode(header), throwsFormatException);
+  });
+  test('decodes 16-bit PNG channels without overflowing RGB values', () async {
+    const code = 'trojan://test-password@node.example.com:443#16bit';
+    final picture =
+        img.decodePng(qrPicture(code))!.convert(format: img.Format.uint16);
+    expect(await QrImageDecoder.decode(img.encodePng(picture)), code);
+  });
+  test('decodes a QR with transparent background from the gallery', () async {
+    const code = 'trojan://test-password@node.example.com:443#Transparent';
+    final opaque = img.decodePng(qrPicture(code))!;
+    final transparent =
+        img.Image(width: opaque.width, height: opaque.height, numChannels: 4);
+    for (final pixel in transparent) {
+      final black = opaque.getPixel(pixel.x, pixel.y).r == 0;
+      pixel.setRgba(0, 0, 0, black ? 255 : 0);
+    }
+    expect(await QrImageDecoder.decode(img.encodePng(transparent)), code);
+  });
   test('decodes normal, rotated and inverted QR images off the UI isolate',
       () async {
     const code = 'trojan://test-password@node.example.com:443#Test';

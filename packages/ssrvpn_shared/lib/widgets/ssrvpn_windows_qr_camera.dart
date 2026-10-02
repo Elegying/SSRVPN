@@ -89,8 +89,7 @@ class SsrvpnWindowsQrCamera {
         throw StateError('invalid camera preview');
       }
     } finally {
-      await _events?.cancel();
-      _events = null;
+      await _cancelEvents();
     }
   }
 
@@ -128,6 +127,16 @@ class SsrvpnWindowsQrCamera {
     } catch (_) {}
   }
 
+  Future<void> _cancelEvents() async {
+    final events = _events;
+    _events = null;
+    try {
+      await events?.cancel().timeout(_timeout);
+    } catch (_) {
+      // Event-channel cleanup must never prevent releasing the camera device.
+    }
+  }
+
   Future<void> dispose() async {
     _disposed = true;
     for (final cancel in _pending.toList()) {
@@ -139,8 +148,7 @@ class SsrvpnWindowsQrCamera {
     if (ready != null && !ready.isCompleted) {
       ready.completeError(StateError('camera closed'));
     }
-    await _events?.cancel();
-    _events = null;
+    await _cancelEvents();
     final id = _id;
     _id = null;
     if (id != null) await _release(id);

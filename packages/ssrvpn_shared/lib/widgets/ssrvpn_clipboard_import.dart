@@ -94,6 +94,7 @@ class _SsrvpnClipboardImportState extends State<SsrvpnClipboardImport>
           return;
         }
         _seen.add(fingerprint);
+        var declined = false;
         final accepted = await showSsrvpnGlassDialog<bool>(
           context: context,
           builder: (ctx) {
@@ -103,7 +104,10 @@ class _SsrvpnClipboardImportState extends State<SsrvpnClipboardImport>
               content: const Text('是否导入复制的节点？'),
               actions: [
                 TextButton(
-                  onPressed: () => dismissSsrvpnDialog(ctx, false),
+                  onPressed: () {
+                    declined = true;
+                    dismissSsrvpnDialog(ctx, false);
+                  },
                   child: const Text('暂不导入'),
                 ),
                 FilledButton(
@@ -115,7 +119,12 @@ class _SsrvpnClipboardImportState extends State<SsrvpnClipboardImport>
           },
         );
         _promptRoute = null;
-        if (accepted != true || !mounted || !_active || epoch != _epoch) return;
+        if (epoch != _epoch) {
+          // Lifecycle dismissal is not an explicit decision by the user.
+          if (!declined) _seen.remove(fingerprint);
+          return;
+        }
+        if (accepted != true || !mounted || !_active) return;
         final message = await widget.onImport(candidate);
         if (mounted) {
           ScaffoldMessenger.of(

@@ -5,6 +5,47 @@ import 'package:ssrvpn_shared/widgets/ssrvpn_clipboard_import.dart';
 
 void main() {
   testWidgets(
+      'background dismissal does not permanently suppress an unanswered node',
+      (tester) async {
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async => call.method == 'Clipboard.getData'
+            ? {'text': 'trojan://test-password@node.example.com:443#Test'}
+            : null);
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+    var imports = 0;
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SsrvpnClipboardImport(
+                alreadyImported: (_) => false,
+                onImport: (_) async {
+                  imports++;
+                  return '节点已导入';
+                },
+                child: const Text('Home')))));
+    await tester.pumpAndSettle();
+    expect(find.text('发现剪贴板节点'), findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pumpAndSettle();
+    expect(find.text('发现剪贴板节点'), findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.text('发现剪贴板节点'), findsOneWidget);
+    expect(imports, 0);
+    await tester.tap(find.text('暂不导入'));
+    // A lifecycle change during the outgoing animation must preserve refusal.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pumpAndSettle();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump(const Duration(seconds: 6));
+    await tester.pumpAndSettle();
+    expect(find.text('发现剪贴板节点'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+  testWidgets(
       'foreground-only clipboard checks, confirmation and repeat suppression',
       (tester) async {
     String text = 'ordinary text';

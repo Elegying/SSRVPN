@@ -52,7 +52,36 @@ class FakeCamera extends CameraPlatform {
   Widget buildPreview(int id) => const SizedBox();
 }
 
+class _CancelFailureCamera extends FakeCamera {
+  final failingEvents = StreamController<CameraInitializedEvent>(
+      onCancel: () async => throw StateError('native event channel closed'));
+  @override
+  Stream<CameraInitializedEvent> onCameraInitialized(int id) =>
+      failingEvents.stream;
+  @override
+  Future<void> initializeCamera(int id,
+      {ImageFormatGroup imageFormatGroup = ImageFormatGroup.unknown}) async {
+    failingEvents.add(CameraInitializedEvent(
+        id, 640, 480, ExposureMode.auto, false, FocusMode.auto, false));
+  }
+}
+
 void main() {
+  test('event channel cancellation failure still releases the native device',
+      () async {
+    final platform = _CancelFailureCamera();
+    final camera = SsrvpnWindowsQrCamera(platform: platform);
+    try {
+      await camera.initialize();
+    } catch (_) {
+      // Cleanup must work even when initialization itself reported an error.
+    }
+    await camera.dispose();
+    expect(platform.disposed, [7]);
+    expect(camera.isInitialized, isFalse);
+    await platform.events.close();
+    await platform.failingEvents.close();
+  });
   test('Windows camera requests no audio and releases the device', () async {
     final platform = FakeCamera();
     final camera = SsrvpnWindowsQrCamera(platform: platform);
