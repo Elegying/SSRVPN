@@ -95,6 +95,19 @@ void main() {
       expect(store.contains(node('A')), isTrue);
       store.dispose();
     });
+    test('non-file write refusal preserves existing data and current order',
+        () async {
+      final invalid =
+          await Directory('${dir.path}/${NodePinStore.fileName}').create();
+      final sentinel = File('${invalid.path}/keep');
+      await sentinel.writeAsString('keep');
+      final store = NodePinStore(dir.path);
+      await expectLater(
+          store.toggle(node('A')), throwsA(isA<FileSystemException>()));
+      expect(await sentinel.readAsString(), 'keep');
+      expect(store.contains(node('A')), isFalse);
+      store.dispose();
+    });
     test('symlink write refusal preserves the linked file and current order',
         () async {
       final other = File('${dir.path}/other');
@@ -106,7 +119,10 @@ void main() {
       expect(await other.readAsString(), 'keep');
       expect(store.contains(node('A')), isFalse);
       store.dispose();
-    });
+    },
+        skip: Platform.isWindows
+            ? 'Windows symlink creation requires host privileges'
+            : false);
     test('disposing during save does not fail the authorized persistence',
         () async {
       final store = NodePinStore(dir.path);
