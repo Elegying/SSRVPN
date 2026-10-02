@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:file_selector/file_selector.dart';
 import 'package:image/image.dart' as img;
 import 'package:zxing2/qrcode.dart';
+import 'qr_png_guard.dart';
 
 class QrImageDecoder {
   static const maxBytes = 12 * 1024 * 1024;
@@ -51,6 +52,7 @@ class QrImageDecoder {
         send.send(false);
         return;
       }
+      validateQrPngData(bytes);
       var picture = decoder!.decodeFrame(0);
       if (picture == null) {
         send.send(false);
@@ -86,6 +88,8 @@ class QrImageDecoder {
             reader.decode(BinaryBitmap(HybridBinarizer(source.invert()))).text;
       }
       send.send(result.length <= 16384 ? result : null);
+    } on FormatException {
+      send.send(false);
     } catch (_) {
       send.send(null);
     }

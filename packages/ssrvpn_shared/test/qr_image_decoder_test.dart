@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
@@ -23,6 +24,44 @@ Uint8List qrPicture(String value, {bool invert = false}) {
 }
 
 void main() {
+  test('PNG data cannot inflate beyond the declared pixel dimensions',
+      () async {
+    const code = 'trojan://test-password@node.example.com:443#Bounded';
+    final original = qrPicture(code);
+    final compressed = BytesBuilder();
+    final kept = BytesBuilder()..add(original.sublist(0, 8));
+    for (var offset = 8; offset < original.length;) {
+      final size = ByteData.sublistView(original, offset).getUint32(0);
+      final type = ascii.decode(original.sublist(offset + 4, offset + 8));
+      if (type == 'IDAT') {
+        compressed.add(original.sublist(offset + 8, offset + 8 + size));
+      } else if (type != 'IEND') {
+        kept.add(original.sublist(offset, offset + size + 12));
+      }
+      offset += size + 12;
+    }
+    final expanded = BytesBuilder()
+      ..add(zlib.decode(compressed.takeBytes()))
+      ..add(Uint8List(2 * 1024 * 1024));
+    final payload = zlib.encode(expanded.takeBytes());
+    final chunk = Uint8List(payload.length + 12);
+    ByteData.sublistView(chunk).setUint32(0, payload.length);
+    chunk.setAll(4, ascii.encode('IDAT'));
+    chunk.setAll(8, payload);
+    var crc = 0xffffffff;
+    for (final byte in chunk.sublist(4, chunk.length - 4)) {
+      crc ^= byte;
+      for (var bit = 0; bit < 8; bit++) {
+        crc = (crc >> 1) ^ ((crc & 1) != 0 ? 0xedb88320 : 0);
+      }
+    }
+    ByteData.sublistView(chunk).setUint32(chunk.length - 4, crc ^ 0xffffffff);
+    kept
+      ..add(chunk)
+      ..add(original.sublist(original.length - 12));
+    await expectLater(
+        QrImageDecoder.decode(kept.takeBytes()), throwsFormatException);
+  });
   test('oversized dimensions are rejected from a valid PNG header', () async {
     // 50,000 x 50,000 RGB pixels; valid IHDR CRC, no pixel allocation needed.
     final header = base64Decode(
