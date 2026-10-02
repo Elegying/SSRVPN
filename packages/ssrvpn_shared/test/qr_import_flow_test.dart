@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -39,6 +40,7 @@ class _Scanner extends MobileScannerPlatform {
 }
 
 void main() {
+  // Windows uses camera_windows; its adapter has separate lifecycle tests.
   testWidgets(
       'scanned node requires confirmation and cancel preserves an existing draft',
       (tester) async {
@@ -81,7 +83,7 @@ void main() {
     expect(scanner.stops, greaterThan(0));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
-  });
+  }, skip: Platform.isWindows);
   testWidgets(
       'camera denial leaves gallery selection and cancellation available',
       (tester) async {
