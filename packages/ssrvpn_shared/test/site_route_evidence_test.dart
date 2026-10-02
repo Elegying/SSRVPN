@@ -48,7 +48,7 @@ void main() {
     const log =
         '[TCP] 127.0.0.1:42001 --> example.com:443 match DomainSuffix(example.com) using PROXY[Tokyo]';
     final route = SiteRouteMonitor.parseLog(log, target, 42001)!;
-    expect(route.path, 'PROXY → Tokyo');
+    expect(route.path, '代理 → Tokyo');
     expect(route.rule, 'DomainSuffix(example.com)');
     expect(SiteRouteMonitor.parseLog(log, target, 42002), isNull);
     expect(
@@ -122,7 +122,7 @@ void main() {
         apiPort: api.port,
         apiHeaders: {'Authorization': 'Bearer test-controller-secret'});
     expect(result.succeeded, isTrue);
-    expect(result.route!.path, 'PROXY → Tokyo');
+    expect(result.route!.path, '代理 → Tokyo');
     expect(result.route!.rule, 'DomainSuffix example.com');
   });
   test(

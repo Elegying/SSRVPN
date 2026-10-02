@@ -10,6 +10,7 @@ mixin _ClashRuleProviderSupport {
   bool get isRunning;
   String get configDir;
   AppSettings get settings;
+  int get runtimeProxyPort;
   void stageSmartRuleVersionForNextConnection(String version);
   void log(
     String message, {
@@ -19,9 +20,12 @@ mixin _ClashRuleProviderSupport {
 
   @protected
   Future<void> refreshRuleProvidersOnce() async {
-    if (!isRunning || configDir.isEmpty || _ruleProviderRefreshInProgress) {
-      return;
-    }
+    await checkRuleUpdates();
+  }
+
+  Future<String> checkRuleUpdates() async {
+    if (!isRunning || configDir.isEmpty) return '请先连接节点，再检查规则更新';
+    if (_ruleProviderRefreshInProgress) return '规则正在检查中，请稍后再试';
     final session = _healthMonitorEpoch;
     bool isCurrent() => isRunning && session == _healthMonitorEpoch;
     _ruleProviderRefreshInProgress = true;
@@ -35,24 +39,24 @@ mixin _ClashRuleProviderSupport {
         AppConstants.smartRuleVersionDescriptorFile,
         maxBytes: SmartRuleBundle.maxVersionDescriptorBytes,
       );
-      if (!isCurrent()) return;
+      if (!isCurrent()) return '连接已变化，请重新检查规则更新';
       if (!await SmartRuleSignature.verify(versionText,
           trustedPublicKey: ruleSigningPublicKey)) {
         throw const FormatException('规则发布签名无效');
       }
-      if (!isCurrent()) return;
+      if (!isCurrent()) return '连接已变化，请重新检查规则更新';
       final remote = SmartRuleBundle.parseVersionDescriptor(versionText);
       final recovery = SmartRuleRecovery(configDir);
       if (await recovery.rejects(remote.version)) {
         log('跳过本机已拒绝的规则快照 ${remote.version}', event: 'rule_provider_refresh');
-        return;
+        return '远程规则暂不可用，已保留当前规则';
       }
       _ruleDownloadVersion = remote.version;
       final installedManifest = await SmartRuleBundle.readInstalledManifest(
         configDir,
         expectedFileNames: expectedFileNames,
       );
-      if (!isCurrent()) return;
+      if (!isCurrent()) return '连接已变化，请重新检查规则更新';
       final installedVersion = installedManifest?.version;
       if (!remote.isNewerThan(installedVersion)) {
         log(
@@ -61,19 +65,19 @@ mixin _ClashRuleProviderSupport {
               : '本地智能规则 $installedVersion 不低于线上 ${remote.version}，保留本地版本',
           event: 'rule_provider_refresh',
         );
-        return;
+        return '全部适用规则已是最新版本（$installedVersion）';
       }
 
       if (!await recovery.hasConfirmedVersion) {
         log('尚未持久化可用规则版本，本次保留现有规则', event: 'rule_provider_refresh');
-        return;
+        return '当前规则尚未确认可用，请连接成功后重试';
       }
-      if (!isCurrent()) return;
+      if (!isCurrent()) return '连接已变化，请重新检查规则更新';
       final manifestText = await fetchSmartRuleChannelFile(
         AppConstants.smartRuleManifestFile,
         maxBytes: SmartRuleBundle.maxManifestBytes,
       );
-      if (!isCurrent()) return;
+      if (!isCurrent()) return '连接已变化，请重新检查规则更新';
       if (!remote.acceptsManifest(manifestText)) {
         throw const FormatException('智能规则清单摘要与版本文件不匹配');
       }
@@ -120,13 +124,13 @@ mixin _ClashRuleProviderSupport {
       }
       final providerContents = <String, String>{};
       for (final entry in changedProviders) {
-        if (!isCurrent()) return;
+        if (!isCurrent()) return '连接已变化，请重新检查规则更新';
         providerContents[entry.key] = await fetchSmartRuleChannelFile(
           entry.key,
           maxBytes: SmartRuleBundle.maxProviderBytes,
         );
       }
-      if (!isCurrent()) return;
+      if (!isCurrent()) return '连接已变化，请重新检查规则更新';
       final installed = await SmartRuleBundle.installVerifiedProviderFiles(
         configDir,
         manifest,
@@ -138,9 +142,9 @@ mixin _ClashRuleProviderSupport {
           level: RuntimeLogLevel.warning,
           event: 'rule_provider_refresh',
         );
-        return;
+        return '规则校验或保存失败，已保留当前规则，请重试';
       }
-      if (!isCurrent()) return;
+      if (!isCurrent()) return '连接已变化，请重新检查规则更新';
       final activated = await SmartRuleBundle.activateInstalledManifest(
         configDir,
         manifestText,
@@ -152,9 +156,9 @@ mixin _ClashRuleProviderSupport {
           level: RuntimeLogLevel.warning,
           event: 'rule_provider_refresh',
         );
-        return;
+        return '规则校验或保存失败，已保留当前规则，请重试';
       }
-      if (!isCurrent()) return;
+      if (!isCurrent()) return '连接已变化，请重新检查规则更新';
       stageSmartRuleVersionForNextConnection(remote.version);
       log(
         '智能规则 ${remote.version} 已完整下载并校验'
@@ -162,6 +166,7 @@ mixin _ClashRuleProviderSupport {
         '当前连接继续使用 ${installedVersion ?? '现有'} 版本',
         event: 'rule_provider_refresh',
       );
+      return '规则更新完成（${changedProviders.length} 个文件），下次连接生效';
     } catch (error) {
       log(
         '智能规则后台检查失败，继续使用现有本地规则: '
@@ -169,6 +174,7 @@ mixin _ClashRuleProviderSupport {
         level: RuntimeLogLevel.warning,
         event: 'rule_provider_refresh',
       );
+      return '规则检查失败，已保留当前规则，请检查网络后重试';
     } finally {
       _ruleDownloadVersion = null;
       _ruleProviderRefreshInProgress = false;
@@ -197,7 +203,7 @@ mixin _ClashRuleProviderSupport {
     }
     final rawClient = HttpClient()
       ..connectionTimeout = const Duration(seconds: 5)
-      ..findProxy = (_) => 'PROXY 127.0.0.1:${settings.proxyPort}';
+      ..findProxy = (_) => 'PROXY 127.0.0.1:$runtimeProxyPort';
     final proxyClient = IOClient(rawClient);
     try {
       final request = http.Request(

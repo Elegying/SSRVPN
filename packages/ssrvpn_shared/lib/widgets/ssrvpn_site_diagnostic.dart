@@ -42,7 +42,6 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
   String? _stage;
   bool? _pendingDirect;
   bool _savingRule = false;
-  bool _includeReference = true;
   int _epoch = 0;
   @override
   void initState() {
@@ -112,7 +111,6 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
         if (mounted && epoch == _epoch) setState(() => _stage = stage);
       });
       if (!report.succeeded &&
-          _includeReference &&
           mounted &&
           epoch == _epoch &&
           core.isConnectionIntentCurrent(intent, connected: true) &&
@@ -200,9 +198,6 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                    '查看网站经过的规则、出口与响应，并获得排查建议。不会自动切换节点；仅发送 HEAD，不读取正文，结果不保存。'),
-                const SizedBox(height: 16),
                 TextField(
                   key: const Key('ssrvpn-site-diagnostic-input'),
                   controller: _input,
@@ -221,18 +216,6 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
                     _pendingDirect = null;
                   }),
                   onSubmitted: (_) => _run(),
-                ),
-                CheckboxListTile(
-                  contentPadding: EdgeInsets.zero,
-                  value: _includeReference,
-                  onChanged: _running != null || _savingRule
-                      ? null
-                      : (value) =>
-                          setState(() => _includeReference = value ?? false),
-                  title: const Text('失败时检查参考站点'),
-                  subtitle:
-                      const Text('通过当前规则访问 cp.cloudflare.com，帮助区分单站异常与出口问题。'),
-                  controlAffinity: ListTileControlAffinity.leading,
                 ),
                 if (_running != null) ...[
                   const LinearProgressIndicator(),

@@ -87,7 +87,9 @@ void main() {
       expect(tester.testTextInput.setClientArgs!['enableSuggestions'], isTrue);
       await tester.tap(find.text('开始诊断'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('匹配规则：Domain example.com'), findsOneWidget);
+      expect(find.textContaining('匹配规则：域名匹配 example.com'), findsOneWidget);
+      expect(find.textContaining('cp.cloudflare.com'), findsOneWidget);
+      expect(find.byType(CheckboxListTile), findsNothing);
       await tester.ensureVisible(find.text('添加强制代理'));
       await tester.tap(find.text('添加强制代理'));
       await tester.pumpAndSettle();

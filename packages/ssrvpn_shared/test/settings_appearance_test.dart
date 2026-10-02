@@ -406,7 +406,7 @@ void main() {
     await tester.pump();
     expect(tile().onChanged, isNull, reason: '纯色背景没有可以移动的壁纸');
     expect(tile().value, isFalse, reason: '纯色背景不能显示为已开启却点不动');
-    expect(find.text('仅「壁纸」背景支持动态效果'), findsOneWidget);
+    expect(find.text('仅「壁纸」背景支持动态效果'), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
@@ -444,7 +444,7 @@ void main() {
     await tester.ensureVisible(find.text('动态背景'));
     expect(tile().onChanged, isNull, reason: '系统禁止动效时开关必须禁用，不能看起来可用');
     expect(tile().value, isFalse, reason: '壁纸实际不会移动，开关就不应显示为已开启');
-    expect(find.text('系统已开启「减少动态效果」，壁纸将保持静止'), findsOneWidget);
+    expect(find.text('系统已开启「减少动态效果」，壁纸将保持静止'), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });

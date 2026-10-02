@@ -1,4 +1,8 @@
 import 'dart:io';
+import 'dart:async';
+import 'package:ssrvpn_shared/models/app_settings.dart';
+import 'package:ssrvpn_shared/services/clash_service_base.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_settings_page.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -9,10 +13,30 @@ import 'package:ssrvpn_shared/models/site_diagnostic_report.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_subscription_view.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_site_diagnostic_result.dart';
 
+class _SettingsCore extends Fake implements ClashServiceBase {
+  final result = Completer<String>();
+  var requests = 0;
+  @override
+  void addStatusListener(void Function() listener) {}
+  @override
+  void removeStatusListener(void Function() listener) {}
+  @override
+  bool get isRunning => false;
+  @override
+  Future<String> checkRuleUpdates() {
+    requests++;
+    return result.future;
+  }
+}
+
 void main() {
   testWidgets(
       'compact subscription and diagnostic report remain readable on a phone',
       (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final screenshotDir = Platform.environment['SSRVPN_SCREENSHOT_DIR'];
@@ -87,8 +111,35 @@ void main() {
                     rule: 'DomainSuffix example.com',
                     chain: ['香港节点', 'PROXY']))))));
     await tester.pumpAndSettle();
-    expect(find.textContaining('PROXY → 香港节点'), findsOneWidget);
+    expect(find.textContaining('代理 → 香港节点'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await capture('diagnostic');
+    expect(find.text('暂时无法访问'), findsOneWidget);
+    final core = _SettingsCore();
+    await tester.pumpWidget(host(SsrvpnSettingsPage(
+        settings: AppSettings(glassEffectLevel: GlassEffectLevel.none),
+        core: core,
+        dataDirectory: '/tmp',
+        onAppearanceChanged: (
+            {glassEffectLevel,
+            backgroundStyle,
+            customBackgroundPath,
+            dynamicBackground}) async {},
+        onPortChanged: (_) async {},
+        checkForUpdate: () async => null,
+        onUpdateFound: (_) {})));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await capture('settings');
+    await tester.scrollUntilVisible(find.text('检查规则更新'), 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.text('检查规则更新'));
+    await tester.pump();
+    await tester.tap(find.text('检查规则更新'));
+    expect(core.requests, 1);
+    core.result.complete('规则更新完成，下次连接生效');
+    await tester.pumpAndSettle();
+    expect(find.text('规则更新完成，下次连接生效'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

@@ -12,7 +12,7 @@ Future<int> freePort() async {
 
 void main() {
   test(
-      'bundled core reports the actual proxy and reject rule for diagnostic HEAD',
+      'bundled core reports the actual proxy and reject rule for diagnostic GET',
       () async {
     final folder = await Directory.systemTemp.createTemp('ssrvpn-site-route-');
     addTearDown(() => folder.delete(recursive: true));
@@ -38,7 +38,7 @@ void main() {
       socket.listen((bytes) {
         input += utf8.decode(bytes);
         if (input.contains('\r\n\r\n')) {
-          expect(input, startsWith('HEAD '));
+          expect(input, startsWith('GET '));
           socket.write(
               'HTTP/1.1 204 No Content\r\nConnection: keep-alive\r\n\r\n');
           input = '';
@@ -98,7 +98,7 @@ rules:
         apiHeaders: {'Authorization': 'Bearer fixture-secret'});
     expect(result.succeeded, isTrue,
         reason: '${result.summary}\n${log.join()}');
-    expect(result.route?.path, 'PROXY → fixture-node', reason: log.join());
+    expect(result.route?.path, '代理 → fixture-node', reason: log.join());
     expect(result.route?.rule, contains('example.com'));
     final blocked = await SiteAccessDiagnostic().inspect(
         Uri.parse('http://blocked.example.com'),

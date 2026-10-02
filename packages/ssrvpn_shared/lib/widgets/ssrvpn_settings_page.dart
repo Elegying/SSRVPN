@@ -50,6 +50,7 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
   late final TextEditingController _port;
   bool _saving = false;
   bool _checking = false;
+  bool _checkingRules = false;
   String? _notice;
   String? _portError;
   @override
@@ -116,6 +117,22 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
       }
     } finally {
       if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  Future<void> _checkRules() async {
+    if (_checkingRules) return;
+    setState(() {
+      _checkingRules = true;
+      _notice = null;
+    });
+    try {
+      final message = await widget.core.checkRuleUpdates();
+      if (mounted) setState(() => _notice = message);
+    } catch (_) {
+      if (mounted) setState(() => _notice = '规则检查失败，请稍后重试');
+    } finally {
+      if (mounted) setState(() => _checkingRules = false);
     }
   }
 
@@ -201,14 +218,14 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                   key: const PageStorageKey('settings-page'),
                   padding: EdgeInsets.fromLTRB(
                       horizontalPadding,
-                      24,
+                      12,
                       horizontalPadding,
                       MediaQuery.paddingOf(context).bottom + 24),
                   children: [
                 const Text('设置',
                     style:
-                        TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 22),
+                        TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 14),
                 _section('外观', [
                   const Text('液态玻璃特效',
                       style: TextStyle(fontWeight: FontWeight.w600)),
@@ -225,7 +242,7 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                                       glassEffectLevel: level),
                                   '特效档位已保存'))
                   ]),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 12),
                   const Text('主题背景',
                       style: TextStyle(fontWeight: FontWeight.w600)),
                   const SizedBox(height: 12),
@@ -255,12 +272,8 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                                       backgroundStyle: BackgroundStyle.custom),
                                   '已使用自定义背景')),
                   ]),
-                  const SizedBox(height: 12),
-                  const Text('支持 JPG、PNG、WebP 静态图片，最大 20 MB。',
-                      style: TextStyle(
-                          fontSize: 12, height: 1.5, color: Colors.white70)),
                 ]),
-                const SizedBox(height: 18),
+                const SizedBox(height: 12),
                 _section('连接', [
                   TextField(
                       controller: _port,
@@ -283,10 +296,6 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                           : '已保存端口：${widget.settings.proxyPort}',
                       style:
                           const TextStyle(fontSize: 12, color: Colors.white70)),
-                  const SizedBox(height: 8),
-                  const Text('连接时检查占用；临时调整不修改已保存端口。其他应用请使用当前实际端口。',
-                      style: TextStyle(
-                          fontSize: 12, height: 1.5, color: Colors.white70)),
                   const SizedBox(height: 10),
                   Align(
                       alignment: Alignment.centerRight,
@@ -294,8 +303,19 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                           onPressed: _saving ? null : _savePort,
                           child: const Text('保存端口'))),
                 ]),
-                const SizedBox(height: 18),
+                const SizedBox(height: 12),
                 _section('应用', [
+                  ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.rule_folder_outlined),
+                      title: const Text('检查规则更新'),
+                      trailing: _checkingRules
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.chevron_right),
+                      onTap: _checkingRules ? null : _checkRules),
                   ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.system_update_outlined),
@@ -351,7 +371,7 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
   }
 
   Widget _section(String title, List<Widget> children) => SsrvpnLiquidSurface(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(14),
       child: Material(
           type: MaterialType.transparency,
           child:
@@ -359,15 +379,12 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
             Text(title,
                 style:
                     const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
             ...children
           ])));
 
   /// Drifting repaints the wallpaper every frame and drags the glass above it
   /// along, so the switch is offered only for the one background that can move.
-  /// Two things can make the switch inert: a background with no movable
-  /// wallpaper, and the system "reduce motion" preference. Both are reported
-  /// here instead of leaving a toggle that looks on yet cannot be tapped.
   Widget _backgroundMotionSwitch() {
     final reducedMotion = MediaQuery.disableAnimationsOf(context);
     final supported =
@@ -385,14 +402,7 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
             : null,
         secondary: const Icon(Icons.motion_photos_on_outlined),
         title:
-            const Text('动态背景', style: TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text(
-            !supported
-                ? '仅「壁纸」背景支持动态效果'
-                : reducedMotion
-                    ? '系统已开启「减少动态效果」，壁纸将保持静止'
-                    : '壁纸缓慢流动。关闭后画面静止，可明显降低 GPU 与电量占用',
-            style: const TextStyle(fontSize: 12, height: 1.5)));
+            const Text('动态背景', style: TextStyle(fontWeight: FontWeight.w600)));
   }
 
   Widget _backgroundChoice(BackgroundStyle style) {
