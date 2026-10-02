@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.28] - 2026-10-03
+
 ### 新增
 
 - 设置页新增检查规则更新，检查本平台全部适用规则并验证签名和内容，更新下次连接生效。
