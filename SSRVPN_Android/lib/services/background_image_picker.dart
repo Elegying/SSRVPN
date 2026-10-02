@@ -13,3 +13,10 @@ Future<XFile?> pickAndroidBackgroundImage() async {
   if (lost.files?.isNotEmpty ?? false) return lost.files!.first;
   return picker.getImageFromSource(source: ImageSource.gallery);
 }
+
+/// QR selection uses the system picker; no broad photo-library permission.
+Future<XFile?> pickAndroidQrImage() async {
+  final picker = ImagePickerPlatform.instance;
+  if (picker is ImagePickerAndroid) picker.useAndroidPhotoPicker = true;
+  return picker.getImageFromSource(source: ImageSource.gallery);
+}

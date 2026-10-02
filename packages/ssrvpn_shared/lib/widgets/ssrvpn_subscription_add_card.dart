@@ -8,6 +8,7 @@ class _SubscriptionAddCard extends StatelessWidget {
     required this.isAdding,
     required this.isBusy,
     required this.onAdd,
+    this.pickQrImage,
   });
 
   final TextEditingController urlController;
@@ -16,6 +17,7 @@ class _SubscriptionAddCard extends StatelessWidget {
   final bool isAdding;
   final bool isBusy;
   final VoidCallback onAdd;
+  final Future<XFile?> Function()? pickQrImage;
 
   @override
   Widget build(BuildContext context) {
@@ -24,15 +26,15 @@ class _SubscriptionAddCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(
+              const Icon(
                 Icons.add_circle_outline_rounded,
                 color: SsrvpnUiTokens.accent,
                 size: 24,
               ),
-              SizedBox(width: 10),
-              Expanded(
+              const SizedBox(width: 10),
+              const Expanded(
                 child: Text(
                   '添加订阅',
                   style: TextStyle(
@@ -41,6 +43,12 @@ class _SubscriptionAddCard extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
+              ),
+              SsrvpnQrImportButton(
+                enabled: !isBusy,
+                controller: urlController,
+                onAdd: onAdd,
+                pickImage: pickQrImage,
               ),
             ],
           ),

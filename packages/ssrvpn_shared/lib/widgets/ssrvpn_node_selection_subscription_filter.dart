@@ -9,13 +9,16 @@ class _SubscriptionFilter extends StatelessWidget {
     required this.sortByLatency,
     required this.onChanged,
     required this.onSortPressed,
+    required this.onSearchPressed,
+    required this.searching,
   });
 
   final List<String> groups;
   final String value;
   final bool sortByLatency;
   final ValueChanged<String> onChanged;
-  final VoidCallback onSortPressed;
+  final VoidCallback onSortPressed, onSearchPressed;
+  final bool searching;
 
   Future<void> _openPicker(BuildContext context) async {
     final navigator = Navigator.of(context, rootNavigator: true);
@@ -28,16 +31,20 @@ class _SubscriptionFilter extends StatelessWidget {
         builder: (dialogContext) => Dialog(
           backgroundColor: Colors.transparent,
           elevation: 0,
-          insetPadding:
-              const EdgeInsets.symmetric(horizontal: 28, vertical: 36),
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 28,
+            vertical: 36,
+          ),
           child: SsrvpnModalGlassPanel(
             padding: const EdgeInsets.all(24),
             key: const Key('ssrvpn-subscription-picker-glass'),
             child: ConstrainedBox(
               constraints: BoxConstraints(
                 maxWidth: 420,
-                maxHeight: (MediaQuery.sizeOf(dialogContext).height - 72)
-                    .clamp(180.0, 520.0),
+                maxHeight: (MediaQuery.sizeOf(dialogContext).height - 72).clamp(
+                  180.0,
+                  520.0,
+                ),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -118,14 +125,30 @@ class _SubscriptionFilter extends StatelessWidget {
                       horizontal: 18,
                       vertical: 15,
                     ),
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    child: Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const Icon(Icons.arrow_drop_down_rounded),
+                      ],
                     ),
                   ),
                 ),
               ),
+            ),
+            IconButton(
+              key: const Key('ssrvpn-node-search'),
+              tooltip: searching ? '修改或清除节点搜索' : '搜索节点',
+              onPressed: onSearchPressed,
+              icon: const Icon(Icons.search_rounded),
+              color: searching
+                  ? SsrvpnUiTokens.primary
+                  : SsrvpnUiTokens.textSecondary,
             ),
             Container(width: 1, height: 30, color: SsrvpnUiTokens.border),
             IconButton(

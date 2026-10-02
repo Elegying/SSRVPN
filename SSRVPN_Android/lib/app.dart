@@ -24,6 +24,7 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart'
         safeUserFacingFailureMessage,
         safeUserFacingFailureWithAction;
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_clipboard_import.dart';
 import 'services/settings_service.dart';
 import 'services/clash_service.dart' as clash;
 import 'services/subscription_service.dart';
@@ -312,7 +313,9 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
           );
         },
         home: CrashReportPrompt(
-          child: _InitialSubscriptionPrompt(child: _buildMainScreen()),
+          child: SsrvpnServiceClipboardImport(
+              service: _subscriptionService!,
+              child: _InitialSubscriptionPrompt(child: _buildMainScreen())),
         ),
       ),
     );

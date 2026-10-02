@@ -14,8 +14,10 @@ class _NodeSelectionCard extends StatelessWidget {
     required this.onTest,
     this.onSecondaryTapDown,
     this.onLongPress,
+    this.pinned = false,
   });
 
+  final bool pinned;
   final ProxyNode node;
   final String countryCode;
   final int? latency;
@@ -71,7 +73,7 @@ class _NodeSelectionCard extends StatelessWidget {
                   enabled: !selectionBusy,
                   selected: selected,
                   inMutuallyExclusiveGroup: true,
-                  label: '选择服务器 $displayName',
+                  label: '选择服务器 $displayName${pinned ? '，已置顶' : ''}',
                   onTap: selectionBusy ? null : onSelect,
                   onLongPress: editBusy ? null : onLongPress,
                   child: _KeyboardActivate(
@@ -101,6 +103,10 @@ class _NodeSelectionCard extends StatelessWidget {
                             ),
                             child: Row(
                               children: [
+                                if (pinned)
+                                  const Padding(
+                                      padding: EdgeInsets.only(right: 4),
+                                      child: Icon(Icons.push_pin, size: 16)),
                                 CountryFlagIcon(
                                   countryCode: countryCode,
                                   size: compact ? 34 : 42,
@@ -184,23 +190,24 @@ class _NodeSelectionCard extends StatelessWidget {
 }
 
 class _NodeEmptyState extends StatelessWidget {
-  const _NodeEmptyState();
+  const _NodeEmptyState({this.filtered = false});
+  final bool filtered;
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
+          const Icon(
             Icons.dns_outlined,
             size: 48,
             color: SsrvpnUiTokens.textTertiary,
           ),
-          SizedBox(height: 12),
+          const SizedBox(height: 12),
           Text(
-            '暂无可用节点',
-            style: TextStyle(color: SsrvpnUiTokens.textSecondary),
+            filtered ? '没有匹配节点，请修改或清除搜索' : '暂无可用节点',
+            style: const TextStyle(color: SsrvpnUiTokens.textSecondary),
           ),
         ],
       ),

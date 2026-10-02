@@ -1,3 +1,4 @@
+import '../services/background_image_picker.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import '../utils/responsive.dart';
 import 'package:flutter/material.dart';
@@ -330,6 +331,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
       body: SsrvpnSubscriptionRuntime(
         core: context.read<ClashService>(),
         builder: (context, status, nodeName) => SsrvpnSubscriptionView(
+          pickQrImage: pickAndroidQrImage,
           connectionStatus: status,
           currentNodeName: nodeName,
           subscriptions: subService.subscriptions,
