@@ -101,9 +101,7 @@ class _SubscriptionAddCard extends StatelessWidget {
                     key: Key('ssrvpn-subscription-add'),
                     onPressed: isBusy ? null : onAdd,
                     style: FilledButton.styleFrom(
-                      backgroundColor: SsrvpnUiTokens.of(context)
-                          .primaryBlue
-                          .withValues(alpha: .58),
+                      backgroundColor: SsrvpnUiTokens.of(context).primary,
                       foregroundColor: SsrvpnUiTokens.of(context).onPrimary,
                       disabledBackgroundColor: SsrvpnUiTokens.of(context)
                           .primaryBlue
