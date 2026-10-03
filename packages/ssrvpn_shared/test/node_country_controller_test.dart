@@ -88,6 +88,7 @@ class _Harness {
   final ports = <int>[];
   int selectedIndex = 0;
   String? coreSelection;
+  int coreSelectionReads = 0;
   bool connected = false;
   bool busy = false;
   bool current = true;
@@ -129,8 +130,10 @@ class _Harness {
   void update() => controller.update(
         nodes: nodes,
         selectedNode: nodes.isEmpty ? null : nodes[selectedIndex],
-        currentSelectedProxyName: () async =>
-            coreSelection ?? nodes[selectedIndex].name,
+        currentSelectedProxyName: () async {
+          coreSelectionReads++;
+          return coreSelection ?? nodes[selectedIndex].name;
+        },
         connected: connected,
         busy: busy,
         session: session,
@@ -260,7 +263,9 @@ void main() {
     final harness = await _Harness.create([node]);
     harness.coreSelection = 'different-runtime-node';
     harness.connect();
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await _until(() => harness.coreSelectionReads == 1);
+    // Let the rejected read finish before updating the same UI selection.
+    await Future<void>.delayed(Duration.zero);
     expect(harness.requests, isEmpty);
     harness.coreSelection = node.name;
     harness.update();
