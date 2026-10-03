@@ -117,8 +117,8 @@ class SubscriptionService extends SubscriptionServiceBase {
     try {
       return await _fetchWithinBudget(url, maxRetries, requestControl);
     } on SubscriptionRefreshDeadlineExceeded {
-      if (identical(requestControl, control)) rethrow;
       control?.throwIfStopped();
+      if (identical(requestControl, control)) rethrow;
       throw TimeoutException('订阅连接或读取超时，请稍后重试或更换网络');
     }
   }

@@ -30,7 +30,10 @@ class _FakeHttpClientAdapter implements HttpClientAdapter {
 }
 
 class _EarlyDeadlineRefreshControl extends SubscriptionRefreshControl {
-  _EarlyDeadlineRefreshControl() : super(timeout: const Duration(seconds: 1));
+  _EarlyDeadlineRefreshControl({this.cancelBeforeDeadline = false})
+      : super(timeout: const Duration(seconds: 1));
+
+  final bool cancelBeforeDeadline;
 
   @override
   Duration get remaining => const Duration(seconds: 1);
@@ -39,6 +42,7 @@ class _EarlyDeadlineRefreshControl extends SubscriptionRefreshControl {
   Future<T> wait<T>(Future<T> operation, {void Function()? onAbort}) async {
     await operation;
     onAbort?.call();
+    if (cancelBeforeDeadline) cancellation.cancel();
     throw SubscriptionRefreshDeadlineExceeded(timeout);
   }
 }
@@ -491,6 +495,22 @@ void main() {
     );
     expect(control.remaining, const Duration(seconds: 1));
     expect(control.cancellation.isCancelled, isFalse);
+  });
+
+  test('cancellation still takes priority when the caller deadline also fires',
+      () async {
+    SubscriptionService.overrideHttpClient(
+      _FakeHttpClientAdapter(
+        AdapterResponse(
+            statusCode: 500, headers: const {}, bodyBytes: const []),
+      ),
+    );
+    final control = _EarlyDeadlineRefreshControl(cancelBeforeDeadline: true);
+
+    await expectLater(
+      service.fetchSubscription('https://example.com/feed', control: control),
+      throwsA(isA<SubscriptionRefreshCancelled>()),
+    );
   });
 
   for (final compatibility in [false, true]) {
