@@ -2637,14 +2637,34 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("part 'clash_service_identity.dart';", host)
         self.assertIn("part of 'clash_service.dart';", identity)
         self.assertIn("_captureCorePidRecord(", identity)
+        native = (ROOT / "SSRVPN_Windows/lib/src/services/windows_core_process_query.dart").read_text(encoding="utf-8")
+        self.assertIn("windows_core_process_query.dart", host)
+        self.assertIn("queryWindowsCoreIdentity(corePid, _corePath)", identity)
+        self.assertNotIn("_runPowerShell(", identity)
+        # Preserve the old path/session/creation/decoder ownership contract,
+        # checking its native equivalents and held-handle cleanup as well.
         for guard in (
-            "$process.MainModule.FileName",
-            "$process.SessionId -ne $currentSessionId",
-            "[StringComparison]::OrdinalIgnoreCase",
-            "$process.StartTime.ToUniversalTime().ToFileTimeUtc()",
-            "decodeWindowsCoreIdentity(result, corePid, _corePath)",
+            "OpenProcess(",
+            "PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE",
+            "GetProcessId(handle)",
+            "snapshot.pid != pid",
+            "ProcessIdToSessionId(livePid.value, session)",
+            "ProcessIdToSessionId(GetCurrentProcessId(), currentSession)",
+            "snapshot.sessionId != snapshot.currentSessionId",
+            "QueryFullProcessImageName(",
+            "CompareStringOrdinal",
+            "path.cast(), size.value, expectedPath, trustedPath.length, 1",
+            "GetProcessTimes(handle, times, times + 1, times + 2, times + 3)",
+            "windowsFileTimeFromParts(",
+            "decodeWindowsCoreIdentity(",
+            "ProcessResult(pid, 0, record.encode(), ''), pid, trustedPath",
+            "Duration(seconds: 8)",
+            "size.value >= capacity",
+            "finally {",
+            "CloseHandle(handle)",
         ):
-            self.assertIn(guard.replace("$", "\\$"), identity)
+            self.assertIn(guard, native)
+        self.assertGreaterEqual(native.count("ensureAlive();"), 2)
         identity_start = lifecycle.index("WindowsCoreIdentityEstablishment(")
         self.assertIn("startedProcess,", lifecycle[identity_start:])
         self.assertIn("spawnStartedAtUtcFileTime", lifecycle[identity_start:])
