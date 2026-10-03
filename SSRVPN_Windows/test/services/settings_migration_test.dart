@@ -36,10 +36,16 @@ void main() {
       installed.path, fallback.path);
 
   Future<String> linkLocalAlias() async {
-    final alias = '${root.path}/local-alias';
+    final alias = path.normalize(path.join(root.path, 'local-alias'));
     if (Platform.isWindows) {
-      final result = await Process.run(
-          'cmd.exe', ['/d', '/c', 'mklink', '/J', alias, '${root.path}/local']);
+      final result = await Process.run('cmd.exe', [
+        '/d',
+        '/c',
+        'mklink',
+        '/J',
+        alias,
+        path.normalize(path.join(root.path, 'local'))
+      ]);
       expect(result.exitCode, 0, reason: '${result.stderr}');
     } else {
       await Link(alias).create('${root.path}/local');
