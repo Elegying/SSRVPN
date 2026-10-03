@@ -153,7 +153,9 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
                   key: _statisticsKey, child: widget.bottomContent!));
           return fill
               ? Flexible(
-                  fit: balanced ? FlexFit.loose : FlexFit.tight, child: child)
+                  flex: minimal && !wide ? 2 : 1,
+                  fit: balanced ? FlexFit.loose : FlexFit.tight,
+                  child: child)
               : ConstrainedBox(
                   constraints: BoxConstraints(
                       maxHeight: (constraints.maxHeight - powerSize - 36)
@@ -284,35 +286,46 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
                                 statistics(fill: false)
                               else ...[
                                 if (minimal)
-                                  Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.center,
-                                      children: [
-                                        Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              status,
-                                              const SizedBox(height: 8),
-                                              power
-                                            ]),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                            child: Column(
+                                  Flexible(
+                                      flex: 3,
+                                      child: Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.center,
+                                          children: [
+                                            Column(
                                                 mainAxisSize: MainAxisSize.min,
                                                 children: [
-                                              if (constraints.maxWidth >= 360)
-                                                node(),
-                                              if (detailsVisible) ...[
-                                                if (constraints.maxWidth >= 360)
-                                                  const SizedBox(height: 12),
-                                                ConstrainedBox(
-                                                    constraints:
-                                                        const BoxConstraints(
-                                                            maxHeight: 100),
-                                                    child: details),
-                                              ],
-                                            ])),
-                                      ]),
+                                                  status,
+                                                  const SizedBox(height: 8),
+                                                  Flexible(
+                                                      child: FittedBox(
+                                                          fit: BoxFit.scaleDown,
+                                                          child: power))
+                                                ]),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                                child: Column(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: [
+                                                  if (constraints.maxWidth >=
+                                                      360)
+                                                    Flexible(child: node()),
+                                                  if (detailsVisible) ...[
+                                                    if (constraints.maxWidth >=
+                                                        360)
+                                                      const SizedBox(
+                                                          height: 12),
+                                                    Flexible(
+                                                        child: ConstrainedBox(
+                                                            constraints:
+                                                                const BoxConstraints(
+                                                                    maxHeight:
+                                                                        100),
+                                                            child: details)),
+                                                  ],
+                                                ])),
+                                          ])),
                                 if (minimal && constraints.maxWidth < 360)
                                   node(),
                                 SizedBox(height: gap),
@@ -504,10 +517,12 @@ class _ConnectionDetails extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Flexible(
+                flex: 3,
                 child: SsrvpnHomeText(errorMessage!,
                     maxLines: null, maxFontSize: 14)),
             const SizedBox(height: 4),
-            const SsrvpnHomeText(
+            const Flexible(
+                child: SsrvpnHomeText(
               '查看诊断与解决建议',
               maxLines: null,
               maxFontSize: 12,
@@ -515,7 +530,7 @@ class _ConnectionDetails extends StatelessWidget {
                 color: SsrvpnUiTokens.textSecondary,
                 decoration: TextDecoration.underline,
               ),
-            ),
+            )),
           ],
         ),
         style: TextButton.styleFrom(foregroundColor: SsrvpnUiTokens.error),

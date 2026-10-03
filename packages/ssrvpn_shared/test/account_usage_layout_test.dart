@@ -71,7 +71,7 @@ void main() {
     const Size(800, 600),
     const Size(640, 320)
   ]) {
-    for (final scale in [1.0, 1.5, 2.0]) {
+    for (final scale in [1.0, 1.5, 2.0, 3.2]) {
       for (final error in [false, true]) {
         testWidgets('whole home $size scale $scale error $error 3-5-3',
             (tester) async {
@@ -370,7 +370,7 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
   }
-  for (final scale in [1.0, 1.5, 2.0]) {
+  for (final scale in [1.0, 1.5, 2.0, 3.2]) {
     testWidgets('same home survives continuous resize at scale $scale',
         (tester) async {
       final five = ValueNotifier(true);
