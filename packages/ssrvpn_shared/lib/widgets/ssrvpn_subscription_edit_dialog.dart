@@ -82,10 +82,10 @@ class _SubscriptionEditDialogState extends State<_SubscriptionEditDialog> {
     return Dialog(
       backgroundColor: Colors.transparent,
       elevation: 0,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      insetPadding: EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: SsrvpnModalGlassPanel(
-        padding: const EdgeInsets.all(24),
-        key: const Key('ssrvpn-subscription-edit-glass'),
+        padding: EdgeInsets.all(24),
+        key: Key('ssrvpn-subscription-edit-glass'),
         child: ConstrainedBox(
           constraints: BoxConstraints(
             maxWidth: 440,
@@ -100,10 +100,10 @@ class _SubscriptionEditDialogState extends State<_SubscriptionEditDialog> {
                   child: SingleChildScrollView(
                     child: Column(
                       children: [
-                        const Row(
+                        Row(
                           children: [
                             Icon(Icons.edit_rounded,
-                                color: SsrvpnUiTokens.primary),
+                                color: SsrvpnUiTokens.of(context).primary),
                             SizedBox(width: 10),
                             Expanded(
                               child: Text(
@@ -116,18 +116,18 @@ class _SubscriptionEditDialogState extends State<_SubscriptionEditDialog> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 18),
+                        SizedBox(height: 18),
                         SsrvpnLiquidField(
                             label: '订阅名称',
                             child: TextFormField(
-                              key: const Key('ssrvpn-subscription-edit-name'),
+                              key: Key('ssrvpn-subscription-edit-name'),
                               controller: _nameController,
                               autofocus: true,
                               textInputAction: TextInputAction.next,
                               inputFormatters: [
                                 LengthLimitingTextInputFormatter(128),
                               ],
-                              decoration: const InputDecoration(
+                              decoration: InputDecoration(
                                 hintText: '输入便于识别的名称',
                                 prefixIcon: Icon(Icons.badge_outlined),
                               ),
@@ -136,11 +136,11 @@ class _SubscriptionEditDialogState extends State<_SubscriptionEditDialog> {
                                       ? '订阅名称不能为空'
                                       : null,
                             )),
-                        const SizedBox(height: 14),
+                        SizedBox(height: 14),
                         SsrvpnLiquidField(
                             label: '订阅链接',
                             child: TextFormField(
-                              key: const Key('ssrvpn-subscription-edit-url'),
+                              key: Key('ssrvpn-subscription-edit-url'),
                               controller: _urlController,
                               keyboardType: TextInputType.url,
                               textInputAction: TextInputAction.done,
@@ -149,7 +149,7 @@ class _SubscriptionEditDialogState extends State<_SubscriptionEditDialog> {
                               enableIMEPersonalizedLearning: false,
                               maxLines: 3,
                               minLines: 1,
-                              decoration: const InputDecoration(
+                              decoration: InputDecoration(
                                 hintText: '建议使用 HTTPS；也支持 HTTP 或节点链接',
                                 prefixIcon: Icon(Icons.link_rounded),
                               ),
@@ -163,7 +163,7 @@ class _SubscriptionEditDialogState extends State<_SubscriptionEditDialog> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 20),
+                SizedBox(height: 20),
                 Row(
                   children: [
                     Expanded(
@@ -171,15 +171,15 @@ class _SubscriptionEditDialogState extends State<_SubscriptionEditDialog> {
                         onPressed: () =>
                             dismissSsrvpnDialog<SsrvpnSubscriptionEditDraft>(
                                 context),
-                        child: const Text('取消'),
+                        child: Text('取消'),
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    SizedBox(width: 12),
                     Expanded(
                       child: FilledButton(
-                        key: const Key('ssrvpn-subscription-edit-save'),
+                        key: Key('ssrvpn-subscription-edit-save'),
                         onPressed: _save,
-                        child: const Text('保存'),
+                        child: Text('保存'),
                       ),
                     ),
                   ],

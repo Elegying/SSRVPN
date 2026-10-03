@@ -1,4 +1,3 @@
-import 'services/background_image_picker.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_appearance.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_settings_page.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_scroll_behavior.dart';
@@ -9,6 +8,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart'
     show
+        ssrvpnSnackBar,
         SsrvpnLiquidAlertDialog,
         SsrvpnModalGlassPanel,
         AppConstants,
@@ -477,7 +477,7 @@ class _InitialSubscriptionPromptState
           .addSubscription(value, retryExisting: true);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        ssrvpnSnackBar(
           margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
           content: Text(
             result.isSuccess
@@ -493,7 +493,7 @@ class _InitialSubscriptionPromptState
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        ssrvpnSnackBar(
           margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
           content: const Text('订阅更新失败，请检查网络后重试'),
           backgroundColor: AppTheme.errorColor,
@@ -666,8 +666,6 @@ Widget _buildSettingsPage(BuildContext context) {
   return SsrvpnSettingsPage(
     settings: service.settings,
     core: context.read<clash.ClashService>(),
-    dataDirectory: service.appearanceDirectory,
-    pickBackgroundImage: pickAndroidBackgroundImage,
     onAppearanceChanged: service.updateAppearance,
     onPortChanged: service.updateProxyPort,
     onRoutingSitesChanged: (sites, direct) => direct

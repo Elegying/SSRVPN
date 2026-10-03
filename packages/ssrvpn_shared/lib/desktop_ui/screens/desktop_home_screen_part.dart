@@ -218,7 +218,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ).isEmpty) {
       setState(() => _errorMessage = '订阅中没有可用节点，未更改网络设置，已保留当前连接');
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('订阅中没有可用节点，未更改网络设置，已保留当前连接')),
+        SnackBar(content: Text('订阅中没有可用节点，未更改网络设置，已保留当前连接')),
       );
       return;
     }
@@ -278,7 +278,7 @@ class _HomeScreenState extends State<HomeScreen> {
         )) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('网络设置已更新，正在重新连接')));
+      ).showSnackBar(SnackBar(content: Text('网络设置已更新，正在重新连接')));
       await _handleConnectionAction(_DesktopConnectionAction.connect);
     }
   }
@@ -311,7 +311,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('${forceDirect ? '强制直连' : '强制代理'}网站保存失败，请重试'),
-          duration: const Duration(seconds: 3),
+          duration: Duration(seconds: 3),
         ),
       );
     }
@@ -338,7 +338,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!_canUpdateUi) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+      ssrvpnSnackBar(
         content: Text(
           reloadSucceeded != null
               ? reloadSucceeded
@@ -346,8 +346,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   : '${forceDirect ? '强制直连' : '强制代理'}网站已保存，当前连接重载失败，请重新连接'
               : '${forceDirect ? '强制直连' : '强制代理'}网站已保存',
         ),
-        backgroundColor: reloadSucceeded == false ? AppTheme.warning : null,
-        duration: const Duration(seconds: 2),
+        backgroundColor:
+            reloadSucceeded == false ? SsrvpnTheme.of(context).warning : null,
+        duration: Duration(seconds: 2),
       ),
     );
   }
@@ -490,7 +491,7 @@ class _HomeScreenState extends State<HomeScreen> {
         );
         ProxyNode? runtimeSelectedNode;
         final connectionResult = await clashService.runConnectionTransition(
-          () => const DesktopConnectionCoordinator().connect(
+          () => DesktopConnectionCoordinator().connect(
             preferredSettings: settingsService.settings,
             prepareForStart: clashService.prepareForStart,
             generateConfig: (runtimeSettings) =>
@@ -646,10 +647,10 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showRuntimePortAdjustmentNotice(String? message) {
     if (message == null || message.isEmpty || !_canUpdateUi) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+      ssrvpnSnackBar(
         content: Text(message),
-        backgroundColor: AppTheme.warning,
-        duration: const Duration(seconds: 5),
+        backgroundColor: SsrvpnTheme.of(context).warning,
+        duration: Duration(seconds: 5),
       ),
     );
   }

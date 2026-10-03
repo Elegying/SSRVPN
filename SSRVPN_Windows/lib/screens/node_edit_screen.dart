@@ -11,7 +11,6 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 import '../services/settings_service.dart';
 import '../services/subscription_service.dart';
-import '../theme/app_theme.dart';
 
 part 'package:ssrvpn_shared/desktop_ui/screens/desktop_node_edit_screen_part.dart';
 

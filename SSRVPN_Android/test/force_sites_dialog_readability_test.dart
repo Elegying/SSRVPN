@@ -61,7 +61,7 @@ void main() {
 
   for (final dark in [false, true]) {
     for (final direct in [false, true]) {
-      for (final level in GlassEffectLevel.values) {
+      for (final level in AppThemeVariant.values) {
         final scenario = '${direct ? 'direct' : 'proxy'}-'
             '${dark ? 'dark' : 'light'}-${level.name}';
         testWidgets('rule form obscures the underlying page: $scenario',
@@ -91,7 +91,7 @@ void main() {
             builder: (_, child) => RepaintBoundary(
               key: _captureKey,
               child: SsrvpnAppearanceScope(
-                settings: AppSettings(glassEffectLevel: level),
+                settings: AppSettings(themeVariant: level),
                 child: child!,
               ),
             ),
@@ -164,7 +164,10 @@ void main() {
               in tester.widgetList<TextField>(find.byType(TextField))) {
             final decoration = field.decoration!;
             final fill = Color.alphaBlend(
-                decoration.fillColor!, theme.colorScheme.surface);
+                decoration.fillColor!,
+                Theme.of(tester.element(find.byType(TextField).first))
+                    .colorScheme
+                    .surface);
             for (final style in [
               decoration.labelStyle!,
               decoration.hintStyle!

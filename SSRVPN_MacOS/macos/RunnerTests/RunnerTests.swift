@@ -61,7 +61,8 @@ class RunnerTests: XCTestCase {
     XCTAssertTrue(window.titlebarAppearsTransparent)
     XCTAssertTrue(window.styleMask.contains(.fullSizeContentView))
     XCTAssertEqual(window.backgroundColor, MainFlutterWindow.integratedBackgroundColor)
-    XCTAssertEqual(window.minSize, NSSize(width: 380, height: 560))
+    XCTAssertFalse(window.styleMask.contains(.resizable))
+    XCTAssertFalse(window.standardWindowButton(.zoomButton)?.isEnabled ?? false)
     if #available(macOS 11.0, *) {
       XCTAssertEqual(window.titlebarSeparatorStyle, .none)
     }

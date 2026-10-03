@@ -16,7 +16,6 @@ import '../services/subscription_service.dart';
 import '../services/settings_service.dart';
 import '../services/tray_manager.dart';
 import '../services/update_service.dart';
-import '../theme/app_theme.dart';
 import '../widgets/glass_container.dart';
 import 'node_edit_screen.dart';
 

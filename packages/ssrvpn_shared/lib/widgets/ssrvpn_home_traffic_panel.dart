@@ -1,3 +1,5 @@
+import 'ssrvpn_themed_statistics.dart';
+import 'ssrvpn_usage_ring.dart';
 import 'ssrvpn_liquid_glass.dart';
 import 'dart:async';
 import 'dart:math' as math;
@@ -111,7 +113,7 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
       if (!_unavailable) setState(() => _unavailable = true);
     }
     if (!mounted || epoch != _epoch) return;
-    _timer = Timer(const Duration(seconds: 1), () => _refresh(epoch));
+    _timer = Timer(Duration(seconds: 1), () => _refresh(epoch));
   }
 
   @override
@@ -149,9 +151,9 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
       ));
     }
 
-    local('上传速率', _uploadRate, const Color(0xFF64B5FF), '↑', true);
-    local('下载速率', _downloadRate, SsrvpnUiTokens.success, '↓', true);
-    local('本次累计', _total, SsrvpnUiTokens.textPrimary, '', false);
+    local('上传速率', _uploadRate, SsrvpnUiTokens.of(context).primary, '↑', true);
+    local('下载速率', _downloadRate, SsrvpnUiTokens.of(context).success, '↓', true);
+    local('本次累计', _total, SsrvpnUiTokens.of(context).textPrimary, '', false);
     if (account != null) {
       final usage = formatAccountUsage(account);
       final count =
@@ -161,8 +163,8 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
       metrics.add((
         label: '已用流量',
         number: usage.amount,
-        unit: '已用${usage.percentage} 每月1日重置',
-        color: SsrvpnUiTokens.textPrimary,
+        unit: '每月1日重置',
+        color: SsrvpnUiTokens.of(context).textPrimary,
         semantics: '${usage.semantics}。每月1日重置'
       ));
       metrics.add((
@@ -171,7 +173,7 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
         unit: account.onlineDevices >= 10000 || account.deviceLimit >= 10000
             ? '约值·实例'
             : '客户端实例',
-        color: SsrvpnUiTokens.textPrimary,
+        color: SsrvpnUiTokens.of(context).textPrimary,
         semantics:
             '已连接设备：$count，上限 $limit。在线客户端实例 ${account.onlineDevices} 个，上限 ${account.deviceLimit} 个，非物理设备去重数'
       ));
@@ -182,13 +184,18 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
           label: label,
           number: '—',
           unit: '暂未更新',
-          color: SsrvpnUiTokens.textPrimary,
+          color: SsrvpnUiTokens.of(context).textPrimary,
           semantics: '$label：${widget.accountStatus}'
         ));
       }
     }
+    if (!SsrvpnTheme.of(context).isDefault) {
+      return Tooltip(
+          message: widget.accountStatus ?? '',
+          child: SsrvpnThemedStatistics(metrics: metrics, account: account));
+    }
     final panel = LayoutBuilder(
-        key: const Key('home-traffic-panel'),
+        key: Key('home-traffic-panel'),
         builder: (context, constraints) {
           final width = math.min(
               constraints.maxWidth, SsrvpnUiTokens.bottomNavigationMaxWidth);
@@ -264,55 +271,67 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
                           // Caption and number sizes already include the
                           // system scale and the available card-height budget.
                           child: MediaQuery.withNoTextScaling(
-                              child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                Flexible(
-                                    flex: (caption * 100).round(),
-                                    child: SsrvpnHomeText(row[index].label,
-                                        maxFontSize: caption,
-                                        style: TextStyle(
-                                            letterSpacing: 0,
-                                            color: SsrvpnUiTokens.textSecondary,
-                                            fontSize: caption))),
-                                Flexible(
-                                    flex: (number * 100).round(),
-                                    child: SsrvpnHomeText(row[index].number,
-                                        fitReference:
-                                            row[index].label == '已连接设备'
-                                                ? '9999/9999'
-                                                : row[index].label == '已用流量'
-                                                    ? '1023MB/1023MB'
-                                                    : '↑9999',
-                                        key: ValueKey(
-                                            'home-traffic-number-${row[index].label}'),
-                                        maxFontSize: number,
-                                        style: TextStyle(
-                                            letterSpacing: 0,
-                                            color: row[index].color,
-                                            fontSize: number,
-                                            fontWeight: FontWeight.w600,
-                                            fontFeatures: const [
-                                              FontFeature.tabularFigures()
-                                            ]))),
-                                Flexible(
-                                    flex: (caption * 100).round(),
-                                    child: SsrvpnHomeText(row[index].unit,
-                                        fitReference:
-                                            row[index].label == '已连接设备'
-                                                ? '约值·实例'
-                                                : row[index].label == '已用流量'
-                                                    ? '已用9.9e99% 每月1日重置'
-                                                    : '999E',
-                                        key: ValueKey(
-                                            'home-traffic-unit-${row[index].label}'),
-                                        maxFontSize: caption,
-                                        style: TextStyle(
-                                            letterSpacing: 0,
-                                            color: row[index].color,
-                                            fontSize: caption))),
-                              ]))),
+                              child: _withUsageRing(
+                                  row[index].label,
+                                  account,
+                                  Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Flexible(
+                                            flex: (caption * 100).round(),
+                                            child: SsrvpnHomeText(
+                                                row[index].label,
+                                                maxFontSize: caption,
+                                                style: TextStyle(
+                                                    letterSpacing: 0,
+                                                    color: SsrvpnUiTokens.of(
+                                                            context)
+                                                        .textSecondary,
+                                                    fontSize: caption))),
+                                        Flexible(
+                                            flex: (number * 100).round(),
+                                            child: SsrvpnHomeText(
+                                                row[index].number,
+                                                fitReference: row[index]
+                                                            .label ==
+                                                        '已连接设备'
+                                                    ? '9999/9999'
+                                                    : row[index].label == '已用流量'
+                                                        ? '1023MB/1023MB'
+                                                        : '↑9999',
+                                                key: ValueKey(
+                                                    'home-traffic-number-${row[index].label}'),
+                                                maxFontSize: number,
+                                                style: TextStyle(
+                                                    letterSpacing: 0,
+                                                    color: row[index].color,
+                                                    fontSize: number,
+                                                    fontWeight: FontWeight.w600,
+                                                    fontFeatures: [
+                                                      FontFeature
+                                                          .tabularFigures()
+                                                    ]))),
+                                        Flexible(
+                                            flex: (caption * 100).round(),
+                                            child: SsrvpnHomeText(
+                                                row[index].unit,
+                                                fitReference: row[index]
+                                                            .label ==
+                                                        '已连接设备'
+                                                    ? '约值·实例'
+                                                    : row[index].label == '已用流量'
+                                                        ? '每月1日重置'
+                                                        : '999E',
+                                                key: ValueKey(
+                                                    'home-traffic-unit-${row[index].label}'),
+                                                maxFontSize: caption,
+                                                style: TextStyle(
+                                                    letterSpacing: 0,
+                                                    color: row[index].color,
+                                                    fontSize: caption))),
+                                      ])))),
                     )),
               ],
             ]));
@@ -326,6 +345,11 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
         });
     return Tooltip(message: widget.accountStatus ?? '', child: panel);
   }
+
+  Widget _withUsageRing(String label, AccountUsage? account, Widget child) =>
+      label == '已用流量'
+          ? SsrvpnUsageRing(account: account, compact: true, child: child)
+          : child;
 
   String _devices(int count, {bool compact = false}) {
     if (count < 10000) return '$count';

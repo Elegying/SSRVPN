@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 import '../services/clash_service.dart';
-import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 
 void showAndroidDiagnosticsSheet(BuildContext context) {
@@ -16,19 +15,20 @@ void showAndroidDiagnosticsSheet(BuildContext context) {
     builder: (ctx) => SizedBox(
       height: MediaQuery.of(ctx).size.height * 0.7,
       child: SsrvpnModalGlassPanel(
-        key: const Key('ssrvpn-diagnostics-glass'),
+        key: Key('ssrvpn-diagnostics-glass'),
         child: Column(
           children: [
             Container(
-              padding: const EdgeInsets.all(14),
+              padding: EdgeInsets.all(14),
               decoration: BoxDecoration(
-                border: Border(bottom: BorderSide(color: AppTheme.darkBorder)),
+                border: Border(
+                    bottom: BorderSide(color: SsrvpnTheme.of(context).border)),
               ),
               child: Row(
                 children: [
                   Icon(Icons.bug_report,
-                      size: 18, color: AppTheme.warningColor),
-                  const SizedBox(width: 8),
+                      size: 18, color: SsrvpnTheme.of(context).warning),
+                  SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       '诊断与运行日志',
@@ -55,7 +55,7 @@ void showAndroidDiagnosticsSheet(BuildContext context) {
             ),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.all(14),
+                padding: EdgeInsets.all(14),
                 child: AppDiagnosticsView(
                   runDiagnostics: clashService.runDiagnostics,
                   loadHistory: clashService.loadDiagnosticHistory,
@@ -64,7 +64,7 @@ void showAndroidDiagnosticsSheet(BuildContext context) {
                     if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
+                        margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
                         content: Text(message),
                       ),
                     );

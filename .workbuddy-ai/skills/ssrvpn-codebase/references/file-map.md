@@ -59,7 +59,7 @@ SSRVPN/
 ### Android（`SSRVPN_Android/`）
 - 核心桥：`lib/services/clash_service_native_bridge.dart`（Kotlin ↔ Dart）
 - `clash_service.dart` 是宿主，part：`_native_bridge` / `_snapshot_cleanup` / `_config` / `_country` / `_data_plane`
-- 其他服务：`connection_orchestrator.dart`、`http_client_adapter.dart`、`background_image_picker.dart`
+- 其他服务：`connection_orchestrator.dart`、`http_client_adapter.dart`、`qr_image_picker.dart`（仅用于二维码图片选择）
 - 首页拆 part：`screens/home_screen.dart` + `home_connection_actions_part.dart`、`home_dialogs_part.dart`、`home_public_ip_part.dart`、`home_node_actions_part.dart`、`home_lifecycle_actions_part.dart`
 - 原生侧：`android/app/src/main/kotlin/`（守卫脚本 `check-android-native-bridge-guards.sh`、`check-android-built-in-kotlin.sh`）
 

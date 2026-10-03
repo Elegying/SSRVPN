@@ -35,5 +35,6 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/backgrounds/network-glass-deep.png
+    - assets/backgrounds/network-glass-deep.webp
+    - assets/themes/
     - assets/rules/latest/

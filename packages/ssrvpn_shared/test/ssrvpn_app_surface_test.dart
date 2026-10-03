@@ -2064,9 +2064,20 @@ void main() {
     final addButton = tester.widget<FilledButton>(
       find.byKey(const Key('ssrvpn-subscription-add')),
     );
+    final palette = SsrvpnUiTokens.of(
+      tester.element(find.byKey(const Key('ssrvpn-subscription-add'))),
+    );
+    final foreground =
+        addButton.style!.foregroundColor!.resolve(<WidgetState>{})!;
+    final background =
+        addButton.style!.backgroundColor!.resolve(<WidgetState>{})!;
+    expect(foreground, palette.onPrimary);
+    expect(background, palette.primary);
+    final a = foreground.computeLuminance();
+    final b = background.computeLuminance();
     expect(
-      addButton.style?.foregroundColor?.resolve(<WidgetState>{}),
-      Colors.white,
+      a > b ? (a + .05) / (b + .05) : (b + .05) / (a + .05),
+      greaterThanOrEqualTo(4.5),
     );
   });
 

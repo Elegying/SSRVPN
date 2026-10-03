@@ -32,11 +32,7 @@ void main() {
   test('desktop defaults use a compact portrait-friendly width', () {
     expect(
       DesktopWindowStateStore.defaultSize,
-      const Size(440, 720),
-    );
-    expect(
-      DesktopWindowStateStore.minimumSize,
-      const Size(380, 560),
+      const Size(460, 840),
     );
   });
 
@@ -48,9 +44,11 @@ void main() {
       const Rect.fromLTWH(20, 28, 380, 560),
     ]) {
       final bounds = DesktopWindowStateStore.initialBounds(area);
-      expect(bounds.center, area.center);
-      expect(bounds.width, inInclusiveRange(380, 440));
-      expect(bounds.height, inInclusiveRange(560, 720));
+      expect(bounds.center.dx, closeTo(area.center.dx, .00001));
+      expect(bounds.center.dy, closeTo(area.center.dy, .00001));
+      expect(bounds.width / bounds.height, closeTo(460 / 840, .00001));
+      expect(bounds.width, lessThanOrEqualTo(460));
+      expect(bounds.height, lessThanOrEqualTo(840));
       expect(bounds.left, greaterThanOrEqualTo(area.left));
       expect(bounds.top, greaterThanOrEqualTo(area.top));
       expect(bounds.right, lessThanOrEqualTo(area.right));
@@ -60,7 +58,7 @@ void main() {
         DesktopWindowStateStore.initialBounds(
                 const Rect.fromLTWH(0, 24, 1920, 1032))
             .size,
-        const Size(440, 720));
+        const Size(460, 840));
     expect(() => DesktopWindowStateStore.initialBounds(Rect.zero),
         throwsArgumentError);
   });
@@ -72,14 +70,15 @@ void main() {
     expect(
         DesktopWindowStateStore.restoredBounds(
             const Rect.fromLTWH(200, -700, 440, 740), [area]),
-        const Rect.fromLTWH(200, 24, 440, 740));
+        const Rect.fromLTWH(200, 24, 460, 840));
     expect(
         DesktopWindowStateStore.restoredBounds(
             const Rect.fromLTWH(1900, 1000, 800, 1400), [area]),
-        const Rect.fromLTWH(1120, 24, 800, 1016));
+        const Rect.fromLTWH(1460, 200, 460, 840));
     const left = Rect.fromLTWH(-1920, 24, 1920, 1016);
     const saved = Rect.fromLTWH(-1800, 40, 440, 720);
-    expect(DesktopWindowStateStore.restoredBounds(saved, [area, left]), saved);
+    expect(DesktopWindowStateStore.restoredBounds(saved, [area, left]),
+        const Rect.fromLTWH(-1800, 40, 460, 840));
     expect(DesktopWindowStateStore.restoredBounds(saved, [area]), isNull);
     expect(DesktopWindowStateStore.restoredBounds(saved, []), isNull);
   });
@@ -140,12 +139,12 @@ void main() {
 
     expect(
       await store.load(),
-      const Rect.fromLTWH(470, 48, 440, 720),
+      const Rect.fromLTWH(460, 48, 460, 760),
     );
     expect(
       await stateFile.readAsString(),
-      '{"schemaVersion":4,"left":470.0,"top":48.0,'
-      '"width":440.0,"height":720.0}',
+      '{"schemaVersion":4,"left":460.0,"top":48.0,'
+      '"width":460.0,"height":760.0}',
     );
     expect(errors, isEmpty);
   });
@@ -158,12 +157,12 @@ void main() {
 
     expect(
       await store.load(),
-      const Rect.fromLTWH(470, 48, 440, 720),
+      const Rect.fromLTWH(460, 48, 460, 760),
     );
     expect(
       await stateFile.readAsString(),
-      '{"schemaVersion":4,"left":470.0,"top":48.0,'
-      '"width":440.0,"height":720.0}',
+      '{"schemaVersion":4,"left":460.0,"top":48.0,'
+      '"width":460.0,"height":760.0}',
     );
     expect(errors, isEmpty);
   });
@@ -176,12 +175,12 @@ void main() {
 
     expect(
       await store.load(),
-      const Rect.fromLTWH(389, 54, 440, 720),
+      const Rect.fromLTWH(379, 54, 460, 760),
     );
     expect(
       await stateFile.readAsString(),
-      '{"schemaVersion":4,"left":389.0,"top":54.0,'
-      '"width":440.0,"height":720.0}',
+      '{"schemaVersion":4,"left":379.0,"top":54.0,'
+      '"width":460.0,"height":760.0}',
     );
     expect(errors, isEmpty);
   });
@@ -195,18 +194,18 @@ void main() {
 
     expect(
       await store.load(),
-      const Rect.fromLTWH(359, 54, 420, 720),
+      const Rect.fromLTWH(359, 54, 420, 760),
     );
     expect(
       await stateFile.readAsString(),
       '{"schemaVersion":4,"left":359.0,"top":54.0,'
-      '"width":420.0,"height":720.0}',
+      '"width":420.0,"height":760.0}',
     );
     expect(errors, isEmpty);
   });
 
-  test('ignores bounds smaller than the desktop minimum', () async {
-    await store.save(const Rect.fromLTWH(0, 0, 640, 480));
+  test('ignores degenerate window bounds', () async {
+    await store.save(const Rect.fromLTWH(0, 0, 0, 480));
 
     expect(await stateFile.exists(), isFalse);
   });

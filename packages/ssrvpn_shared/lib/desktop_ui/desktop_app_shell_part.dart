@@ -45,7 +45,7 @@ class _DesktopAppShell extends StatelessWidget {
 
     if (!stopped && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text('更新前无法安全断开连接，已阻止打开安装包。请先手动断开后重试'),
         ),
       );
@@ -61,37 +61,37 @@ class _DesktopAppShell extends StatelessWidget {
         switch (runtimeNotice?.level) {
       RuntimeNoticeLevel.success => (
           Icons.check_circle_outline,
-          AppTheme.success,
+          SsrvpnTheme.of(context).success,
           '操作已完成',
         ),
       RuntimeNoticeLevel.progress => (
           Icons.sync_outlined,
-          AppTheme.primary,
+          SsrvpnTheme.of(context).primary,
           '正在处理',
         ),
       RuntimeNoticeLevel.warning => (
           Icons.warning_amber_rounded,
-          AppTheme.warning,
+          SsrvpnTheme.of(context).warning,
           '需要注意',
         ),
       RuntimeNoticeLevel.error || null => (
           Icons.error_outline,
-          AppTheme.error,
+          SsrvpnTheme.of(context).error,
           '操作未完成',
         ),
     };
     final statusBanners = <Widget>[
       if (safeMode)
-        const SsrvpnHomeNotice(
+        SsrvpnHomeNotice(
           icon: Icons.health_and_safety_outlined,
-          color: AppTheme.warning,
+          color: SsrvpnTheme.of(context).warning,
           title: '安全模式已启用',
           message: '托盘、旧窗口位置和 Mihomo 自动初始化已跳过。',
         ),
       if (startupFailureMessages.isNotEmpty)
         SsrvpnHomeNotice(
           icon: Icons.error_outline,
-          color: AppTheme.error,
+          color: SsrvpnTheme.of(context).error,
           title: '部分启动步骤失败',
           message: startupFailureMessages.join('\n'),
         ),
@@ -107,7 +107,7 @@ class _DesktopAppShell extends StatelessWidget {
       resizeToAvoidBottomInset: currentIndex != 0,
       backgroundColor: Colors.transparent,
       body: DefaultTextStyle.merge(
-        style: const TextStyle(decoration: TextDecoration.none),
+        style: TextStyle(decoration: TextDecoration.none),
         child: SsrvpnAppBackdrop(
           child: SsrvpnHomeShell(
             notices: statusBanners,
@@ -146,7 +146,7 @@ class _PageStack extends StatelessWidget {
         ),
         SsrvpnPageActivity(
           active: currentIndex == 1,
-          child: const SubscriptionScreen(),
+          child: SubscriptionScreen(),
         ),
         SsrvpnPageActivity(
             active: currentIndex == 2, child: _buildSettingsPage(context)),
@@ -161,7 +161,6 @@ Widget _buildSettingsPage(BuildContext context) {
   return SsrvpnSettingsPage(
     settings: service.settings,
     core: core,
-    dataDirectory: service.appearanceDirectory,
     onAppearanceChanged: service.updateAppearance,
     onPortChanged: service.updateProxyPort,
     onRoutingSitesChanged: (sites, direct) => direct

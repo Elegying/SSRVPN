@@ -92,38 +92,42 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   void _showAddResult(SubscriptionAddResult result) {
     if (result.isSuccess && result.warning != null) {
-      _showSnack(result.warning!, AppTheme.warning);
+      _showSnack(result.warning!, SsrvpnTheme.of(context).warning);
       return;
     }
     switch (result.status) {
       case SubscriptionAddStatus.emptyInput:
         _showSnack(
           '请输入订阅或节点链接',
-          AppTheme.error,
+          SsrvpnTheme.of(context).error,
           behavior: SnackBarBehavior.floating,
         );
       case SubscriptionAddStatus.duplicate:
-        _showSnack('该订阅已存在，无需重复添加', AppTheme.warning);
+        _showSnack('该订阅已存在，无需重复添加', SsrvpnTheme.of(context).warning);
       case SubscriptionAddStatus.invalidUrl:
-        _showSnack('请输入有效的URL地址', AppTheme.error);
+        _showSnack('请输入有效的URL地址', SsrvpnTheme.of(context).error);
       case SubscriptionAddStatus.singleNodeImported:
-        _showSnack('节点链接已导入，当前共 ${result.nodeCount} 个节点', AppTheme.success);
+        _showSnack('节点链接已导入，当前共 ${result.nodeCount} 个节点',
+            SsrvpnTheme.of(context).success);
       case SubscriptionAddStatus.singleNodeNoData:
-        _showSnack('节点链接已添加，但未获取到数据', AppTheme.warning);
+        _showSnack('节点链接已添加，但未获取到数据', SsrvpnTheme.of(context).warning);
       case SubscriptionAddStatus.singleNodeImportFailed:
-        _showSnack('导入失败: ${result.displayError}', AppTheme.error);
+        _showSnack(
+            '导入失败: ${result.displayError}', SsrvpnTheme.of(context).error);
       case SubscriptionAddStatus.subscriptionAdded:
-        _showSnack('订阅成功，获取到 ${result.nodeCount} 个节点', AppTheme.success);
+        _showSnack('订阅成功，获取到 ${result.nodeCount} 个节点',
+            SsrvpnTheme.of(context).success);
       case SubscriptionAddStatus.subscriptionNoData:
-        _showSnack('订阅已添加，但未获取到数据', AppTheme.warning);
+        _showSnack('订阅已添加，但未获取到数据', SsrvpnTheme.of(context).warning);
       case SubscriptionAddStatus.refreshFailed:
         _showSnack(
           '刷新失败: ${result.displayError}',
-          AppTheme.error,
-          duration: const Duration(seconds: 4),
+          SsrvpnTheme.of(context).error,
+          duration: Duration(seconds: 4),
         );
       case SubscriptionAddStatus.failed:
-        _showSnack('添加失败: ${result.displayError}', AppTheme.error);
+        _showSnack(
+            '添加失败: ${result.displayError}', SsrvpnTheme.of(context).error);
     }
   }
 
@@ -134,11 +138,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     SnackBarBehavior? behavior,
   }) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+      ssrvpnSnackBar(
         behavior: behavior,
         content: Text(message),
         backgroundColor: backgroundColor,
-        duration: duration ?? const Duration(seconds: 4),
+        duration: duration ?? Duration(seconds: 4),
       ),
     );
   }
@@ -162,7 +166,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            margin: EdgeInsets.fromLTRB(16, 0, 16, 16),
             content: Text(message),
           ),
         );
@@ -183,48 +187,50 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             constraints: BoxConstraints(
                 maxWidth: MediaQuery.of(context).size.width * 0.88),
             child: Padding(
-              padding: const EdgeInsets.all(24),
+              padding: EdgeInsets.all(24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.warning_amber_rounded,
                     size: 48,
-                    color: AppTheme.warning,
+                    color: SsrvpnTheme.of(context).warning,
                   ),
-                  const SizedBox(height: 16),
-                  const Text(
+                  SizedBox(height: 16),
+                  Text(
                     '确认删除',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                   ),
-                  const SizedBox(height: 8),
+                  SizedBox(height: 8),
                   Text(
                     '删除后将无法恢复',
                     style: TextStyle(
                       fontSize: 13,
                       color: Theme.of(context).brightness == Brightness.dark
                           ? Colors.white.withValues(alpha: 120 / 255)
-                          : AppTheme.lightTextSecondary,
+                          : SsrvpnTheme.of(context).textSecondary,
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  SizedBox(height: 24),
                   Row(
                     children: [
                       Expanded(
                         child: TextButton(
                           onPressed: () =>
                               dismissSsrvpnDialog<bool>(ctx, false),
-                          child: const Text('取消'),
+                          child: Text('取消'),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton(
                           onPressed: () => dismissSsrvpnDialog<bool>(ctx, true),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.error,
+                            backgroundColor: SsrvpnTheme.of(context).error,
+                            foregroundColor: ssrvpnForegroundOn(
+                                SsrvpnTheme.of(context).error),
                           ),
-                          child: const Text('删除'),
+                          child: Text('删除'),
                         ),
                       ),
                     ],
@@ -259,17 +265,17 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         if (!result.removed) {
           _showSnack(
             '删除失败：${result.displayError}',
-            AppTheme.error,
+            SsrvpnTheme.of(context).error,
           );
         } else if (result.error != null) {
           _showSnack(
             '订阅已删除，但断开 VPN 失败：${result.displayError}',
-            AppTheme.warning,
+            SsrvpnTheme.of(context).warning,
           );
         } else if (result.stoppedClash) {
-          _showSnack('订阅已删除，VPN 已断开', AppTheme.warning);
+          _showSnack('订阅已删除，VPN 已断开', SsrvpnTheme.of(context).warning);
         } else {
-          _showSnack('订阅已删除', AppTheme.success);
+          _showSnack('订阅已删除', SsrvpnTheme.of(context).success);
         }
       }
     } finally {
@@ -291,19 +297,20 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
     switch (result.status) {
       case SubscriptionEditStatus.emptyName:
-        _showSnack('订阅名称不能为空', AppTheme.error);
+        _showSnack('订阅名称不能为空', SsrvpnTheme.of(context).error);
       case SubscriptionEditStatus.emptyUrl:
-        _showSnack('订阅链接不能为空', AppTheme.error);
+        _showSnack('订阅链接不能为空', SsrvpnTheme.of(context).error);
       case SubscriptionEditStatus.duplicateUrl:
-        _showSnack('该订阅链接已存在', AppTheme.warning);
+        _showSnack('该订阅链接已存在', SsrvpnTheme.of(context).warning);
       case SubscriptionEditStatus.invalidUrl:
-        _showSnack('请输入有效的订阅链接', AppTheme.error);
+        _showSnack('请输入有效的订阅链接', SsrvpnTheme.of(context).error);
       case SubscriptionEditStatus.unchanged:
-        _showSnack('订阅信息没有变化', AppTheme.warning);
+        _showSnack('订阅信息没有变化', SsrvpnTheme.of(context).warning);
       case SubscriptionEditStatus.saved:
-        _showSnack('订阅已更新', AppTheme.success);
+        _showSnack('订阅已更新', SsrvpnTheme.of(context).success);
       case SubscriptionEditStatus.failed:
-        _showSnack('更新失败：${result.displayError}', AppTheme.error);
+        _showSnack(
+            '更新失败：${result.displayError}', SsrvpnTheme.of(context).error);
     }
   }
 
@@ -312,10 +319,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     final subService = context.watch<SubscriptionService>();
     final refreshResult = _refreshResult;
     final refreshColor = switch (refreshResult?.status) {
-      SubscriptionRefreshStatus.success => SsrvpnUiTokens.success,
-      SubscriptionRefreshStatus.partialSuccess => SsrvpnUiTokens.warning,
-      SubscriptionRefreshStatus.failure => SsrvpnUiTokens.error,
-      SubscriptionRefreshStatus.cancelled => SsrvpnUiTokens.textSecondary,
+      SubscriptionRefreshStatus.success => SsrvpnUiTokens.of(context).success,
+      SubscriptionRefreshStatus.partialSuccess =>
+        SsrvpnUiTokens.of(context).warning,
+      SubscriptionRefreshStatus.failure => SsrvpnUiTokens.of(context).error,
+      SubscriptionRefreshStatus.cancelled =>
+        SsrvpnUiTokens.of(context).textSecondary,
       null => null,
     };
 
@@ -330,7 +339,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           isRefreshing: _isRefreshing,
           isBusy: _hasBlockingOperation,
           refreshMessage: refreshResult?.message,
-          refreshFailureDetails: refreshResult?.failureDetails ?? const [],
+          refreshFailureDetails: refreshResult?.failureDetails ?? [],
           refreshMessageColor: refreshColor,
           connectionStatus: status,
           currentNodeName: nodeName,

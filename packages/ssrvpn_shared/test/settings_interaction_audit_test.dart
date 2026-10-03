@@ -64,7 +64,7 @@ void main() {
         }
       }
       final boundary = GlobalKey();
-      var settings = AppSettings(glassEffectLevel: GlassEffectLevel.none);
+      var settings = AppSettings(themeVariant: AppThemeVariant.aurora);
       final core = _AuditCore();
       var portSaves = 0;
       var updateCalls = 0;
@@ -97,17 +97,9 @@ void main() {
                           body: SsrvpnSettingsPage(
                             settings: settings,
                             core: core,
-                            dataDirectory: '/tmp',
-                            onAppearanceChanged: (
-                                {glassEffectLevel,
-                                backgroundStyle,
-                                customBackgroundPath,
-                                dynamicBackground}) async {
+                            onAppearanceChanged: ({themeVariant}) async {
                               update(() => settings = settings.copyWith(
-                                  glassEffectLevel: glassEffectLevel,
-                                  backgroundStyle: backgroundStyle,
-                                  customBackgroundPath: customBackgroundPath,
-                                  dynamicBackground: dynamicBackground));
+                                  themeVariant: themeVariant));
                             },
                             onPortChanged: (value) async {
                               portSaves++;
@@ -126,7 +118,7 @@ void main() {
                 )),
       ));
       await tester.runAsync(() => precacheImage(
-          const AssetImage('assets/backgrounds/network-glass-deep.png',
+          const AssetImage('assets/backgrounds/network-glass-deep.webp',
               package: 'ssrvpn_shared'),
           tester.element(find.byType(SsrvpnSettingsPage))));
       await tester.pumpAndSettle();
@@ -153,23 +145,9 @@ void main() {
       }
 
       await capture('01-appearance');
-      await tester.tap(find.widgetWithText(ChoiceChip, '低'));
+      await tester.tap(find.byKey(const ValueKey('theme-sakura')));
       await tester.pumpAndSettle();
-      expect(settings.glassEffectLevel, GlassEffectLevel.low);
-      await reveal(find.byTooltip('关闭提示'));
-      await tester.tap(find.byTooltip('关闭提示'));
-      await tester.pumpAndSettle();
-      await reveal(find.text('动态背景'));
-      await tester.tap(find.byType(Switch));
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(settings.dynamicBackground, isTrue);
-      await tester.tap(find.byType(Switch));
-      await tester.pumpAndSettle();
-      expect(settings.dynamicBackground, isFalse);
-      expect(find.byKey(const Key('settings-notice')), findsNothing);
-      await reveal(find.widgetWithText(ChoiceChip, '中'));
-      await tester.tap(find.widgetWithText(ChoiceChip, '中'));
-      await tester.pumpAndSettle();
+      expect(settings.themeVariant, AppThemeVariant.sakura);
       await reveal(find.byTooltip('关闭提示'));
       await tester.tap(find.byTooltip('关闭提示'));
       await tester.pumpAndSettle();

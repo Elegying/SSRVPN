@@ -23,8 +23,11 @@ class _CenteredHomeLayout extends MultiChildLayoutDelegate {
     void place(_HomePart part, Size child, double top) =>
         positionChild(part, Offset((size.width - child.width) / 2, top));
 
-    final node = layoutChild(_HomePart.node,
-        BoxConstraints(maxWidth: nodeWidth.clamp(0, size.width)));
+    final node = layoutChild(
+        _HomePart.node,
+        BoxConstraints(
+            maxWidth: nodeWidth.clamp(0, size.width),
+            maxHeight: size.height * .22));
     final nodeTop = centerY - node.height / 2;
     place(_HomePart.node, node, nodeTop);
 
@@ -58,7 +61,10 @@ class _CenteredHomeLayout extends MultiChildLayoutDelegate {
 
     var lowerTop = nodeTop + node.height + 12;
     if (hasChild(_HomePart.details)) {
-      final details = measure(_HomePart.details, height: 60);
+      final details = measure(_HomePart.details,
+          height: (size.height - lowerTop) * .25 > 60
+              ? 60
+              : (size.height - lowerTop) * .25);
       place(_HomePart.details, details, lowerTop);
       lowerTop += details.height + 12;
     }
@@ -76,7 +82,7 @@ class _CenteredHomeLayout extends MultiChildLayoutDelegate {
       nodeWidth != oldDelegate.nodeWidth;
 }
 
-// Keep the tall layout separate from the already accepted compact geometry.
+// All reference-canvas sizes share the same centered geometry.
 extension _CenteredHomeContent on _HomeOverviewState {
   Widget _centeredHome({
     required double centerY,

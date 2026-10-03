@@ -5,21 +5,22 @@ class _SubscriptionEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
+    return Padding(
       padding: EdgeInsets.symmetric(vertical: 54),
       child: Center(
         child: Column(
           children: [
-            Icon(
-              Icons.rss_feed_rounded,
+            SsrvpnThemeIcon(
+              'subscription-header',
+              fallback: Icons.rss_feed_rounded,
               size: 52,
-              color: SsrvpnUiTokens.textTertiary,
+              color: SsrvpnUiTokens.of(context).textTertiary,
             ),
             SizedBox(height: 14),
             Text(
               '暂无订阅',
               style: TextStyle(
-                color: SsrvpnUiTokens.textSecondary,
+                color: SsrvpnUiTokens.of(context).textSecondary,
                 fontSize: 17,
                 fontWeight: FontWeight.w600,
               ),
@@ -27,7 +28,7 @@ class _SubscriptionEmptyState extends StatelessWidget {
             SizedBox(height: 5),
             Text(
               '在上方粘贴订阅链接开始使用',
-              style: TextStyle(color: SsrvpnUiTokens.textTertiary),
+              style: TextStyle(color: SsrvpnUiTokens.of(context).textTertiary),
             ),
           ],
         ),

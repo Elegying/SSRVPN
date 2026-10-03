@@ -68,7 +68,7 @@ void main() {
         ));
         await tester.pumpAndSettle();
         final scroll = find.byKey(const Key('ssrvpn-subscription-scroll'));
-        expect(tester.getBottomRight(scroll).dy, size.height);
+        expect(tester.getBottomRight(scroll).dy, closeTo(size.height, .000001));
         await tester.scrollUntilVisible(find.text('subscription-9'), 400,
             scrollable: find
                 .descendant(of: scroll, matching: find.byType(Scrollable))

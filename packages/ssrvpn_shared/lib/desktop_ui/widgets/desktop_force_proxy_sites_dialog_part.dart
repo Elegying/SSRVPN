@@ -79,17 +79,19 @@ class _DesktopForceProxySitesDialogState
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final titleColor =
-        isDark ? AppTheme.textPrimary : AppTheme.lightTextPrimary;
-    final subtitleColor =
-        isDark ? AppTheme.textSecondary : AppTheme.lightTextSecondary;
+    final titleColor = isDark
+        ? SsrvpnTheme.of(context).textPrimary
+        : SsrvpnTheme.of(context).textPrimary;
+    final subtitleColor = isDark
+        ? SsrvpnTheme.of(context).textSecondary
+        : SsrvpnTheme.of(context).textSecondary;
 
     return Dialog(
       backgroundColor: Colors.transparent,
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 460),
+        constraints: BoxConstraints(maxWidth: 460),
         child: SsrvpnModalGlassPanel(
           borderRadius: 16,
           opaque: true,
@@ -98,7 +100,7 @@ class _DesktopForceProxySitesDialogState
               bottom: MediaQuery.of(context).viewInsets.bottom,
             ),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+              padding: EdgeInsets.fromLTRB(24, 24, 24, 20),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -109,8 +111,11 @@ class _DesktopForceProxySitesDialogState
                         width: 40,
                         height: 40,
                         decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [AppTheme.primary, AppTheme.accentColor],
+                          gradient: LinearGradient(
+                            colors: [
+                              SsrvpnTheme.of(context).primary,
+                              SsrvpnTheme.of(context).accent
+                            ],
                           ),
                           borderRadius: BorderRadius.circular(10),
                         ),
@@ -118,11 +123,11 @@ class _DesktopForceProxySitesDialogState
                           widget.forceDirect
                               ? Icons.link_off_rounded
                               : Icons.add_link_rounded,
-                          color: Colors.white,
+                          color: SsrvpnTheme.of(context).onPrimary,
                           size: 22,
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      SizedBox(width: 12),
                       Expanded(
                         child: Text(
                           widget.forceDirect ? '添加强制直连网站' : '添加强制代理网站',
@@ -135,7 +140,7 @@ class _DesktopForceProxySitesDialogState
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   Text(
                     widget.forceDirect
                         ? '仅在确认网站无需节点时使用。同一网站以后保存的方向为准；父域与子域冲突时代理优先：'
@@ -146,7 +151,7 @@ class _DesktopForceProxySitesDialogState
                       color: subtitleColor,
                     ),
                   ),
-                  const SizedBox(height: 14),
+                  SizedBox(height: 14),
                   for (var i = 0; i < AppSettings.forceProxySiteLimit; i++) ...[
                     TextField(
                       controller: _controllers[i],
@@ -159,10 +164,11 @@ class _DesktopForceProxySitesDialogState
                         FilteringTextInputFormatter.deny(RegExp(r'[\r\n]')),
                       ],
                       decoration: GlassInputDecoration(
+                        primary: SsrvpnTheme.of(context).primary,
                         isDark: isDark,
                         labelText: '网址 ${i + 1}',
                         hintText: 'https://example.com',
-                        prefixIcon: const Icon(Icons.language, size: 18),
+                        prefixIcon: Icon(Icons.language, size: 18),
                       ).copyWith(
                         labelStyle: TextStyle(color: subtitleColor),
                         hintStyle: TextStyle(color: subtitleColor),
@@ -174,39 +180,39 @@ class _DesktopForceProxySitesDialogState
                       },
                     ),
                     if (i != AppSettings.forceProxySiteLimit - 1)
-                      const SizedBox(height: 10),
+                      SizedBox(height: 10),
                   ],
                   if (_errorText != null) ...[
-                    const SizedBox(height: 12),
+                    SizedBox(height: 12),
                     Text(
                       _errorText!,
-                      style:
-                          const TextStyle(color: AppTheme.error, fontSize: 12),
+                      style: TextStyle(
+                          color: SsrvpnTheme.of(context).error, fontSize: 12),
                     ),
                   ],
-                  const SizedBox(height: 18),
+                  SizedBox(height: 18),
                   Row(
                     children: [
                       Expanded(
                         child: TextButton(
                           onPressed: () =>
                               dismissSsrvpnDialog<List<String>>(context),
-                          child: const Text('取消'),
+                          child: Text('取消'),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton(
                           onPressed: _submit,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.primary,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            backgroundColor: SsrvpnTheme.of(context).primary,
+                            foregroundColor: SsrvpnTheme.of(context).onPrimary,
+                            padding: EdgeInsets.symmetric(vertical: 12),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10),
                             ),
                           ),
-                          child: const Text('确定'),
+                          child: Text('确定'),
                         ),
                       ),
                     ],

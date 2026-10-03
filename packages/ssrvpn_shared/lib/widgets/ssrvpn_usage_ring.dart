@@ -1,0 +1,65 @@
+import 'dart:math' as math;
+import 'package:flutter/material.dart';
+import '../models/account_usage.dart';
+import '../utils/account_usage_format.dart';
+import 'ssrvpn_theme.dart';
+
+/// A determinate account gauge; unknown or zero allowance never implies 0%.
+class SsrvpnUsageRing extends StatelessWidget {
+  const SsrvpnUsageRing(
+      {super.key,
+      required this.account,
+      required this.child,
+      this.compact = false});
+  final AccountUsage? account;
+  final bool compact;
+  final Widget child;
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, box) {
+        final colors = SsrvpnTheme.of(context);
+        final size = math.min(compact && box.maxWidth < 190 ? 24.0 : 52.0,
+            math.min(box.maxHeight, box.maxWidth * .29));
+        final usage = account;
+        final known = usage != null && usage.trafficLimitBytes > 0;
+        final progress = known
+            ? (usage.usedBytes / usage.trafficLimitBytes).clamp(0.0, 1.0)
+            : 0.0;
+        final percentage =
+            usage == null ? '—' : formatAccountUsage(usage).percentage;
+        return Row(children: [
+          SizedBox(
+              width: size,
+              height: size,
+              child: Stack(alignment: Alignment.center, children: [
+                Positioned.fill(
+                    child: CircularProgressIndicator(
+                  key: const Key('account-usage-ring'),
+                  value: progress,
+                  strokeWidth: (size * .12).clamp(2.0, 6.0),
+                  strokeCap: StrokeCap.round,
+                  color: colors.primary,
+                  backgroundColor: colors.primary.withValues(alpha: .17),
+                  semanticsLabel: '已用流量',
+                  semanticsValue: percentage,
+                )),
+                if (size >= 40)
+                  Text(
+                      percentage.length > 5
+                          ? '>999\n%'
+                          : percentage.length > 4
+                              ? percentage.replaceFirst('%', '\n%')
+                              : percentage,
+                      key: const Key('account-usage-percentage'),
+                      textAlign: TextAlign.center,
+                      textScaler: TextScaler.noScaling,
+                      style: TextStyle(
+                          fontSize: 10,
+                          height: 1.0,
+                          fontWeight: FontWeight.w700,
+                          color: colors.textPrimary)),
+              ])),
+          SizedBox(width: math.min(6, box.maxWidth * .025)),
+          Expanded(child: child),
+        ]);
+      });
+}

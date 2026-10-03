@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'ssrvpn_home_text.dart';
 
@@ -16,7 +17,36 @@ class SsrvpnHomeShell extends StatelessWidget {
       context.dependOnInheritedWidgetOfExactType<_HomeBodyOffset>()?.top ?? 0;
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, box) {
+        final collapsed = box.maxWidth <= 0 || box.maxHeight <= 0;
+        final width = collapsed ? 360.0 : box.maxWidth;
+        final height = collapsed ? 760.0 : box.maxHeight;
+        final media = MediaQuery.of(context);
+        final view = View.of(context);
+        // A keyboard changes scroll space, not the size of the design canvas.
+        final keyboard = math.max(media.viewInsets.bottom,
+            view.viewInsets.bottom / view.devicePixelRatio);
+        final referenceHeight = keyboard > 0
+            ? math.max(1.0, math.min(media.size.height, height + keyboard))
+            : height;
+        final scale =
+            math.min(1.0, math.min(width / 360, referenceHeight / 760));
+        return SizedBox.expand(
+            child: FittedBox(
+                fit: BoxFit.contain,
+                child: SizedBox(
+                    width: width / scale,
+                    height: height / scale,
+                    child: MediaQuery(
+                        data: media.copyWith(
+                            size: media.size / scale,
+                            padding: media.padding / scale,
+                            viewPadding: media.viewPadding / scale,
+                            viewInsets: media.viewInsets / scale),
+                        child: Builder(builder: _canvas)))));
+      });
+
+  Widget _canvas(BuildContext context) => LayoutBuilder(
       builder: (context, constraints) => Column(children: [
             if (notices.isNotEmpty)
               ConstrainedBox(

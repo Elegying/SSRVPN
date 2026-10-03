@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as glass;
-import 'package:ssrvpn_shared/widgets/ssrvpn_drifting_background.dart';
+import 'support/animated_test_background.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_glass_capture.dart';
 
 /// Regression guard for first-open on Windows.
@@ -21,7 +21,7 @@ void main() {
         captureSupported: true,
         child: Stack(fit: StackFit.expand, children: [
           SsrvpnGlassBackgroundSource(
-              child: SsrvpnDriftingBackground(
+              child: TestAnimatedBackground(
                   drift: true, child: const ColoredBox(color: Colors.blue))),
           Builder(
               builder: (context) => ValueListenableBuilder<Object?>(
@@ -72,14 +72,14 @@ void main() {
                 child: SsrvpnGlassCapture(
               captureSupported: true,
               child: SsrvpnGlassBackgroundSource(
-                  child: SsrvpnDriftingBackground(
+                  child: TestAnimatedBackground(
                       drift: true,
                       child: const ColoredBox(
                           key: Key('wp'), color: Colors.blue))),
             )))));
     Offset pos() => tester
         .widget<FractionalTranslation>(find.descendant(
-            of: find.byType(SsrvpnDriftingBackground),
+            of: find.byType(TestAnimatedBackground),
             matching: find.byType(FractionalTranslation)))
         .translation;
     final initial = pos();

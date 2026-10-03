@@ -32,9 +32,9 @@ def main():
             text = text.replace("<dict>", "<dict>\n<key>com.apple.security.network.server</key><true/>", 1)
         path.write_text(text)
     policy = (repository / "packages/ssrvpn_shared/lib/utils/desktop_window_state_store.dart").read_text()
-    minimum = re.search(r"minimumSize = Size\((\d+), (\d+)\)", policy)
+    minimum = re.search(r"defaultSize = Size\((\d+), (\d+)\)", policy)
     if minimum is None:
-        raise SystemExit("Cannot resolve the existing desktop minimum size")
+        raise SystemExit("Cannot resolve the desktop design size")
     width, height = minimum.groups()
     mac = host / "macos/Runner/MainFlutterWindow.swift"
     mac.write_text(mac.read_text().replace(

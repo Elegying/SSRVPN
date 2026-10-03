@@ -18,11 +18,19 @@ class SsrvpnPowerButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!SsrvpnTheme.of(context).isDefault) {
+      return SsrvpnThemedPowerButton(
+          size: size,
+          isConnected: isConnected,
+          isConnecting: isConnecting,
+          hasConnectionError: hasConnectionError,
+          onTap: onTap);
+    }
     final activeColor = hasConnectionError
-        ? SsrvpnUiTokens.error
+        ? SsrvpnUiTokens.of(context).error
         : isConnected
-            ? SsrvpnUiTokens.success
-            : SsrvpnUiTokens.primary;
+            ? SsrvpnUiTokens.of(context).success
+            : SsrvpnUiTokens.of(context).primary;
     final semanticLabel = isConnecting
         ? '取消当前连接操作'
         : isConnected
@@ -40,11 +48,11 @@ class SsrvpnPowerButton extends StatelessWidget {
         button: true,
         label: semanticLabel,
         child: Material(
-          key: const Key('ssrvpn-power-button'),
+          key: Key('ssrvpn-power-button'),
           color: Colors.transparent,
-          shape: const CircleBorder(),
+          shape: CircleBorder(),
           child: InkWell(
-            customBorder: const CircleBorder(),
+            customBorder: CircleBorder(),
             onTap: onTap,
             child: Container(
               width: size,
@@ -58,7 +66,7 @@ class SsrvpnPowerButton extends StatelessWidget {
                   width: 2,
                 ),
                 boxShadow: ssrvpnUsesLowEffects(context)
-                    ? const []
+                    ? []
                     : [
                         BoxShadow(
                           color: activeColor.withValues(
@@ -87,7 +95,7 @@ class SsrvpnPowerButton extends StatelessWidget {
                           size: size * 0.36,
                           color: isConnected
                               ? activeColor
-                              : SsrvpnUiTokens.textSecondary,
+                              : SsrvpnUiTokens.of(context).textSecondary,
                         ),
                 ),
               ),

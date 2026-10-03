@@ -25,7 +25,7 @@ class _ModePanel extends StatelessWidget {
       title: '代理模式',
       description: modeDescription,
       value: proxyMode,
-      choices: const [
+      choices: [
         _ModeChoice(ProxyMode.rule, '智能', Icons.auto_awesome_rounded),
         _ModeChoice(ProxyMode.global, '全局', Icons.public_rounded),
       ],
@@ -34,14 +34,14 @@ class _ModePanel extends StatelessWidget {
       showHeading: false,
     );
     return RepaintBoundary(
-      key: const Key('ssrvpn-proxy-mode-panel'),
+      key: Key('ssrvpn-proxy-mode-panel'),
       child: Stack(children: [
-        const Positioned.fill(
+        Positioned.fill(
           child: SsrvpnLiquidSurface(
               radius: 14, dense: true, child: SizedBox.expand()),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
+          padding: EdgeInsets.fromLTRB(18, 12, 18, 14),
           child: LayoutBuilder(
             builder: (context, constraints) {
               final tunControl = enableTun == null || onEnableTunChanged == null
@@ -68,11 +68,11 @@ class _ModePanel extends StatelessWidget {
                         if (tunControl != null) tunControl,
                       ],
                     ),
-                    const SizedBox(height: 6),
+                    SizedBox(height: 6),
                     Text(
                       modeDescription,
                       style: TextStyle(
-                        color: SsrvpnUiTokens.textSecondary,
+                        color: SsrvpnUiTokens.of(context).textSecondary,
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
                       ),
@@ -81,26 +81,26 @@ class _ModePanel extends StatelessWidget {
                     Row(
                       children: [
                         const _ModePanelTitle(),
-                        const SizedBox(width: 18),
+                        SizedBox(width: 18),
                         Expanded(
                           child: Text(
                             modeDescription,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: SsrvpnUiTokens.textSecondary,
+                              color: SsrvpnUiTokens.of(context).textSecondary,
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
                         ),
                         if (tunControl != null) ...[
-                          const SizedBox(width: 10),
+                          SizedBox(width: 10),
                           tunControl,
                         ],
                       ],
                     ),
-                  const SizedBox(height: 12),
+                  SizedBox(height: 12),
                   Padding(
                     padding: EdgeInsets.symmetric(
                       horizontal: constraints.maxWidth >= 340 ? 30 : 0,
@@ -122,19 +122,19 @@ class _ModePanelTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
+    return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(
           Icons.alt_route_rounded,
-          color: SsrvpnUiTokens.textPrimary,
+          color: SsrvpnUiTokens.of(context).textPrimary,
           size: 20,
         ),
         SizedBox(width: 10),
         Text(
           '代理模式',
           style: TextStyle(
-            color: SsrvpnUiTokens.textPrimary,
+            color: SsrvpnUiTokens.of(context).textPrimary,
             fontSize: 16,
             fontWeight: FontWeight.w800,
           ),
@@ -171,29 +171,29 @@ class _TunHeaderControl extends StatelessWidget {
           color: Colors.transparent,
           borderRadius: BorderRadius.circular(16),
           child: InkWell(
-            key: const Key('ssrvpn-tun-toggle'),
+            key: Key('ssrvpn-tun-toggle'),
             borderRadius: BorderRadius.circular(16),
             onTap: activate,
             child: Padding(
-              padding: const EdgeInsets.only(left: 4, top: 8, bottom: 8),
+              padding: EdgeInsets.only(left: 4, top: 8, bottom: 8),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.settings_rounded,
-                    color: SsrvpnUiTokens.textSecondary,
+                    color: SsrvpnUiTokens.of(context).textSecondary,
                     size: 18,
                   ),
-                  const SizedBox(width: 6),
+                  SizedBox(width: 6),
                   Text(
                     label.startsWith('TUN') ? 'TUN' : label,
-                    style: const TextStyle(
-                      color: SsrvpnUiTokens.textSecondary,
+                    style: TextStyle(
+                      color: SsrvpnUiTokens.of(context).textSecondary,
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(width: 4),
+                  SizedBox(width: 4),
                   IgnorePointer(
                     child: SizedBox(
                       width: 52,
@@ -204,9 +204,9 @@ class _TunHeaderControl extends StatelessWidget {
                           value: value,
                           onChanged: enabled ? onChanged : null,
                           activeThumbColor: Colors.white,
-                          activeTrackColor: SsrvpnUiTokens.primary,
+                          activeTrackColor: SsrvpnUiTokens.of(context).primary,
                           inactiveThumbColor: Colors.white,
-                          inactiveTrackColor: const Color(0xFF53566F),
+                          inactiveTrackColor: Color(0xFF53566F),
                           materialTapTargetSize:
                               MaterialTapTargetSize.shrinkWrap,
                         ),
@@ -248,6 +248,8 @@ class _ModeSection<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final soft =
+        SsrvpnTheme.of(context).isSoft && !MediaQuery.highContrastOf(context);
     final height = 27.0 + MediaQuery.textScalerOf(context).scale(14) * 1.5;
     return SizedBox(
         height: height,
@@ -256,27 +258,33 @@ class _ModeSection<T> extends StatelessWidget {
               child: ExcludeSemantics(
                   child: IgnorePointer(
             child: Stack(fit: StackFit.expand, children: [
-              const SsrvpnLiquidSurface(
-                  radius: 13,
-                  dense: true,
-                  tint: Color(0x183A3C58),
-                  child: SizedBox.expand()),
+              if (!soft)
+                SsrvpnLiquidSurface(
+                    radius: 13,
+                    dense: true,
+                    tint: SsrvpnTheme.of(context).surfaceStrong,
+                    child: SizedBox.expand()),
               AnimatedAlign(
                 alignment: value == choices.first.value
                     ? Alignment.centerLeft
                     : Alignment.centerRight,
                 duration: MediaQuery.disableAnimationsOf(context)
                     ? Duration.zero
-                    : const Duration(milliseconds: 180),
+                    : Duration(milliseconds: 180),
                 curve: Curves.easeOutCubic,
                 child: FractionallySizedBox(
                     widthFactor: 1 / choices.length,
                     heightFactor: 1,
-                    child: const SsrvpnLiquidSurface(
-                        radius: 10,
-                        dense: true,
-                        tint: Color(0x208A80FF),
-                        child: SizedBox.expand())),
+                    child: soft
+                        ? SsrvpnSoftInset(
+                            key: ValueKey('soft-mode-$value'),
+                            radius: 10,
+                            child: const SizedBox.expand())
+                        : SsrvpnLiquidSurface(
+                            radius: 10,
+                            dense: true,
+                            tint: SsrvpnTheme.of(context).primary,
+                            child: SizedBox.expand())),
               ),
               Row(children: [
                 for (final choice in choices)
@@ -287,8 +295,8 @@ class _ModeSection<T> extends StatelessWidget {
                         Icon(choice.icon,
                             size: 17,
                             color: choice.value == value
-                                ? SsrvpnUiTokens.textPrimary
-                                : SsrvpnUiTokens.textSecondary),
+                                ? SsrvpnUiTokens.of(context).textPrimary
+                                : SsrvpnUiTokens.of(context).textSecondary),
                         Text(choice.label,
                             style: TextStyle(
                                 fontSize: 14,
@@ -297,8 +305,9 @@ class _ModeSection<T> extends StatelessWidget {
                                     ? FontWeight.w700
                                     : FontWeight.w600,
                                 color: choice.value == value
-                                    ? SsrvpnUiTokens.textPrimary
-                                    : SsrvpnUiTokens.textSecondary)),
+                                    ? SsrvpnUiTokens.of(context).textPrimary
+                                    : SsrvpnUiTokens.of(context)
+                                        .textSecondary)),
                       ])),
               ]),
             ]),
@@ -343,7 +352,7 @@ class _ModeSection<T> extends StatelessWidget {
                                 }
                               }
                             : null,
-                        child: const SizedBox.expand(),
+                        child: SizedBox.expand(),
                       )),
                 ),
               )),

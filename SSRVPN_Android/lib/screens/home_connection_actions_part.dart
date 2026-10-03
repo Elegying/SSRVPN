@@ -248,7 +248,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
             connectionGeneration!,
             connected: true,
           )) {
-            return const AndroidConnectionOutcome();
+            return AndroidConnectionOutcome();
           }
           return orchestrator.connect(
             autoSelect?.name,
@@ -378,7 +378,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
           context.read<SubscriptionService>().allNodes,
         ).isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('订阅中没有可用节点，未更改代理模式，已保留当前连接')),
+        SnackBar(content: Text('订阅中没有可用节点，未更改代理模式，已保留当前连接')),
       );
       return;
     }
@@ -391,7 +391,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
       AppLogger.warning('ProxyMode', '保存代理模式失败: $error');
       if (!mounted || _disposed) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
           content: Text('代理模式保存失败，请重试'),
           duration: Duration(seconds: 3),
@@ -434,9 +434,9 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
       if (!mounted || _disposed) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
+          margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
           content: Text('${forceDirect ? '强制直连' : '强制代理'}网站保存失败，请重试'),
-          duration: const Duration(seconds: 3),
+          duration: Duration(seconds: 3),
         ),
       );
     }
@@ -474,7 +474,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
     if (!mounted || _disposed) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+      ssrvpnSnackBar(
         margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
         content: Text(
           shouldReload
@@ -483,9 +483,10 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
                   : '${forceDirect ? '强制直连' : '强制代理'}网站已保存，当前连接重载失败，请重新连接'
               : '${forceDirect ? '强制直连' : '强制代理'}网站已保存',
         ),
-        backgroundColor:
-            shouldReload && !reloadSucceeded ? AppTheme.warningColor : null,
-        duration: const Duration(seconds: 4),
+        backgroundColor: shouldReload && !reloadSucceeded
+            ? SsrvpnTheme.of(context).warning
+            : null,
+        duration: Duration(seconds: 4),
       ),
     );
   }

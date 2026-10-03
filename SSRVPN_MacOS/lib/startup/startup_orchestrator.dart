@@ -84,7 +84,8 @@ class StartupOrchestrator {
 
     await windowManager.ensureInitialized();
     await windowManager.setPreventClose(true);
-    await windowManager.setMinimumSize(WindowStateStore.minimumSize);
+    await windowManager.setResizable(false);
+    await windowManager.setMaximizable(false);
 
     final savedBounds =
         flags.resetWindow ? null : await WindowStateStore.load();
@@ -92,6 +93,8 @@ class StartupOrchestrator {
         savedBounds == null ? null : await _restoreVisibleBounds(savedBounds);
 
     if (restoredBounds != null) {
+      await windowManager.setMinimumSize(restoredBounds.size);
+      await windowManager.setMaximumSize(restoredBounds.size);
       await windowManager.setBounds(restoredBounds);
       StartupLogger.info('Restored window bounds: $restoredBounds');
     } else {
@@ -112,13 +115,17 @@ class StartupOrchestrator {
       final display = await screenRetriever
           .getPrimaryDisplay()
           .timeout(const Duration(seconds: 2));
-      await windowManager
-          .setBounds(WindowStateStore.initialBounds(_displayBounds(display)));
+      final bounds = WindowStateStore.initialBounds(_displayBounds(display));
+      await windowManager.setMinimumSize(bounds.size);
+      await windowManager.setMaximumSize(bounds.size);
+      await windowManager.setBounds(bounds);
       return;
     } catch (error, stack) {
       StartupLogger.error('Default window display lookup failed', error, stack);
     }
     // Keep startup usable when the display plugin is unavailable.
+    await windowManager.setMinimumSize(WindowStateStore.defaultSize);
+    await windowManager.setMaximumSize(WindowStateStore.defaultSize);
     await windowManager.setSize(WindowStateStore.defaultSize);
     try {
       await windowManager.center();

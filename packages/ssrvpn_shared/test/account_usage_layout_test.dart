@@ -193,10 +193,14 @@ void main() {
             }
             final navigationSurface = tester
                 .getRect(find.byKey(const Key('ssrvpn-bottom-navigation')));
-            expect(boxes.map((r) => r.left).reduce((a, b) => a < b ? a : b),
-                closeTo(navigationSurface.left, .1));
-            expect(boxes.map((r) => r.right).reduce((a, b) => a > b ? a : b),
-                closeTo(navigationSurface.right, .1));
+            final left =
+                boxes.map((r) => r.left).reduce((a, b) => a < b ? a : b);
+            final right =
+                boxes.map((r) => r.right).reduce((a, b) => a > b ? a : b);
+            expect(left, greaterThanOrEqualTo(navigationSurface.left - .1));
+            expect(right, lessThanOrEqualTo(navigationSurface.right + .1));
+            expect(
+                (left + right) / 2, closeTo(navigationSurface.center.dx, .1));
             for (var i = 0; i < boxes.length; i++) {
               for (var j = i + 1; j < boxes.length; j++) {
                 if (boxes[i].overlaps(boxes[j])) problems.add('cards overlap');
@@ -206,10 +210,12 @@ void main() {
             for (final element in find.byType(Column).evaluate()) {
               final render = element.renderObject;
               if (render is! RenderFlex || !render.hasSize) continue;
-              final parent = render.localToGlobal(Offset.zero) & render.size;
+              final parent = MatrixUtils.transformRect(
+                  render.getTransformTo(null), Offset.zero & render.size);
               render.visitChildren((child) {
                 if (child is RenderBox && child.hasSize) {
-                  final rect = child.localToGlobal(Offset.zero) & child.size;
+                  final rect = MatrixUtils.transformRect(
+                      child.getTransformTo(null), Offset.zero & child.size);
                   if (rect.bottom > parent.bottom + .1) {
                     problems.add(
                         'column overflow ${rect.bottom - parent.bottom}: ${element.toStringShort()} parent=$parent child=$rect');
@@ -225,7 +231,8 @@ void main() {
                       matching: find.byType(RichText))
                   .evaluate()) {
                 final render = text.renderObject! as RenderParagraph;
-                final rect = render.localToGlobal(Offset.zero) & render.size;
+                final rect = MatrixUtils.transformRect(
+                    render.getTransformTo(null), Offset.zero & render.size);
                 if (rect.top < card.top ||
                     rect.bottom > card.bottom + .1 ||
                     rect.left < card.left ||
@@ -236,13 +243,18 @@ void main() {
                 }
               }
             }
+            final canvas = find.byKey(const Key('ssrvpn-home-canvas'));
+            final canvasScale =
+                tester.getRect(canvas).width / tester.getSize(canvas).width;
             for (final key in [
               'ssrvpn-about-button',
               'ssrvpn-tutorial-button',
               'ssrvpn-current-node-card'
             ]) {
               final rect = tester.getRect(find.byKey(Key(key)));
-              if (rect.height < 48 || rect.top < 0 || rect.bottom > nav.top) {
+              if (rect.height < 48 * canvasScale - .01 ||
+                  rect.top < 0 ||
+                  rect.bottom > nav.top) {
                 problems
                     .add('control outside viewport or undersized: $key $rect');
               }

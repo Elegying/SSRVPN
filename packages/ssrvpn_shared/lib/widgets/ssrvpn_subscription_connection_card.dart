@@ -19,17 +19,17 @@ class _SubscriptionConnectionCard extends StatelessWidget {
     final (label, color, icon) = switch (status) {
       SsrvpnSubscriptionConnectionStatus.disconnected => (
           '未连接',
-          SsrvpnUiTokens.textSecondary,
+          SsrvpnUiTokens.of(context).textSecondary,
           Icons.link_off_rounded,
         ),
       SsrvpnSubscriptionConnectionStatus.connecting => (
           '正在连接',
-          SsrvpnUiTokens.warning,
+          SsrvpnUiTokens.of(context).warning,
           Icons.sync_rounded,
         ),
       SsrvpnSubscriptionConnectionStatus.connected => (
           '已连接',
-          SsrvpnUiTokens.success,
+          SsrvpnUiTokens.of(context).success,
           Icons.link_rounded,
         ),
     };
@@ -39,16 +39,16 @@ class _SubscriptionConnectionCard extends StatelessWidget {
         nodeLabel == null ? statusLabel : '$statusLabel。当前节点：$nodeLabel';
 
     return Semantics(
-      key: const Key('ssrvpn-subscription-status'),
+      key: Key('ssrvpn-subscription-status'),
       container: true,
       label: semanticsLabel,
       child: ExcludeSemantics(
         child: SsrvpnSurfaceCard(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
+          padding: EdgeInsets.symmetric(horizontal: 18, vertical: 15),
           child: Row(
             children: [
               Icon(icon, color: color, size: 22),
-              const SizedBox(width: 12),
+              SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -62,17 +62,17 @@ class _SubscriptionConnectionCard extends StatelessWidget {
                       ),
                     ),
                     if (nodeLabel != null) ...[
-                      const SizedBox(height: 3),
+                      SizedBox(height: 3),
                       Row(
                         children: [
-                          const Text(
+                          Text(
                             '当前节点',
                             style: TextStyle(
-                              color: SsrvpnUiTokens.textSecondary,
+                              color: SsrvpnUiTokens.of(context).textSecondary,
                               fontSize: 12,
                             ),
                           ),
-                          const SizedBox(width: 8),
+                          SizedBox(width: 8),
                           Expanded(
                             child: Tooltip(
                               message: nodeLabel,
@@ -80,8 +80,8 @@ class _SubscriptionConnectionCard extends StatelessWidget {
                                 compactNodeDisplayName(nodeLabel),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: SsrvpnUiTokens.textPrimary,
+                                style: TextStyle(
+                                  color: SsrvpnUiTokens.of(context).textPrimary,
                                   fontSize: 13,
                                   fontWeight: FontWeight.w600,
                                 ),

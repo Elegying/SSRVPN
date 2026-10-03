@@ -26,11 +26,11 @@ class _NodeSelectionHeader extends StatelessWidget {
         : nodeDisplayNameWithoutLeadingFlag(selectedNode!.name);
     final visibleName = compactNodeDisplayName(name);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
+      padding: EdgeInsets.fromLTRB(8, 6, 8, 4),
       child: Row(
         children: [
           Semantics(
-            key: const Key('ssrvpn-node-close'),
+            key: Key('ssrvpn-node-close'),
             container: true,
             label: '关闭服务器选择',
             button: true,
@@ -39,16 +39,16 @@ class _NodeSelectionHeader extends StatelessWidget {
             child: IconButton(
               tooltip: '关闭服务器选择',
               onPressed: onClose,
-              icon: const Icon(Icons.close_rounded, size: 30),
+              icon: Icon(Icons.close_rounded, size: 30),
             ),
           ),
-          const SizedBox(width: 4),
+          SizedBox(width: 4),
           Expanded(
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 CountryFlagIcon(countryCode: countryCode, size: 28),
-                const SizedBox(width: 10),
+                SizedBox(width: 10),
                 Flexible(
                   child: Tooltip(
                     message: name,
@@ -56,8 +56,8 @@ class _NodeSelectionHeader extends StatelessWidget {
                       visibleName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: SsrvpnUiTokens.textPrimary,
+                      style: TextStyle(
+                        color: SsrvpnUiTokens.of(context).textPrimary,
                         fontSize: 20,
                         fontWeight: FontWeight.w600,
                       ),
@@ -70,12 +70,12 @@ class _NodeSelectionHeader extends StatelessWidget {
           IconButton(
             tooltip: '刷新节点',
             onPressed: busy ? null : onRefresh,
-            icon: const Icon(Icons.refresh_rounded, size: 28),
+            icon: Icon(Icons.refresh_rounded, size: 28),
           ),
           IconButton(
             tooltip: testLabel,
             onPressed: busy ? null : onTestAll,
-            icon: const Icon(Icons.bolt_rounded, size: 28),
+            icon: Icon(Icons.bolt_rounded, size: 28),
           ),
         ],
       ),
@@ -105,14 +105,14 @@ class _UtilityActions extends StatelessWidget {
         if (onShowForceProxySites != null)
           TextButton.icon(
             onPressed: forceProxyEnabled ? onShowForceProxySites : null,
-            icon: const Icon(Icons.add_link_rounded, size: 17),
-            label: const Text('强制代理网站'),
+            icon: Icon(Icons.add_link_rounded, size: 17),
+            label: Text('强制代理网站'),
           ),
         if (onShowForceDirectSites != null)
           TextButton.icon(
             onPressed: forceProxyEnabled ? onShowForceDirectSites : null,
-            icon: const Icon(Icons.link_off_rounded, size: 17),
-            label: const Text('强制直连网站'),
+            icon: Icon(Icons.link_off_rounded, size: 17),
+            label: Text('强制直连网站'),
           ),
       ],
     );

@@ -713,7 +713,7 @@ for declaration in (
         raise SystemExit(f"{journal}: journal responsibility moved back into orchestration")
 
 # Windows deliberately uses manual registration to support safe-mode/tray flags.
-# A packaged DLL alone does not make the shared background picker available.
+# A packaged DLL alone does not make the shared QR image picker available.
 windows_runner = Path("SSRVPN_Windows/windows/runner/flutter_window.cpp")
 runner_source = windows_runner.read_text(encoding="utf-8")
 for registration in (
@@ -722,8 +722,8 @@ for registration in (
     'GetRegistrarForPlugin("FileSelectorWindows")',
 ):
     if registration not in runner_source:
-        raise SystemExit(f"{windows_runner}: background picker plugin is not registered")
-print("Windows background picker registration guard passed.")
+        raise SystemExit(f"{windows_runner}: QR image picker plugin is not registered")
+print("Windows QR image picker registration guard passed.")
 
 # The Windows lifecycle part also carries the PowerShell 5.1-compatible,
 # handle-based process identity verifier. Keep a small audited headroom without

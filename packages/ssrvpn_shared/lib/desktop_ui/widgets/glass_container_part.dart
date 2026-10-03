@@ -41,7 +41,7 @@ class _GlassContainerState extends State<GlassContainer>
     if (widget.enablePress) {
       _pressCtrl = AnimationController(
         vsync: this,
-        duration: const Duration(milliseconds: 100),
+        duration: Duration(milliseconds: 100),
       );
       _scaleAnim = Tween(begin: 1.0, end: 0.985).animate(
         CurvedAnimation(parent: _pressCtrl!, curve: Curves.easeOutCubic),
@@ -94,6 +94,7 @@ class _GlassContainerState extends State<GlassContainer>
 class GlassInputDecoration extends InputDecoration {
   GlassInputDecoration({
     required bool isDark,
+    Color primary = AppTheme.primary,
     super.hintText,
     super.labelText,
     super.prefixIcon,
@@ -103,7 +104,7 @@ class GlassInputDecoration extends InputDecoration {
           fillColor: isDark
               ? Colors.white.withValues(alpha: 0.10)
               : Colors.white.withValues(alpha: 0.60),
-          contentPadding: const EdgeInsets.symmetric(
+          contentPadding: EdgeInsets.symmetric(
             horizontal: 14,
             vertical: 12,
           ),
@@ -122,7 +123,7 @@ class GlassInputDecoration extends InputDecoration {
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
             borderSide: BorderSide(
-              color: AppTheme.primary.withValues(alpha: 0.6),
+              color: primary.withValues(alpha: 0.6),
               width: 1.5,
             ),
           ),

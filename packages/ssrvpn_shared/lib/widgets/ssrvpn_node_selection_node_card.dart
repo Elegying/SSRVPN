@@ -31,16 +31,16 @@ class _NodeSelectionCard extends StatelessWidget {
   final GestureTapDownCallback? onSecondaryTapDown;
   final VoidCallback? onLongPress;
 
-  Color get _latencyColor {
+  Color _latencyColor(BuildContext context) {
     if (latency == null || NodeDisplayPolicy.isLocalProbeBlocked(latency)) {
-      return SsrvpnUiTokens.textSecondary;
+      return SsrvpnUiTokens.of(context).textSecondary;
     }
     if (latency! <= 0 || latency! >= 65535) {
-      return SsrvpnUiTokens.error;
+      return SsrvpnUiTokens.of(context).error;
     }
-    if (latency! < 180) return SsrvpnUiTokens.success;
-    if (latency! < 350) return SsrvpnUiTokens.warning;
-    return SsrvpnUiTokens.error;
+    if (latency! < 180) return SsrvpnUiTokens.of(context).success;
+    if (latency! < 350) return SsrvpnUiTokens.of(context).warning;
+    return SsrvpnUiTokens.of(context).error;
   }
 
   String get _latencyText => NodeDisplayPolicy.latencyText(latency);
@@ -53,7 +53,9 @@ class _NodeSelectionCard extends StatelessWidget {
         MediaQuery.sizeOf(context).width < SsrvpnUiTokens.compactBreakpoint;
     final radius = compact ? 17.0 : 20.0;
     return Padding(
-      padding: EdgeInsets.only(bottom: compact ? 7 : 10),
+      padding: SsrvpnTheme.of(context).isSoft
+          ? const EdgeInsets.fromLTRB(32, 8, 32, 16)
+          : EdgeInsets.only(bottom: compact ? 7 : 10),
       child: Material(
         key: ValueKey('ssrvpn-node-card-${node.name}'),
         color: Colors.transparent,
@@ -61,9 +63,10 @@ class _NodeSelectionCard extends StatelessWidget {
         child: SsrvpnLiquidSurface(
           radius: radius,
           dense: true,
-          tint: selected ? SsrvpnUiTokens.primary : null,
-          borderColor:
-              selected ? SsrvpnUiTokens.primary.withValues(alpha: .8) : null,
+          tint: selected ? SsrvpnUiTokens.of(context).primary : null,
+          borderColor: selected
+              ? SsrvpnUiTokens.of(context).primary.withValues(alpha: .8)
+              : null,
           child: Row(
             children: [
               Expanded(
@@ -104,7 +107,7 @@ class _NodeSelectionCard extends StatelessWidget {
                             child: Row(
                               children: [
                                 if (pinned)
-                                  const Padding(
+                                  Padding(
                                       padding: EdgeInsets.only(right: 4),
                                       child: Icon(Icons.push_pin, size: 16)),
                                 CountryFlagIcon(
@@ -125,8 +128,9 @@ class _NodeSelectionCard extends StatelessWidget {
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         color: selected
-                                            ? SsrvpnUiTokens.primary
-                                            : SsrvpnUiTokens.textPrimary,
+                                            ? SsrvpnUiTokens.of(context).primary
+                                            : SsrvpnUiTokens.of(context)
+                                                .textPrimary,
                                         fontSize: 16,
                                         fontWeight: FontWeight.w600,
                                       ),
@@ -145,7 +149,7 @@ class _NodeSelectionCard extends StatelessWidget {
               TextButton(
                 onPressed: testingBusy ? null : onTest,
                 style: TextButton.styleFrom(
-                  foregroundColor: _latencyColor,
+                  foregroundColor: _latencyColor(context),
                   minimumSize: Size(compact ? 64 : 70, compact ? 44 : 48),
                 ),
                 child: Semantics(
@@ -158,7 +162,7 @@ class _NodeSelectionCard extends StatelessWidget {
                           height: 17,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: _latencyColor,
+                            color: _latencyColor(context),
                           ),
                         )
                       : Text(
@@ -173,14 +177,14 @@ class _NodeSelectionCard extends StatelessWidget {
               SizedBox(
                 width: compact ? 24 : 28,
                 child: selected
-                    ? const Icon(
+                    ? Icon(
                         Icons.check_circle_rounded,
-                        color: SsrvpnUiTokens.primary,
+                        color: SsrvpnUiTokens.of(context).primary,
                         size: 22,
                       )
                     : null,
               ),
-              const SizedBox(width: 6),
+              SizedBox(width: 6),
             ],
           ),
         ),
@@ -199,18 +203,29 @@ class _NodeEmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
+          Icon(
             Icons.dns_outlined,
             size: 48,
-            color: SsrvpnUiTokens.textTertiary,
+            color: SsrvpnUiTokens.of(context).textTertiary,
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12),
           Text(
             filtered ? '没有匹配节点，请修改或清除搜索' : '暂无可用节点',
-            style: const TextStyle(color: SsrvpnUiTokens.textSecondary),
+            style: TextStyle(color: SsrvpnUiTokens.of(context).textSecondary),
           ),
         ],
       ),
     );
   }
 }
+
+// Keep the soft shadow inside the Android swipe clip and scroll viewport.
+EdgeInsets _nodeListPadding(BuildContext context) =>
+    SsrvpnTheme.of(context).isSoft
+        ? const EdgeInsets.only(top: 8)
+        : const EdgeInsets.fromLTRB(18, 8, 18, 0);
+Widget _nodeListControls(BuildContext context, Widget child) =>
+    SsrvpnTheme.of(context).isSoft
+        ? Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18), child: child)
+        : child;

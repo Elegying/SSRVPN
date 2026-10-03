@@ -7,16 +7,13 @@ void main() {
     tester,
   ) async {
     var minimized = false;
-    var maximized = false;
     var closed = false;
 
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: WindowsTitleBar(
-            isMaximized: false,
             onMinimize: () => minimized = true,
-            onToggleMaximize: () => maximized = true,
             onClose: () => closed = true,
           ),
         ),
@@ -26,15 +23,13 @@ void main() {
     expect(find.byKey(const Key('windows-custom-title-bar')), findsOneWidget);
     expect(find.text('SSRVPN'), findsNothing);
     expect(find.byTooltip('最小化'), findsOneWidget);
-    expect(find.byTooltip('最大化'), findsOneWidget);
+    expect(find.byTooltip('最大化'), findsNothing);
     expect(find.byTooltip('关闭'), findsOneWidget);
 
     await tester.tap(find.byTooltip('最小化'));
-    await tester.tap(find.byTooltip('最大化'));
     await tester.tap(find.byTooltip('关闭'));
 
     expect(minimized, isTrue);
-    expect(maximized, isTrue);
     expect(closed, isTrue);
   });
 
@@ -82,7 +77,7 @@ void main() {
     expect(find.text('64.0'), findsOneWidget);
   });
 
-  testWidgets('maximized title bar offers restore and fits compact windows', (
+  testWidgets('fixed title bar fits compact windows without maximize', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(360, 220));
@@ -92,16 +87,14 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: WindowsTitleBar(
-            isMaximized: true,
             onMinimize: () {},
-            onToggleMaximize: () {},
             onClose: () {},
           ),
         ),
       ),
     );
 
-    expect(find.byTooltip('还原'), findsOneWidget);
+    expect(find.byTooltip('还原'), findsNothing);
     expect(find.byTooltip('最大化'), findsNothing);
     expect(tester.takeException(), isNull);
   });

@@ -69,7 +69,7 @@ void main() {
               textScaler: TextScaler.linear(scale),
               viewInsets: EdgeInsets.only(bottom: keyboard)),
           child: SsrvpnAppearanceScope(
-            settings: AppSettings(glassEffectLevel: GlassEffectLevel.none),
+            settings: AppSettings(themeVariant: AppThemeVariant.aurora),
             child: RepaintBoundary(key: captureKey, child: child!),
           ),
         ),

@@ -87,14 +87,19 @@ void main() {
           final power = rect('ssrvpn-power-button');
           final node = rect('ssrvpn-current-node-card');
           final ip = rect('home-public-ip');
-          expect(ip.top - node.bottom, greaterThanOrEqualTo(12));
+          final canvas = find.byKey(const Key('ssrvpn-home-canvas'));
+          final canvasScale =
+              tester.getRect(canvas).width / tester.getSize(canvas).width;
+          expect(ip.top - node.bottom,
+              greaterThanOrEqualTo(12 * canvasScale - .01));
           for (final text in find
               .descendant(
                   of: find.byKey(const Key('home-public-ip')),
                   matching: find.byType(RichText))
               .evaluate()) {
             final render = text.renderObject! as RenderParagraph;
-            final bounds = render.localToGlobal(Offset.zero) & render.size;
+            final bounds = MatrixUtils.transformRect(
+                render.getTransformTo(null), Offset.zero & render.size);
             expect(ip.contains(bounds.topLeft), isTrue);
             expect(bounds.right, lessThanOrEqualTo(ip.right));
             expect(bounds.bottom, lessThanOrEqualTo(ip.bottom));
@@ -119,10 +124,10 @@ void main() {
               expect(node.center.dx, closeTo(size.width / 2, .1));
             }
             spareGaps.addAll([
-              status.top - header.bottom - 12,
-              power.top - status.bottom - 10,
-              node.top - power.bottom - 12,
-              firstCard.top - ip.bottom - 12,
+              status.top - header.bottom - 12 * canvasScale,
+              power.top - status.bottom - 10 * canvasScale,
+              node.top - power.bottom - 12 * canvasScale,
+              firstCard.top - ip.bottom - 12 * canvasScale,
             ]);
             // Share upper spare height without moving the centered card.
             for (final gap in spareGaps.take(3)) {

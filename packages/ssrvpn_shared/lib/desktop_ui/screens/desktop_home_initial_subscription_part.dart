@@ -45,10 +45,12 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
           builder: (dialogContext) {
             final isDark =
                 Theme.of(dialogContext).brightness == Brightness.dark;
-            final titleColor =
-                isDark ? AppTheme.textPrimary : AppTheme.lightTextPrimary;
-            final subtitleColor =
-                isDark ? AppTheme.textSecondary : AppTheme.lightTextSecondary;
+            final titleColor = isDark
+                ? SsrvpnTheme.of(context).textPrimary
+                : SsrvpnTheme.of(context).textPrimary;
+            final subtitleColor = isDark
+                ? SsrvpnTheme.of(context).textSecondary
+                : SsrvpnTheme.of(context).textSecondary;
 
             return StatefulBuilder(
               builder: (builderContext, setDialogState) {
@@ -108,10 +110,10 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
 
                     if (navigator.canPop()) navigator.pop();
                     messenger.showSnackBar(
-                      SnackBar(
+                      ssrvpnSnackBar(
                         behavior: SnackBarBehavior.floating,
                         content: Text('节点已更新，获取到 ${nodes.length} 个节点'),
-                        backgroundColor: AppTheme.success,
+                        backgroundColor: SsrvpnTheme.of(context).success,
                       ),
                     );
                   } catch (e) {
@@ -124,8 +126,7 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                 }
 
                 return SsrvpnLiquidDialog(
-                  backgroundColor:
-                      isDark ? const Color(0xFF1A1D26) : Colors.white,
+                  backgroundColor: isDark ? Color(0xFF1A1D26) : Colors.white,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),
@@ -135,7 +136,7 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                       maxHeight: maxDialogHeight,
                     ),
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+                      padding: EdgeInsets.fromLTRB(24, 24, 24, 20),
                       child: SingleChildScrollView(
                         keyboardDismissBehavior:
                             ScrollViewKeyboardDismissBehavior.onDrag,
@@ -149,18 +150,20 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                                   width: 40,
                                   height: 40,
                                   decoration: BoxDecoration(
-                                    color: AppTheme.primary.withValues(
-                                      alpha: 22 / 255,
-                                    ),
+                                    color: SsrvpnTheme.of(context)
+                                        .primary
+                                        .withValues(
+                                          alpha: 22 / 255,
+                                        ),
                                     borderRadius: BorderRadius.circular(10),
                                   ),
-                                  child: const Icon(
+                                  child: Icon(
                                     Icons.rss_feed_rounded,
-                                    color: AppTheme.primary,
+                                    color: SsrvpnTheme.of(context).primary,
                                     size: 22,
                                   ),
                                 ),
-                                const SizedBox(width: 12),
+                                SizedBox(width: 12),
                                 Expanded(
                                   child: Text(
                                     '添加订阅',
@@ -173,13 +176,13 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 18),
+                            SizedBox(height: 18),
                             Text(
                               '请粘贴订阅或节点链接',
                               style:
                                   TextStyle(fontSize: 13, color: subtitleColor),
                             ),
-                            const SizedBox(height: 12),
+                            SizedBox(height: 12),
                             TextField(
                               controller: controller,
                               minLines: 1,
@@ -187,7 +190,7 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                               enabled: !isSubmitting,
                               decoration: InputDecoration(
                                 hintText: '粘贴订阅或节点链接',
-                                prefixIcon: const Icon(Icons.link_rounded),
+                                prefixIcon: Icon(Icons.link_rounded),
                                 errorText: inputError,
                                 filled: true,
                                 fillColor: isDark
@@ -197,8 +200,8 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                                   borderRadius: BorderRadius.circular(12),
                                   borderSide: BorderSide(
                                     color: isDark
-                                        ? AppTheme.border
-                                        : AppTheme.lightBorder,
+                                        ? SsrvpnTheme.of(context).border
+                                        : SsrvpnTheme.of(context).border,
                                   ),
                                 ),
                               ),
@@ -207,7 +210,7 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                                 if (!isSubmitting) submit();
                               },
                             ),
-                            const SizedBox(height: 20),
+                            SizedBox(height: 20),
                             Row(
                               children: [
                                 Expanded(
@@ -216,17 +219,19 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                                         ? null
                                         : () => dismissSsrvpnDialog<void>(
                                             dialogContext),
-                                    child: const Text('取消'),
+                                    child: Text('取消'),
                                   ),
                                 ),
-                                const SizedBox(width: 12),
+                                SizedBox(width: 12),
                                 Expanded(
                                   child: ElevatedButton(
                                     onPressed: isSubmitting ? null : submit,
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppTheme.primary,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(
+                                      backgroundColor:
+                                          SsrvpnTheme.of(context).primary,
+                                      foregroundColor:
+                                          SsrvpnTheme.of(context).onPrimary,
+                                      padding: EdgeInsets.symmetric(
                                         vertical: 12,
                                       ),
                                       shape: RoundedRectangleBorder(
@@ -234,7 +239,7 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                                       ),
                                     ),
                                     child: isSubmitting
-                                        ? const SizedBox(
+                                        ? SizedBox(
                                             width: 18,
                                             height: 18,
                                             child: CircularProgressIndicator(
@@ -242,7 +247,7 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                                               color: Colors.white,
                                             ),
                                           )
-                                        : const Text('确定'),
+                                        : Text('确定'),
                                   ),
                                 ),
                               ],
@@ -262,7 +267,7 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
       AppLogger.warning('SubscriptionDialog', '打开初始订阅窗口失败: $error');
       if (mounted && !_disposed) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          const SnackBar(content: Text('无法打开订阅窗口，请稍后重试')),
+          SnackBar(content: Text('无法打开订阅窗口，请稍后重试')),
         );
       }
     } finally {

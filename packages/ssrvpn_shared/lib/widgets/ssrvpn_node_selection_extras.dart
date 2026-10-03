@@ -161,6 +161,8 @@ class _SwipePinNodeState extends State<_SwipePinNode> {
       112 * MediaQuery.textScalerOf(context).scale(14) / 14;
   @override
   Widget build(BuildContext context) => ClipRect(
+        clipper:
+            SsrvpnTheme.of(context).isSoft ? const _SoftSwipeClipper() : null,
         child: Stack(
           children: [
             Positioned(
@@ -210,4 +212,14 @@ class _SwipePinNodeState extends State<_SwipePinNode> {
           ],
         ),
       );
+}
+
+/// Preserve vertical cast shadows without allowing a swiped row outside its width.
+class _SoftSwipeClipper extends CustomClipper<Rect> {
+  const _SoftSwipeClipper();
+  @override
+  Rect getClip(Size size) =>
+      Rect.fromLTRB(0, -32, size.width, size.height + 32);
+  @override
+  bool shouldReclip(_SoftSwipeClipper oldClipper) => false;
 }

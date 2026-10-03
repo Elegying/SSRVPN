@@ -109,7 +109,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
       }
     }
     _advancedController = TextEditingController(
-      text: const JsonEncoder.withIndent('  ').convert(advanced),
+      text: JsonEncoder.withIndent('  ').convert(advanced),
     );
   }
 
@@ -180,7 +180,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     try {
       final decoded = jsonDecode(_advancedController.text.trim());
       if (decoded is! Map) {
-        throw const FormatException('必须是 JSON 对象');
+        throw FormatException('必须是 JSON 对象');
       }
       advanced = decoded.map((key, value) => MapEntry(key.toString(), value));
     } on FormatException catch (e) {
@@ -254,11 +254,11 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
 
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+      ssrvpnSnackBar(
         behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        margin: EdgeInsets.fromLTRB(16, 0, 16, 16),
         content: Text('保存失败：$message'),
-        backgroundColor: AppTheme.error,
+        backgroundColor: SsrvpnTheme.of(context).error,
       ),
     );
   }
@@ -268,7 +268,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return SsrvpnAppBackdrop(
       child: SsrvpnModalGlassPanel(
-        key: const Key('ssrvpn-node-edit-glass'),
+        key: Key('ssrvpn-node-edit-glass'),
         borderRadius: 0,
         child: Scaffold(
           backgroundColor: Colors.transparent,
@@ -276,20 +276,20 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
             backgroundColor: Colors.transparent,
             surfaceTintColor: Colors.transparent,
             elevation: 0,
-            title: const Text('编辑节点'),
+            title: Text('编辑节点'),
             actions: [
               Padding(
-                padding: const EdgeInsets.only(right: 16),
+                padding: EdgeInsets.only(right: 16),
                 child: TextButton.icon(
                   onPressed: _saving ? null : _save,
                   icon: _saving
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 16,
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.save_rounded, size: 18),
-                  label: const Text('保存'),
+                      : Icon(Icons.save_rounded, size: 18),
+                  label: Text('保存'),
                 ),
               ),
             ],
@@ -297,10 +297,10 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
           body: Form(
             key: _formKey,
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
+              padding: EdgeInsets.fromLTRB(24, 8, 24, 32),
               children: [
                 _buildNotice(isDark),
-                const SizedBox(height: 20),
+                SizedBox(height: 20),
                 _buildSection(
                   title: '基本信息',
                   isDark: isDark,
@@ -332,7 +332,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                         label: '节点类型',
                         child: DropdownButtonFormField<String>(
                           initialValue: _type,
-                          decoration: const InputDecoration(),
+                          decoration: InputDecoration(),
                           items: [
                             for (final type in _availableTypes)
                               DropdownMenuItem(
@@ -346,7 +346,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                         )),
                   ],
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: 16),
                 _buildSection(
                   title: '${_type.toUpperCase()} 参数',
                   isDark: isDark,
@@ -401,10 +401,10 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                         !_usesSsr &&
                         !_usesUuid &&
                         !_usesTransport)
-                      const Text('该类型的参数可在下方 JSON 中编辑。'),
+                      Text('该类型的参数可在下方 JSON 中编辑。'),
                   ],
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: 16),
                 _buildSection(
                   title: '其他参数（JSON）',
                   isDark: isDark,
@@ -414,7 +414,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                       '内容必须是 JSON 对象。',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
-                    const SizedBox(height: 12),
+                    SizedBox(height: 12),
                     _field(
                       controller: _advancedController,
                       label: '高级参数',
@@ -440,16 +440,20 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
 
   Widget _buildNotice(bool isDark) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppTheme.warning.withValues(alpha: (isDark ? 22 : 16) / 255),
+        color: SsrvpnTheme.of(context)
+            .warning
+            .withValues(alpha: (isDark ? 22 : 16) / 255),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.warning.withValues(alpha: 70 / 255)),
+        border: Border.all(
+            color: SsrvpnTheme.of(context).warning.withValues(alpha: 70 / 255)),
       ),
-      child: const Row(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.info_outline_rounded, color: AppTheme.warning, size: 20),
+          Icon(Icons.info_outline_rounded,
+              color: SsrvpnTheme.of(context).warning, size: 20),
           SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -468,18 +472,18 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     required List<Widget> children,
   }) {
     return SsrvpnLiquidSurface(
-      padding: const EdgeInsets.all(18),
+      padding: EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
             title,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           for (var i = 0; i < children.length; i++) ...[
             children[i],
-            if (i != children.length - 1) const SizedBox(height: 14),
+            if (i != children.length - 1) SizedBox(height: 14),
           ],
         ],
       ),

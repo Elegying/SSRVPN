@@ -4,137 +4,68 @@ import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as glass;
 import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_appearance.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_app_surface.dart';
-import 'package:ssrvpn_shared/widgets/ssrvpn_connection_halo.dart';
-import 'package:ssrvpn_shared/widgets/ssrvpn_drifting_background.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_home_overview.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_glass.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_dialog.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 
 void main() {
-  test(
-      'new colors persist independently and old custom image choice is unchanged',
-      () {
-    for (final style in BackgroundStyle.values) {
-      expect(ssrvpnBackgroundLabel(style), isNotEmpty);
-      final settings = AppSettings(
-          backgroundStyle: style, customBackgroundPath: '/image.png');
-      expect(AppSettings.fromJson(settings.toJson()).backgroundStyle, style);
-    }
-    expect(ssrvpnBackgroundColor(BackgroundStyle.black), Colors.black);
-    expect(ssrvpnBackgroundColor(BackgroundStyle.deepBlue),
-        isNot(ssrvpnBackgroundColor(BackgroundStyle.blue)));
-    expect(AppSettings.fromJson({'backgroundStyle': 'custom'}).backgroundStyle,
-        BackgroundStyle.custom);
-  });
-  for (final level in GlassEffectLevel.values) {
+  for (final variant in AppThemeVariant.values) {
     testWidgets(
-        '${level.name} keeps cards power button navigation and dialog on the same tier',
+        '${variant.name} carries palette through dialog/menu and power/navigation actions',
         (tester) async {
-      final settings = AppSettings(glassEffectLevel: level);
-      final low =
-          level == GlassEffectLevel.none || level == GlassEffectLevel.low;
-      final quality = low
-          ? glass.GlassQuality.minimal
-          : level == GlassEffectLevel.medium
-              ? glass.GlassQuality.standard
-              : glass.GlassQuality.premium;
+      var toggles = 0;
+      var destination = 0;
+      final settings = AppSettings(themeVariant: variant);
       await tester.pumpWidget(MaterialApp(
-          theme: ThemeData.dark(),
           builder: (_, child) =>
               SsrvpnAppearanceScope(settings: settings, child: child!),
           home: Scaffold(
               body: Builder(
                   builder: (context) => Column(children: [
-                        const SsrvpnLiquidSurface(
-                            key: Key('grade-card'), child: Text('卡片')),
+                        const SsrvpnLiquidSurface(child: Text('卡片')),
                         SsrvpnPowerButton(
                             size: 100,
-                            isConnected: true,
+                            isConnected: false,
                             isConnecting: false,
-                            onTap: () {}),
-                        const SsrvpnFrostedPanel(child: Text('兼容表面')),
+                            onTap: () => toggles++),
                         TextButton(
                             onPressed: () => showSsrvpnGlassDialog<void>(
                                 context: context,
-                                builder: (_) => const SsrvpnLiquidAlertDialog(
-                                    title: Text('弹窗'), content: Text('内容'))),
+                                builder: (context) => SsrvpnLiquidAlertDialog(
+                                        title: const Text('主题弹窗'),
+                                        content: const Text('正文'),
+                                        actions: [
+                                          TextButton(
+                                              onPressed: () =>
+                                                  dismissSsrvpnDialog<void>(
+                                                      context),
+                                              child: const Text('关闭')),
+                                        ])),
                             child: const Text('打开')),
                         SsrvpnBottomNavigation(
-                            currentIndex: 0, version: '5.0.2', onTap: (_) {}),
+                            currentIndex: 0,
+                            version: 'test',
+                            onTap: (index) => destination = index),
                       ])))));
-      void verifySurfaces() {
-        for (final element in find.byType(SsrvpnLiquidSurface).evaluate()) {
-          expect(ssrvpnGlassQuality(element), quality);
-          final optics = SsrvpnLiquidSurface.settingsFor(element);
-          expect(optics.thickness, level == GlassEffectLevel.medium ? 12 : 30);
-          expect(optics.lightIntensity,
-              level == GlassEffectLevel.medium ? .51 : .85);
-        }
-        if (low) {
-          expect(find.byType(glass.GlassContainer), findsNothing);
-          expect(find.byType(BackdropFilter), findsNothing);
-          expect(
-              tester
-                  .widget<SsrvpnConnectionHalo>(
-                      find.byType(SsrvpnConnectionHalo))
-                  .enabled,
-              isFalse);
-        } else {
-          final nav =
-              tester.widget<glass.GlassTabBar>(find.byType(glass.GlassTabBar));
-          expect(nav.quality, quality);
-          expect(nav.backgroundQuality, quality);
-        }
-      }
-
-      verifySurfaces();
-      if (low) {
-        final box = tester.widget<DecoratedBox>(find
-            .descendant(
-                of: find.byKey(const Key('grade-card')),
-                matching: find.byType(DecoratedBox))
-            .first);
-        if (level == GlassEffectLevel.none) {
-          expect((box.decoration as BoxDecoration).color!.a, 1);
-        }
-        if (level == GlassEffectLevel.low) {
-          expect((box.decoration as BoxDecoration).color!.a, lessThan(1));
-        }
-      }
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+      expect(toggles, 1);
+      await tester.tap(find.text('设置'));
+      expect(destination, 2);
       await tester.tap(find.text('打开'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
-      expect(find.text('弹窗'), findsOneWidget);
-      verifySurfaces();
+      await tester.pumpAndSettle();
+      final context = tester.element(find.text('主题弹窗'));
+      expect(SsrvpnTheme.of(context).variant, variant);
+      expect(Theme.of(context).brightness,
+          SsrvpnTheme(variant).isLight ? Brightness.light : Brightness.dark);
+      expect(ssrvpnGlassQuality(context), glass.GlassQuality.premium);
+      expect(ssrvpnGlassDisabled(context),
+          variant != AppThemeVariant.defaultTheme);
+      await tester.tap(find.text('关闭'));
+      await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     });
   }
-  testWidgets(
-      'the shipped backdrop is still until the preference enables drift',
-      (tester) async {
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    Offset position() => tester
-        .widget<FractionalTranslation>(find.descendant(
-            of: find.byType(SsrvpnDriftingBackground),
-            matching: find.byType(FractionalTranslation)))
-        .translation;
-    Widget app(AppSettings settings) => MaterialApp(
-        builder: (_, child) =>
-            SsrvpnAppearanceScope(settings: settings, child: child!),
-        home: const SsrvpnAppBackdrop(child: SizedBox()));
-    await tester.pumpWidget(app(AppSettings()));
-    await tester.pump();
-    final still = position();
-    await tester.pump(const Duration(seconds: 6));
-    expect(position(), still);
-    await tester.pumpWidget(app(AppSettings(dynamicBackground: true)));
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 6));
-    expect(position(), isNot(still));
-    await tester.pumpWidget(const SizedBox());
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.detached);
-    expect(tester.takeException(), isNull);
-  });
 }

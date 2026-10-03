@@ -42,11 +42,11 @@ class _KeyboardActivateState extends State<_KeyboardActivate> {
       },
       child: AnimatedContainer(
         key: ValueKey('ssrvpn-keyboard-focus-${widget.debugLabel}'),
-        duration: const Duration(milliseconds: 120),
+        duration: Duration(milliseconds: 120),
         foregroundDecoration: BoxDecoration(
           borderRadius: BorderRadius.circular(widget.focusRadius),
           border: _focused
-              ? Border.all(color: SsrvpnUiTokens.primary, width: 2)
+              ? Border.all(color: SsrvpnUiTokens.of(context).primary, width: 2)
               : null,
         ),
         child: widget.child,

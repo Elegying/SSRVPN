@@ -9,36 +9,17 @@ class _SubscriptionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [SsrvpnUiTokens.primaryBlue, SsrvpnUiTokens.accent],
-            ),
-            borderRadius: BorderRadius.circular(17),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x332F6BFF),
-                blurRadius: 20,
-                offset: Offset(0, 10),
-              ),
-            ],
-          ),
-          child:
-              const Icon(Icons.rss_feed_rounded, color: Colors.white, size: 28),
-        ),
-        const SizedBox(width: 12),
-        const Expanded(
+        const SsrvpnThemeIcon('subscription-header',
+            fallback: Icons.rss_feed_rounded, size: 48),
+        SizedBox(width: 12),
+        Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 '订阅管理',
                 style: TextStyle(
-                  color: SsrvpnUiTokens.textPrimary,
+                  color: SsrvpnUiTokens.of(context).textPrimary,
                   fontSize: 24,
                   fontWeight: FontWeight.w800,
                 ),
@@ -47,7 +28,7 @@ class _SubscriptionHeader extends StatelessWidget {
               Text(
                 '支持订阅或节点链接导入',
                 style: TextStyle(
-                  color: SsrvpnUiTokens.textSecondary,
+                  color: SsrvpnUiTokens.of(context).textSecondary,
                   fontSize: 13,
                 ),
               ),
@@ -55,23 +36,23 @@ class _SubscriptionHeader extends StatelessWidget {
           ),
         ),
         if (onShowLogs != null) ...[
-          const SizedBox(width: 10),
+          SizedBox(width: 10),
           Builder(
             builder: (context) {
               final compact = MediaQuery.sizeOf(context).width < 390 ||
                   MediaQuery.textScalerOf(context).scale(14) > 18;
               if (compact) {
                 return TextButton(
-                  key: const Key('ssrvpn-subscription-logs-button'),
+                  key: Key('ssrvpn-subscription-logs-button'),
                   onPressed: onShowLogs,
                   style: TextButton.styleFrom(
-                    minimumSize: const Size(64, 44),
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    minimumSize: Size(64, 44),
+                    padding: EdgeInsets.symmetric(horizontal: 6),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 70),
-                    child: const FittedBox(
+                    constraints: BoxConstraints(maxWidth: 70),
+                    child: FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Text('运行日志'),
                     ),
@@ -79,10 +60,11 @@ class _SubscriptionHeader extends StatelessWidget {
                 );
               }
               return TextButton.icon(
-                key: const Key('ssrvpn-subscription-logs-button'),
+                key: Key('ssrvpn-subscription-logs-button'),
                 onPressed: onShowLogs,
-                icon: const Icon(Icons.article_outlined, size: 19),
-                label: const Text('运行日志'),
+                icon: SsrvpnThemeIcon('logs',
+                    fallback: Icons.article_outlined, size: 19),
+                label: Text('运行日志'),
               );
             },
           ),

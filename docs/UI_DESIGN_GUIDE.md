@@ -14,8 +14,8 @@ should stay aligned unless a platform convention requires otherwise.
 
 ## Current Shared Dark Surface Tokens
 
-All three app entrypoints currently select the dark theme. Light Material styles
-remain in code for compatibility; they are not a user-selectable theme.
+The shared `SsrvpnTheme` extension defines six palettes and materials. The table
+below documents the default dark theme; Sakura, Cloud and Soft use light palettes.
 
 | Role | Value |
 | --- | --- |
@@ -31,21 +31,13 @@ remain in code for compatibility; they are not a user-selectable theme.
 
 ## Stable Glass and Wallpaper
 
-The current working-tree update selects a stable device tier at startup:
-normal hardware uses premium; conservatively identified low-end hardware uses
-minimal glass and shared 60 FPS pacing.
-Runtime frame spikes must not silently change its thickness, blur or capture
-pipeline. Platform shader capability and accessibility fallbacks still apply.
-Diagnostic quality rollback switches have been retired; the selected device tier
-stays fixed while accessibility and renderer capability fallbacks remain.
-
-The accepted wallpaper is `network-glass-deep.png`. Retired wallpaper assets
-and build-time rollback switches were removed after user acceptance. Asset
-loading errors retain a lightweight procedural background for readability.
-The wallpaper traverses a continuous 18-second cosine cycle, with 1.16 overscan
-and fractional horizontal/vertical travel of .11/.08. Pause it while inactive,
-obscured, during route transitions, or when reduced motion is requested; do not
-reduce normal-tier capture resolution. Resume wallpaper drift after transitions.
+The default theme uses premium glass with renderer-capability and accessibility
+fallbacks. User-selectable quality tiers and background modes have been removed.
+All backgrounds are static; only connected control decorations animate.
+The default wallpaper is lossless `network-glass-deep.webp`, pixel-identical to
+the former PNG. Theme artwork is shared across routes and compressed as WebP.
+Aurora and Dusk rings are drawn concentrically in code. Soft uses raised cards
+and inset selection surfaces; its power control is flat while disconnected.
 
 Android keeps its PageView height constant during horizontal transitions. Home
 content reserves navigation space locally; subscriptions scroll behind the bar
@@ -82,24 +74,16 @@ metrics with evenly distributed leading, not a forced Latin strut height.
 
 ## Home node position
 
-In the tall vertical home layout (overview height at least 610 logical pixels
-after the top safe inset, before its 4px padding), the node card itself is
-centered in the full home viewport, including bottom navigation but excluding
-system/titlebar safe insets. Header, status and connection button share the
-remaining upper space. Statistics remain anchored above navigation, and node
-to public-IP spacing is at least 12px. Three/five cards and connection changes
-do not move the node midpoint. Existing constrained-height and compact side-by-side
-layouts remain unchanged; no minimum-window increase or scrolling is introduced.
+The node card is centered in the usable home viewport. Public IP sits below it;
+statistics sit above navigation. Every theme retains all actions on one screen.
+Small viewports scale the complete home shell uniformly. Desktop windows use a
+fixed 460×840 design size scaled to the available work area; resizing/maximizing
+is disabled, but move/minimize/close remain available.
 
 ## Account quota card
 
-The account card keeps its label, then a complete `125GB/250GB` amount/limit
-line and a single `已用50% 每月1日重置` line. Each amount selects its own binary-progressing unit.
-Nonzero percentages below 0.1% use two decimal places, without an inequality sign.
-The five-card panel uses three-plus-two rows, giving the account card 62% of the
-second row. In very short landscape space (less than 100px), the full home has
-a 380px panel and all five cards share a row, with more width for the complete
-account reminder. Local padding and text fitting keep all content visible.
-The narrowest portrait quota card uses 3px horizontal padding; outer card edges
-stay aligned with navigation. Local text fitting retains a 10px minimum and
-full accessibility counters. Existing connection/node geometry is unchanged.
+Usage and device cards continue to use the trusted account-provider contract.
+Quota is represented by a live circular progress indicator; unknown data must
+not be replaced with fictional values. Upload/download/session totals use two
+compact lines, with value and unit together. Theme changes never alter networking,
+private-node latency policy, account identity checks, or persistence semantics.

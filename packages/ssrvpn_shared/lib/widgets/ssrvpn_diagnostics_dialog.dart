@@ -18,7 +18,7 @@ Future<void> showSsrvpnDiagnosticsDialog(
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: SsrvpnModalGlassPanel(
-        key: const Key('ssrvpn-diagnostics-glass'),
+        key: Key('ssrvpn-diagnostics-glass'),
         child: ConstrainedBox(
           constraints: BoxConstraints(
             maxWidth: MediaQuery.sizeOf(context).width * 0.88,
@@ -27,17 +27,17 @@ Future<void> showSsrvpnDiagnosticsDialog(
             width: 640,
             height: 560,
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(16),
               child: Column(
                 children: [
                   Row(
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.bug_report,
                         size: 18,
-                        color: SsrvpnUiTokens.warning,
+                        color: SsrvpnUiTokens.of(context).warning,
                       ),
-                      const SizedBox(width: 8),
+                      SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           '诊断与运行日志',
@@ -65,7 +65,7 @@ Future<void> showSsrvpnDiagnosticsDialog(
                       ),
                     ],
                   ),
-                  const Divider(color: SsrvpnUiTokens.border),
+                  Divider(color: SsrvpnUiTokens.of(context).border),
                   Expanded(
                     child: AppDiagnosticsView(
                       runDiagnostics: runDiagnostics,

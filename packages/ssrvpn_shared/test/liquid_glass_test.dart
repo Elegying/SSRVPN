@@ -85,7 +85,8 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('low capability selects one stable minimal tier', (tester) async {
+  testWidgets('default keeps premium quality on low capability devices',
+      (tester) async {
     const channel = MethodChannel('com.ssrvpn/display');
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
         (call) async => call.method == 'lowPerformance' ? true : 120.0);
@@ -94,19 +95,18 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpWidget(wrapSsrvpnLiquidGlass(MaterialApp(
         home: Column(children: [
-      const SsrvpnLiquidSurface(child: Text('低档')),
+      const SsrvpnLiquidSurface(child: Text('最高画质')),
       SsrvpnBottomNavigation(currentIndex: 0, version: '5.0.0', onTap: (_) {}),
     ]))));
     await tester.pump();
     final scope = tester.widget<liquid.GlassAdaptiveScope>(
         find.byType(liquid.GlassAdaptiveScope));
-    expect(scope.minQuality, liquid.GlassQuality.minimal);
-    expect(scope.maxQuality, liquid.GlassQuality.minimal);
-    expect(scope.initialQuality, liquid.GlassQuality.minimal);
-    expect(find.byType(BackdropFilter), findsNothing);
-    expect(find.byType(liquid.GlassContainer), findsNothing);
-    expect(find.byType(liquid.GlassTabBar), findsNothing);
-    expect(find.text('主页'), findsOneWidget);
+    expect(scope.minQuality, liquid.GlassQuality.premium);
+    expect(scope.maxQuality, liquid.GlassQuality.premium);
+    expect(scope.initialQuality, liquid.GlassQuality.premium);
+    expect(find.byType(liquid.GlassContainer), findsOneWidget);
+    expect(find.byType(liquid.GlassTabBar), findsOneWidget);
+    expect(find.text('主页'), findsWidgets);
     await tester.pumpWidget(const SizedBox());
   });
 
