@@ -66,7 +66,7 @@ void main() {
       final result = await Process.run('icacls.exe', [
         protectedPath,
         allow ? '/remove:d' : '/deny',
-        allow ? sid : '$sid:${readable ? '(W)' : '(R,W)'}',
+        allow ? '*$sid' : '*$sid:${readable ? '(W)' : '(R,W)'}',
       ]);
       expect(result.exitCode, 0, reason: '${result.stdout} ${result.stderr}');
     } else {
@@ -103,6 +103,43 @@ void main() {
       expect((await Process.run('chmod', ['700', installed.path])).exitCode, 0);
     }
   }, skip: Platform.isWindows);
+
+  test('unreadable committed fallback cannot select stale installed data',
+      () async {
+    await migrate();
+    await targetSettings
+        .writeAsString(jsonEncode({...await settings(), 'proxyPort': 8890}));
+    await sourceAccess(false, entityPath: fallback.path);
+    try {
+      await expectLater(resolve(), throwsA(isA<FileSystemException>()));
+    } finally {
+      await sourceAccess(true, entityPath: fallback.path);
+    }
+    expect(path.equals(await resolve(), fallback.path), isTrue);
+    expect((await settings())['proxyPort'], 8890);
+  });
+
+  test('unreadable marker cannot masquerade as an uncommitted fallback',
+      () async {
+    await migrate();
+    await sourceAccess(false, entityPath: marker.path);
+    try {
+      await expectLater(resolve(), throwsA(isA<FileSystemException>()));
+    } finally {
+      await sourceAccess(true, entityPath: marker.path);
+    }
+    expect(path.equals(await resolve(), fallback.path), isTrue);
+  });
+
+  test('Windows marker lookup preserves case-insensitive file names', () async {
+    await migrate();
+    await targetSettings
+        .writeAsString(jsonEncode({...await settings(), 'proxyPort': 8890}));
+    await marker.rename(
+        '${fallback.path}/${WindowsSettingsMigration.markerName.toUpperCase()}');
+    expect(path.equals(await resolve(), fallback.path), isTrue);
+    expect((await settings())['proxyPort'], 8890);
+  }, skip: !Platform.isWindows);
 
   test('readable read-only source still migrates normally', () async {
     await sourceAccess(false, readable: true);

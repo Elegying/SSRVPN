@@ -19,16 +19,14 @@ class WindowsSettingsMigration {
   static const _maxBytes = 20 * 1024 * 1024;
 
   static Future<bool> isCommitted(String directory) async {
-    if (await FileSystemEntity.type(directory, followLinks: false) ==
-        FileSystemEntityType.notFound) {
+    // Never confuse an unreadable authoritative store with a missing marker.
+    // Listing also validates uncommitted destination ancestors before copying.
+    final files = await readableSourceFiles(directory, {markerName});
+    if (!files.contains(markerName)) {
       return false;
     }
-    // Validate before testing marker existence: an uncommitted destination
-    // must not receive metadata through a linked ancestor either.
-    await _directory(directory);
     final marker = File(path.join(directory, markerName));
     final type = await FileSystemEntity.type(marker.path, followLinks: false);
-    if (type == FileSystemEntityType.notFound) return false;
     if (type != FileSystemEntityType.file || await marker.length() > 16) {
       throw const FileSystemException('Installed migration marker is invalid');
     }
@@ -42,10 +40,16 @@ class WindowsSettingsMigration {
   static Future<Set<String>> readableSourceFiles(
       String source, Set<String> names) async {
     final found = <String>{};
+    final wanted = {
+      for (final name in names)
+        (Platform.isWindows ? name.toLowerCase() : name): name,
+    };
     try {
       await for (final entity in Directory(source).list(followLinks: false)) {
-        final name = path.basename(entity.path);
-        if (names.contains(name)) found.add(name);
+        final basename = path.basename(entity.path);
+        final name =
+            wanted[Platform.isWindows ? basename.toLowerCase() : basename];
+        if (name != null) found.add(name);
       }
     } on FileSystemException catch (error) {
       final code = error.osError?.errorCode;
