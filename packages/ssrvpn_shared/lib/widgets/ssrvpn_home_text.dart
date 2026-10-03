@@ -90,7 +90,11 @@ class _SsrvpnHomeTextState extends State<SsrvpnHomeText> {
         if (_fitKey == fitKey) {
           font = _fittedFont!;
         } else {
-          var low = math.min(font, widget.minFontSize), high = font;
+          final heightFloor = constraints.maxHeight /
+              (widget.maxLines ?? 1) /
+              widget.lineHeight;
+          var low = math.min(font, math.min(widget.minFontSize, heightFloor)),
+              high = font;
           if (!fits(font)) {
             for (var i = 0; i < 10; i++) {
               final middle = (low + high) / 2;

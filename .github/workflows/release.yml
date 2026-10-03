@@ -521,7 +521,9 @@ jobs:
 
       - name: Test
         shell: bash
-        run: bash scripts/run-flutter-coverage.sh SSRVPN_Windows
+        # Native fixtures launch Windows PowerShell. Keep their original
+        # production deadlines without competing test-file processes.
+        run: bash scripts/run-flutter-coverage.sh SSRVPN_Windows --concurrency=1
 
       - name: Enforce coverage threshold
         shell: bash

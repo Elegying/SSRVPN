@@ -256,10 +256,11 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
                                                 onShowTutorial:
                                                     widget.onShowTutorial)),
                                         SizedBox(height: gap),
-                                        Row(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
+                                        Flexible(
+                                            child: Row(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
                                               Expanded(child: node()),
                                               const SizedBox(width: 8),
                                               Expanded(
@@ -276,7 +277,7 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
                                                                   child:
                                                                       details)
                                                           ]))),
-                                            ]),
+                                            ])),
                                       ])),
                                     ])),
                               if (wide)
@@ -405,51 +406,56 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
                 SizedBox(width: compact ? 12 : 18),
                 Expanded(
                   child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SsrvpnHomeText(
+                      Flexible(
+                          child: SsrvpnHomeText(
                         '当前节点',
                         maxFontSize: 12,
                         style: TextStyle(
                           color: SsrvpnUiTokens.textSecondary,
                           fontSize: compact ? 12 : 13,
                         ),
-                      ),
+                      )),
                       const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          CountryFlagIcon(
-                            countryCode: resolvedCode,
-                            size: compact ? 22 : 26,
-                          ),
-                          SizedBox(width: compact ? 7 : 9),
-                          Expanded(
-                            child: Tooltip(
-                              message: displayName,
-                              child: SsrvpnHomeText(
-                                visibleName,
-                                maxFontSize: compact ? 16 : 18,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: SsrvpnUiTokens.textPrimary,
-                                  fontSize: compact ? 16 : 18,
-                                  fontWeight: FontWeight.w600,
+                      Flexible(
+                          flex: 2,
+                          child: Row(
+                            children: [
+                              CountryFlagIcon(
+                                countryCode: resolvedCode,
+                                size: compact ? 22 : 26,
+                              ),
+                              SizedBox(width: compact ? 7 : 9),
+                              Expanded(
+                                child: Tooltip(
+                                  message: displayName,
+                                  child: SsrvpnHomeText(
+                                    visibleName,
+                                    maxFontSize: compact ? 16 : 18,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: SsrvpnUiTokens.textPrimary,
+                                      fontSize: compact ? 16 : 18,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
-                          ),
-                        ],
-                      ),
+                            ],
+                          )),
                       const SizedBox(height: 3),
-                      SsrvpnHomeText(
+                      Flexible(
+                          child: SsrvpnHomeText(
                         latencyText,
                         maxFontSize: 12,
                         style: TextStyle(
                           color: latencyColor,
                           fontSize: 12,
                         ),
-                      ),
+                      )),
                     ],
                   ),
                 ),
