@@ -105,7 +105,7 @@ class SsrvpnTheme extends ThemeExtension<SsrvpnTheme> {
       : isLight
           ? const Color(0xFFB32642)
           : const Color(0xFFFF8797);
-  Color get onPrimary => isDefault || isLight ? Colors.white : background;
+  Color get onPrimary => isLight ? Colors.white : background;
 
   ThemeData material(ThemeData base) {
     final scheme = ColorScheme.fromSeed(

@@ -4,6 +4,13 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
   for (final variant in AppThemeVariant.values) {
+    test('$variant primary action label has normal-text contrast', () {
+      final palette = SsrvpnTheme(variant);
+      final a = palette.onPrimary.computeLuminance();
+      final b = palette.primary.computeLuminance();
+      final ratio = a > b ? (a + .05) / (b + .05) : (b + .05) / (a + .05);
+      expect(ratio, greaterThanOrEqualTo(4.5));
+    });
     testWidgets('$variant feedback remains readable on status backgrounds',
         (tester) async {
       final palette = SsrvpnTheme(variant);

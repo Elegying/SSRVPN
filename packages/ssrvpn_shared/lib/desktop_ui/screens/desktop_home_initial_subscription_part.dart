@@ -229,7 +229,8 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor:
                                           SsrvpnTheme.of(context).primary,
-                                      foregroundColor: Colors.white,
+                                      foregroundColor:
+                                          SsrvpnTheme.of(context).onPrimary,
                                       padding: EdgeInsets.symmetric(
                                         vertical: 12,
                                       ),
