@@ -43,8 +43,10 @@ void main() {
       () async {
     final geoStarted = Completer<void>();
     var bodyCancelled = false;
-    final geo =
-        StreamController<List<int>>(onCancel: () => bodyCancelled = true);
+    final geo = StreamController<List<int>>(
+      onListen: () => geoStarted.complete(),
+      onCancel: () => bodyCancelled = true,
+    );
     final hosts = <String>[];
     final client = _Client((request) async {
       hosts.add(request.url.host);
@@ -52,7 +54,6 @@ void main() {
         return http.StreamedResponse(
             Stream.value(utf8.encode('{"ip":"8.8.8.8"}')), 200);
       }
-      geoStarted.complete();
       return http.StreamedResponse(geo.stream, 200);
     });
     final query = PublicIpInfoService(client: client);
@@ -65,6 +66,33 @@ void main() {
     expect(bodyCancelled, isTrue);
     expect(hosts, ['api4.ipify.org', 'api.ip.sb']);
     await geo.close();
+  });
+
+  test('cancellation at the final fallback body boundary rejects stale results',
+      () async {
+    late final PublicIpInfoService query;
+    final requests = <Uri>[];
+    final client = _Client((request) async {
+      requests.add(request.url);
+      if (request.url == PublicIpInfoService.ipv4Endpoint) {
+        return http.StreamedResponse(Stream.value([]), 503);
+      }
+      late final StreamController<List<int>> body;
+      body = StreamController<List<int>>(
+        onListen: () {
+          body.add(utf8.encode('{"ip":"8.8.8.8","country_code":"US"}'));
+          unawaited(body.close());
+        },
+        onCancel: () => query.cancel(),
+      );
+      return http.StreamedResponse(body.stream, 200);
+    });
+    query = PublicIpInfoService(client: client);
+    await expectLater(query.fetch(), throwsA(isA<PublicIpInfoException>()));
+    expect(requests, [
+      PublicIpInfoService.ipv4Endpoint,
+      PublicIpInfoService.fallbackEndpoint,
+    ]);
   });
 
   for (final value in ['false', '0', 'none', '', 'true', 'tls', '1']) {

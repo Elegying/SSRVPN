@@ -54,6 +54,7 @@ class PublicIpInfoService {
     if (ipv4Info != null) return ipv4Info;
 
     final response = await _get(fallbackEndpoint, timeout);
+    _checkCurrent();
     if (response.statusCode != 200) {
       throw PublicIpInfoException('HTTP ${response.statusCode}');
     }
