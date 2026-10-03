@@ -29,6 +29,20 @@ class _FakeHttpClientAdapter implements HttpClientAdapter {
   }
 }
 
+class _EarlyDeadlineRefreshControl extends SubscriptionRefreshControl {
+  _EarlyDeadlineRefreshControl() : super(timeout: const Duration(seconds: 1));
+
+  @override
+  Duration get remaining => const Duration(seconds: 1);
+
+  @override
+  Future<T> wait<T>(Future<T> operation, {void Function()? onAbort}) async {
+    await operation;
+    onAbort?.call();
+    throw SubscriptionRefreshDeadlineExceeded(timeout);
+  }
+}
+
 class _RedirectHttpClientAdapter implements HttpClientAdapter {
   _RedirectHttpClientAdapter(this.location, {required this.compatibility});
   final String? location;
@@ -459,6 +473,24 @@ void main() {
           .timeout(const Duration(seconds: 1)),
       throwsA(isA<SubscriptionRefreshDeadlineExceeded>()),
     );
+  });
+
+  test('preserves the caller deadline when its timer fires before the clock',
+      () async {
+    SubscriptionService.overrideHttpClient(
+      _FakeHttpClientAdapter(
+        AdapterResponse(
+            statusCode: 500, headers: const {}, bodyBytes: const []),
+      ),
+    );
+    final control = _EarlyDeadlineRefreshControl();
+
+    await expectLater(
+      service.fetchSubscription('https://example.com/feed', control: control),
+      throwsA(isA<SubscriptionRefreshDeadlineExceeded>()),
+    );
+    expect(control.remaining, const Duration(seconds: 1));
+    expect(control.cancellation.isCancelled, isFalse);
   });
 
   for (final compatibility in [false, true]) {

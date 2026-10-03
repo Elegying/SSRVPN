@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 修复
 
 - Windows 通过原生系统 API 读取核心进程身份，避免 PowerShell 冷启动或系统负载导致连接失败；保留精确 PID、路径、会话、创建时间及退出校验。
+- Android 订阅请求直接沿用较短的刷新总时限，避免计时器先后触发时误报为普通网络超时。
 - 包含 v5.0.29 候选的公网 IP 取消、托盘慢启动保护、背景重新选择及综合审查修复。
 
 ## [5.0.29] - 2026-10-03
