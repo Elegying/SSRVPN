@@ -583,6 +583,7 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
     expect(proxyMode, ProxyMode.rule);
+    expect(find.byKey(const Key('ssrvpn-global-mode-glass')), findsNothing);
     expect(find.byType(SsrvpnNodeSelectionPage), findsOneWidget);
     await tester.ensureVisible(globalAction);
     await tester.pumpAndSettle();

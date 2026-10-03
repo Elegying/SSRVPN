@@ -94,6 +94,7 @@ Future<void> showSsrvpnInfoDialog(
                       if (cancelButtonLabel != null) ...[
                         Expanded(
                             child: TextButton(
+                                autofocus: true,
                                 style: TextButton.styleFrom(
                                     minimumSize: const Size(48, 48)),
                                 onPressed: () =>
