@@ -26,14 +26,35 @@ class PublicIpInfoService {
       Uri.https('api.ip.sb', '/geoip/$ip');
 
   final http.Client _client;
+  final Completer<void> _cancelled = Completer<void>();
+
+  void cancel() {
+    if (!_cancelled.isCompleted) _cancelled.complete();
+  }
+
+  void _checkCurrent() {
+    if (_cancelled.isCompleted) {
+      throw const PublicIpInfoException('公网 IP 查询已取消');
+    }
+  }
+
+  Future<T> _untilCancelled<T>(Future<T> future) => Future.any([
+        future,
+        _cancelled.future.then<T>((_) {
+          throw const PublicIpInfoException('公网 IP 查询已取消');
+        }),
+      ]);
 
   Future<PublicIpInfo> fetch({
     Duration timeout = const Duration(seconds: 8),
   }) async {
+    _checkCurrent();
     final ipv4Info = await _fetchIpv4(timeout);
+    _checkCurrent();
     if (ipv4Info != null) return ipv4Info;
 
     final response = await _get(fallbackEndpoint, timeout);
+    _checkCurrent();
     if (response.statusCode != 200) {
       throw PublicIpInfoException('HTTP ${response.statusCode}');
     }
@@ -58,30 +79,33 @@ class PublicIpInfoService {
           if (geo.ip == ip) return geo;
         }
       } catch (_) {
+        _checkCurrent();
         // The IPv4 address itself is still useful when the optional country
         // lookup is unavailable.
       }
       return PublicIpInfo(ip: ip!, countryCode: '');
     } catch (_) {
+      _checkCurrent();
       return null;
     }
   }
 
   Future<http.Response> _get(Uri uri, Duration timeout) async {
+    _checkCurrent();
     final abort = Completer<void>();
     try {
-      final request =
-          http.AbortableRequest('GET', uri, abortTrigger: abort.future)
-            ..headers.addAll(const {
-              'Accept': 'application/json,text/plain,text/html',
-              'User-Agent': AppConstants.appUserAgent,
-            });
+      final request = http.AbortableRequest('GET', uri,
+          abortTrigger: Future.any([abort.future, _cancelled.future]))
+        ..headers.addAll(const {
+          'Accept': 'application/json,text/plain,text/html',
+          'User-Agent': AppConstants.appUserAgent,
+        });
       final stopwatch = Stopwatch()..start();
       final responseFuture = _client.send(request);
       late final http.StreamedResponse response;
       try {
-        response = await responseFuture.timeout(timeout);
-      } on TimeoutException {
+        response = await _untilCancelled(responseFuture).timeout(timeout);
+      } catch (_) {
         unawaited(
           responseFuture.then<void>(
             (lateResponse) => _cancelResponseStream(lateResponse.stream),
@@ -89,6 +113,10 @@ class PublicIpInfoService {
           ),
         );
         rethrow;
+      }
+      if (_cancelled.isCompleted) {
+        await _cancelResponseStream(response.stream);
+        _checkCurrent();
       }
 
       if ((response.contentLength ?? 0) > maxResponseBytes) {
@@ -105,6 +133,7 @@ class PublicIpInfoService {
       final bytes = await _readBoundedResponse(
         response.stream,
         timeout: Duration(microseconds: remainingMicroseconds),
+        cancellation: _cancelled.future,
       );
       return http.Response.bytes(
         bytes,
@@ -125,9 +154,15 @@ class PublicIpInfoService {
   static Future<Uint8List> _readBoundedResponse(
     Stream<List<int>> stream, {
     required Duration timeout,
+    required Future<void> cancellation,
   }) async {
     final bytes = BytesBuilder(copy: false);
     final completed = Completer<void>();
+    unawaited(cancellation.then((_) {
+      if (!completed.isCompleted) {
+        completed.completeError(const PublicIpInfoException('公网 IP 查询已取消'));
+      }
+    }));
     var byteCount = 0;
 
     late final StreamSubscription<List<int>> subscription;

@@ -20,6 +20,69 @@ import 'package:ssrvpn_shared/services/smart_rule_bundle.dart';
 import 'package:ssrvpn_shared/utils/runtime_config_name_policy.dart';
 
 void main() {
+  test('preparing connection blocks fresh public IP queries until intent ends',
+      () async {
+    var requests = 0;
+    final service = _PublicIpClashService(MockClient((_) async {
+      requests++;
+      return http.Response('{"ip":"8.8.8.8","country_code":"US"}', 200);
+    }));
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    await expectLater(service.fetchCurrentPublicIpInfo(), throwsException);
+    expect(requests, 0);
+    service.requestConnectionIntent(false);
+    expect((await service.fetchCurrentPublicIpInfo()).ip, '8.8.8.8');
+    expect(requests, 2);
+  });
+
+  for (final transition in [
+    'connect',
+    'connecting-intent',
+    'disconnect',
+    'new-session',
+    'intent',
+    'route',
+    'dispose'
+  ]) {
+    test('public IP query is cancelled on $transition', () async {
+      final started = Completer<void>();
+      final response = Completer<http.Response>();
+      var requests = 0;
+      final service = _PublicIpClashService(MockClient((_) {
+        requests++;
+        started.complete();
+        return response.future;
+      }))
+        ..setRunning(!['connect', 'connecting-intent'].contains(transition));
+      addTearDown(service.dispose);
+      final task = service.fetchCurrentPublicIpInfo();
+      final failed = expectLater(task, throwsA(isA<Exception>()));
+      await started.future;
+      switch (transition) {
+        case 'connect':
+          service.setRunning(true);
+        case 'connecting-intent':
+          service.requestConnectionIntent(true);
+        case 'disconnect':
+          service.setRunning(false);
+        case 'new-session':
+          service.setRunning(true, newSession: true);
+        case 'intent':
+          service.requestConnectionIntent(false);
+        case 'route':
+          service.changeRoute();
+        case 'dispose':
+          service.dispose();
+      }
+      await failed;
+      response.complete(http.Response('{"ip":"8.8.8.8"}', 200));
+      await Future<void>.delayed(Duration.zero);
+      expect(requests, 1,
+          reason: 'old session must not start geolocation or fallback');
+    });
+  }
+
   test('manual diagnostic cannot publish after disconnect and reconnect',
       () async {
     final directory =
@@ -1730,6 +1793,7 @@ void main() {
     test('closes existing connections only after a confirmed switch', () async {
       final api = await _ProxyApiServer.start(proxyNow: 'Node A');
       addTearDown(api.close);
+      api.connectionReadFailures = 1;
 
       final service = _ApiClashService();
       addTearDown(service.dispose);
@@ -1743,6 +1807,8 @@ void main() {
       expect(switched, isTrue);
       expect(await service.currentSelectedProxyName(), 'Node B');
       expect(api.closeConnectionCalls, 1);
+      expect(api.connectionReads, 2,
+          reason: 'unknown connection count is not zero');
       expect(statusNotifications, 3); // Busy, route changed, then idle.
     });
 
@@ -2672,11 +2738,32 @@ proxies:
       },
     );
 
+    test(
+        'public IP uses device network when stopped and runtime proxy when running',
+        () async {
+      final service = _ApiClashService();
+      addTearDown(service.dispose);
+      service.updateSettings(AppSettings(proxyPort: 17890));
+      for (final running in [false, true]) {
+        service.setRunning(running);
+        final client = _PublicIpRouteClient();
+        await HttpOverrides.runZoned(() async {
+          await expectLater(
+              service.fetchCurrentPublicIpInfo(), throwsException);
+        }, createHttpClient: (_) => client);
+        expect(client.routes, isNotEmpty);
+        expect(client.routes.toSet(),
+            {running ? 'PROXY 127.0.0.1:17890' : 'DIRECT'});
+        expect(client.closed, isTrue);
+      }
+    });
+
     test('manual direct diagnostics cannot be attributed to a proxy node',
         () async {
       final service = _ApiClashService();
       addTearDown(service.dispose);
       service.updateSettings(AppSettings(forceDirectSites: ['ipify.org']));
+      service.setRunning(true);
       expect(await service.confirmedProxyExitNode(), isNull);
       await expectLater(
           service.fetchCurrentPublicIpInfo(),
@@ -3918,6 +4005,8 @@ class _ProxyApiServer {
   final int putStatusCode;
   final int deleteStatusCode;
   int closeConnectionCalls = 0;
+  int connectionReads = 0;
+  int connectionReadFailures = 0;
   final List<String> putTargets = [];
 
   int get port => _server.port;
@@ -3995,6 +4084,12 @@ class _ProxyApiServer {
     }
 
     if (request.method == 'GET' && request.uri.path == '/connections') {
+      connectionReads++;
+      if (connectionReads <= connectionReadFailures) {
+        request.response.statusCode = HttpStatus.serviceUnavailable;
+        await request.response.close();
+        return;
+      }
       request.response
         ..statusCode = HttpStatus.ok
         ..headers.contentType = ContentType.json
@@ -4899,4 +4994,36 @@ class _DelayedObservationClashService extends _TestClashService {
 class _IPv6FailureDiagnosticService extends _DiagnosticClashService {
   @override
   Future<bool> diagnosticRecentIPv6Failure() async => true;
+}
+
+class _PublicIpRouteClient implements HttpClient {
+  final routes = <String>[];
+  bool closed = false;
+  @override
+  Duration? connectionTimeout;
+  @override
+  String Function(Uri)? findProxy;
+  @override
+  Future<HttpClientRequest> openUrl(String method, Uri uri) async {
+    routes.add(findProxy!(uri));
+    throw const SocketException('Synthetic unavailable IP endpoint');
+  }
+
+  @override
+  void close({bool force = false}) => closed = true;
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _PublicIpClashService extends _TestClashService {
+  _PublicIpClashService(this.client);
+  final http.Client client;
+  int clientsCreated = 0;
+  @override
+  http.Client createPublicIpInfoClient({required bool connected}) {
+    clientsCreated++;
+    return client;
+  }
+
+  void changeRoute() => onDataPlaneRouteChanged();
 }

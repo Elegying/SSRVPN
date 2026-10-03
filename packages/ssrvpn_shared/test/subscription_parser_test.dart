@@ -808,27 +808,6 @@ tuic://00000000-0000-0000-0000-000000000001:pass@tuic.example.com:10443?congesti
       });
     });
 
-    group('deduplicateProxies', () {
-      test('removes exact duplicates', () {
-        final proxies = [
-          {'name': 'A', 'server': 's', 'port': 443},
-          {'name': 'A', 'server': 's', 'port': 443},
-          {'name': 'B', 'server': 's', 'port': 443},
-        ];
-        final result = SubscriptionParser.deduplicateProxies(proxies);
-        expect(result, hasLength(2));
-      });
-
-      test('keeps same name but different server', () {
-        final proxies = [
-          {'name': 'A', 'server': 's1', 'port': 443},
-          {'name': 'A', 'server': 's2', 'port': 443},
-        ];
-        final result = SubscriptionParser.deduplicateProxies(proxies);
-        expect(result, hasLength(2));
-      });
-    });
-
     group('tryDecodeBase64', () {
       test('decodes Base64 content', () {
         final encoded = base64Encode(

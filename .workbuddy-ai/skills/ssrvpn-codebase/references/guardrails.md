@@ -1,6 +1,6 @@
 # 门禁全表：改之前先看会不会撞墙
 
-> **核心警告：上限卡得很死。** 实测零余量/紧余量不止一处：`Windows/clash_service_lifecycle.dart` 1683/1690（余7）、`subscription_service_persistence.dart` 196/196、`desktop_connection_coordinator.dart` 188/188（零余量）；`system_proxy_models.dart` 129/130、Windows `system_proxy_service.dart` 1314/1320、`CoreProcessSupport.swift` 238/240（余量见下表）。**加几行就 fail 是常态，不是意外。**
+> **核心警告：上限卡得很死。** 实测零余量/紧余量不止一处：`Windows/clash_service_lifecycle.dart` 1628/1690（余62）、`subscription_service_persistence.dart` 196/196、`desktop_connection_coordinator.dart` 188/188（零余量）；`system_proxy_models.dart` 129/130、Windows `system_proxy_service.dart` 1314/1320、`CoreProcessSupport.swift` 238/240（余量见下表）。**加几行就 fail 是常态，不是意外。**
 > 守卫脚本用 `raise SystemExit`，**遇错即停**：修好一处才暴露下一处。
 > 验证时一次性算完所有数值，别打地鼠。
 
@@ -18,19 +18,19 @@
 
 ### 宿主文件行数上限 + 必须声明的 part
 
-**「当前」列是实测快照（2026-09-27），会随代码变动——动手前自己 `wc -l` 复核。**
+**「当前」列是实测快照（2026-10-03）；实时数值以 `bash scripts/check-clash-service-boundaries.sh` 输出为准，会随代码变动——动手前自己 `wc -l` 复核。**
 
 | 文件 | 当前 | 上限 | 余量 | 必须的 part |
 |---|---|---|---|---|
-| `SSRVPN_Android/lib/services/clash_service.dart` | 843 | **850** | 7 ⚠️ | `clash_service_native_bridge.dart`、`clash_service_snapshot_cleanup.dart`、`clash_service_config.dart`、`clash_service_country.dart`、`clash_service_data_plane.dart` |
-| `packages/ssrvpn_shared/lib/services/clash_service_base.dart` | 760 | **760** | **0** 🚨 | `clash_service_config_support.dart`、`clash_service_diagnostics.dart`、`clash_service_runtime_support.dart`、`clash_service_health_monitor.dart`、`clash_service_rule_provider_support.dart` |
+| `SSRVPN_Android/lib/services/clash_service.dart` | 841 | **850** | 9 ⚠️ | `clash_service_native_bridge.dart`、`clash_service_snapshot_cleanup.dart`、`clash_service_config.dart`、`clash_service_country.dart`、`clash_service_data_plane.dart` |
+| `packages/ssrvpn_shared/lib/services/clash_service_base.dart` | 723 | **760** | 37 | `clash_service_config_support.dart`、`clash_service_diagnostics.dart`、`clash_service_runtime_support.dart`、`clash_service_health_monitor.dart`、`clash_service_rule_provider_support.dart`、`clash_service_data_plane_support.dart`、`clash_service_latency_support.dart` |
 | `SSRVPN_MacOS/lib/services/clash_service.dart` | 419 | **550** | 131 | `clash_service_config.dart`、`clash_service_lifecycle.dart` |
-| `SSRVPN_Windows/lib/services/clash_service.dart` | 219 | **550** | 331 | `clash_service_config.dart`、`clash_service_lifecycle.dart`、`clash_service_config_validation.dart` |
+| `SSRVPN_Windows/lib/services/clash_service.dart` | 221 | **550** | 329 | `clash_service_config.dart`、`clash_service_lifecycle.dart`、`clash_service_config_validation.dart` |
 | `SSRVPN_Windows/lib/services/clash_service_config_validation.dart` | 59 | **80** | 21 | （宿主声明 part） |
 | `SSRVPN_Windows/lib/services/clash_service_process_support.dart` | 28 | **35** | 7 ⚠️ | （宿主声明 part） |
-| `SSRVPN_Windows/lib/services/clash_service_lifecycle.dart` | **1683** | **1690** | **7** ⚠️ | （无，遗留热点） |
+| `SSRVPN_Windows/lib/services/clash_service_lifecycle.dart` | **1628** | **1690** | **62** | （无，遗留热点） |
 
-> 注：`ClashServiceBase` 实际挂 **7 个 mixin**（另有 `_ClashDataPlaneSupport`、`_ClashLatencySupport`，来自 `clash_service_data_plane_support.dart` 与 `clash_service_latency_support.dart`），但守卫脚本**只校验上面 5 个 part 的存在与声明**。删掉后两个文件守卫不会报，但编译会挂。
+> `ClashServiceBase` 挂载的 7 个 mixin part 均由守卫检查存在与声明；数据面与测速 part 另有限制：600 行与 120 行。
 
 ### update 服务
 
@@ -77,7 +77,7 @@ macOS 与 Windows：`setSystemProxy` / `clearSystemProxy` **只能**出现在 `c
 | `desktop_home_runtime_actions_part.dart` | 384 | **600** | 216 |
 | `desktop_home_background_tasks_part.dart` | 234 | **300** | 66 |
 | `desktop_home_initial_subscription_part.dart` | 273 | **300** | **27** ⚠️ |
-| `desktop_home_public_ip_part.dart` | 66 | **600** | 534 |
+| `desktop_home_public_ip_part.dart` | 91 | **600** | 509 |
 | `desktop_subscription_screen_part.dart` | 349 | 450 | 101 |
 
 ⚠️ **三部件合计（home + runtime_actions + background_tasks）≤ 1410**，当前 **1397，余 13**。
@@ -88,7 +88,7 @@ macOS 与 Windows：`setSystemProxy` / `clearSystemProxy` **只能**出现在 `c
 | 文件 | 当前 | 上限 | 余量 |
 |---|---|---|---|
 | `ssrvpn_app_surface.dart` | 376 | 400 | 24 |
-| `ssrvpn_home_overview.dart` | 551 | 600 | 49 |
+| `ssrvpn_home_overview.dart` | 573 | 600 | 27 |
 | `ssrvpn_home_overview_header.dart` | 134 | 200 | 66 |
 | `ssrvpn_subscription_view.dart` | **591** | 600 | **9** ⚠️ |
 | `ssrvpn_subscription_header.dart` | 93 | 100 | **7** ⚠️ |

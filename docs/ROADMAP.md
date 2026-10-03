@@ -66,7 +66,9 @@ Explorer 中的可见性、UAC 取消和交互安装结果仍待 Windows 11 人�
 
 ### 可维护性
 
-- Windows 真实子进程身份回归曾出现 `CORE_IDENTITY_TIMEOUT`；保留完整失败与串行诊断证据，继续区分宿主负载、PowerShell 启动和生产身份查询问题。后续通过不代表根因已修复，不放宽身份校验或生产超时。
+- 应用安装包目前依赖 GitHub TLS、不可变 Release、SHA-256 和构建 provenance。独立离线发行签名仍需专用密钥、客户端信任根及过渡版本设计；不得复用仅授权规则数据的签名密钥，或在没有匹配发行资产时启用强制验签。
+
+- Windows 真实子进程身份回归曾出现 `CORE_IDENTITY_TIMEOUT`；保留完整失败与串行诊断证据，继续区分宿主负载、PowerShell 启动和生产身份查询问题。后续通过不代表根因已修复，不放宽身份校验或生产超时。CI 与发布中的 Windows Flutter 文件串行执行，避免原生 PowerShell 夹具相互争用；并发取消等行为仍由各用例主动构造，全部测试和覆盖率保持。
 
 - 下一次 Flutter 工具链或 macOS 托盘迁移时，复核并移除已知不兼容的 Dependabot 版本例外；同步验证 SDK 固定依赖、托盘菜单/回调/退出、lockfile 与全量门禁，见[依赖延后说明](MAINTENANCE.md#flutter-dependency-deferrals)。
 - 三端固定内核的共享 Go 契约现已独立接入 CI，二进制缓存命中也必须执行；扩展测试从同一复制清单发现，身份和结果随 CI 保存。继续保留平台原生及实机矩阵，不用源码测试替代设备验收。

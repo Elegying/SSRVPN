@@ -21,11 +21,15 @@ abstract final class BoundedYaml {
   static const int maxCollectionItems = 100000;
 
   static dynamic load(String source,
+          {int collectionLimit = maxCollectionItems}) =>
+      loadNode(source, collectionLimit: collectionLimit).value;
+
+  static YamlNode loadNode(String source,
       {int collectionLimit = maxCollectionItems}) {
     validate(source, collectionLimit: collectionLimit);
     final node = loadYamlNode(source);
     _validateExpansion(node, collectionLimit);
-    return node.value;
+    return node;
   }
 
   static void _validateExpansion(YamlNode root, int collectionLimit) {

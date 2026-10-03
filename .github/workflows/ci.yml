@@ -528,7 +528,9 @@ jobs:
         working-directory: SSRVPN_Windows
 
       - id: windows_coverage
-        run: bash scripts/run-flutter-coverage.sh SSRVPN_Windows
+        # Native fixtures launch Windows PowerShell. Keep their original
+        # production deadlines without competing test-file processes.
+        run: bash scripts/run-flutter-coverage.sh SSRVPN_Windows --concurrency=1
       # Preserve the failed suite result; this serial replay only adds evidence.
       - name: Diagnose Windows identity timeout in isolation
         if: failure() && steps.windows_coverage.outcome == 'failure'

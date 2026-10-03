@@ -29,6 +29,66 @@ class _Core extends ClashServiceBase {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   testWidgets(
+      'saved custom background can be reselected after deleting the original',
+      (tester) async {
+    final directory = Directory.systemTemp.createTempSync('saved-background-');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final source = File('${directory.path}/source.png');
+    source.writeAsBytesSync([1, 2, 3]);
+    final saved = source.copySync('${directory.path}/saved.png');
+    source.deleteSync();
+    var settings = AppSettings(
+        glassEffectLevel: GlassEffectLevel.none,
+        dynamicBackground: false,
+        backgroundStyle: BackgroundStyle.custom,
+        customBackgroundPath: saved.path);
+    final core = _Core();
+    addTearDown(core.dispose);
+    var imports = 0;
+    await tester.pumpWidget(MaterialApp(
+        theme: ThemeData.dark(),
+        home: StatefulBuilder(
+            builder: (context, update) => SsrvpnAppearanceScope(
+                settings: settings,
+                child: Scaffold(
+                    body: SsrvpnSettingsPage(
+                  settings: settings,
+                  core: core,
+                  dataDirectory: directory.path,
+                  pickBackgroundImage: () async {
+                    imports++;
+                    return null;
+                  },
+                  onAppearanceChanged: (
+                      {glassEffectLevel,
+                      backgroundStyle,
+                      customBackgroundPath,
+                      dynamicBackground}) async {
+                    update(() => settings = settings.copyWith(
+                        backgroundStyle: backgroundStyle,
+                        customBackgroundPath: customBackgroundPath));
+                  },
+                  onPortChanged: (_) async {},
+                  checkForUpdate: () async => null,
+                  onUpdateFound: (_) {},
+                ))))));
+    final builtin = find.byTooltip(ssrvpnBackgroundLabel(BackgroundStyle.gray));
+    await tester.ensureVisible(builtin);
+    await tester.tap(builtin);
+    await tester.pumpAndSettle();
+    expect(settings.backgroundStyle, BackgroundStyle.gray);
+    expect(settings.customBackgroundPath, saved.path);
+    await tester.ensureVisible(find.text('使用已保存图片'));
+    await tester.tap(find.text('使用已保存图片'));
+    await tester.pumpAndSettle();
+    expect(settings.backgroundStyle, BackgroundStyle.custom);
+    expect(settings.customBackgroundPath, saved.path);
+    expect(imports, 0);
+    expect(saved.readAsBytesSync(), [1, 2, 3]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
       'platform photo picker cancellation and failure keep the existing background',
       (tester) async {
     final core = _Core();
@@ -63,8 +123,8 @@ void main() {
                     checkForUpdate: () async => null,
                     onUpdateFound: (_) {})))));
     for (var i = 0; i < 2; i++) {
-      await tester.ensureVisible(find.text('更换背景图'));
-      await tester.tap(find.text('更换背景图'));
+      await tester.ensureVisible(find.text('自定义'));
+      await tester.tap(find.text('自定义'));
       await tester.pump();
     }
     expect(selections, 2);
@@ -100,7 +160,9 @@ void main() {
       addTearDown(() => dir.delete(recursive: true));
       var settings = AppSettings(
           glassEffectLevel: GlassEffectLevel.none,
-          backgroundStyle: BackgroundStyle.custom,
+          backgroundStyle: outcome == 'success'
+              ? BackgroundStyle.flowing
+              : BackgroundStyle.custom,
           customBackgroundPath: old.path);
       final core = _Core();
       addTearDown(core.dispose);
@@ -133,8 +195,8 @@ void main() {
                     checkForUpdate: () async => null,
                     onUpdateFound: (_) {},
                   ))))));
-      await tester.ensureVisible(find.text('更换背景图'));
-      await tester.runAsync(() => tester.tap(find.text('更换背景图')));
+      await tester.ensureVisible(find.text('自定义'));
+      await tester.runAsync(() => tester.tap(find.text('自定义')));
       for (var i = 0; i < 100 && find.text('使用这张背景').evaluate().isEmpty; i++) {
         await tester.runAsync(
             () => Future<void>.delayed(const Duration(milliseconds: 10)));
@@ -169,6 +231,11 @@ void main() {
       });
       expect(settings.customBackgroundPath,
           outcome == 'success' ? imported.path : old.path);
+      if (outcome == 'success') {
+        expect(settings.backgroundStyle, BackgroundStyle.custom);
+        expect(find.text('自定义背景已应用'), findsOneWidget);
+        expect(find.text('背景预览'), findsNothing);
+      }
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     });
@@ -359,11 +426,12 @@ void main() {
   });
 
   testWidgets(
-      'dynamic wallpaper switch reports the choice and locks itself elsewhere',
+      'dynamic wallpaper saves silently, reports failures and locks itself elsewhere',
       (tester) async {
     var settings = AppSettings();
     late StateSetter update;
     bool? reported;
+    var failSave = false;
     final core = _Core();
     addTearDown(core.dispose);
     await tester.pumpWidget(MaterialApp(
@@ -382,6 +450,9 @@ void main() {
                           backgroundStyle,
                           customBackgroundPath,
                           dynamicBackground}) async {
+                        if (failSave) {
+                          throw const FileSystemException('disk full');
+                        }
                         reported = dynamicBackground;
                         update(() => settings = settings.copyWith(
                             dynamicBackground: dynamicBackground));
@@ -390,17 +461,22 @@ void main() {
                       checkForUpdate: () async => null,
                       onUpdateFound: (_) {}));
             }))));
-    SwitchListTile tile() =>
-        tester.widget<SwitchListTile>(find.byType(SwitchListTile));
+    Switch tile() => tester.widget<Switch>(find.byType(Switch));
     await tester.scrollUntilVisible(find.text('动态背景'), 200,
         scrollable: find.byType(Scrollable).first);
     await tester.ensureVisible(find.text('动态背景'));
     expect(tile().value, isFalse);
     expect(tile().onChanged, isNotNull);
-    await tester.tap(find.byType(SwitchListTile));
+    await tester.tap(find.byType(Switch));
     await tester.pump();
     expect(reported, isTrue);
     expect(tile().value, isTrue);
+    expect(find.byKey(const Key('settings-notice')), findsNothing);
+    failSave = true;
+    await tester.tap(find.byType(Switch));
+    await tester.pump();
+    expect(tile().value, isTrue, reason: '保存失败后保留原值');
+    expect(find.text('保存失败，原设置已保留，请重试'), findsOneWidget);
     update(() =>
         settings = settings.copyWith(backgroundStyle: BackgroundStyle.gray));
     await tester.pump();
@@ -437,8 +513,7 @@ void main() {
                         onPortChanged: (_) async {},
                         checkForUpdate: () async => null,
                         onUpdateFound: (_) {}))))));
-    SwitchListTile tile() =>
-        tester.widget<SwitchListTile>(find.byType(SwitchListTile));
+    Switch tile() => tester.widget<Switch>(find.byType(Switch));
     await tester.scrollUntilVisible(find.text('动态背景'), 200,
         scrollable: find.byType(Scrollable).first);
     await tester.ensureVisible(find.text('动态背景'));

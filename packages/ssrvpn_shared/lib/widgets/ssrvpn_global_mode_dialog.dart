@@ -15,6 +15,7 @@ Future<bool> showSsrvpnGlobalModeDialog(BuildContext context) async {
       style: TextStyle(fontSize: 14, height: 1.5),
     ),
     buttonLabel: '确定',
+    cancelButtonLabel: '取消',
     onConfirm: () => confirmed = true,
   );
   return confirmed;

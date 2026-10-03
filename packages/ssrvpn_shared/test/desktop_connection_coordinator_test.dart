@@ -42,6 +42,19 @@ void main() {
   });
 
   group('DesktopConnectionCoordinator', () {
+    test('rollback stop failure preserves the original switch exception',
+        () async {
+      final harness = _CoordinatorHarness()
+        ..throwOnSwitch = true
+        ..throwOnStop = true;
+      await expectLater(
+          harness.connect(),
+          throwsA(isA<StateError>()
+              .having((e) => e.message, 'original cause', 'switch failed')));
+      expect(harness.stopCalls, 1);
+      expect(harness.desired, isFalse);
+    });
+
     test('reports phases and stops after invalidation', () async {
       final success = _CoordinatorHarness();
       await success.connect();
@@ -551,6 +564,7 @@ class _CoordinatorHarness {
   bool throwOnGenerate = false;
   bool throwOnWrite = false;
   bool throwOnSwitch = false;
+  bool throwOnStop = false;
   bool? switchContextBeforeChange;
   bool? switchContextAfterChange;
   int stopCalls = 0;
@@ -588,6 +602,7 @@ class _CoordinatorHarness {
       stop: () async {
         calls.add('stop');
         stopCalls++;
+        if (throwOnStop) throw StateError('stop failed');
         running = false;
       },
       switchPreferredNode: (isConnectionContextCurrent) async {

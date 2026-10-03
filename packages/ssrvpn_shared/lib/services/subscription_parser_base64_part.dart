@@ -8,9 +8,6 @@ class _SubscriptionBase64 {
     final base64Pattern = RegExp(r'^[A-Za-z0-9+/\-_]+=*$');
     if (!base64Pattern.hasMatch(str)) return false;
     if (RegExp(r'^\d+$').hasMatch(str)) return false;
-    if (str.contains(':') && !str.contains('+') && !str.contains('/')) {
-      return false;
-    }
     return true;
   }
 

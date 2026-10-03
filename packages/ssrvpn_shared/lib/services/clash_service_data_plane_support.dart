@@ -53,8 +53,18 @@ mixin _ClashDataPlaneSupport {
   String? _networkFingerprint;
   int _networkWatchEpoch = 0;
   int? _activeNetworkCheckEpoch;
+  final Map<PublicIpInfoService, http.Client> _publicIpQueries = {};
+
+  void _cancelPublicIpQueries() {
+    for (final entry in _publicIpQueries.entries) {
+      entry.key.cancel();
+      entry.value.close();
+    }
+    _publicIpQueries.clear();
+  }
 
   bool get isRunning;
+  bool get connectionDesired;
   AppSettings get settings;
   Future<String?> currentSelectedProxyName();
   bool get _canPublishHealthCheckResult;
@@ -175,6 +185,7 @@ mixin _ClashDataPlaneSupport {
   /// Callers own the user-visible half: clearing the field is silent, so a
   /// caller that had a warning on screen must notify listeners itself.
   void _invalidateDataPlaneObservationAndReprobe() {
+    _cancelPublicIpQueries();
     _dataPlaneObservationEpoch++;
     _coalescedDataPlaneObservationEpoch = null;
     onDataPlaneObservationSessionReset();
@@ -183,6 +194,7 @@ mixin _ClashDataPlaneSupport {
   }
 
   void _resetDataPlaneObservationSession() {
+    _cancelPublicIpQueries();
     _resetNetworkChangeSession();
     _dataPlaneObservationNotBefore = Duration.zero;
     _dataPlaneObservationEpoch++;
@@ -501,18 +513,27 @@ mixin _ClashDataPlaneSupport {
     return currentSelectedProxyName();
   }
 
+  @protected
+  http.Client createPublicIpInfoClient({required bool connected}) => IOClient(
+        HttpClient()
+          ..connectionTimeout = const Duration(seconds: 5)
+          ..findProxy = (_) => connected ? _localHttpProxyConfig() : 'DIRECT',
+      );
+
   Future<PublicIpInfo> fetchCurrentPublicIpInfo() async {
-    if (_exitObservationHasManualDirectOverride) {
+    final connected = isRunning;
+    if (!connected && connectionDesired) {
+      throw const PublicIpInfoException('正在准备连接，暂停公网 IP 查询');
+    }
+    if (connected && _exitObservationHasManualDirectOverride) {
       throw const PublicIpInfoException('手动直连规则覆盖出口查询，暂停节点出口归属');
     }
-    final client = IOClient(
-      HttpClient()
-        ..connectionTimeout = const Duration(seconds: 5)
-        ..findProxy = (_) => _localHttpProxyConfig(),
-    );
+    final client = createPublicIpInfoClient(connected: connected);
+    final query = PublicIpInfoService(client: client);
+    _publicIpQueries[query] = client;
     final elapsed = Stopwatch()..start();
     try {
-      final info = await PublicIpInfoService(client: client).fetch();
+      final info = await query.fetch();
       log('公网 IP 查询已完成，耗时 ${elapsed.elapsedMilliseconds}ms',
           event: 'public_ip');
       return info;
@@ -523,6 +544,8 @@ mixin _ClashDataPlaneSupport {
           event: 'public_ip');
       rethrow;
     } finally {
+      _publicIpQueries.remove(query);
+      query.cancel();
       client.close();
     }
   }

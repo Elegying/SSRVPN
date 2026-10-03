@@ -243,8 +243,8 @@ void main() {
       }),
     ));
     try {
-      await tester.ensureVisible(find.text('添加背景图'));
-      await tester.runAsync(() => tester.tap(find.text('添加背景图')));
+      await tester.ensureVisible(find.text('自定义'));
+      await tester.runAsync(() => tester.tap(find.text('自定义')));
       for (var i = 0; i < 200 && !imageReadStarted; i++) {
         await tester.runAsync(
             () => Future<void>.delayed(const Duration(milliseconds: 10)));
@@ -256,7 +256,7 @@ void main() {
       expect(
           tester
               .widget<OutlinedButton>(
-                  find.widgetWithText(OutlinedButton, '添加背景图'))
+                  find.widgetWithText(OutlinedButton, '自定义'))
               .onPressed,
           isNull);
       expect(find.text('立即更新').hitTestable(), findsOneWidget);

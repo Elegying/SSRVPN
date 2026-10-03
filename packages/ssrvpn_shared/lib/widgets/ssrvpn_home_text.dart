@@ -53,7 +53,11 @@ class _SsrvpnHomeTextState extends State<SsrvpnHomeText> {
       LayoutBuilder(builder: (context, constraints) {
         final base = DefaultTextStyle.of(context).style.merge(widget.style);
         var font = MediaQuery.textScalerOf(context).scale(base.fontSize ?? 14);
-        font = math.min(font, widget.maxFontSize ?? double.infinity);
+        font = math.min(
+            font,
+            widget.maxFontSize == null
+                ? double.infinity
+                : MediaQuery.textScalerOf(context).scale(widget.maxFontSize!));
         final direction = Directionality.of(context);
         bool fits(double size) {
           final painter = TextPainter(
@@ -86,7 +90,12 @@ class _SsrvpnHomeTextState extends State<SsrvpnHomeText> {
         if (_fitKey == fitKey) {
           font = _fittedFont!;
         } else {
-          var low = math.min(font, widget.minFontSize), high = font;
+          final heightFloor = constraints.maxHeight /
+              (widget.maxLines ?? 1) /
+              widget.lineHeight;
+          var low = math.min(font, math.min(widget.minFontSize, heightFloor)),
+              high = font;
+          if (!fits(low)) low = 0;
           if (!fits(font)) {
             for (var i = 0; i < 10; i++) {
               final middle = (low + high) / 2;

@@ -96,10 +96,3 @@ String? _androidLocalCountryCode(String name) {
   }
   return null;
 }
-
-String _androidFlagEmoji(String countryCode) {
-  if (countryCode.length != 2) return '🏳️';
-  final first = countryCode.codeUnitAt(0) - 0x41 + 0x1F1E6;
-  final second = countryCode.codeUnitAt(1) - 0x41 + 0x1F1E6;
-  return String.fromCharCodes([first, second]);
-}

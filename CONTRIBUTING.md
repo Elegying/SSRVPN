@@ -25,6 +25,18 @@ SSRVPN 是一个多平台 Flutter Monorepo：
 
 ## 本地验证
 
+首次克隆后，先解析冻结依赖并补齐固定资产，再打开分析或测试：
+
+```bash
+mise x flutter@3.44.1 -- flutter pub get --enforce-lockfile
+make assets
+scripts/verify-core-assets.sh
+```
+
+GeoIP 与三端定制核心属于忽略的构建资源；缺失时分析和集成测试会失败。
+不得跳过资源校验或用官方原版核心替代。共享测试必须在
+`packages/ssrvpn_shared` 目录运行，三端测试也必须在各自包目录运行。
+
 先在仓库根目录执行完整门禁：
 
 ```bash

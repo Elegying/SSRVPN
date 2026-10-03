@@ -309,8 +309,13 @@ void main() {
             'host': 'cdn.example.invalid',
             'path': '/tunnel',
           })))}';
-      final proxy = SubscriptionParser.proxyFromUri(link)!;
-      expect(proxy['network'], expected);
+      final proxy = SubscriptionParser.proxyFromUri(link);
+      if (network == 'kcp') {
+        expect(proxy, isNull, reason: 'unsupported transport must fail closed');
+        return;
+      }
+      expect(proxy, isNotNull);
+      expect(proxy!['network'], expected);
       if (expected != 'http') {
         expect(proxy['http-opts'], isNull);
       }

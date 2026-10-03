@@ -104,7 +104,7 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
         final padding = compact ? 18.0 : 20.0;
         final powerSize =
             short ? (wide ? 120.0 : 124.0) : (compact ? 154.0 : 170.0);
-        final detailsVisible = widget.isConnected ||
+        final detailsVisible = !widget.isConnecting ||
             widget.errorMessage != null ||
             widget.connectionNotice != null;
         final minimal = constraints.maxHeight < (detailsVisible ? 490 : 430);
@@ -153,7 +153,9 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
                   key: _statisticsKey, child: widget.bottomContent!));
           return fill
               ? Flexible(
-                  fit: balanced ? FlexFit.loose : FlexFit.tight, child: child)
+                  flex: minimal && !wide ? 2 : 1,
+                  fit: balanced ? FlexFit.loose : FlexFit.tight,
+                  child: child)
               : ConstrainedBox(
                   constraints: BoxConstraints(
                       maxHeight: (constraints.maxHeight - powerSize - 36)
@@ -256,10 +258,11 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
                                                 onShowTutorial:
                                                     widget.onShowTutorial)),
                                         SizedBox(height: gap),
-                                        Row(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
+                                        Flexible(
+                                            child: Row(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
                                               Expanded(child: node()),
                                               const SizedBox(width: 8),
                                               Expanded(
@@ -276,42 +279,54 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
                                                                   child:
                                                                       details)
                                                           ]))),
-                                            ]),
+                                            ])),
                                       ])),
                                     ])),
                               if (wide)
                                 statistics(fill: false)
                               else ...[
                                 if (minimal)
-                                  Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.center,
-                                      children: [
-                                        Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              status,
-                                              const SizedBox(height: 8),
-                                              power
-                                            ]),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                            child: Column(
+                                  Flexible(
+                                      flex: 3,
+                                      fit: FlexFit.tight,
+                                      child: Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.center,
+                                          children: [
+                                            Column(
                                                 mainAxisSize: MainAxisSize.min,
                                                 children: [
-                                              if (constraints.maxWidth >= 360)
-                                                node(),
-                                              if (detailsVisible) ...[
-                                                if (constraints.maxWidth >= 360)
-                                                  const SizedBox(height: 12),
-                                                ConstrainedBox(
-                                                    constraints:
-                                                        const BoxConstraints(
-                                                            maxHeight: 100),
-                                                    child: details),
-                                              ],
-                                            ])),
-                                      ]),
+                                                  status,
+                                                  const SizedBox(height: 8),
+                                                  Flexible(
+                                                      child: FittedBox(
+                                                          fit: BoxFit.scaleDown,
+                                                          child: power))
+                                                ]),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                                child: Column(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: [
+                                                  if (constraints.maxWidth >=
+                                                      360)
+                                                    Flexible(child: node()),
+                                                  if (detailsVisible) ...[
+                                                    if (constraints.maxWidth >=
+                                                        360)
+                                                      const SizedBox(
+                                                          height: 12),
+                                                    Flexible(
+                                                        child: ConstrainedBox(
+                                                            constraints:
+                                                                const BoxConstraints(
+                                                                    maxHeight:
+                                                                        100),
+                                                            child: details)),
+                                                  ],
+                                                ])),
+                                          ])),
                                 if (minimal && constraints.maxWidth < 360)
                                   node(),
                                 SizedBox(height: gap),
@@ -405,51 +420,56 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
                 SizedBox(width: compact ? 12 : 18),
                 Expanded(
                   child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SsrvpnHomeText(
+                      Flexible(
+                          child: SsrvpnHomeText(
                         '当前节点',
                         maxFontSize: 12,
                         style: TextStyle(
                           color: SsrvpnUiTokens.textSecondary,
                           fontSize: compact ? 12 : 13,
                         ),
-                      ),
+                      )),
                       const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          CountryFlagIcon(
-                            countryCode: resolvedCode,
-                            size: compact ? 22 : 26,
-                          ),
-                          SizedBox(width: compact ? 7 : 9),
-                          Expanded(
-                            child: Tooltip(
-                              message: displayName,
-                              child: SsrvpnHomeText(
-                                visibleName,
-                                maxFontSize: compact ? 16 : 18,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: SsrvpnUiTokens.textPrimary,
-                                  fontSize: compact ? 16 : 18,
-                                  fontWeight: FontWeight.w600,
+                      Flexible(
+                          flex: 2,
+                          child: Row(
+                            children: [
+                              CountryFlagIcon(
+                                countryCode: resolvedCode,
+                                size: compact ? 22 : 26,
+                              ),
+                              SizedBox(width: compact ? 7 : 9),
+                              Expanded(
+                                child: Tooltip(
+                                  message: displayName,
+                                  child: SsrvpnHomeText(
+                                    visibleName,
+                                    maxFontSize: compact ? 16 : 18,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: SsrvpnUiTokens.textPrimary,
+                                      fontSize: compact ? 16 : 18,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
-                          ),
-                        ],
-                      ),
+                            ],
+                          )),
                       const SizedBox(height: 3),
-                      SsrvpnHomeText(
+                      Flexible(
+                          child: SsrvpnHomeText(
                         latencyText,
                         maxFontSize: 12,
                         style: TextStyle(
                           color: latencyColor,
                           fontSize: 12,
                         ),
-                      ),
+                      )),
                     ],
                   ),
                 ),
@@ -498,10 +518,12 @@ class _ConnectionDetails extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Flexible(
+                flex: 3,
                 child: SsrvpnHomeText(errorMessage!,
                     maxLines: null, maxFontSize: 14)),
             const SizedBox(height: 4),
-            const SsrvpnHomeText(
+            const Flexible(
+                child: SsrvpnHomeText(
               '查看诊断与解决建议',
               maxLines: null,
               maxFontSize: 12,
@@ -509,7 +531,7 @@ class _ConnectionDetails extends StatelessWidget {
                 color: SsrvpnUiTokens.textSecondary,
                 decoration: TextDecoration.underline,
               ),
-            ),
+            )),
           ],
         ),
         style: TextButton.styleFrom(foregroundColor: SsrvpnUiTokens.error),

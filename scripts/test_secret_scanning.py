@@ -1,4 +1,7 @@
 import unittest
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -10,6 +13,31 @@ GITLEAKS_ACTION = (
 
 
 class SecretScanningTest(unittest.TestCase):
+    def test_tls_guard_rejects_block_and_function_reference_bypasses(self):
+        with tempfile.TemporaryDirectory() as folder:
+            fixture = Path(folder)
+            (fixture / "scripts").mkdir()
+            shutil.copy(ROOT / "scripts/check-secrets.sh", fixture / "scripts")
+            source = fixture / "packages/ssrvpn_shared/lib/client.dart"
+            source.parent.mkdir(parents=True)
+            subprocess.run(["git", "init", "-q", folder], check=True)
+            source.write_text("final client = HttpClient();\n")
+            subprocess.run(["git", "add", "."], cwd=fixture, check=True)
+            for callback in (
+                "(cert, host, port) => true",
+                "(cert, host, port) { return true; }",
+                "acceptEveryCertificate",
+            ):
+                source.write_text(f"client.badCertificateCallback = {callback};\n")
+                result = subprocess.run(["bash", "scripts/check-secrets.sh"],
+                                        cwd=fixture, capture_output=True, text=True)
+                with self.subTest(callback=callback):
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("forbidden TLS trust bypass", result.stdout)
+            source.write_text("final client = HttpClient();\n")
+            subprocess.run(["bash", "scripts/check-secrets.sh"], cwd=fixture,
+                           check=True, capture_output=True)
+
     def test_gitleaks_extends_defaults_and_scopes_vpn_fixture_allowlist(self) -> None:
         config = (ROOT / ".gitleaks.toml").read_text(encoding="utf-8")
 

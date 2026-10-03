@@ -261,47 +261,58 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
                                       ? 5
                                       : 10,
                               vertical: verticalPadding),
-                          child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                SsrvpnHomeText(row[index].label,
-                                    maxFontSize: caption,
-                                    style: TextStyle(
-                                        letterSpacing: 0,
-                                        color: SsrvpnUiTokens.textSecondary,
-                                        fontSize: caption)),
-                                SsrvpnHomeText(row[index].number,
-                                    fitReference: row[index].label == '已连接设备'
-                                        ? '9999/9999'
-                                        : row[index].label == '已用流量'
-                                            ? '1023MB/1023MB'
-                                            : '↑9999',
-                                    key: ValueKey(
-                                        'home-traffic-number-${row[index].label}'),
-                                    maxFontSize: number,
-                                    style: TextStyle(
-                                        letterSpacing: 0,
-                                        color: row[index].color,
-                                        fontSize: number,
-                                        fontWeight: FontWeight.w600,
-                                        fontFeatures: const [
-                                          FontFeature.tabularFigures()
-                                        ])),
-                                SsrvpnHomeText(row[index].unit,
-                                    fitReference: row[index].label == '已连接设备'
-                                        ? '约值·实例'
-                                        : row[index].label == '已用流量'
-                                            ? '已用9.9e99% 每月1日重置'
-                                            : '999E',
-                                    key: ValueKey(
-                                        'home-traffic-unit-${row[index].label}'),
-                                    maxFontSize: caption,
-                                    style: TextStyle(
-                                        letterSpacing: 0,
-                                        color: row[index].color,
-                                        fontSize: caption)),
-                              ])),
+                          // Caption and number sizes already include the
+                          // system scale and the available card-height budget.
+                          child: MediaQuery.withNoTextScaling(
+                              child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                Flexible(
+                                    flex: (caption * 100).round(),
+                                    child: SsrvpnHomeText(row[index].label,
+                                        maxFontSize: caption,
+                                        style: TextStyle(
+                                            letterSpacing: 0,
+                                            color: SsrvpnUiTokens.textSecondary,
+                                            fontSize: caption))),
+                                Flexible(
+                                    flex: (number * 100).round(),
+                                    child: SsrvpnHomeText(row[index].number,
+                                        fitReference:
+                                            row[index].label == '已连接设备'
+                                                ? '9999/9999'
+                                                : row[index].label == '已用流量'
+                                                    ? '1023MB/1023MB'
+                                                    : '↑9999',
+                                        key: ValueKey(
+                                            'home-traffic-number-${row[index].label}'),
+                                        maxFontSize: number,
+                                        style: TextStyle(
+                                            letterSpacing: 0,
+                                            color: row[index].color,
+                                            fontSize: number,
+                                            fontWeight: FontWeight.w600,
+                                            fontFeatures: const [
+                                              FontFeature.tabularFigures()
+                                            ]))),
+                                Flexible(
+                                    flex: (caption * 100).round(),
+                                    child: SsrvpnHomeText(row[index].unit,
+                                        fitReference:
+                                            row[index].label == '已连接设备'
+                                                ? '约值·实例'
+                                                : row[index].label == '已用流量'
+                                                    ? '已用9.9e99% 每月1日重置'
+                                                    : '999E',
+                                        key: ValueKey(
+                                            'home-traffic-unit-${row[index].label}'),
+                                        maxFontSize: caption,
+                                        style: TextStyle(
+                                            letterSpacing: 0,
+                                            color: row[index].color,
+                                            fontSize: caption))),
+                              ]))),
                     )),
               ],
             ]));

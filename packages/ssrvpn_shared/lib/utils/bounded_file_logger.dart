@@ -79,11 +79,11 @@ class BoundedFileLogger {
         final batch = StringBuffer();
         final dropped = _droppedEntries;
         _droppedEntries = 0;
-        if (dropped > 0) {
-          batch.writeln('[dropped $dropped log entries while disk was busy]');
-        }
         while (_pending.isNotEmpty) {
           batch.write(_pending.removeFirst().text);
+        }
+        if (dropped > 0) {
+          batch.writeln('[dropped $dropped log entries while disk was busy]');
         }
         _pendingBytes = 0;
 

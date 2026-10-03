@@ -110,6 +110,7 @@ class UpdateChecker {
       throw const FormatException('GitHub update metadata is not an object');
     }
 
+    if (data['prerelease'] == true || data['draft'] == true) return null;
     final latestVersion = (data['tag_name']?.toString() ?? '').replaceFirst(
       RegExp(r'^v'),
       '',
@@ -117,6 +118,7 @@ class UpdateChecker {
     if (!_isValidVersion(latestVersion)) {
       throw const FormatException('GitHub release version is invalid');
     }
+    if (latestVersion.contains('-')) return null;
     if (compareVersions(latestVersion, currentVersion) <= 0) return null;
 
     final releaseAssets = _releaseAssets(data['assets']);
@@ -154,7 +156,9 @@ class UpdateChecker {
   }
 
   static bool _isValidVersion(String version) =>
-      RegExp(r'^\d+(?:\.\d+){1,3}$').hasMatch(version);
+      RegExp(r'^\d+(?:\.\d+){1,3}(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?'
+              r'(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$')
+          .hasMatch(version);
 
   static int compareVersions(String a, String b) {
     final aVersion = _parseComparableVersion(a);

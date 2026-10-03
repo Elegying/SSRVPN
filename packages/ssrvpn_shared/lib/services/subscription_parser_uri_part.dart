@@ -78,7 +78,7 @@ class _SubscriptionUriParser {
       return _parseHttpUri(uri, port);
     }
 
-    if (uri.host.isEmpty || uri.port <= 0) return null;
+    if (uri.host.isEmpty || uri.port <= 0 || uri.port > 65535) return null;
     final password = _decodeUriPart(uri.userInfo);
     if (password.isEmpty) return null;
 
@@ -148,7 +148,13 @@ class _SubscriptionUriParser {
           _normalizeServer(_stringFrom(json['add'] ?? json['server']));
       final port = _intFrom(json['port']);
       final uuid = _stringFrom(json['id'] ?? json['uuid']);
-      if (server == null || port == null || uuid == null) return null;
+      if (server == null ||
+          port == null ||
+          port < 1 ||
+          port > 65535 ||
+          uuid == null) {
+        return null;
+      }
 
       final name = _stringFrom(json['ps'] ?? json['name']) ??
           _formatHostPort(server, port);
@@ -171,7 +177,7 @@ class _SubscriptionUriParser {
       if (network != null) proxy['network'] = network;
 
       final tls = _stringFrom(json['tls'])?.toLowerCase();
-      if (tls != null && tls.isNotEmpty && tls != 'none') {
+      if (tls == 'tls' || _isTruthy(tls)) {
         proxy['tls'] = true;
       }
 
@@ -371,7 +377,8 @@ class _SubscriptionUriParser {
 
     _putIfNotEmpty(proxy, 'ports', ports);
     _putIfNotEmpty(proxy, 'sni', query['sni']);
-    _putIfNotEmpty(proxy, 'fingerprint', query['pinSHA256']);
+    _putIfNotEmpty(proxy, 'fingerprint',
+        query['pinSHA256'] ?? query['pin-sha256'] ?? query['pinsha256']);
     _putIfNotEmpty(proxy, 'obfs', query['obfs']);
     _putIfNotEmpty(
       proxy,
@@ -551,12 +558,9 @@ class _SubscriptionUriParser {
         network == 'tcp') {
       return network == 'tcp' ? 'tcp' : null;
     }
-    if (network == 'http') return 'http';
-    if (network == 'ws' ||
-        network == 'h2' ||
-        network == 'grpc' ||
-        network == 'xhttp') {
-      return network;
+    if (!{'http', 'ws', 'h2', 'grpc', 'xhttp', 'httpupgrade'}
+        .contains(network)) {
+      throw const FormatException('不支持的节点传输方式');
     }
     return network;
   }

@@ -4,6 +4,7 @@ import 'dart:io';
 import '../models/proxy_group.dart';
 import '../models/proxy_node.dart';
 import '../utils/bounded_yaml.dart';
+import '../utils/yaml_section.dart';
 import '../utils/proxy_node_usage_policy.dart';
 import '../utils/proxy_option_types.dart';
 import '../utils/proxy_transport_validation.dart';
@@ -85,13 +86,6 @@ class SubscriptionParser {
   /// 生成唯一节点名，遇到重名自动加后缀
   static String uniqueProxyName(String baseName, Set<String> usedNames) {
     return _SubscriptionNaming.uniqueProxyName(baseName, usedNames);
-  }
-
-  /// 对节点列表去重（同名+同服务器+同端口视为重复）
-  static List<Map<String, dynamic>> deduplicateProxies(
-    List<Map<String, dynamic>> proxies,
-  ) {
-    return _SubscriptionNaming.deduplicateProxies(proxies);
   }
 
   /// 判断是否为Base64编码

@@ -24,6 +24,8 @@ services = {
             "clash_service_config_support.dart",
             "clash_service_diagnostics.dart",
             "clash_service_runtime_support.dart",
+            "clash_service_data_plane_support.dart",
+            "clash_service_latency_support.dart",
             "clash_service_health_monitor.dart",
             "clash_service_rule_provider_support.dart",
         ),
@@ -44,10 +46,13 @@ services = {
 services[Path("SSRVPN_Windows/lib/services/clash_service_lifecycle.dart")] = (1690, ())
 services[Path("SSRVPN_Windows/lib/services/clash_service_process_support.dart")] = (35, ())
 services[Path("SSRVPN_Windows/lib/services/clash_service_config_validation.dart")] = (80, ())
+services[Path("packages/ssrvpn_shared/lib/services/clash_service_data_plane_support.dart")] = (600, ())
+services[Path("packages/ssrvpn_shared/lib/services/clash_service_latency_support.dart")] = (120, ())
 
 for path, (limit, parts) in services.items():
     source = path.read_text(encoding="utf-8")
     lines = len(source.splitlines())
+    print(f"{path}: {lines}/{limit} lines, remaining {limit - lines}")
     if lines > limit:
         raise SystemExit(f"{path}: {lines} lines exceeds the {limit}-line boundary")
     for part in parts:

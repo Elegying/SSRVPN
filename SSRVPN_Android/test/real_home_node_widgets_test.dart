@@ -46,6 +46,51 @@ double _contrastRatio(Color foreground, Color background) {
 }
 
 void main() {
+  testWidgets('device IP is visible before connecting and refreshes manually',
+      (tester) async {
+    final clash = _RecordingAndroidClashService();
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+    await tester.pumpWidget(fixture.build());
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('198.51.100.9'), findsOneWidget);
+    expect(clash.publicIpCalls, 1);
+    await tester.tap(find.byKey(const Key('home-public-ip')));
+    await tester.pumpAndSettle();
+    expect(clash.publicIpCalls, 2);
+    expect(clash.isRunning, isFalse);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('late node IP cannot replace device IP after disconnect',
+      (tester) async {
+    final clash = _RecordingAndroidClashService()..setRunning(true);
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+    final pending = Completer<PublicIpInfo>();
+    clash.pendingPublicIp = pending;
+    await tester.pumpWidget(fixture.build());
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump();
+    expect(clash.publicIpCalls, 1);
+    clash.setRunning(false);
+    clash.onStatusChanged?.call();
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('198.51.100.9'), findsOneWidget);
+    pending.complete(const PublicIpInfo(ip: '203.0.113.99', countryCode: 'US'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('198.51.100.9'), findsOneWidget);
+    expect(find.textContaining('203.0.113.99'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   for (final preloaded in [false, true]) {
     testWidgets(
         'home separates external probes from failures preloaded=$preloaded',
@@ -1451,6 +1496,18 @@ class _LatencyHistoryAndroidClashService extends _RecordingAndroidClashService {
 }
 
 class _RecordingAndroidClashService extends ClashService {
+  int publicIpCalls = 0;
+  Completer<PublicIpInfo>? pendingPublicIp;
+  @override
+  Future<PublicIpInfo> fetchCurrentPublicIpInfo() async {
+    publicIpCalls++;
+    final pending = pendingPublicIp;
+    pendingPublicIp = null;
+    if (pending != null) return pending.future;
+    return PublicIpInfo(
+        ip: isRunning ? '203.0.113.7' : '198.51.100.9', countryCode: 'JP');
+  }
+
   void publishConnectivityWarning(String? warning) =>
       setConnectivityWarning(warning);
   void publishOwnershipWarning(String? warning) =>

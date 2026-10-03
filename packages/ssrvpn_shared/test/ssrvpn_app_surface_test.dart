@@ -417,8 +417,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byType(Checkbox).first);
     await tester.pump();
-    await tester.tap(find.byType(Checkbox).last);
+    await tester.tap(find.byKey(const ValueKey('ssrvpn-node-select-B1')));
     await tester.pump();
+    expect(selected, 'A1',
+        reason: 'multiselect row must not change the live proxy');
     await tester.tap(find.byTooltip('测试所选节点延迟'));
     await tester.pump();
     expect(measured, ['A1', 'B1']);
@@ -581,7 +583,10 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
     expect(proxyMode, ProxyMode.rule);
+    expect(find.byKey(const Key('ssrvpn-global-mode-glass')), findsNothing);
     expect(find.byType(SsrvpnNodeSelectionPage), findsOneWidget);
+    await tester.ensureVisible(globalAction);
+    await tester.pumpAndSettle();
     await tester.tap(globalAction);
     await tester.pumpAndSettle();
     await tester.tap(find.text('确定'));

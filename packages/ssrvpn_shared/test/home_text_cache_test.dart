@@ -3,6 +3,20 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_home_text.dart';
 
 void main() {
+  testWidgets('font cap follows accessibility scaling when space permits',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: MediaQuery(
+        data: const MediaQueryData(textScaler: TextScaler.linear(2)),
+        child: const Center(
+            child: SsrvpnHomeText('Label',
+                style: TextStyle(fontSize: 20), maxFontSize: 20)),
+      ),
+    ));
+    expect(tester.widget<Text>(find.text('Label')).style!.fontSize, 40);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('retained text fitting matches fresh fitting after input changes',
       (tester) async {
     Widget scene(int step) => MaterialApp(

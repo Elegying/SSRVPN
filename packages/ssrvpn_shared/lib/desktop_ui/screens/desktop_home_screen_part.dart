@@ -53,9 +53,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void setState(VoidCallback fn) {
+    final previous = (_isConnected, _isConnecting);
     super.setState(fn);
+    if (previous != (_isConnected, _isConnecting)) _resetPublicIpState();
     _nodeSelectionRefresh.value++;
-    _syncNodeCountries();
   }
 
   void _handleNodeCountriesChanged() {
