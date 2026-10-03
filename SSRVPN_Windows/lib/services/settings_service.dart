@@ -218,7 +218,7 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
 
     final sourceFiles = await WindowsSettingsMigration.readableSourceFiles(
         installedDir,
-        {..._installedDataFiles, SubscriptionUndoRecord.fileName});
+        {..._criticalInstalledDataFiles, SubscriptionUndoRecord.fileName});
 
     // The installed directory may be read-only. Migrate the committed snapshot
     // from its undo record without changing the source or copying staged data.

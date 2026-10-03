@@ -53,7 +53,9 @@ void main() {
     return alias;
   }
 
-  Future<void> sourceAccess(bool allow, {bool readable = false}) async {
+  Future<void> sourceAccess(bool allow,
+      {bool readable = false, String? entityPath}) async {
+    final protectedPath = entityPath ?? installed.path;
     if (Platform.isWindows) {
       final identity =
           await Process.run('whoami.exe', ['/user', '/fo', 'csv', '/nh']);
@@ -62,14 +64,14 @@ void main() {
           .firstMatch(identity.stdout as String)!
           .group(0)!;
       final result = await Process.run('icacls.exe', [
-        installed.path,
+        protectedPath,
         allow ? '/remove:d' : '/deny',
         allow ? sid : '$sid:${readable ? '(W)' : '(R,W)'}',
       ]);
       expect(result.exitCode, 0, reason: '${result.stdout} ${result.stderr}');
     } else {
-      final result = await Process.run('chmod',
-          [allow ? '700' : (readable ? '555' : '000'), installed.path]);
+      final result = await Process.run(
+          'chmod', [allow ? '700' : (readable ? '555' : '000'), protectedPath]);
       expect(result.exitCode, 0);
     }
   }
@@ -111,6 +113,21 @@ void main() {
     } finally {
       await sourceAccess(true);
     }
+  });
+
+  test('an unreadable optional cache does not prevent metadata migration',
+      () async {
+    final cache = File('${installed.path}/node-latencies.json');
+    await cache.writeAsString('{"retained":1}');
+    await sourceAccess(false, entityPath: cache.path);
+    try {
+      await migrate();
+      expect(await marker.exists(), isTrue);
+      expect((await settings())['proxyPort'], 7890);
+    } finally {
+      await sourceAccess(true, entityPath: cache.path);
+    }
+    expect(await cache.readAsString(), '{"retained":1}');
   });
 
   Future<File> interruptBackground({bool removeSource = true}) async {
