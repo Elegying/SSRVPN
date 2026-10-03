@@ -35,8 +35,7 @@ void main() {
   Future<void> migrate() => SettingsService.migrateInstalledDataForTesting(
       installed.path, fallback.path);
 
-  test('linked ancestor cannot redirect authoritative data', () async {
-    await migrate();
+  Future<String> linkLocalAlias() async {
     final alias = '${root.path}/local-alias';
     if (Platform.isWindows) {
       final result = await Process.run(
@@ -45,12 +44,34 @@ void main() {
     } else {
       await Link(alias).create('${root.path}/local');
     }
+    return alias;
+  }
+
+  test('linked ancestor cannot redirect authoritative data', () async {
+    await migrate();
+    final alias = await linkLocalAlias();
     try {
       await expectLater(
           SettingsService.resolveDataDirectoryForTesting(
               '${root.path}/bin/SSRVPN.exe', alias),
           throwsA(isA<FileSystemException>()));
       expect((await settings())['proxyPort'], 7890);
+      expect(await picture.readAsBytes(), [1, 2, 3, 4]);
+    } finally {
+      await Link(alias).delete();
+    }
+  });
+
+  test('linked destination ancestor is rejected before initial copy', () async {
+    final alias = await linkLocalAlias();
+    try {
+      await expectLater(
+          SettingsService.migrateInstalledDataForTesting(
+              installed.path, '$alias/SSRVPN/ssrvpn'),
+          throwsA(isA<FileSystemException>()));
+      expect(await targetSettings.exists(), isFalse);
+      expect(await marker.exists(), isFalse);
+      expect(await sourceSettings.exists(), isTrue);
       expect(await picture.readAsBytes(), [1, 2, 3, 4]);
     } finally {
       await Link(alias).delete();

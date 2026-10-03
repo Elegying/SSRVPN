@@ -18,13 +18,19 @@ class WindowsSettingsMigration {
   static const _maxBytes = 20 * 1024 * 1024;
 
   static Future<bool> isCommitted(String directory) async {
+    if (await FileSystemEntity.type(directory, followLinks: false) ==
+        FileSystemEntityType.notFound) {
+      return false;
+    }
+    // Validate before testing marker existence: an uncommitted destination
+    // must not receive metadata through a linked ancestor either.
+    await _directory(directory);
     final marker = File(path.join(directory, markerName));
     final type = await FileSystemEntity.type(marker.path, followLinks: false);
     if (type == FileSystemEntityType.notFound) return false;
     if (type != FileSystemEntityType.file || await marker.length() > 16) {
       throw const FileSystemException('Installed migration marker is invalid');
     }
-    await _directory(directory);
     if ((await marker.readAsString()).trim() != '1') {
       throw const FormatException('Installed migration marker is invalid');
     }
