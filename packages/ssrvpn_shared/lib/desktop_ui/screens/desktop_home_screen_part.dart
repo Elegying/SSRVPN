@@ -338,7 +338,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!_canUpdateUi) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+      ssrvpnSnackBar(
         content: Text(
           reloadSucceeded != null
               ? reloadSucceeded
@@ -647,7 +647,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showRuntimePortAdjustmentNotice(String? message) {
     if (message == null || message.isEmpty || !_canUpdateUi) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+      ssrvpnSnackBar(
         content: Text(message),
         backgroundColor: SsrvpnTheme.of(context).warning,
         duration: Duration(seconds: 5),

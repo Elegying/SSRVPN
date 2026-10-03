@@ -163,6 +163,7 @@ class SsrvpnTheme extends ThemeExtension<SsrvpnTheme> {
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 14, vertical: 14)),
       snackBarTheme: SnackBarThemeData(
+          behavior: SnackBarBehavior.floating,
           backgroundColor: surfaceStrong,
           contentTextStyle: TextStyle(color: textPrimary)),
       tooltipTheme: TooltipThemeData(

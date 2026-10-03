@@ -138,7 +138,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     SnackBarBehavior? behavior,
   }) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+      ssrvpnSnackBar(
         behavior: behavior,
         content: Text(message),
         backgroundColor: backgroundColor,
@@ -227,6 +227,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                           onPressed: () => dismissSsrvpnDialog<bool>(ctx, true),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: SsrvpnTheme.of(context).error,
+                            foregroundColor: ssrvpnForegroundOn(
+                                SsrvpnTheme.of(context).error),
                           ),
                           child: Text('删除'),
                         ),

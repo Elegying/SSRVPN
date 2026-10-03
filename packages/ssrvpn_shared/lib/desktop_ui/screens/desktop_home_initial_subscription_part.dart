@@ -110,7 +110,7 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
 
                     if (navigator.canPop()) navigator.pop();
                     messenger.showSnackBar(
-                      SnackBar(
+                      ssrvpnSnackBar(
                         behavior: SnackBarBehavior.floating,
                         content: Text('节点已更新，获取到 ${nodes.length} 个节点'),
                         backgroundColor: SsrvpnTheme.of(context).success,

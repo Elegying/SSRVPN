@@ -37,9 +37,11 @@ void main() {
     );
   }
 
-  Widget host(Widget child) {
+  Widget host(Widget child, {AppThemeVariant? variant}) {
     return MaterialApp(
-      theme: AppTheme.lightTheme,
+      theme: variant == null
+          ? AppTheme.lightTheme
+          : SsrvpnTheme(variant).material(AppTheme.lightTheme),
       darkTheme: AppTheme.darkTheme,
       home: Builder(
         builder: (context) {
@@ -509,7 +511,8 @@ void main() {
 
   testWidgets('other parameters must be a JSON object before persistence',
       (tester) async {
-    await tester.pumpWidget(host(NodeEditScreen(node: node())));
+    await tester.pumpWidget(
+        host(NodeEditScreen(node: node()), variant: AppThemeVariant.soft));
 
     await tester.scrollUntilVisible(
       find.text('其他参数（JSON）'),
@@ -524,6 +527,10 @@ void main() {
     await tester.tap(find.widgetWithText(TextButton, '保存'));
     await tester.pump();
     expect(find.text('其他参数必须是有效的 JSON 对象'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    expect(
+        Theme.of(tester.element(find.byType(SnackBar))).snackBarTheme.behavior,
+        SnackBarBehavior.floating);
   });
 }
 

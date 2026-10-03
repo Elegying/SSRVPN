@@ -215,7 +215,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                     ? '节点已被删除，请返回刷新'
                     : '保存失败，请稍后重试';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          ssrvpnSnackBar(
             margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
             content: Text(msg.contains('首选节点恢复失败')
                 ? '$friendlyMsg；首选节点恢复失败，请恢复存储权限后重试'

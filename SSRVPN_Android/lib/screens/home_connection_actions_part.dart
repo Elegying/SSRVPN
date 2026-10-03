@@ -474,7 +474,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
     if (!mounted || _disposed) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+      ssrvpnSnackBar(
         margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
         content: Text(
           shouldReload

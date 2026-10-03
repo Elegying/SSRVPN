@@ -254,7 +254,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
 
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+      ssrvpnSnackBar(
         behavior: SnackBarBehavior.floating,
         margin: EdgeInsets.fromLTRB(16, 0, 16, 16),
         content: Text('保存失败：$message'),

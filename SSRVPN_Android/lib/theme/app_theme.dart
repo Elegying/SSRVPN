@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_feedback.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_typography.dart';
 import 'package:flutter/material.dart';
 
@@ -345,7 +346,7 @@ extension SnackBarX on BuildContext {
     Color? backgroundColor,
     Duration duration = const Duration(seconds: 2),
   }) {
-    ScaffoldMessenger.of(this).showSnackBar(SnackBar(
+    ScaffoldMessenger.of(this).showSnackBar(ssrvpnSnackBar(
       content: Text(message),
       backgroundColor: backgroundColor,
       duration: duration,

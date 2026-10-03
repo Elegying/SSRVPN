@@ -141,7 +141,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
 
   void _showSnack(String message, Color backgroundColor, {Duration? duration}) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+      ssrvpnSnackBar(
         margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
         content: Text(message),
         backgroundColor: backgroundColor,
@@ -213,6 +213,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
                         onPressed: () => dismissSsrvpnDialog<bool>(ctx, true),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: SsrvpnTheme.of(context).error,
+                          foregroundColor:
+                              ssrvpnForegroundOn(SsrvpnTheme.of(context).error),
                         ),
                         child: Text('删除'),
                       ),
