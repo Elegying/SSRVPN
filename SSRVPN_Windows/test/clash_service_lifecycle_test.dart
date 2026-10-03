@@ -147,28 +147,32 @@ Future<void> main(List<String> args) async {
 
     test('real Windows child commits exact identity before acquiring proxy',
         () async {
-      final proxy = _ControlledStopProxy();
-      final core = startup(proxy);
-      proxy.set = () async {
-        final record = WindowsCorePidRecord.tryParse(
-            await File('${fixture.path}/mihomo.pid').readAsString());
-        expect(record, isNotNull);
-        expect(record!.canonicalExecutablePath.toLowerCase(),
-            validator.path.toLowerCase());
-        expect(record.pid,
-            int.parse(await File('${config.path}.spawned').readAsString()));
+      // Repeat rapid spawns without weakening the production deadline or
+      // identity assertions: FILETIME can retain sub-microsecond digits.
+      for (var attempt = 0; attempt < 6; attempt++) {
+        final proxy = _ControlledStopProxy();
+        final core = startup(proxy);
+        proxy.set = () async {
+          final record = WindowsCorePidRecord.tryParse(
+              await File('${fixture.path}/mihomo.pid').readAsString());
+          expect(record, isNotNull);
+          expect(record!.canonicalExecutablePath.toLowerCase(),
+              validator.path.toLowerCase());
+          expect(record.pid,
+              int.parse(await File('${config.path}.spawned').readAsString()));
+          expect(core.isRunning, isFalse);
+          return true;
+        };
+        expect(await core.start(), isTrue);
+        expect(core.isRunning, isTrue);
+        expect(proxy.setCalls, 1);
+        expect(core.healthCalls, 2);
+        expect(core.observationSchedules, 1);
+        await core.stop();
         expect(core.isRunning, isFalse);
-        return true;
-      };
-      expect(await core.start(), isTrue);
-      expect(core.isRunning, isTrue);
-      expect(proxy.setCalls, 1);
-      expect(core.healthCalls, 2);
-      expect(core.observationSchedules, 1);
-      await core.stop();
-      expect(core.isRunning, isFalse);
-      expect(await File('${fixture.path}/mihomo.pid').exists(), isFalse);
-      expect(await config.readAsString(), 'mixed-port: 7890\n');
+        expect(await File('${fixture.path}/mihomo.pid').exists(), isFalse);
+        expect(await config.readAsString(), 'mixed-port: 7890\n');
+      }
     }, skip: !Platform.isWindows);
 
     test('real Windows proxy refusal rolls back child and durable identity',

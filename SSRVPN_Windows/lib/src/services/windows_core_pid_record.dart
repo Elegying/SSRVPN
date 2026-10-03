@@ -4,17 +4,10 @@ import 'dart:io';
 
 import 'windows_core_identity_failure.dart';
 
+export 'windows_file_time.dart' show currentWindowsUtcFileTime;
+
 const int windowsCorePidRecordVersion = 1;
 const int maxWindowsCorePidRecordBytes = 4096;
-final BigInt _windowsFileTimeUnixEpochOffset =
-    BigInt.parse('116444736000000000');
-
-/// Current UTC timestamp in the same 100-nanosecond epoch used by Windows
-/// process creation FILETIME values.
-BigInt currentWindowsUtcFileTime() =>
-    BigInt.from(DateTime.now().toUtc().microsecondsSinceEpoch) *
-        BigInt.from(10) +
-    _windowsFileTimeUnixEpochOffset;
 
 /// Durable identity for the exact Mihomo process started by SSRVPN.
 ///
