@@ -88,7 +88,7 @@ macOS 与 Windows：`setSystemProxy` / `clearSystemProxy` **只能**出现在 `c
 | 文件 | 当前 | 上限 | 余量 |
 |---|---|---|---|
 | `ssrvpn_app_surface.dart` | 376 | 400 | 24 |
-| `ssrvpn_home_overview.dart` | 572 | 600 | 28 |
+| `ssrvpn_home_overview.dart` | 573 | 600 | 27 |
 | `ssrvpn_home_overview_header.dart` | 134 | 200 | 66 |
 | `ssrvpn_subscription_view.dart` | **591** | 600 | **9** ⚠️ |
 | `ssrvpn_subscription_header.dart` | 93 | 100 | **7** ⚠️ |

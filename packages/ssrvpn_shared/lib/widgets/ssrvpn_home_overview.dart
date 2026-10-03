@@ -288,6 +288,7 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
                                 if (minimal)
                                   Flexible(
                                       flex: 3,
+                                      fit: FlexFit.tight,
                                       child: Row(
                                           crossAxisAlignment:
                                               CrossAxisAlignment.center,
