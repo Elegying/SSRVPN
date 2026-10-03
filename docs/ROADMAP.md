@@ -66,6 +66,8 @@ Explorer 中的可见性、UAC 取消和交互安装结果仍待 Windows 11 人�
 
 ### 可维护性
 
+- 应用安装包目前依赖 GitHub TLS、不可变 Release、SHA-256 和构建 provenance。独立离线发行签名仍需专用密钥、客户端信任根及过渡版本设计；不得复用仅授权规则数据的签名密钥，或在没有匹配发行资产时启用强制验签。
+
 - Windows 真实子进程身份回归曾出现 `CORE_IDENTITY_TIMEOUT`；保留完整失败与串行诊断证据，继续区分宿主负载、PowerShell 启动和生产身份查询问题。后续通过不代表根因已修复，不放宽身份校验或生产超时。
 
 - 下一次 Flutter 工具链或 macOS 托盘迁移时，复核并移除已知不兼容的 Dependabot 版本例外；同步验证 SDK 固定依赖、托盘菜单/回调/退出、lockfile 与全量门禁，见[依赖延后说明](MAINTENANCE.md#flutter-dependency-deferrals)。

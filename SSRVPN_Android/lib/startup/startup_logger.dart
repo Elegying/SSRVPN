@@ -12,12 +12,14 @@ class StartupLogger {
   static const int maxLogSizeBytes = 256 * 1024;
 
   static File? _logFile;
+  static BoundedFileLogger? _sink;
   static bool _verbose = false;
   static final List<String> _buffer = [];
   static const _maxBuffer = 50;
 
   static Future<void> init({bool verbose = false}) async {
     _verbose = verbose;
+    await _sink?.flush();
     try {
       final supportDir = await getApplicationSupportDirectory();
       final dir = Directory('${supportDir.path}${Platform.pathSeparator}logs');
@@ -25,15 +27,11 @@ class StartupLogger {
         await dir.create(recursive: true);
       }
       _logFile = File('${dir.path}/startup.log');
-      // 轮转：超过 maxLogSizeBytes 删除
-      if (await _logFile!.exists()) {
-        final length = await _logFile!.length();
-        if (length > maxLogSizeBytes) {
-          await _logFile!.delete();
-        }
-      }
+      _sink = BoundedFileLogger(_logFile!,
+          maxFileBytes: maxLogSizeBytes, maxPendingBytes: 32 * 1024);
     } catch (_) {
       _logFile = null;
+      _sink = null;
     }
   }
 
@@ -74,12 +72,10 @@ class StartupLogger {
       _buffer.removeAt(0);
     }
 
-    if (_logFile != null) {
-      try {
-        _logFile!.writeAsStringSync('$entry\n', mode: FileMode.append);
-      } catch (_) {}
-    }
+    _sink?.add('$entry\n');
   }
+
+  static Future<void> flush() async => _sink?.flush();
 
   /// 获取最近的日志条目
   static List<String> get recentLogs => List.unmodifiable(_buffer);

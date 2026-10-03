@@ -5,6 +5,17 @@ import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_glass.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_scroll_behavior.dart';
 
 void main() {
+  testWidgets('desktop vertical lists retain their platform scrollbar',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData(platform: TargetPlatform.windows),
+      scrollBehavior: const SsrvpnScrollBehavior(),
+      home: Scaffold(body: ListView(children: const [SizedBox(height: 2000)])),
+    ));
+    expect(find.byType(Scrollbar), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('scrolling during page entry keeps live glass outside opacity',
       (tester) async {
     late BuildContext context;

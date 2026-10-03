@@ -29,6 +29,66 @@ class _Core extends ClashServiceBase {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   testWidgets(
+      'saved custom background can be reselected after deleting the original',
+      (tester) async {
+    final directory = Directory.systemTemp.createTempSync('saved-background-');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final source = File('${directory.path}/source.png');
+    source.writeAsBytesSync([1, 2, 3]);
+    final saved = source.copySync('${directory.path}/saved.png');
+    source.deleteSync();
+    var settings = AppSettings(
+        glassEffectLevel: GlassEffectLevel.none,
+        dynamicBackground: false,
+        backgroundStyle: BackgroundStyle.custom,
+        customBackgroundPath: saved.path);
+    final core = _Core();
+    addTearDown(core.dispose);
+    var imports = 0;
+    await tester.pumpWidget(MaterialApp(
+        theme: ThemeData.dark(),
+        home: StatefulBuilder(
+            builder: (context, update) => SsrvpnAppearanceScope(
+                settings: settings,
+                child: Scaffold(
+                    body: SsrvpnSettingsPage(
+                  settings: settings,
+                  core: core,
+                  dataDirectory: directory.path,
+                  pickBackgroundImage: () async {
+                    imports++;
+                    return null;
+                  },
+                  onAppearanceChanged: (
+                      {glassEffectLevel,
+                      backgroundStyle,
+                      customBackgroundPath,
+                      dynamicBackground}) async {
+                    update(() => settings = settings.copyWith(
+                        backgroundStyle: backgroundStyle,
+                        customBackgroundPath: customBackgroundPath));
+                  },
+                  onPortChanged: (_) async {},
+                  checkForUpdate: () async => null,
+                  onUpdateFound: (_) {},
+                ))))));
+    final builtin = find.byTooltip(ssrvpnBackgroundLabel(BackgroundStyle.gray));
+    await tester.ensureVisible(builtin);
+    await tester.tap(builtin);
+    await tester.pumpAndSettle();
+    expect(settings.backgroundStyle, BackgroundStyle.gray);
+    expect(settings.customBackgroundPath, saved.path);
+    await tester.ensureVisible(find.text('使用已保存图片'));
+    await tester.tap(find.text('使用已保存图片'));
+    await tester.pumpAndSettle();
+    expect(settings.backgroundStyle, BackgroundStyle.custom);
+    expect(settings.customBackgroundPath, saved.path);
+    expect(imports, 0);
+    expect(saved.readAsBytesSync(), [1, 2, 3]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
       'platform photo picker cancellation and failure keep the existing background',
       (tester) async {
     final core = _Core();

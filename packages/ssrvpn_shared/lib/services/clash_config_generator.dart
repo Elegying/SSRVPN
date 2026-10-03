@@ -6,6 +6,7 @@ import '../models/app_settings.dart';
 import 'public_ip_info_service.dart';
 import '../constants/app_constants.dart';
 import '../utils/bounded_yaml.dart';
+import '../utils/yaml_section.dart';
 import '../utils/proxy_dependency_policy.dart';
 import '../utils/proxy_egress_policy.dart';
 import '../utils/proxy_node_usage_policy.dart';
@@ -508,39 +509,7 @@ class ClashConfigGenerator {
 
   /// 从 YAML 中提取指定部分
   static String extractSection(String rawYaml, String sectionName) {
-    try {
-      final lines = rawYaml.split('\n');
-      final buffer = StringBuffer();
-      bool inSection = false;
-      int indentLevel = 0;
-
-      for (final line in lines) {
-        final trimmed = line.trim();
-        if (trimmed == '$sectionName:') {
-          inSection = true;
-          indentLevel = line.indexOf(sectionName);
-          continue;
-        }
-
-        if (inSection) {
-          if (trimmed.isEmpty) {
-            continue;
-          }
-
-          final currentIndent = line.indexOf(trimmed);
-          if (currentIndent <= indentLevel && trimmed.isNotEmpty) {
-            // 遇到同级或更高级的键，退出当前部分
-            break;
-          }
-
-          buffer.writeln(line);
-        }
-      }
-
-      return buffer.toString();
-    } catch (e) {
-      return '';
-    }
+    return extractTopLevelYamlSection(rawYaml, sectionName);
   }
 
   static List<dynamic>? _parseProxyList(String rawYaml) {

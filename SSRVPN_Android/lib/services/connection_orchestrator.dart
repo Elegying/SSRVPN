@@ -196,8 +196,8 @@ class ConnectionOrchestrator {
         if (!_isCurrent(connectionGeneration)) {
           return const AndroidConnectionOutcome();
         }
-        final staleAfterStart =
-            await _handleStaleSubscription(subscriptionRevision);
+        final staleAfterStart = await _handleStaleSubscription(
+            subscriptionRevision, connectionGeneration);
         if (staleAfterStart != null) {
           return AndroidConnectionOutcome(message: staleAfterStart);
         }
@@ -247,8 +247,8 @@ class ConnectionOrchestrator {
         if (!_isCurrent(connectionGeneration)) {
           return const AndroidConnectionOutcome();
         }
-        final staleAfterSwitch =
-            await _handleStaleSubscription(subscriptionRevision);
+        final staleAfterSwitch = await _handleStaleSubscription(
+            subscriptionRevision, connectionGeneration);
         if (staleAfterSwitch != null) {
           return AndroidConnectionOutcome(message: staleAfterSwitch);
         }
@@ -267,8 +267,8 @@ class ConnectionOrchestrator {
             return const AndroidConnectionOutcome();
           }
           if (!_isSubscriptionCurrent(subscriptionRevision)) {
-            final staleAfterReadback =
-                await _handleStaleSubscription(subscriptionRevision);
+            final staleAfterReadback = await _handleStaleSubscription(
+                subscriptionRevision, connectionGeneration);
             return AndroidConnectionOutcome(message: staleAfterReadback);
           }
           preferredSwitchSucceeded =
@@ -310,8 +310,11 @@ class ConnectionOrchestrator {
   bool _isSubscriptionCurrent(int revision) =>
       subscriptionService.revision == revision;
 
-  Future<String?> _handleStaleSubscription(int revision) async {
-    if (_isSubscriptionCurrent(revision)) return null;
+  Future<String?> _handleStaleSubscription(int revision, int generation) async {
+    if (_isSubscriptionCurrent(revision) || !_isCurrent(generation)) {
+      return null;
+    }
+    clashService.requestConnectionIntent(false);
     if (clashService.isRunning) {
       try {
         await clashService.stop();

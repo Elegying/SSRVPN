@@ -777,23 +777,4 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
       return null;
     }
   }
-
-  String fixBase64(String str) {
-    var s = str.replaceAll('-', '+').replaceAll('_', '/');
-    final mod = s.length % 4;
-    if (mod == 2) s += '==';
-    if (mod == 3) s += '=';
-    return s;
-  }
-
-  bool isLikelyBase64(String str) {
-    if (str.length < 20) return false;
-    final base64Pattern = RegExp(r'^[A-Za-z0-9+/\-_]+=*$');
-    if (!base64Pattern.hasMatch(str)) return false;
-    if (RegExp(r'^\d+$').hasMatch(str)) return false;
-    if (str.contains(':') && !str.contains('+') && !str.contains('/')) {
-      return false;
-    }
-    return true;
-  }
 }

@@ -261,10 +261,13 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
                                       ? 5
                                       : 10,
                               vertical: verticalPadding),
-                          child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
+                          // Caption and number sizes already include the
+                          // system scale and the available card-height budget.
+                          child: MediaQuery.withNoTextScaling(
+                              child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
                                 SsrvpnHomeText(row[index].label,
                                     maxFontSize: caption,
                                     style: TextStyle(
@@ -301,7 +304,7 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
                                         letterSpacing: 0,
                                         color: row[index].color,
                                         fontSize: caption)),
-                              ])),
+                              ]))),
                     )),
               ],
             ]));

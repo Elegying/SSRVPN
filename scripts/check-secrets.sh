@@ -58,7 +58,7 @@ production_roots = (
 )
 tls_bypass_patterns = [
     re.compile(r"\ballowBadCertificates\b"),
-    re.compile(r"badCertificateCallback\s*=\s*\([^)]*\)\s*=>\s*true"),
+    re.compile(r"\bbadCertificateCallback\b"),
 ]
 tls_bypasses = []
 for name in files:

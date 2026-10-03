@@ -18,6 +18,7 @@ import '../models/vpn_traffic_sample.dart';
 import '../runtime_notice.dart';
 import 'clash_config_generator.dart';
 import '../utils/log_redactor.dart';
+import '../utils/yaml_section.dart';
 import '../utils/health_failure_window.dart';
 import '../utils/node_display_policy.dart';
 import '../utils/private_node_latency_policy.dart';
@@ -152,6 +153,7 @@ abstract class ClashServiceBase
   String get configPath => _configPath;
 
   int requestConnectionIntent(bool connected) {
+    _cancelPublicIpQueries();
     _connectionProgress = null;
     if (!connected) clearDesktopConnectionRecoveryPlan();
     final generation = _connectionIntent.request(connected);
@@ -511,7 +513,7 @@ abstract class ClashServiceBase
       final deadline = DateTime.now().add(const Duration(milliseconds: 250));
       while (DateTime.now().isBefore(deadline)) {
         final remaining = await _countActiveConnections();
-        if (remaining <= 0) break;
+        if (remaining == 0) break;
         await Future<void>.delayed(const Duration(milliseconds: 30));
       }
       if (!await _isSwitchContextCurrent(isSwitchContextCurrent)) return true;
@@ -663,6 +665,7 @@ abstract class ClashServiceBase
   /// intent so tray/UI actions do not require a second disconnect click.
   @protected
   void markConnectionLost() {
+    _trafficSessionGeneration++;
     requestConnectionIntent(false);
     _invalidateHealthMonitorSession();
     _resetDataPlaneObservationSession();
@@ -707,6 +710,7 @@ abstract class ClashServiceBase
   // ── 资源释放 ──
 
   void dispose() {
+    _cancelPublicIpQueries();
     _finishConnectionTiming(ConnectionTimingOutcome.disposed);
     stopStatusMonitor();
     clearDesktopConnectionRecoveryPlan();

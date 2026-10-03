@@ -53,45 +53,50 @@ void main() {
     expect(clashService.startCalls, 0);
   });
 
-  test('subscription revision change during proxy switch stops old config',
-      () async {
-    SharedPreferences.setMockInitialValues({});
-    final tempDir = await Directory.systemTemp.createTemp(
-      'ssrvpn_connection_switch_snapshot_',
-    );
-    addTearDown(() async {
+  for (final stopFails in [false, true]) {
+    test(
+        'subscription revision change during proxy switch stopFails=$stopFails',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_connection_switch_snapshot_',
+      );
+      addTearDown(() async {
+        SubscriptionService.resetInstanceForTesting();
+        await tempDir.delete(recursive: true);
+      });
       SubscriptionService.resetInstanceForTesting();
-      await tempDir.delete(recursive: true);
+      final subscriptionService =
+          await SubscriptionService.getInstance(tempDir.path);
+      await subscriptionService.setRawYaml(_yaml('Old', 'old.example.com'));
+      final settingsService = await SettingsService.createForTesting(
+        configPath: '${tempDir.path}/settings.json',
+        readApiSecret: () async => 'test-secret',
+        writeApiSecret: (_) async {},
+      );
+      final clashService = _DelayedSwitchClashService()..stopFails = stopFails;
+      final generation = clashService.requestConnectionIntent(true);
+      final orchestrator = ConnectionOrchestrator(
+        clashService: clashService,
+        settingsService: settingsService,
+        subscriptionService: subscriptionService,
+      );
+
+      final connecting = orchestrator.connect(
+        'Old',
+        connectionGeneration: generation,
+      );
+      await clashService.switchStarted.future;
+      await subscriptionService.setRawYaml(_yaml('New', 'new.example.com'));
+      clashService.releaseSwitch.complete();
+
+      final outcome = await connecting;
+      expect(outcome.message, contains(stopFails ? '旧连接断开失败' : '订阅已更新'));
+      expect(clashService.stopCalls, 1);
+      expect(clashService.connectionDesired, isFalse);
+      expect(clashService.isRunning, stopFails);
     });
-    SubscriptionService.resetInstanceForTesting();
-    final subscriptionService =
-        await SubscriptionService.getInstance(tempDir.path);
-    await subscriptionService.setRawYaml(_yaml('Old', 'old.example.com'));
-    final settingsService = await SettingsService.createForTesting(
-      configPath: '${tempDir.path}/settings.json',
-      readApiSecret: () async => 'test-secret',
-      writeApiSecret: (_) async {},
-    );
-    final clashService = _DelayedSwitchClashService();
-    final generation = clashService.requestConnectionIntent(true);
-    final orchestrator = ConnectionOrchestrator(
-      clashService: clashService,
-      settingsService: settingsService,
-      subscriptionService: subscriptionService,
-    );
-
-    final connecting = orchestrator.connect(
-      'Old',
-      connectionGeneration: generation,
-    );
-    await clashService.switchStarted.future;
-    await subscriptionService.setRawYaml(_yaml('New', 'new.example.com'));
-    clashService.releaseSwitch.complete();
-
-    expect((await connecting).message, contains('订阅已更新'));
-    expect(clashService.stopCalls, 1);
-    expect(clashService.isRunning, isFalse);
-  });
+  }
 
   test('failed current connection clears the desired connection intent', () {
     final clashService = ClashService();
@@ -705,6 +710,7 @@ class _DelayedConfigClashService extends ClashService {
 }
 
 class _DelayedSwitchClashService extends ClashService {
+  bool stopFails = false;
   final switchStarted = Completer<void>();
   final releaseSwitch = Completer<void>();
   int stopCalls = 0;
@@ -744,6 +750,7 @@ class _DelayedSwitchClashService extends ClashService {
   @override
   Future<void> stop() async {
     stopCalls++;
+    if (stopFails) throw StateError('cleanup failed');
     setRunning(false);
   }
 }

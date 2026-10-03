@@ -175,7 +175,7 @@ class _TunHeaderControl extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
             onTap: activate,
             child: Padding(
-              padding: const EdgeInsets.only(left: 4),
+              padding: const EdgeInsets.only(left: 4, top: 8, bottom: 8),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [

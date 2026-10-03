@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 
 import '../constants/app_constants.dart';
 import '../utils/bounded_yaml.dart';
+import '../utils/yaml_section.dart';
 import '../utils/proxy_dependency_policy.dart';
 import '../utils/runtime_config_name_policy.dart';
 import 'subscription_parser.dart';
@@ -22,13 +23,8 @@ class SubscriptionYamlMerger {
   static const int maxProxyCollectionEntries = 4096;
   static const int maxProxyNestingDepth = 32;
 
-  static String extractSection(String yaml, String sectionName) {
-    final buffer = StringBuffer();
-    for (final line in _normalizedSectionLines(yaml, sectionName)) {
-      buffer.writeln(line);
-    }
-    return buffer.toString().trimRight();
-  }
+  static String extractSection(String yaml, String sectionName) =>
+      extractTopLevelYamlSection(yaml, sectionName);
 
   static String mergeYamlConfigs(
     List<String> yamls, {
@@ -495,50 +491,6 @@ class SubscriptionYamlMerger {
   static void _checkFieldLength(String value) {
     if (value.length > maxProxyFieldLength) {
       throw const _MergeLimitException('订阅字段长度超过上限 (64KB)');
-    }
-  }
-
-  static Iterable<String> _sectionLines(
-    String yaml,
-    String sectionName,
-  ) sync* {
-    var inSection = false;
-    for (final line in _lines(yaml)) {
-      if (!line.startsWith(' ') && !line.startsWith('\t')) {
-        final trimmed = line.trim();
-        if (trimmed.startsWith('$sectionName:')) {
-          inSection = true;
-          continue;
-        }
-        if (inSection &&
-            trimmed.contains(':') &&
-            !trimmed.startsWith('#') &&
-            !trimmed.startsWith('-')) {
-          break;
-        }
-      }
-      if (inSection) yield line;
-    }
-  }
-
-  static Iterable<String> _normalizedSectionLines(
-    String yaml,
-    String sectionName,
-  ) sync* {
-    var minIndent = 999;
-    for (final line in _sectionLines(yaml, sectionName)) {
-      final trimmed = line.trimLeft();
-      if (trimmed.isEmpty) continue;
-      final indent = line.length - trimmed.length;
-      if (indent < minIndent) minIndent = indent;
-    }
-    if (minIndent == 999) minIndent = 0;
-
-    for (final line in _sectionLines(yaml, sectionName)) {
-      final trimmed = line.trimLeft();
-      if (trimmed.isEmpty) continue;
-      final delta = line.length - trimmed.length - minIndent;
-      yield '${' ' * (delta + 2)}$trimmed';
     }
   }
 

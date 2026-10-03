@@ -87,11 +87,14 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
         '[${level.name.toUpperCase()}] [$safeEvent] '
         '[session=$_logSessionId] $sanitized';
     _logBuffer = '$line\n$_logBuffer';
-    if (_logBuffer.length > 10000) {
-      final completeLineEnd = _logBuffer.lastIndexOf('\n', 9999);
+    if (_logBuffer.length > AppConstants.maxLogBufferSize) {
+      final completeLineEnd =
+          _logBuffer.lastIndexOf('\n', AppConstants.maxLogBufferSize - 1);
       _logBuffer = _logBuffer.substring(
         0,
-        completeLineEnd >= 0 ? completeLineEnd + 1 : 10000,
+        completeLineEnd >= 0
+            ? completeLineEnd + 1
+            : AppConstants.maxLogBufferSize,
       );
     }
     writePlatformLog(line);

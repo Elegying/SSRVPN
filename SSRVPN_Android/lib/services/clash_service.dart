@@ -105,8 +105,6 @@ class ClashService extends ClashServiceBase
     return null;
   }
 
-  static String flagEmoji(String countryCode) => _androidFlagEmoji(countryCode);
-
   Future<void> invalidateIdleNativeConnectionSnapshot() =>
       _invalidateIdleNativeConnectionSnapshot();
 

@@ -181,6 +181,8 @@ Future<bool> _recoverInterruptedPublicationLocked(
       : false;
 
   final prefix = '${destination.uri.pathSegments.last}.previous.';
+  final partPrefix = '${destination.uri.pathSegments.last}.part.';
+  final staleBefore = DateTime.now().subtract(const Duration(hours: 6));
   final backups = <({File file, DateTime modified, int length})>[];
   final entries = StreamIterator<FileSystemEntity>(
     destination.parent.list(followLinks: false),
@@ -203,6 +205,27 @@ Future<bool> _recoverInterruptedPublicationLocked(
       // The listing uses host separators; the caller may use forward slashes.
       // Entries already come from the destination parent, so compare names.
       final name = entity.uri.pathSegments.last;
+      if (name.startsWith(partPrefix) &&
+          RegExp(r'^\d+_\d+_\d+$')
+              .hasMatch(name.substring(partPrefix.length))) {
+        try {
+          if (await _awaitWithCancellation(
+                FileSystemEntity.type(entity.path, followLinks: false),
+                cancellation,
+              ) ==
+              FileSystemEntityType.file) {
+            final stat =
+                await _awaitWithCancellation(entity.stat(), cancellation);
+            cancellation?.throwIfCancelled();
+            if (stat.modified.isBefore(staleBefore)) {
+              await _awaitWithCancellation(entity.delete(), cancellation);
+            }
+          }
+        } on FileSystemException {
+          // Files may disappear concurrently; cleanup is best effort.
+        }
+        continue;
+      }
       if (!name.startsWith(prefix)) continue;
       final suffix = name.substring(prefix.length);
       if (!RegExp(r'^\d+_\d+_\d+$').hasMatch(suffix)) continue;

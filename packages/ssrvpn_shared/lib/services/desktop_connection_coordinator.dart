@@ -1,5 +1,6 @@
 import '../models/app_settings.dart';
 import '../utils/runtime_port_conflict_policy.dart';
+import '../utils/app_logger.dart';
 
 export 'desktop_connection_recovery_plan.dart';
 
@@ -66,12 +67,7 @@ class DesktopConnectionResult {
 }
 
 /// Runs the shared, transactional part of a desktop connection attempt.
-///
-/// Platform recovery, pre-flight validation and user feedback intentionally
-/// stay outside this class. The injected operations cover only the sequence
-/// whose ordering must be identical on macOS, Windows and the shared Home UI:
-/// prepare, generate, write, start, optional preferred-node switch, and
-/// rollback when the captured subscription or connection intent becomes stale.
+/// Platform recovery and feedback stay outside the shared transaction.
 class DesktopConnectionCoordinator {
   const DesktopConnectionCoordinator();
 
@@ -181,7 +177,11 @@ class DesktopConnectionCoordinator {
       }
       throw StateError('unreachable connection retry state');
     } catch (error, stack) {
-      if (!rollbackAttempted) await rollback();
+      try {
+        if (!rollbackAttempted) await rollback();
+      } catch (rollbackError, rollbackStack) {
+        AppLogger.warning('ConnectionRollback', rollbackError, rollbackStack);
+      }
       Error.throwWithStackTrace(error, stack);
     }
   }

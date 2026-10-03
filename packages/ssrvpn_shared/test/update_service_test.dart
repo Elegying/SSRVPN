@@ -26,6 +26,40 @@ void main() {
     if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
+  test(
+      'recovery cleans only aged owned part files and preserves recent/unrelated files',
+      () async {
+    final destination = File('${tempDir.path}/SSRVPN_Setup.exe');
+    final aged = File('${destination.path}.part.123_456_789');
+    final recent = File('${destination.path}.part.124_456_789');
+    final unrelated = File('${destination.path}.part.user-file');
+    final otherVersion = File('${tempDir.path}/other.exe.part.123_456_789');
+    for (final file in [aged, recent, unrelated, otherVersion]) {
+      await file.writeAsString('existing bytes');
+    }
+    await aged
+        .setLastModified(DateTime.now().subtract(const Duration(hours: 7)));
+    await unrelated
+        .setLastModified(DateTime.now().subtract(const Duration(days: 7)));
+    final bytes = utf8.encode('verified installer');
+    await SharedUpdateService.downloadVerifiedUpdate(
+      AppUpdateInfo(
+          version: '9.9.9',
+          changelog: '',
+          downloadUrl: 'https://example.com/update',
+          sha256: sha256.convert(bytes).toString()),
+      outputDirectory: tempDir,
+      fileName: 'SSRVPN_Setup.exe',
+      filePublisher: testVerifiedUpdatePublisher,
+      client: MockClient((_) async => http.Response.bytes(bytes, 200)),
+    );
+    expect(await aged.exists(), isFalse);
+    for (final file in [recent, unrelated, otherVersion]) {
+      expect(await file.readAsString(), 'existing bytes');
+    }
+    expect(await destination.readAsBytes(), bytes);
+  });
+
   test('chunked downloads keep cancellation Future observers bounded',
       () async {
     final chunks = List<List<int>>.generate(64, (index) => [index]);

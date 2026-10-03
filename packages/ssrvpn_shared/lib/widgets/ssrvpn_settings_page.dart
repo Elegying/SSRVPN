@@ -281,6 +281,21 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                         for (final style in BackgroundStyle.values
                             .where((s) => s != BackgroundStyle.custom))
                           _backgroundChoice(style),
+                        if (widget.settings.customBackgroundPath
+                            .trim()
+                            .isNotEmpty)
+                          ChoiceChip(
+                              key: const Key('settings-saved-background'),
+                              label: const Text('使用已保存图片'),
+                              selected: widget.settings.backgroundStyle ==
+                                  BackgroundStyle.custom,
+                              onSelected: _saving
+                                  ? null
+                                  : (_) => _save(
+                                      () => widget.onAppearanceChanged(
+                                          backgroundStyle:
+                                              BackgroundStyle.custom),
+                                      '已使用保存的背景图片')),
                         OutlinedButton.icon(
                             key: const Key('settings-custom-background'),
                             style: OutlinedButton.styleFrom(

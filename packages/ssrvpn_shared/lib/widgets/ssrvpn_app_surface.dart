@@ -356,7 +356,8 @@ class SsrvpnNavigationDestination extends StatelessWidget {
               children: [
                 Icon(selected ? selectedIcon : icon, color: color, size: 23),
                 const SizedBox(height: 2),
-                SsrvpnHomeText(
+                Flexible(
+                    child: SsrvpnHomeText(
                   label,
                   maxFontSize: 16,
                   textAlign: TextAlign.center,
@@ -365,7 +366,7 @@ class SsrvpnNavigationDestination extends StatelessWidget {
                     fontSize: 12,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
                   ),
-                ),
+                )),
               ],
             ),
           ),

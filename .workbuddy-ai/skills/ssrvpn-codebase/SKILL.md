@@ -38,7 +38,7 @@ Flutter 单仓（`ssrvpn_workspace`）跨平台 Mihomo(Clash Meta) 客户端，�
 
 ## 4. 已知技术债（别当新发现）
 
-- `extractSection` **四份独立实现且行为有分歧**（尾注释、嵌套 `proxies:`、CRLF）：`clash_config_generator.dart:506`、`clash_service_config_support.dart:189`、`subscription_parser_yaml_part.dart:92`、`subscription_yaml_merger.dart:25`（另两处委托不算实现：`subscription_parser.dart:81`、`subscription_service_base.dart:591`）。已实测复现，属登记问题。
+- YAML 根段落提取现统一委托 `utils/yaml_section.dart`；运行时 `proxies` 继续通过 `buildProxiesText` 执行可运行节点过滤与规范化。引号、嵌套键、CRLF 和多行文本由共享回归覆盖，不再保留四份扫描器。
 - Android 补丁相对上游缺 `ssrvpnStartupProviders`/`loadProvider` 同步，根因是三端用三个不同上游（见 architecture.md）。
 - Windows `launcher_main.cpp` 的 `MakeSafeDisconnectVisible` 跨进程 `WM_SETTEXT` 依赖窗口标题，脆弱。
 

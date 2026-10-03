@@ -223,44 +223,7 @@ mixin _ClashConfigSupport {
     if (sectionName == 'proxies') {
       return ClashConfigGenerator.buildProxiesText(yaml);
     }
-
-    final normalized = yaml.replaceAll('\t', '    ');
-    final lines = normalized.split('\n');
-    final sectionLines = <String>[];
-    var inSection = false;
-
-    for (final line in lines) {
-      if (!line.startsWith(' ') && !line.startsWith('\t')) {
-        if (line.trim().startsWith('$sectionName:')) {
-          inSection = true;
-          continue;
-        } else if (inSection &&
-            line.trim().contains(':') &&
-            !line.trim().startsWith('#') &&
-            !line.trim().startsWith('-')) {
-          break;
-        }
-      }
-      if (inSection) sectionLines.add(line);
-    }
-
-    var minIndent = 999;
-    for (final line in sectionLines) {
-      final trimmed = line.trimLeft();
-      if (trimmed.isEmpty) continue;
-      final indent = line.length - trimmed.length;
-      if (indent < minIndent) minIndent = indent;
-    }
-    if (minIndent == 999) minIndent = 0;
-
-    final buffer = StringBuffer();
-    for (final line in sectionLines) {
-      final trimmed = line.trimLeft();
-      if (trimmed.isEmpty) continue;
-      final delta = line.length - trimmed.length - minIndent;
-      buffer.writeln('${' ' * (delta + 2)}$trimmed');
-    }
-    return buffer.toString().trimRight();
+    return extractTopLevelYamlSection(yaml, sectionName);
   }
 
   List<String> extractProxyNames(String rawYaml) {

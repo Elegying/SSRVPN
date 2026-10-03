@@ -90,32 +90,7 @@ class _SubscriptionYamlParser {
   }
 
   static String extractSection(String rawYaml, String sectionName) {
-    try {
-      final lines = rawYaml.split('\n');
-      final buffer = StringBuffer();
-      bool inSection = false;
-      int sectionIndent = 0;
-
-      for (final line in lines) {
-        final trimmed = line.trim();
-        if (trimmed == '$sectionName:') {
-          inSection = true;
-          sectionIndent = line.indexOf(sectionName);
-          continue;
-        }
-
-        if (inSection) {
-          if (trimmed.isEmpty) continue;
-          final currentIndent = line.indexOf(trimmed);
-          if (currentIndent <= sectionIndent && trimmed.isNotEmpty) break;
-          buffer.writeln(line);
-        }
-      }
-
-      return buffer.toString();
-    } catch (e) {
-      return '';
-    }
+    return extractTopLevelYamlSection(rawYaml, sectionName);
   }
 
   static List<String> splitProxyItems(String proxiesText) {
