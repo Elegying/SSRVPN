@@ -114,11 +114,14 @@ class WindowsSettingsMigration {
   }
 
   static Future<void> _directory(String name) async {
-    await _regular(name, FileSystemEntityType.directory);
-    final canonical = await Directory(name).resolveSymbolicLinks();
-    if (!path.equals(
-        path.normalize(canonical), path.normalize(path.absolute(name)))) {
-      throw const FileSystemException('Migration directory must not be linked');
+    // Windows canonical names may expand an ordinary 8.3 alias. Inspect every
+    // component without following links instead; this also rejects junctions.
+    var current = path.normalize(path.absolute(name));
+    while (true) {
+      await _regular(current, FileSystemEntityType.directory);
+      final parent = path.dirname(current);
+      if (path.equals(parent, current)) return;
+      current = parent;
     }
   }
 

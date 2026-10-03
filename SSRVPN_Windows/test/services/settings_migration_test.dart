@@ -35,6 +35,28 @@ void main() {
   Future<void> migrate() => SettingsService.migrateInstalledDataForTesting(
       installed.path, fallback.path);
 
+  test('linked ancestor cannot redirect authoritative data', () async {
+    await migrate();
+    final alias = '${root.path}/local-alias';
+    if (Platform.isWindows) {
+      final result = await Process.run(
+          'cmd.exe', ['/d', '/c', 'mklink', '/J', alias, '${root.path}/local']);
+      expect(result.exitCode, 0, reason: '${result.stderr}');
+    } else {
+      await Link(alias).create('${root.path}/local');
+    }
+    try {
+      await expectLater(
+          SettingsService.resolveDataDirectoryForTesting(
+              '${root.path}/bin/SSRVPN.exe', alias),
+          throwsA(isA<FileSystemException>()));
+      expect((await settings())['proxyPort'], 7890);
+      expect(await picture.readAsBytes(), [1, 2, 3, 4]);
+    } finally {
+      await Link(alias).delete();
+    }
+  });
+
   test('completed fallback stays authoritative after source becomes writable',
       () async {
     await migrate();
