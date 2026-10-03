@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修复
+
+- Windows 已迁移到 LocalAppData 的数据继续作为启动数据源，安装目录恢复可写后不会重新读取旧订阅和设置。
+- Windows 数据迁移复制已保存的受管背景并更新图片路径；旧版已完成迁移也会补齐背景，复制失败可安全重试。
+
 ## [5.0.30] - 2026-10-03
 
 ### 修复
