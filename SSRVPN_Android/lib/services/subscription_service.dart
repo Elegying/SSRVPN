@@ -107,17 +107,18 @@ class SubscriptionService extends SubscriptionServiceBase {
     SubscriptionRefreshControl? control,
   }) async {
     control?.throwIfStopped();
-    final requestControl = SubscriptionRefreshControl(
-      timeout:
-          control != null && control.remaining < const Duration(seconds: 45)
-              ? control.remaining
-              : const Duration(seconds: 45),
-      cancellation: control?.cancellation,
-    );
+    final requestControl =
+        control != null && control.remaining <= const Duration(seconds: 45)
+            ? control
+            : SubscriptionRefreshControl(
+                timeout: const Duration(seconds: 45),
+                cancellation: control?.cancellation,
+              );
     try {
       return await _fetchWithinBudget(url, maxRetries, requestControl);
     } on SubscriptionRefreshDeadlineExceeded {
       control?.throwIfStopped();
+      if (identical(requestControl, control)) rethrow;
       throw TimeoutException('订阅连接或读取超时，请稍后重试或更换网络');
     }
   }
