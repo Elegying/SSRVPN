@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_windows/services/clash_service.dart';
 import 'package:ssrvpn_windows/src/services/windows_core_pid_record.dart';
+import 'package:ssrvpn_windows/src/services/windows_file_time.dart';
 import 'package:ssrvpn_windows/src/services/windows_core_identity_failure.dart';
 
 void main() {
@@ -285,32 +286,77 @@ void main() {
     expect(establishment.capturedIdentity, isNull);
   });
 
+  test(
+      'native FILETIME precision includes a child at the exact return boundary',
+      () async {
+    const identity = WindowsCorePidRecord(
+      pid: 4242,
+      creationTimeUtcFileTime: '134145678901234567',
+      canonicalExecutablePath: canonicalPath,
+    );
+    final nativeReturn = BigInt.parse(identity.creationTimeUtcFileTime);
+    final exactReturn = windowsFileTimeFromParts((nativeReturn >> 32).toInt(),
+        (nativeReturn & BigInt.from(0xffffffff)).toInt());
+    final truncatedReturn = exactReturn ~/ BigInt.from(10) * BigInt.from(10);
+    final oldPersisted = <WindowsCorePidRecord>[];
+    final oldClock = WindowsCoreIdentityEstablishment(_FakeProcess(),
+        spawnStartedAtUtcFileTime: truncatedReturn,
+        spawnReturnedAtUtcFileTime: truncatedReturn);
+    await expectLater(
+        oldClock.establish(
+            capture: (_) async => identity,
+            persist: (record) async => oldPersisted.add(record),
+            ensureStartCurrent: () {}),
+        throwsA(isA<WindowsCoreIdentityFailure>().having((error) => error.kind,
+            'kind', WindowsCoreIdentityFailureKind.mismatch)));
+    expect(oldPersisted, isEmpty);
+
+    final persisted = <WindowsCorePidRecord>[];
+    final nativeClock = WindowsCoreIdentityEstablishment(_FakeProcess(),
+        spawnStartedAtUtcFileTime: truncatedReturn,
+        spawnReturnedAtUtcFileTime: exactReturn);
+    expect(
+        await nativeClock.establish(
+            capture: (_) async => identity,
+            persist: (record) async => persisted.add(record),
+            ensureStartCurrent: () {}),
+        identity);
+    expect(persisted, [identity]);
+  });
+
   test('identity outside the exact spawn window fails closed', () async {
     const tooNewIdentity = WindowsCorePidRecord(
       pid: 4242,
       creationTimeUtcFileTime: '134145678901235001',
       canonicalExecutablePath: canonicalPath,
     );
-    final process = _FakeProcess();
-    final persisted = <WindowsCorePidRecord>[];
-    final establishment = WindowsCoreIdentityEstablishment(
-      process,
-      spawnStartedAtUtcFileTime: BigInt.parse('134145678901234000'),
-      spawnReturnedAtUtcFileTime: BigInt.parse('134145678901235000'),
+    const tooOldIdentity = WindowsCorePidRecord(
+      pid: 4242,
+      creationTimeUtcFileTime: '134145678901233999',
+      canonicalExecutablePath: canonicalPath,
     );
+    for (final identity in [tooNewIdentity, tooOldIdentity]) {
+      final process = _FakeProcess();
+      final persisted = <WindowsCorePidRecord>[];
+      final establishment = WindowsCoreIdentityEstablishment(
+        process,
+        spawnStartedAtUtcFileTime: BigInt.parse('134145678901234000'),
+        spawnReturnedAtUtcFileTime: BigInt.parse('134145678901235000'),
+      );
 
-    await expectLater(
-      establishment.establish(
-        capture: (_) async => tooNewIdentity,
-        persist: (identity) async => persisted.add(identity),
-        ensureStartCurrent: () {},
-      ),
-      throwsA(isA<WindowsCoreIdentityFailure>().having((error) => error.kind,
-          'kind', WindowsCoreIdentityFailureKind.mismatch)),
-    );
+      await expectLater(
+        establishment.establish(
+          capture: (_) async => identity,
+          persist: (identity) async => persisted.add(identity),
+          ensureStartCurrent: () {},
+        ),
+        throwsA(isA<WindowsCoreIdentityFailure>().having((error) => error.kind,
+            'kind', WindowsCoreIdentityFailureKind.mismatch)),
+      );
 
-    expect(persisted, isEmpty);
-    expect(establishment.capturedIdentity, isNull);
+      expect(persisted, isEmpty);
+      expect(establishment.capturedIdentity, isNull);
+    }
   });
 
   test('exit during persistence cannot publish a connected process', () async {
