@@ -216,6 +216,10 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
       return;
     }
 
+    final sourceFiles = await WindowsSettingsMigration.readableSourceFiles(
+        installedDir,
+        {..._installedDataFiles, SubscriptionUndoRecord.fileName});
+
     // The installed directory may be read-only. Migrate the committed snapshot
     // from its undo record without changing the source or copying staged data.
     final undo = await SubscriptionUndoRecord.read(File(
@@ -249,7 +253,13 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
         sourceFile.path,
         followLinks: false,
       );
-      if (!fromUndo && sourceType == FileSystemEntityType.notFound) continue;
+      if (!fromUndo && sourceType == FileSystemEntityType.notFound) {
+        if (sourceFiles.contains(name)) {
+          throw FileSystemException(
+              'Installed data became inaccessible', sourceFile.path);
+        }
+        continue;
+      }
       if (!fromUndo && sourceType != FileSystemEntityType.file) {
         if (critical) {
           throw FileSystemException(

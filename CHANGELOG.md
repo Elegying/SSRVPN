@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 修复
 
+- Windows 源数据不可读取时停止迁移，不再把空目录标记为完成；背景迁移保留摘要恢复记录，设置提交中断且旧目录删除后仍可恢复已校验副本。
 - Windows 已迁移到 LocalAppData 的数据继续作为启动数据源，安装目录恢复可写后不会重新读取旧订阅和设置。
 - Windows 数据迁移复制已保存的受管背景并更新图片路径；旧版已完成迁移也会补齐背景，复制失败可安全重试。
 - Windows 使用高精度 UTC 采样核心启动窗口，避免普通系统时间采样滞后造成合法进程身份被误拒绝；精确窗口校验保持。

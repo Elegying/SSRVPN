@@ -53,6 +53,159 @@ void main() {
     return alias;
   }
 
+  Future<void> sourceAccess(bool allow, {bool readable = false}) async {
+    if (Platform.isWindows) {
+      final identity =
+          await Process.run('whoami.exe', ['/user', '/fo', 'csv', '/nh']);
+      expect(identity.exitCode, 0);
+      final sid = RegExp(r'S-1-[0-9-]+')
+          .firstMatch(identity.stdout as String)!
+          .group(0)!;
+      final result = await Process.run('icacls.exe', [
+        installed.path,
+        allow ? '/remove:d' : '/deny',
+        allow ? sid : '$sid:${readable ? '(W)' : '(R,W)'}',
+      ]);
+      expect(result.exitCode, 0, reason: '${result.stdout} ${result.stderr}');
+    } else {
+      final result = await Process.run('chmod',
+          [allow ? '700' : (readable ? '555' : '000'), installed.path]);
+      expect(result.exitCode, 0);
+    }
+  }
+
+  test('unreadable source cannot commit an empty authoritative store',
+      () async {
+    await File('${installed.path}/subscriptions.json')
+        .writeAsString('["retained"]');
+    await sourceAccess(false);
+    try {
+      await expectLater(migrate(), throwsA(isA<FileSystemException>()));
+      expect(await marker.exists(), isFalse);
+      expect(await targetSettings.exists(), isFalse);
+    } finally {
+      await sourceAccess(true);
+    }
+    await migrate();
+    expect((await settings())['proxyPort'], 7890);
+    expect(await File('${fallback.path}/subscriptions.json').readAsString(),
+        '["retained"]');
+  });
+
+  test('listable source without traversal cannot commit migration', () async {
+    expect((await Process.run('chmod', ['444', installed.path])).exitCode, 0);
+    try {
+      await expectLater(migrate(), throwsA(isA<FileSystemException>()));
+      expect(await marker.exists(), isFalse);
+    } finally {
+      expect((await Process.run('chmod', ['700', installed.path])).exitCode, 0);
+    }
+  }, skip: Platform.isWindows);
+
+  test('readable read-only source still migrates normally', () async {
+    await sourceAccess(false, readable: true);
+    try {
+      await migrate();
+      expect((await settings())['proxyPort'], 7890);
+      expect(await marker.exists(), isTrue);
+    } finally {
+      await sourceAccess(true);
+    }
+  });
+
+  Future<File> interruptBackground({bool removeSource = true}) async {
+    final before = await sourceSettings.readAsBytes();
+    await migrate();
+    await targetSettings.writeAsBytes(before, flush: true);
+    if (removeSource) await installed.delete(recursive: true);
+    return File('${fallback.path}/backgrounds/image-example/background.png');
+  }
+
+  test('interrupted JSON commit recovers verified copy after source removal',
+      () async {
+    final target = await interruptBackground();
+    await targetSettings
+        .writeAsString(jsonEncode({...await settings(), 'proxyPort': 8890}));
+    expect(path.equals(await resolve(), fallback.path), isTrue);
+    expect(
+        path.equals(
+            (await settings())['customBackgroundPath'] as String, target.path),
+        isTrue);
+    expect(await target.readAsBytes(), [1, 2, 3, 4]);
+    expect((await settings())['proxyPort'], 8890);
+  });
+
+  test('source-free recovery rejects changed image and preserves reference',
+      () async {
+    final target = await interruptBackground();
+    final before = await targetSettings.readAsString();
+    await target.writeAsBytes([9]);
+    await expectLater(
+        migrate(), throwsA(isA<WindowsBackgroundMigrationPending>()));
+    expect(await targetSettings.readAsString(), before);
+    expect(await target.readAsBytes(), [9]);
+  });
+
+  test('source-free recovery cannot adopt a copy without its receipt',
+      () async {
+    final target = await interruptBackground();
+    await File('${target.parent.path}/.migration-receipt.json').delete();
+    final before = await targetSettings.readAsString();
+    await migrate();
+    expect(await targetSettings.readAsString(), before);
+  });
+
+  test('source-free recovery rejects corrupt or mismatched receipts', () async {
+    final target = await interruptBackground();
+    final receipt = File('${target.parent.path}/.migration-receipt.json');
+    final valid =
+        jsonDecode(await receipt.readAsString()) as Map<String, dynamic>;
+    final before = await targetSettings.readAsString();
+    for (final invalid in [
+      '{broken',
+      jsonEncode({...valid, 'source': '${root.path}/other.png'})
+    ]) {
+      await receipt.writeAsString(invalid);
+      await expectLater(
+          migrate(), throwsA(isA<WindowsBackgroundMigrationPending>()));
+      expect(await targetSettings.readAsString(), before);
+    }
+  });
+
+  test('source-free recovery rejects a linked receipt', () async {
+    final target = await interruptBackground();
+    final receipt = File('${target.parent.path}/.migration-receipt.json');
+    final elsewhere = File('${root.path}/private-receipt.json');
+    await elsewhere.writeAsBytes(await receipt.readAsBytes());
+    await receipt.delete();
+    await Link(receipt.path).create(elsewhere.path);
+    final before = await targetSettings.readAsString();
+    await expectLater(
+        migrate(), throwsA(isA<WindowsBackgroundMigrationPending>()));
+    expect(await targetSettings.readAsString(), before);
+    expect(await elsewhere.exists(), isTrue);
+  }, skip: Platform.isWindows);
+
+  test('receipt alone never commits a missing target after interruption',
+      () async {
+    final target = await interruptBackground();
+    await target.delete();
+    final before = await targetSettings.readAsString();
+    await expectLater(
+        migrate(), throwsA(isA<WindowsBackgroundMigrationPending>()));
+    expect(await targetSettings.readAsString(), before);
+  });
+
+  test('retained receipt cannot overwrite a newly selected background',
+      () async {
+    await interruptBackground();
+    await targetSettings.writeAsString(jsonEncode(
+        {...await settings(), 'customBackgroundPath': '${root.path}/new.png'}));
+    final before = await targetSettings.readAsString();
+    await migrate();
+    expect(await targetSettings.readAsString(), before);
+  });
+
   test('linked ancestor cannot redirect authoritative data', () async {
     await migrate();
     final alias = await linkLocalAlias();

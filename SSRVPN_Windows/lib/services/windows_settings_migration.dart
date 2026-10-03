@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:path/path.dart' as path;
 
@@ -37,6 +38,32 @@ class WindowsSettingsMigration {
     return true;
   }
 
+  /// Listing reports permission failures that file-type probes can hide.
+  static Future<Set<String>> readableSourceFiles(
+      String source, Set<String> names) async {
+    final found = <String>{};
+    try {
+      await for (final entity in Directory(source).list(followLinks: false)) {
+        final name = path.basename(entity.path);
+        if (names.contains(name)) found.add(name);
+      }
+    } on FileSystemException catch (error) {
+      final code = error.osError?.errorCode;
+      if (code == 2 || (Platform.isWindows && code == 3)) return found;
+      rethrow;
+    }
+    await _directory(source);
+    for (final name in found) {
+      if (await FileSystemEntity.type(path.join(source, name),
+              followLinks: false) ==
+          FileSystemEntityType.notFound) {
+        throw FileSystemException(
+            'Installed data became inaccessible', path.join(source, name));
+      }
+    }
+    return found;
+  }
+
   static Future<void> repairBackground(
       String source, String destination) async {
     final settingsFile = File(path.join(destination, 'settings.json'));
@@ -64,37 +91,67 @@ class WindowsSettingsMigration {
         path.basename(original) != 'background.png') {
       return;
     }
-    // The original image may already be gone. Keep its setting for recovery,
-    // rather than preventing access to otherwise valid migrated subscriptions.
-    if (await FileSystemEntity.type(original, followLinks: false) ==
-        FileSystemEntityType.notFound) {
-      return;
-    }
     await _directory(destination);
     try {
-      await _directory(source);
-      await _directory(path.join(source, 'backgrounds'));
-      await _directory(path.dirname(original));
-      await _regular(original, FileSystemEntityType.file);
-      final bytes = await _boundedRead(File(original));
-      if (bytes.isEmpty) {
-        throw const FormatException('Saved background is empty');
-      }
-
-      await _directory(destination);
-      final backgroundRoot = path.join(destination, 'backgrounds');
-      await _createDirectory(backgroundRoot);
-      final targetFolder = path.join(backgroundRoot, folder);
-      await _createDirectory(targetFolder);
+      final targetFolder = path.join(destination, 'backgrounds', folder);
       final target = File(path.join(targetFolder, 'background.png'));
-      final targetType =
-          await FileSystemEntity.type(target.path, followLinks: false);
-      if (targetType == FileSystemEntityType.notFound) {
-        await _atomicWrite(target, bytes);
-      } else {
+      final receipt = File(path.join(targetFolder, '.migration-receipt.json'));
+      final List<int> bytes;
+      if (await FileSystemEntity.type(original, followLinks: false) ==
+          FileSystemEntityType.notFound) {
+        // An interrupted JSON commit can outlive its source. Only a copy
+        // bound to this exact reference and a durable digest may be adopted.
+        if (await FileSystemEntity.type(receipt.path, followLinks: false) ==
+            FileSystemEntityType.notFound) {
+          return;
+        }
+        await _directory(targetFolder);
+        await _regular(receipt.path, FileSystemEntityType.file);
+        if (await receipt.length() > 64 * 1024) {
+          throw const FormatException('Background receipt exceeds its limit');
+        }
+        final record = jsonDecode(utf8.decode(await _boundedRead(receipt)));
         await _regular(target.path, FileSystemEntityType.file);
-        if (!listEquals(bytes, await _boundedRead(target))) {
-          throw StateError('Saved background conflicts with migrated data');
+        bytes = await _boundedRead(target);
+        if (record is! Map<String, dynamic> ||
+            record['source'] != original ||
+            record['sha256'] != sha256.convert(bytes).toString() ||
+            bytes.isEmpty) {
+          throw const FormatException('Background receipt does not match');
+        }
+      } else {
+        await _directory(source);
+        await _directory(path.join(source, 'backgrounds'));
+        await _directory(path.dirname(original));
+        await _regular(original, FileSystemEntityType.file);
+        bytes = await _boundedRead(File(original));
+        if (bytes.isEmpty) {
+          throw const FormatException('Saved background is empty');
+        }
+        await _createDirectory(path.join(destination, 'backgrounds'));
+        await _createDirectory(targetFolder);
+        final targetType =
+            await FileSystemEntity.type(target.path, followLinks: false);
+        if (targetType != FileSystemEntityType.notFound) {
+          await _regular(target.path, FileSystemEntityType.file);
+          if (!listEquals(bytes, await _boundedRead(target))) {
+            throw StateError('Saved background conflicts with migrated data');
+          }
+        }
+        final receiptType =
+            await FileSystemEntity.type(receipt.path, followLinks: false);
+        if (receiptType != FileSystemEntityType.notFound) {
+          await _regular(receipt.path, FileSystemEntityType.file);
+        }
+        // Persist recovery evidence before the independent image/JSON commits.
+        await _atomicWrite(
+            receipt,
+            utf8.encode(jsonEncode({
+              'source': original,
+              'sha256': sha256.convert(bytes).toString(),
+            })));
+        if (targetType == FileSystemEntityType.notFound) {
+          await _atomicWrite(target, bytes);
         }
       }
       // Never publish a setting that points at an incomplete or conflicting copy.
