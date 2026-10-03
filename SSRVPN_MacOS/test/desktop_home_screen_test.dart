@@ -465,6 +465,59 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  for (final waitingOnResponse in [false, true]) {
+    testWidgets(
+        'slow tray preparation blocks device IP retry: $waitingOnResponse',
+        (tester) async {
+      final fixture =
+          (await tester.runAsync(() => _HomeFixture.create(withNodes: true)))!;
+      addTearDown(fixture.dispose);
+      final status = StartupStatus.instance;
+      status.prepareCoreRetry();
+      status.setServices(
+        settings: fixture.settings,
+        clash: fixture.clash,
+        subscription: fixture.subscription,
+      );
+      addTearDown(status.prepareCoreRetry);
+      final pending = Completer<PublicIpInfo>();
+      if (waitingOnResponse) {
+        fixture.clash.pendingPublicIp = pending;
+      } else {
+        fixture.clash.publicIpFailures = 1;
+      }
+      final release = fixture.clash.proxyRecoveryRelease = Completer<bool>();
+      await tester.pumpWidget(desktop_app.SSRVpnApp(
+          startupFlags: StartupFlags.parse(const ['--safe-mode'])));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      await _pumpUntil(tester, () => fixture.clash.publicIpCalls == 1);
+      TrayManager().onConnectToggle!();
+      await _pumpUntil(tester, () => fixture.clash.proxyRecoveryCalls == 1);
+      expect(fixture.clash.connectionDesired, isTrue);
+      expect(fixture.clash.isRunning, isFalse);
+      if (waitingOnResponse) {
+        pending
+            .completeError(const PublicIpInfoException('cancelled by intent'));
+      }
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 5));
+      expect(fixture.clash.publicIpCalls, 1,
+          reason: 'connection intent must block DIRECT retries before startup');
+      expect(find.byKey(const Key('home-public-ip')), findsNothing,
+          reason: 'preparing connection does not expose a manual IP action');
+      release.complete(true);
+      await _pumpUntil(tester, () => fixture.clash.startCalls == 1);
+      fixture.clash.publishRunning(true);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      await _pumpUntil(tester, () => fixture.clash.publicIpCalls == 2);
+      expect(find.textContaining('198.51.100.9'), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
   testWidgets('exit IP stops retrying after two failed attempts',
       (tester) async {
     final fixture = (await tester

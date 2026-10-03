@@ -77,7 +77,7 @@ macOS 与 Windows：`setSystemProxy` / `clearSystemProxy` **只能**出现在 `c
 | `desktop_home_runtime_actions_part.dart` | 384 | **600** | 216 |
 | `desktop_home_background_tasks_part.dart` | 234 | **300** | 66 |
 | `desktop_home_initial_subscription_part.dart` | 273 | **300** | **27** ⚠️ |
-| `desktop_home_public_ip_part.dart` | 66 | **600** | 534 |
+| `desktop_home_public_ip_part.dart` | 91 | **600** | 509 |
 | `desktop_subscription_screen_part.dart` | 349 | 450 | 101 |
 
 ⚠️ **三部件合计（home + runtime_actions + background_tasks）≤ 1410**，当前 **1397，余 13**。

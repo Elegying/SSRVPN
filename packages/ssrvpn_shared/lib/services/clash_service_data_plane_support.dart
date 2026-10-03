@@ -64,6 +64,7 @@ mixin _ClashDataPlaneSupport {
   }
 
   bool get isRunning;
+  bool get connectionDesired;
   AppSettings get settings;
   Future<String?> currentSelectedProxyName();
   bool get _canPublishHealthCheckResult;
@@ -521,6 +522,9 @@ mixin _ClashDataPlaneSupport {
 
   Future<PublicIpInfo> fetchCurrentPublicIpInfo() async {
     final connected = isRunning;
+    if (!connected && connectionDesired) {
+      throw const PublicIpInfoException('正在准备连接，暂停公网 IP 查询');
+    }
     if (connected && _exitObservationHasManualDirectOverride) {
       throw const PublicIpInfoException('手动直连规则覆盖出口查询，暂停节点出口归属');
     }

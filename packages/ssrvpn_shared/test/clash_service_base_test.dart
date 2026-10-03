@@ -20,6 +20,22 @@ import 'package:ssrvpn_shared/services/smart_rule_bundle.dart';
 import 'package:ssrvpn_shared/utils/runtime_config_name_policy.dart';
 
 void main() {
+  test('preparing connection blocks fresh public IP queries until intent ends',
+      () async {
+    var requests = 0;
+    final service = _PublicIpClashService(MockClient((_) async {
+      requests++;
+      return http.Response('{"ip":"8.8.8.8","country_code":"US"}', 200);
+    }));
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    await expectLater(service.fetchCurrentPublicIpInfo(), throwsException);
+    expect(requests, 0);
+    service.requestConnectionIntent(false);
+    expect((await service.fetchCurrentPublicIpInfo()).ip, '8.8.8.8');
+    expect(requests, 2);
+  });
+
   for (final transition in [
     'connect',
     'connecting-intent',

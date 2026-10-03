@@ -585,6 +585,7 @@ void main() {
     expect(proxyMode, ProxyMode.rule);
     expect(find.byType(SsrvpnNodeSelectionPage), findsOneWidget);
     await tester.ensureVisible(globalAction);
+    await tester.pumpAndSettle();
     await tester.tap(globalAction);
     await tester.pumpAndSettle();
     await tester.tap(find.text('确定'));
