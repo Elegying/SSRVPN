@@ -95,3 +95,5 @@ export 'widgets/ssrvpn_liquid_dialog.dart';
 export 'widgets/ssrvpn_info_dialog.dart';
 
 export 'widgets/ssrvpn_subscription_runtime.dart';
+
+export 'widgets/ssrvpn_theme.dart';

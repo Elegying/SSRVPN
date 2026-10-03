@@ -1,45 +1,33 @@
+import 'ssrvpn_theme_icon.dart';
+import 'ssrvpn_theme.dart';
+import 'ssrvpn_theme_picker.dart';
 import 'ssrvpn_site_diagnostic.dart';
 import '../utils/site_routing_suggestion.dart';
-import 'dart:io';
 import 'dart:async';
-import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/app_settings.dart';
-import '../services/background_image_store.dart';
 import '../services/clash_service_base.dart';
 import '../services/update_checker.dart';
 import 'ssrvpn_diagnostics_dialog.dart';
-import 'ssrvpn_liquid_dialog.dart';
-import 'ssrvpn_glass_dialog_route.dart';
-import 'ssrvpn_appearance.dart';
 import 'ssrvpn_liquid_glass.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart'
-    show GlassQuality;
 
 class SsrvpnSettingsPage extends StatefulWidget {
   const SsrvpnSettingsPage(
       {super.key,
       required this.settings,
       required this.core,
-      required this.dataDirectory,
       required this.onAppearanceChanged,
       required this.onPortChanged,
       required this.checkForUpdate,
       required this.onUpdateFound,
-      this.pickBackgroundImage,
       this.onRoutingSitesChanged});
   final Future<void> Function(List<String> sites, bool direct)?
       onRoutingSitesChanged;
-  final Future<XFile?> Function()? pickBackgroundImage;
   final AppSettings settings;
   final ClashServiceBase core;
-  final String dataDirectory;
-  final Future<void> Function(
-      {GlassEffectLevel? glassEffectLevel,
-      BackgroundStyle? backgroundStyle,
-      String? customBackgroundPath,
-      bool? dynamicBackground}) onAppearanceChanged;
+  final Future<void> Function({AppThemeVariant? themeVariant})
+      onAppearanceChanged;
   final Future<void> Function(int) onPortChanged;
   final Future<AppUpdateInfo?> Function() checkForUpdate;
   final void Function(AppUpdateInfo) onUpdateFound;
@@ -164,80 +152,10 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
     }
   }
 
-  Future<void> _pickBackground() async {
-    if (_saving) return;
-    setState(() {
-      _saving = true;
-      _notice = null;
-    });
-    File? imported;
-    bool saved = false;
-    try {
-      final selected = widget.pickBackgroundImage != null
-          ? await widget.pickBackgroundImage!()
-          : await openFile(acceptedTypeGroups: const [
-              XTypeGroup(
-                  label: '背景图片',
-                  extensions: ['png', 'jpg', 'jpeg', 'webp'],
-                  uniformTypeIdentifiers: ['public.image'])
-            ]);
-      if (selected == null || !mounted) return;
-      imported = await BackgroundImageStore.importImage(
-          selected, widget.dataDirectory);
-      if (!mounted) return;
-      final accepted = await showSsrvpnGlassDialog<bool>(
-          context: context,
-          builder: (context) => SsrvpnLiquidAlertDialog(
-                  title: const Text('背景预览'),
-                  content: SizedBox(
-                      width: 300,
-                      height: 240,
-                      child: SsrvpnCustomBackground(path: imported!.path)),
-                  actions: [
-                    TextButton(
-                        onPressed: () =>
-                            dismissSsrvpnDialog<bool>(context, false),
-                        child: const Text('取消')),
-                    FilledButton(
-                        onPressed: () =>
-                            dismissSsrvpnDialog<bool>(context, true),
-                        child: const Text('使用这张背景'))
-                  ]));
-      if (accepted != true || !mounted) return;
-      final oldPath = widget.settings.customBackgroundPath;
-      await widget.onAppearanceChanged(
-          backgroundStyle: BackgroundStyle.custom,
-          customBackgroundPath: imported.path);
-      saved = true;
-      try {
-        await BackgroundImageStore.removeOwned(oldPath, widget.dataDirectory);
-      } catch (_) {}
-      if (mounted) _showNotice('自定义背景已应用', 'appearance');
-    } on FormatException catch (error) {
-      if (mounted) _showNotice(error.message, 'appearance');
-    } catch (_) {
-      if (mounted) _showNotice('图片导入失败，请选择有效的静态图片重试，原背景已保留', 'appearance');
-    } finally {
-      if (!saved && imported != null) {
-        try {
-          await BackgroundImageStore.removeOwned(
-              imported.path, widget.dataDirectory);
-        } catch (_) {}
-      }
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     final horizontalPadding = width > 680 ? (width - 640) / 2 : 20.0;
-    final selectedLevel = widget.settings.glassEffectLevel ??
-        switch (ssrvpnGlassQuality(context)) {
-          GlassQuality.minimal => GlassEffectLevel.low,
-          GlassQuality.standard => GlassEffectLevel.medium,
-          GlassQuality.premium => GlassEffectLevel.high,
-        };
     return SafeArea(
         bottom: false,
         child: Column(children: [
@@ -255,63 +173,21 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                     style:
                         TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 14),
-                _section(
-                    '外观',
-                    [
-                      const Text('液态玻璃特效',
-                          style: TextStyle(fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 12),
-                      Wrap(spacing: 10, runSpacing: 8, children: [
-                        for (final level in GlassEffectLevel.values)
-                          ChoiceChip(
-                              label: Text(['无', '低', '中', '高'][level.index]),
-                              selected: level == selectedLevel,
-                              onSelected: _saving
-                                  ? null
-                                  : (_) => _save(
-                                      () => widget.onAppearanceChanged(
-                                          glassEffectLevel: level),
-                                      '特效档位已保存'))
-                      ]),
-                      const SizedBox(height: 12),
-                      const Text('主题背景',
-                          style: TextStyle(fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 12),
-                      Wrap(spacing: 12, runSpacing: 12, children: [
-                        for (final style in BackgroundStyle.values
-                            .where((s) => s != BackgroundStyle.custom))
-                          _backgroundChoice(style),
-                        if (widget.settings.customBackgroundPath
-                            .trim()
-                            .isNotEmpty)
-                          ChoiceChip(
-                              key: const Key('settings-saved-background'),
-                              label: const Text('使用已保存图片'),
-                              selected: widget.settings.backgroundStyle ==
-                                  BackgroundStyle.custom,
-                              onSelected: _saving
-                                  ? null
-                                  : (_) => _save(
-                                      () => widget.onAppearanceChanged(
-                                          backgroundStyle:
-                                              BackgroundStyle.custom),
-                                      '已使用保存的背景图片')),
-                        OutlinedButton.icon(
-                            key: const Key('settings-custom-background'),
-                            style: OutlinedButton.styleFrom(
-                                minimumSize: const Size(116, 52)),
-                            onPressed: _saving ? null : _pickBackground,
-                            icon: Icon(widget.settings.backgroundStyle ==
-                                    BackgroundStyle.custom
-                                ? Icons.check
-                                : Icons.add_photo_alternate_outlined),
-                            label: const Text('自定义')),
-                      ]),
-                      if (_notice != null && _noticeLocation == 'appearance')
-                        _noticeView(),
-                    ],
-                    trailing: _backgroundMotionSwitch()),
-                const SizedBox(height: 12),
+                _section('外观', [
+                  SsrvpnThemePicker(
+                    selected: widget.settings.themeVariant,
+                    onChanged: _saving
+                        ? null
+                        : (theme) => _save(
+                              () => widget.onAppearanceChanged(
+                                  themeVariant: theme),
+                              '主题已应用',
+                            ),
+                  ),
+                  if (_notice != null && _noticeLocation == 'appearance')
+                    _noticeView(),
+                ]),
+                const SizedBox(height: 14),
                 _section(
                     '代理端口',
                     [
@@ -319,8 +195,9 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                           widget.core.isRunning
                               ? '当前实际端口：${widget.core.runtimeProxyPort}'
                               : '已保存端口：${widget.settings.proxyPort}',
-                          style: const TextStyle(
-                              fontSize: 12, color: Colors.white70)),
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: SsrvpnTheme.of(context).textSecondary)),
                       const SizedBox(height: 10),
                       Align(
                           alignment: Alignment.centerRight,
@@ -364,7 +241,8 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                 _section('应用', [
                   ListTile(
                       contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.rule_folder_outlined),
+                      leading: const SsrvpnThemeIcon('logs',
+                          fallback: Icons.rule_folder_outlined),
                       title: const Text('检查规则更新'),
                       trailing: _checkingRules
                           ? const SizedBox(
@@ -377,7 +255,8 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                     _noticeView(),
                   ListTile(
                       contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.system_update_outlined),
+                      leading: const SsrvpnThemeIcon('download',
+                          fallback: Icons.system_update_outlined),
                       title: const Text('检查软件更新'),
                       trailing: _checking
                           ? const SizedBox(
@@ -391,7 +270,8 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                   ListTile(
                       focusNode: _siteDiagnosticFocus,
                       contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.travel_explore),
+                      leading: const SsrvpnThemeIcon('diagnostic',
+                          fallback: Icons.travel_explore),
                       title: const Text('网站访问诊断'),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () {
@@ -411,7 +291,8 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                   ListTile(
                       focusNode: _runtimeLogFocus,
                       contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.subject_outlined),
+                      leading: const SsrvpnThemeIcon('logs',
+                          fallback: Icons.subject_outlined),
                       title: const Text('运行日志'),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () {
@@ -476,75 +357,29 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                                 spacing: 12,
                                 runSpacing: 4,
                                 children: [
-                                  Text(title,
-                                      style: const TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.bold)),
+                                  Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (!SsrvpnTheme.of(context)
+                                            .isDefault) ...[
+                                          SsrvpnThemeIcon(
+                                              title == '外观'
+                                                  ? 'appearance'
+                                                  : 'settings',
+                                              fallback:
+                                                  Icons.settings_outlined),
+                                          const SizedBox(width: 8),
+                                        ],
+                                        Flexible(
+                                            child: Text(title,
+                                                style: const TextStyle(
+                                                    fontSize: 18,
+                                                    fontWeight:
+                                                        FontWeight.bold))),
+                                      ]),
                                   if (trailing != null) trailing,
                                 ]),
                         const SizedBox(height: 10),
                         ...children
                       ]))));
-
-  /// Drifting repaints the wallpaper every frame and drags the glass above it
-  /// along, so the switch is offered only for the one background that can move.
-  Widget _backgroundMotionSwitch() {
-    final reducedMotion = MediaQuery.disableAnimationsOf(context);
-    final supported =
-        widget.settings.backgroundStyle == BackgroundStyle.flowing;
-    final interactive = supported && !reducedMotion && !_saving;
-    return MergeSemantics(
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-      const Text('动态背景',
-          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-      const SizedBox(width: 4),
-      Switch(
-        // Show the switch as off whenever the wallpaper cannot actually move,
-        // so the displayed value always matches what the user sees.
-        value: supported && !reducedMotion && widget.settings.dynamicBackground,
-        onChanged: interactive
-            ? (value) => _save(
-                () => widget.onAppearanceChanged(dynamicBackground: value),
-                null)
-            : null,
-      ),
-    ]));
-  }
-
-  Widget _backgroundChoice(BackgroundStyle style) {
-    final selected = widget.settings.backgroundStyle == style;
-    final label = ssrvpnBackgroundLabel(style);
-    return Semantics(
-        label: '$label 背景',
-        selected: selected,
-        button: true,
-        child: Tooltip(
-            message: label,
-            child: InkWell(
-                onTap: _saving
-                    ? null
-                    : () => _save(
-                        () =>
-                            widget.onAppearanceChanged(backgroundStyle: style),
-                        '背景已保存'),
-                borderRadius: BorderRadius.circular(16),
-                child: Container(
-                    width: 52,
-                    height: 52,
-                    decoration: BoxDecoration(
-                        color: ssrvpnBackgroundColor(style),
-                        gradient: style == BackgroundStyle.flowing
-                            ? const LinearGradient(
-                                colors: [Color(0xFF163D7D), Color(0xFF691B88)])
-                            : null,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                            color: selected ? Colors.white : Colors.white30,
-                            width: selected ? 3 : 1)),
-                    child: selected
-                        ? const Icon(Icons.check, color: Colors.white)
-                        : style == BackgroundStyle.flowing
-                            ? const Icon(Icons.waves)
-                            : null))));
-  }
 }

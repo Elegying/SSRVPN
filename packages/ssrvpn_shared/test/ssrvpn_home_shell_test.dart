@@ -3,6 +3,63 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_home_shell.dart';
 
 void main() {
+  testWidgets(
+      'collapsed viewport restores without invalid geometry or losing form state',
+      (tester) async {
+    final extent = ValueNotifier(const Size(390, 844));
+    addTearDown(extent.dispose);
+    final input = TextEditingController(text: '保留的订阅');
+    addTearDown(input.dispose);
+    await tester.pumpWidget(MaterialApp(
+        home: Align(
+            child: ValueListenableBuilder<Size>(
+      valueListenable: extent,
+      builder: (_, size, __) => SizedBox.fromSize(
+          size: size,
+          child: SsrvpnHomeShell(
+            navigation: const SizedBox(height: 80),
+            body: TextField(controller: input),
+          )),
+    ))));
+    final fieldState = tester.state(find.byType(TextField));
+    extent.value = Size.zero;
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    extent.value = const Size(390, 844);
+    await tester.pump();
+    expect(tester.state(find.byType(TextField)), same(fieldState));
+    expect(input.text, '保留的订阅');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('keyboard preserves small-screen typography and live input',
+      (tester) async {
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+            body: SsrvpnHomeShell(
+                navigation: SizedBox(height: 80),
+                body: SingleChildScrollView(
+                    child: Column(children: [
+                  Text('订阅名称', style: TextStyle(fontSize: 16)),
+                  TextField(key: Key('keyboard-input')),
+                ]))))));
+    final height = tester.getRect(find.text('订阅名称')).height;
+    await tester.tap(find.byKey(const Key('keyboard-input')));
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(find.text('订阅名称')).height, closeTo(height, .01));
+    await tester.enterText(find.byKey(const Key('keyboard-input')), '测试订阅');
+    expect(find.text('测试订阅'), findsOneWidget);
+    expect(
+        find.byKey(const Key('keyboard-input')).hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('floating navigation reserves scroll tail and preserves the body',
       (tester) async {
     final extended = ValueNotifier(false);

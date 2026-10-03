@@ -6,11 +6,10 @@ SSRVPN Android 版是基于 Flutter、Kotlin 和 Mihomo 的系统 VPN 客户端�
 
 ## 界面预览
 
-以下为 5.0.1 Android 实机截图，展示已连接主页与节点选择界面；公网 IPv4 已遮挡。可下载版本以 GitHub Release 为准。
+以下为 Android 六套主题主页实机合照，公网 IPv4 已遮挡。截图中的节点、延迟和用量仅用于展示，可下载版本以 GitHub Release 为准。
 
 <p align="center">
-  <img src="../docs/assets/ssrvpn-product-preview.jpg" alt="SSRVPN Android 已连接主页与流量统计" width="360">
-  <img src="../docs/assets/ssrvpn-node-preview.jpg" alt="SSRVPN Android 节点选择与智能分流" width="360">
+  <img src="../docs/assets/ssrvpn-product-preview.jpg" alt="SSRVPN 六套主题主页：默认、云朵游乐场、樱花晴空、暮色山境、Soft 新拟态与曜石极光" width="960">
 </p>
 
 ## 支持范围
@@ -20,7 +19,7 @@ SSRVPN Android 版是基于 Flutter、Kotlin 和 Mihomo 的系统 VPN 客户端�
 
 ## 功能特性
 
-- 首页、订阅、设置三个入口，支持四档玻璃特效和自定义背景。
+- 首页、订阅、设置三个入口，支持默认液态玻璃及五套独立主题。
 - 主页集中展示连接状态、当前节点、公网 IPv4 与代理流量统计。
 - 支持 Mihomo/Clash YAML、Base64 订阅、常见节点 URI 和受控客户端标识兼容协商。
 - Android `VpnService`、前台通知和快捷设置磁贴。

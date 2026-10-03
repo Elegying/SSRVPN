@@ -69,8 +69,11 @@ void main() {
                                     readSample: () async => null,
                                     accountUsage: quota(used, limit))))))));
             await tester.pump();
-            final reminder = find.text(
-                '已用${formatAccountUsage(quota(used, limit)).percentage} 每月1日重置');
+            final reminder = find.text('每月1日重置');
+            final gauge = tester.widget<CircularProgressIndicator>(
+                find.byKey(const Key('account-usage-ring')));
+            expect(gauge.semanticsValue,
+                formatAccountUsage(quota(used, limit)).percentage);
             expect(reminder, findsOneWidget);
             expect((tester.widget<Text>(reminder)).maxLines, 1);
             expect(find.textContaining('<'), findsNothing);
@@ -94,7 +97,13 @@ void main() {
                 .descendant(of: finder, matching: find.byType(Text))
                 .evaluate()
                 .map((e) => (e.widget as Text).style!.fontSize!);
-            expect(fonts.every((font) => font >= 10), isTrue);
+            expect(fonts.every((font) => font >= 10), isTrue,
+                reason: find
+                    .descendant(of: finder, matching: find.byType(Text))
+                    .evaluate()
+                    .map((e) =>
+                        '${(e.widget as Text).data}: ${(e.widget as Text).style!.fontSize}')
+                    .join(', '));
             expect(tester.takeException(), isNull);
           }
           await tester.pumpWidget(const SizedBox());

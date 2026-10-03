@@ -2,8 +2,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 /// Animate only the wallpaper; foreground controls remain still and reusable.
-class SsrvpnDriftingBackground extends StatefulWidget {
-  const SsrvpnDriftingBackground(
+class TestAnimatedBackground extends StatefulWidget {
+  const TestAnimatedBackground(
       {super.key, required this.child, this.drift = false});
 
   /// When false the wallpaper keeps its framing but never moves. Nothing is
@@ -16,11 +16,10 @@ class SsrvpnDriftingBackground extends StatefulWidget {
   final bool drift;
   final Widget child;
   @override
-  State<SsrvpnDriftingBackground> createState() =>
-      _SsrvpnDriftingBackgroundState();
+  State<TestAnimatedBackground> createState() => _TestAnimatedBackgroundState();
 }
 
-class _SsrvpnDriftingBackgroundState extends State<SsrvpnDriftingBackground>
+class _TestAnimatedBackgroundState extends State<TestAnimatedBackground>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _motion =
       AnimationController(vsync: this, duration: const Duration(seconds: 18));
@@ -57,7 +56,7 @@ class _SsrvpnDriftingBackgroundState extends State<SsrvpnDriftingBackground>
   /// The preference can change while this widget stays mounted, so a toggle
   /// has to start or freeze the motion immediately.
   @override
-  void didUpdateWidget(covariant SsrvpnDriftingBackground oldWidget) {
+  void didUpdateWidget(covariant TestAnimatedBackground oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.drift != widget.drift) _updateMotion();
   }

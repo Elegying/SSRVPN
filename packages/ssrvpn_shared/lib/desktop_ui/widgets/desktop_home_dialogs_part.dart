@@ -32,17 +32,18 @@ class _DesktopTutorialStep extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(width: 12),
+        SizedBox(width: 12),
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.only(top: 3),
+            padding: EdgeInsets.only(top: 3),
             child: Text(
               text,
               style: TextStyle(
                 fontSize: 14,
                 height: 1.5,
-                color:
-                    isDark ? AppTheme.textPrimary : AppTheme.lightTextPrimary,
+                color: isDark
+                    ? SsrvpnTheme.of(context).textPrimary
+                    : SsrvpnTheme.of(context).textPrimary,
               ),
             ),
           ),
@@ -56,8 +57,8 @@ void _showDesktopHomeTutorialDialog(BuildContext context) {
   final isMacOS = desktopPlatformLabel == 'MacOS';
   showSsrvpnInfoDialog(
     context,
-    panelKey: const Key('ssrvpn-tutorial-glass'),
-    scrollKey: const Key('desktop-home-tutorial-scroll'),
+    panelKey: Key('ssrvpn-tutorial-glass'),
+    scrollKey: Key('desktop-home-tutorial-scroll'),
     icon: Icons.menu_book_rounded,
     title: '使用教程',
     content: Column(
@@ -67,17 +68,17 @@ void _showDesktopHomeTutorialDialog(BuildContext context) {
           step: '1',
           text: '进入订阅页面，粘贴节点链接或订阅链接',
         ),
-        const SizedBox(height: 12),
+        SizedBox(height: 12),
         const _DesktopTutorialStep(
           step: '2',
           text: '点击添加后刷新订阅，等待节点加载完成',
         ),
-        const SizedBox(height: 12),
+        SizedBox(height: 12),
         const _DesktopTutorialStep(
           step: '3',
           text: '回到首页，选择节点后点击连接按钮',
         ),
-        const SizedBox(height: 12),
+        SizedBox(height: 12),
         _DesktopTutorialStep(
           step: '4',
           text: isMacOS
@@ -100,7 +101,7 @@ void _showDesktopHomeLogsDialog(BuildContext context) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          margin: EdgeInsets.fromLTRB(16, 0, 16, 16),
           content: Text(message),
         ),
       );
@@ -118,11 +119,11 @@ extension _DesktopHomeNodeMenu on _HomeScreenState {
     final selected = await showSsrvpnLiquidMenu<String>(
       context: context,
       position: RelativeRect.fromRect(
-          details.globalPosition & const Size(1, 1), overlayRect),
+          details.globalPosition & Size(1, 1), overlayRect),
       items: [
         SsrvpnLiquidMenuItem<String>(
           value: 'edit',
-          child: const Row(children: [
+          child: Row(children: [
             Icon(Icons.edit_outlined, size: 18),
             SizedBox(width: 10),
             Text('编辑'),

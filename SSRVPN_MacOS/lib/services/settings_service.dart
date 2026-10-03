@@ -48,24 +48,9 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
   final Future<bool> Function()? _removeLegacyPreferencesOverride;
   late final _privateFileStore = _MacosPrivateFileStore(() => _dataDir);
 
-  String get appearanceDirectory => _dataDir;
-
-  Future<void> updateAppearance(
-          {GlassEffectLevel? glassEffectLevel,
-          BackgroundStyle? backgroundStyle,
-          String? customBackgroundPath,
-          bool? dynamicBackground}) =>
+  Future<void> updateAppearance({AppThemeVariant? themeVariant}) =>
       _updateSettings((settings) {
-        if (glassEffectLevel != null) {
-          settings.glassEffectLevel = glassEffectLevel;
-        }
-        if (backgroundStyle != null) settings.backgroundStyle = backgroundStyle;
-        if (customBackgroundPath != null) {
-          settings.customBackgroundPath = customBackgroundPath;
-        }
-        if (dynamicBackground != null) {
-          settings.dynamicBackground = dynamicBackground;
-        }
+        if (themeVariant != null) settings.themeVariant = themeVariant;
       });
 
   SettingsService._({

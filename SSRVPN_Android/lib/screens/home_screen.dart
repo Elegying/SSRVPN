@@ -10,7 +10,6 @@ import '../services/subscription_service.dart';
 import '../services/settings_service.dart';
 import '../services/update_service.dart';
 import '../services/connection_orchestrator.dart';
-import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/android_diagnostics_sheet.dart';
 import '../widgets/force_proxy_sites_dialog.dart';

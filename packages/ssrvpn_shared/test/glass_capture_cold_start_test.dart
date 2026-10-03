@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as glass;
 import 'package:ssrvpn_shared/widgets/ssrvpn_glass_capture.dart';
-import 'package:ssrvpn_shared/widgets/ssrvpn_drifting_background.dart';
+import 'support/animated_test_background.dart';
 
 void main() {
   testWidgets('cold start with a still wallpaper still captures the backdrop',
@@ -18,7 +18,7 @@ void main() {
           child: Stack(fit: StackFit.expand, children: [
             // A still wallpaper (drift: false) paints once and never repaints.
             SsrvpnGlassBackgroundSource(
-                child: SsrvpnDriftingBackground(
+                child: TestAnimatedBackground(
                     drift: false, child: const ColoredBox(color: Colors.blue))),
             Builder(
                 builder: (context) => ValueListenableBuilder<SsrvpnGlassFrame?>(

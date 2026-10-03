@@ -1,9 +1,9 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_theme.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_info_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/app_settings.dart';
-import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/glass_container.dart';
 
@@ -89,10 +89,12 @@ class _ForceProxySitesDialogState extends State<ForceProxySitesDialog> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final titleColor =
-        isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
-    final subColor =
-        isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    final titleColor = isDark
+        ? SsrvpnTheme.of(context).textPrimary
+        : SsrvpnTheme.of(context).textPrimary;
+    final subColor = isDark
+        ? SsrvpnTheme.of(context).textSecondary
+        : SsrvpnTheme.of(context).textSecondary;
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -102,13 +104,13 @@ class _ForceProxySitesDialogState extends State<ForceProxySitesDialog> {
         borderRadius: 16,
         opaque: true,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
+          constraints: BoxConstraints(maxWidth: 420),
           child: SingleChildScrollView(
             padding: EdgeInsets.only(
               bottom: MediaQuery.of(context).viewInsets.bottom,
             ),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+              padding: EdgeInsets.fromLTRB(22, 22, 22, 18),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -120,10 +122,10 @@ class _ForceProxySitesDialogState extends State<ForceProxySitesDialog> {
                         width: 36,
                         height: 36,
                         decoration: BoxDecoration(
-                          gradient: const LinearGradient(
+                          gradient: LinearGradient(
                             colors: [
-                              AppTheme.primaryColor,
-                              AppTheme.accentColor,
+                              SsrvpnTheme.of(context).primary,
+                              SsrvpnTheme.of(context).accent,
                             ],
                           ),
                           borderRadius: BorderRadius.circular(10),
@@ -132,11 +134,11 @@ class _ForceProxySitesDialogState extends State<ForceProxySitesDialog> {
                           widget.forceDirect
                               ? Icons.link_off_rounded
                               : Icons.add_link_rounded,
-                          color: Colors.white,
+                          color: SsrvpnTheme.of(context).onPrimary,
                           size: 20,
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      SizedBox(width: 12),
                       Expanded(
                         child: Text(
                           widget.forceDirect ? '添加强制直连网站' : '添加强制代理网站',
@@ -149,7 +151,7 @@ class _ForceProxySitesDialogState extends State<ForceProxySitesDialog> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   Text(
                     widget.forceDirect
                         ? '应用名单优先于这里的设置。同一网站以后保存的方向为准；父域与子域冲突时代理优先：'
@@ -160,7 +162,7 @@ class _ForceProxySitesDialogState extends State<ForceProxySitesDialog> {
                       color: subColor,
                     ),
                   ),
-                  const SizedBox(height: 14),
+                  SizedBox(height: 14),
                   // 输入框列表
                   for (var i = 0; i < AppSettings.forceProxySiteLimit; i++) ...[
                     TextField(
@@ -177,7 +179,7 @@ class _ForceProxySitesDialogState extends State<ForceProxySitesDialog> {
                         isDark: isDark,
                         labelText: '网址 ${i + 1}',
                         hintText: 'https://example.com',
-                        prefixIcon: const Icon(Icons.language, size: 18),
+                        prefixIcon: Icon(Icons.language, size: 18),
                       ).copyWith(
                         labelStyle: TextStyle(color: subColor),
                         hintStyle: TextStyle(color: subColor),
@@ -189,20 +191,20 @@ class _ForceProxySitesDialogState extends State<ForceProxySitesDialog> {
                       },
                     ),
                     if (i != AppSettings.forceProxySiteLimit - 1)
-                      const SizedBox(height: 10),
+                      SizedBox(height: 10),
                   ],
                   // 错误提示
                   if (_errorText != null) ...[
-                    const SizedBox(height: 12),
+                    SizedBox(height: 12),
                     Text(
                       _errorText!,
                       style: TextStyle(
-                        color: AppTheme.errorColor,
+                        color: SsrvpnTheme.of(context).error,
                         fontSize: Responsive.sp(12),
                       ),
                     ),
                   ],
-                  const SizedBox(height: 18),
+                  SizedBox(height: 18),
                   // 按钮行
                   Row(
                     children: [
@@ -210,22 +212,22 @@ class _ForceProxySitesDialogState extends State<ForceProxySitesDialog> {
                         child: TextButton(
                           onPressed: () =>
                               dismissSsrvpnDialog<List<String>>(context),
-                          child: const Text('取消'),
+                          child: Text('取消'),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton(
                           onPressed: _submit,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.primaryColor,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            backgroundColor: SsrvpnTheme.of(context).primary,
+                            foregroundColor: SsrvpnTheme.of(context).onPrimary,
+                            padding: EdgeInsets.symmetric(vertical: 12),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10),
                             ),
                           ),
-                          child: const Text('确定'),
+                          child: Text('确定'),
                         ),
                       ),
                     ],

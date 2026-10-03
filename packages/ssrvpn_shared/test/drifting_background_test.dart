@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ssrvpn_shared/widgets/ssrvpn_drifting_background.dart';
+import 'support/animated_test_background.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 
 void main() {
@@ -12,14 +12,14 @@ void main() {
     await tester.pumpWidget(
         MaterialApp(navigatorKey: navigator, home: const SizedBox()));
     final route = SsrvpnGlassPageRoute<void>(
-        builder: (_) => const SsrvpnDriftingBackground(
+        builder: (_) => const TestAnimatedBackground(
             drift: true, child: ColoredBox(color: Colors.blue)));
     navigator.currentState!.push(route);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 1));
     Offset position() => tester
         .widget<FractionalTranslation>(find.descendant(
-            of: find.byType(SsrvpnDriftingBackground),
+            of: find.byType(TestAnimatedBackground),
             matching: find.byType(FractionalTranslation)))
         .translation;
     final initial = position();
@@ -43,12 +43,12 @@ void main() {
     late BuildContext routeContext;
     await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) {
       routeContext = context;
-      return const SsrvpnDriftingBackground(
+      return const TestAnimatedBackground(
           drift: true, child: ColoredBox(color: Colors.blue));
     })));
     Offset position() => tester
         .widget<FractionalTranslation>(find.descendant(
-            of: find.byType(SsrvpnDriftingBackground),
+            of: find.byType(TestAnimatedBackground),
             matching: find.byType(FractionalTranslation)))
         .translation;
     await tester.pump(const Duration(seconds: 4));
@@ -73,13 +73,13 @@ void main() {
           home: MediaQuery(
             data: MediaQueryData(
                 disableAnimations: reduce, accessibleNavigation: true),
-            child: const SsrvpnDriftingBackground(
+            child: const TestAnimatedBackground(
                 drift: true, child: ColoredBox(color: Colors.blue)),
           ),
         );
     Offset position() => tester
         .widget<FractionalTranslation>(find.descendant(
-            of: find.byType(SsrvpnDriftingBackground),
+            of: find.byType(TestAnimatedBackground),
             matching: find.byType(FractionalTranslation)))
         .translation;
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
@@ -114,11 +114,11 @@ void main() {
       (tester) async {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpWidget(const MaterialApp(
-        home: SsrvpnDriftingBackground(
+        home: TestAnimatedBackground(
             drift: true, child: ColoredBox(color: Colors.blue))));
     Offset position() => tester
         .widget<FractionalTranslation>(find.descendant(
-            of: find.byType(SsrvpnDriftingBackground),
+            of: find.byType(TestAnimatedBackground),
             matching: find.byType(FractionalTranslation)))
         .translation;
     await tester.pump(const Duration(seconds: 4));
@@ -143,11 +143,11 @@ void main() {
   testWidgets('turnaround and cycle seam stay continuous', (tester) async {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpWidget(const MaterialApp(
-        home: SsrvpnDriftingBackground(
+        home: TestAnimatedBackground(
             drift: true, child: ColoredBox(color: Colors.blue))));
     Offset position() => tester
         .widget<FractionalTranslation>(find.descendant(
-            of: find.byType(SsrvpnDriftingBackground),
+            of: find.byType(TestAnimatedBackground),
             matching: find.byType(FractionalTranslation)))
         .translation;
     await tester.pump(const Duration(milliseconds: 8990));
@@ -174,7 +174,7 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpWidget(const MaterialApp(
-        home: SsrvpnDriftingBackground(
+        home: TestAnimatedBackground(
       drift: true,
       child: ColoredBox(key: Key('wallpaper'), color: Colors.blue),
     )));
@@ -199,11 +199,11 @@ void main() {
       (tester) async {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpWidget(const MaterialApp(
-        home: SsrvpnDriftingBackground(
+        home: TestAnimatedBackground(
             drift: false, child: ColoredBox(color: Colors.blue))));
     Offset position() => tester
         .widget<FractionalTranslation>(find.descendant(
-            of: find.byType(SsrvpnDriftingBackground),
+            of: find.byType(TestAnimatedBackground),
             matching: find.byType(FractionalTranslation)))
         .translation;
     await tester.pump();
@@ -219,11 +219,11 @@ void main() {
       (tester) async {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     Widget page({required bool drift}) => MaterialApp(
-        home: SsrvpnDriftingBackground(
+        home: TestAnimatedBackground(
             drift: drift, child: const ColoredBox(color: Colors.blue)));
     Offset position() => tester
         .widget<FractionalTranslation>(find.descendant(
-            of: find.byType(SsrvpnDriftingBackground),
+            of: find.byType(TestAnimatedBackground),
             matching: find.byType(FractionalTranslation)))
         .translation;
     await tester.pumpWidget(page(drift: true));

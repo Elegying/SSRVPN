@@ -50,14 +50,27 @@ void main() {
       final bounds =
           calls.firstWhere((c) => c.method == 'setBounds').arguments as Map;
       if (displayAvailable) {
-        expect(bounds['width'], closeTo(396, .01));
+        expect(bounds['width'], closeTo(460 * 648 / 840, .01));
         expect(bounds['height'], closeTo(648, .01));
-        expect(bounds['x'], closeTo(-838, .01));
+        expect(bounds['x'], closeTo(-640 - 460 * 648 / 840 / 2, .01));
         expect(bounds['y'], closeTo(40, .01));
       } else {
-        expect(bounds['width'], 440);
-        expect(bounds['height'], 720);
+        expect(bounds['width'], 460);
+        expect(bounds['height'], 840);
       }
+      expect(calls.firstWhere((c) => c.method == 'setResizable').arguments,
+          {'isResizable': false});
+      expect(calls.firstWhere((c) => c.method == 'setMaximizable').arguments,
+          {'isMaximizable': false});
+      final minimum = calls
+          .firstWhere((c) => c.method == 'setMinimumSize')
+          .arguments as Map;
+      final maximum = calls
+          .firstWhere((c) => c.method == 'setMaximumSize')
+          .arguments as Map;
+      expect(minimum['width'], bounds['width']);
+      expect(minimum['height'], bounds['height']);
+      expect(maximum, minimum);
       expect(calls.map((c) => c.method),
           containsAllInOrder(['setMinimumSize', 'setBounds', 'show', 'focus']));
     });

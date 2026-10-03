@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as glass;
 import 'package:ssrvpn_shared/widgets/ssrvpn_glass_capture.dart';
-import 'package:ssrvpn_shared/widgets/ssrvpn_drifting_background.dart';
+import 'support/animated_test_background.dart';
 
 void main() {
   testWidgets(
@@ -20,7 +20,7 @@ void main() {
           captureSupported: true,
           child: Stack(fit: StackFit.expand, children: [
             SsrvpnGlassBackgroundSource(
-                child: SsrvpnDriftingBackground(
+                child: TestAnimatedBackground(
                     drift: false, child: const ColoredBox(color: Colors.blue))),
             Builder(
                 builder: (context) => ValueListenableBuilder<SsrvpnGlassFrame?>(

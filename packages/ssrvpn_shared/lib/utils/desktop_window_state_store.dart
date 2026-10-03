@@ -22,8 +22,7 @@ class DesktopWindowStateStore {
     this.onError,
   });
 
-  static const Size defaultSize = Size(440, 720);
-  static const Size minimumSize = Size(380, 560);
+  static const Size defaultSize = Size(460, 840);
 
   /// Reconcile a saved window with the current monitor work areas. A tiny
   /// intersection is not enough: the title bar must remain reachable.
@@ -42,10 +41,9 @@ class DesktopWindowStateStore {
     }
     // No surviving display: let the host center on its primary display.
     if (target == null) return null;
-    final width =
-        math.max(minimumSize.width, math.min(saved.width, target.width));
-    final height =
-        math.max(minimumSize.height, math.min(saved.height, target.height));
+    final fitted = initialBounds(target);
+    final width = fitted.width;
+    final height = fitted.height;
     return Rect.fromLTWH(
       saved.left
           .clamp(target.left, math.max(target.left, target.right - width)),
@@ -57,7 +55,7 @@ class DesktopWindowStateStore {
 
   /// First launch/reset uses the portrait reference, centered in the usable
   /// display area. Shrink the window (not the UI) on smaller screens, leaving
-  /// 16 logical pixels around it where the existing minimum permits.
+  /// 16 logical pixels around it. Saved sizes never override this ratio.
   static Rect initialBounds(Rect workArea) {
     if (!workArea.isFinite || workArea.isEmpty) {
       throw ArgumentError.value(
@@ -65,12 +63,12 @@ class DesktopWindowStateStore {
     }
     final scale = math.min(
         1.0,
-        math.min((workArea.width - 32) / defaultSize.width,
-            (workArea.height - 32) / defaultSize.height));
+        math.min(math.max(1, workArea.width - 32) / defaultSize.width,
+            math.max(1, workArea.height - 32) / defaultSize.height));
     return Rect.fromCenter(
       center: workArea.center,
-      width: math.max(minimumSize.width, defaultSize.width * scale),
-      height: math.max(minimumSize.height, defaultSize.height * scale),
+      width: defaultSize.width * scale,
+      height: defaultSize.height * scale,
     );
   }
 
@@ -185,8 +183,8 @@ class DesktopWindowStateStore {
         rect.top.isFinite &&
         rect.width.isFinite &&
         rect.height.isFinite &&
-        rect.width >= minimumSize.width &&
-        rect.height >= minimumSize.height &&
+        rect.width >= 1 &&
+        rect.height >= 1 &&
         rect.width <= 10000 &&
         rect.height <= 10000;
   }

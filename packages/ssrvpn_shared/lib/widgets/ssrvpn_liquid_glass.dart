@@ -1,5 +1,5 @@
-import '../models/app_settings.dart';
 import 'ssrvpn_appearance.dart';
+import 'ssrvpn_soft_surface.dart';
 import 'dart:async';
 import 'dart:ui' as ui;
 import 'ssrvpn_glass_capture.dart';
@@ -44,45 +44,53 @@ class SsrvpnLiquidSurface extends StatelessWidget {
     saturation: 1.25,
   );
 
-  /// Standard uses a 2D renderer and does not normalize premium parameters.
-  /// Match the library's premium-to-lightweight calibration explicitly.
   static glass.LiquidGlassSettings settingsFor(BuildContext context) =>
-      ssrvpnGlassQuality(context) == glass.GlassQuality.standard
-          ? settings.copyWith(thickness: 12, lightIntensity: .51)
-          : settings;
+      settings;
 
   @override
   Widget build(BuildContext context) {
     final highContrast = MediaQuery.highContrastOf(context);
     final dark = Theme.of(context).brightness == Brightness.dark;
     final content = Padding(padding: padding, child: child);
-    if (highContrast || ssrvpnGlassDisabled(context)) {
+    final theme = SsrvpnTheme.of(context);
+    if (theme.isSoft && !highContrast) {
       return DecoratedBox(
-          decoration: BoxDecoration(
-              color: dark ? const Color(0xFF111827) : Colors.white,
-              shape: circular ? BoxShape.circle : BoxShape.rectangle,
-              borderRadius: circular ? null : BorderRadius.circular(radius),
-              border:
-                  Border.all(color: Theme.of(context).colorScheme.onSurface)),
-          child: content);
-    }
-    final quality = ssrvpnGlassQuality(context);
-    if (quality == glass.GlassQuality.minimal) {
-      // Old mobile GPUs can spend >80 ms on a stack of native backdrop blurs.
-      // The low tier keeps translucent color and edge definition, with no
-      // offscreen filter, custom shader, or per-card capture.
-      return DecoratedBox(
-        decoration: BoxDecoration(
-          color: tint?.withValues(alpha: tintOpacity ?? .18) ??
-              (dark ? const Color(0x50303C60) : const Color(0xB8FFFFFF)),
-          shape: circular ? BoxShape.circle : BoxShape.rectangle,
-          borderRadius: circular ? null : BorderRadius.circular(radius),
-          border: Border.all(
-              color: borderColor ?? Colors.white.withValues(alpha: .18)),
-        ),
+        decoration: ssrvpnSoftDecoration(
+            radius: radius,
+            circular: circular,
+            tint: tint,
+            borderColor: borderColor,
+            floating: ModalRoute.of(context)?.opaque == false),
         child: content,
       );
     }
+    if (highContrast || ssrvpnGlassDisabled(context)) {
+      return DecoratedBox(
+          decoration: BoxDecoration(
+              color: highContrast
+                  ? theme.surface
+                  : (tint == null
+                      ? theme.surface.withValues(alpha: .94)
+                      : Color.alphaBlend(
+                          tint!.withValues(alpha: tintOpacity ?? .09),
+                          theme.surface)),
+              shape: circular ? BoxShape.circle : BoxShape.rectangle,
+              borderRadius: circular ? null : BorderRadius.circular(radius),
+              border: Border.all(
+                  color: highContrast
+                      ? theme.textPrimary
+                      : borderColor ?? theme.border),
+              boxShadow: theme.variant.name == 'cloud' && !highContrast
+                  ? [
+                      BoxShadow(
+                          color: theme.primary.withValues(alpha: .07),
+                          blurRadius: 16,
+                          offset: const Offset(0, 5)),
+                    ]
+                  : null),
+          child: content);
+    }
+    final quality = ssrvpnGlassQuality(context);
     final frames = SsrvpnGlassFrame.listenableOf(context);
     final useCapture = quality == glass.GlassQuality.premium &&
         ui.ImageFilter.isShaderFilterSupported &&
@@ -142,23 +150,13 @@ Future<void> initializeSsrvpnLiquidGlass() async {
   }
 }
 
-/// Keep the device tier stable; frame spikes never switch optical materials.
+/// New themes have their own static material; default always requests premium.
+/// System high contrast remains an accessibility override.
 bool ssrvpnGlassDisabled(BuildContext context) =>
-    SsrvpnAppearance.maybeOf(context)?.level == GlassEffectLevel.none;
-
+    !SsrvpnTheme.of(context).isDefault;
 glass.GlassQuality ssrvpnGlassQuality(BuildContext context) =>
-    switch (SsrvpnAppearance.maybeOf(context)?.level) {
-      GlassEffectLevel.none ||
-      GlassEffectLevel.low =>
-        glass.GlassQuality.minimal,
-      GlassEffectLevel.medium => glass.GlassQuality.standard,
-      GlassEffectLevel.high => glass.GlassQuality.premium,
-      null => glass.GlassAdaptiveScopeData.maybeOf(context)?.effectiveQuality ??
-          glass.GlassQuality.premium,
-    };
-
-bool ssrvpnUsesLowEffects(BuildContext context) =>
-    ssrvpnGlassQuality(context) == glass.GlassQuality.minimal;
+    glass.GlassQuality.premium;
+bool ssrvpnUsesLowEffects(BuildContext context) => ssrvpnGlassDisabled(context);
 
 int ssrvpnFrameBudget(double refreshRate) =>
     (1000 / (refreshRate.isFinite && refreshRate > 0 ? refreshRate : 60))
@@ -303,9 +301,7 @@ class _AdaptiveGlassHostState extends State<_AdaptiveGlassHost>
     _diagnostics.targetFps = _lowPerformance ? 60 : null;
     final budget =
         ssrvpnFrameBudget(_lowPerformance ? 60 : _diagnostics.refreshRate);
-    final quality = _lowPerformance
-        ? glass.GlassQuality.minimal
-        : glass.GlassQuality.premium;
+    const quality = glass.GlassQuality.premium;
     return glass.LiquidGlassWidgets.wrap(
       adaptiveQuality: true,
       adaptiveConfig: glass.GlassAdaptiveScopeConfig(

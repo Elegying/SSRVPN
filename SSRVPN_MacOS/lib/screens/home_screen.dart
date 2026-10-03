@@ -15,7 +15,6 @@ import '../services/clash_service.dart';
 import '../services/subscription_service.dart';
 import '../services/settings_service.dart';
 import '../services/update_service.dart';
-import '../theme/app_theme.dart';
 import '../startup/startup_logger.dart';
 import '../widgets/glass_container.dart';
 import 'node_edit_screen.dart';

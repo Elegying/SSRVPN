@@ -25,7 +25,7 @@ class SsrvpnSubscriptionErrorDialog extends StatelessWidget {
     return Dialog(
       backgroundColor: Colors.transparent,
       elevation: 0,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      insetPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       child: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: SsrvpnUiTokens.pageMaxWidth,
@@ -35,13 +35,13 @@ class SsrvpnSubscriptionErrorDialog extends StatelessWidget {
           padding: EdgeInsets.zero,
           borderRadius: 16,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+            padding: EdgeInsets.fromLTRB(24, 24, 24, 20),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Flexible(
                   child: SingleChildScrollView(
-                    key: const Key('ssrvpn-subscription-error-scroll'),
+                    key: Key('ssrvpn-subscription-error-scroll'),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -49,44 +49,46 @@ class SsrvpnSubscriptionErrorDialog extends StatelessWidget {
                           width: 48,
                           height: 48,
                           decoration: BoxDecoration(
-                            color: SsrvpnUiTokens.warning
+                            color: SsrvpnUiTokens.of(context)
+                                .warning
                                 .withValues(alpha: 20 / 255),
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(
+                          child: Icon(
                             Icons.cloud_off_rounded,
                             size: 28,
-                            color: SsrvpnUiTokens.warning,
+                            color: SsrvpnUiTokens.of(context).warning,
                           ),
                         ),
-                        const SizedBox(height: 16),
+                        SizedBox(height: 16),
                         Text(
                           title,
                           textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: SsrvpnUiTokens.textPrimary,
+                          style: TextStyle(
+                            color: SsrvpnUiTokens.of(context).textPrimary,
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        const SizedBox(height: 8),
+                        SizedBox(height: 8),
                         Text(
                           guidance,
                           textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: SsrvpnUiTokens.textSecondary,
+                          style: TextStyle(
+                            color: SsrvpnUiTokens.of(context).textSecondary,
                             fontSize: 13,
                           ),
                         ),
-                        const SizedBox(height: 8),
+                        SizedBox(height: 8),
                         Container(
                           width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
+                          padding: EdgeInsets.symmetric(
                             horizontal: 12,
                             vertical: 8,
                           ),
                           decoration: BoxDecoration(
-                            color: SsrvpnUiTokens.error
+                            color: SsrvpnUiTokens.of(context)
+                                .error
                                 .withValues(alpha: 10 / 255),
                             borderRadius: BorderRadius.circular(8),
                           ),
@@ -94,7 +96,8 @@ class SsrvpnSubscriptionErrorDialog extends StatelessWidget {
                             safeDetail,
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: SsrvpnUiTokens.error
+                              color: SsrvpnUiTokens.of(context)
+                                  .error
                                   .withValues(alpha: 180 / 255),
                               fontSize: 12,
                             ),
@@ -104,22 +107,23 @@ class SsrvpnSubscriptionErrorDialog extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(height: 20),
+                SizedBox(height: 20),
                 SizedBox(
                   width: double.infinity,
                   child: TextButton(
-                    key: const Key('ssrvpn-subscription-error-confirm'),
+                    key: Key('ssrvpn-subscription-error-confirm'),
                     onPressed: () => dismissSsrvpnDialog<void>(context),
                     style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      foregroundColor: SsrvpnUiTokens.primary,
-                      backgroundColor:
-                          SsrvpnUiTokens.primary.withValues(alpha: 25 / 255),
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      foregroundColor: SsrvpnUiTokens.of(context).primary,
+                      backgroundColor: SsrvpnUiTokens.of(context)
+                          .primary
+                          .withValues(alpha: 25 / 255),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    child: const Text(
+                    child: Text(
                       '知道了',
                       style: TextStyle(
                         fontSize: 14,

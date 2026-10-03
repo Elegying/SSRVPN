@@ -7,7 +7,6 @@ import 'startup_logger.dart';
 
 class WindowStateStore {
   static const Size defaultSize = DesktopWindowStateStore.defaultSize;
-  static const Size minimumSize = DesktopWindowStateStore.minimumSize;
 
   static Rect initialBounds(Rect workArea) =>
       DesktopWindowStateStore.initialBounds(workArea);

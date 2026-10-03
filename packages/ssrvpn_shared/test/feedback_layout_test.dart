@@ -124,14 +124,9 @@ void main() {
         navigation: SsrvpnBottomNavigation(
             currentIndex: 2, version: '5.0.27', onTap: (_) {}),
         body: SsrvpnSettingsPage(
-            settings: AppSettings(glassEffectLevel: GlassEffectLevel.none),
+            settings: AppSettings(themeVariant: AppThemeVariant.aurora),
             core: core,
-            dataDirectory: '/tmp',
-            onAppearanceChanged: (
-                {glassEffectLevel,
-                backgroundStyle,
-                customBackgroundPath,
-                dynamicBackground}) async {},
+            onAppearanceChanged: ({themeVariant}) async {},
             onPortChanged: (_) async {},
             checkForUpdate: () async => null,
             onUpdateFound: (_) {}))));

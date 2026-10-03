@@ -1,3 +1,5 @@
+import 'ssrvpn_theme_icon.dart';
+import 'ssrvpn_theme.dart';
 import 'package:flutter/material.dart';
 import '../models/site_diagnostic_report.dart';
 import '../constants/app_constants.dart';
@@ -190,7 +192,13 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
 
   @override
   Widget build(BuildContext context) => SsrvpnLiquidAlertDialog(
-        title: const Text('网站访问诊断'),
+        title: Row(children: [
+          if (!SsrvpnTheme.of(context).isDefault) ...[
+            const SsrvpnThemeIcon('diagnostic', fallback: Icons.travel_explore),
+            const SizedBox(width: 10),
+          ],
+          const Expanded(child: Text('网站访问诊断')),
+        ]),
         content: SizedBox(
           width: 420,
           child: SingleChildScrollView(

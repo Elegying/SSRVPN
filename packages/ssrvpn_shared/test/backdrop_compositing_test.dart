@@ -3,13 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_app_surface.dart';
-import 'package:ssrvpn_shared/widgets/ssrvpn_drifting_background.dart';
 
 void main() {
   testWidgets('integrated wallpaper tint preserves original pixels and layers',
       (tester) async {
     final captureKey = GlobalKey();
-    const provider = AssetImage('assets/backgrounds/network-glass-deep.png',
+    const provider = AssetImage('assets/backgrounds/network-glass-deep.webp',
         package: 'ssrvpn_shared');
     await tester.pumpWidget(const MaterialApp(home: SizedBox()));
     await tester.runAsync(() =>
@@ -27,15 +26,14 @@ void main() {
                       child: optimized
                           ? const SsrvpnAppBackdrop(child: SizedBox())
                           : Stack(fit: StackFit.expand, children: [
-                              const SsrvpnDriftingBackground(
-                                  child: Image(
-                                      image: provider,
-                                      fit: BoxFit.cover,
-                                      alignment: Alignment.center,
-                                      filterQuality: FilterQuality.medium)),
+                              const Image(
+                                  image: provider,
+                                  fit: BoxFit.cover,
+                                  alignment: Alignment.topCenter,
+                                  filterQuality: FilterQuality.medium),
                               ColoredBox(
                                   color: Colors.black.withValues(
-                                      alpha: highContrast ? .65 : .28)),
+                                      alpha: highContrast ? .82 : .28)),
                             ])))));
           await tester.pump();
           final boundary = captureKey.currentContext!.findRenderObject()!

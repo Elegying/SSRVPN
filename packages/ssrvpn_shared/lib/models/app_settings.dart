@@ -1,21 +1,8 @@
 import '../utils/force_proxy_site_policy.dart';
 import '../constants/app_constants.dart';
 
-enum GlassEffectLevel { none, low, medium, high }
-
-enum BackgroundStyle {
-  /// The bundled wallpaper. Whether it drifts is a separate choice:
-  /// see [AppSettings.dynamicBackground].
-  flowing,
-  blue,
-  gray,
-  forest,
-  orange,
-  yellow,
-  custom,
-  deepBlue,
-  black
-}
+/// Stable identifiers persisted independently of display names.
+enum AppThemeVariant { defaultTheme, aurora, sakura, cloud, dusk, soft }
 
 /// 应用设置数据模型 — 跨平台共享
 ///
@@ -25,17 +12,7 @@ class AppSettings {
   static const int forceProxySiteLimit = ForceProxySitePolicy.defaultLimit;
   static const int forceDirectSiteLimit = ForceProxySitePolicy.defaultLimit;
 
-  GlassEffectLevel? glassEffectLevel;
-  BackgroundStyle backgroundStyle;
-  String customBackgroundPath;
-
-  /// Whether the [BackgroundStyle.flowing] wallpaper keeps drifting.
-  ///
-  /// Off by default. The drift repaints the whole surface every frame, which
-  /// forces the glass behind it to re-composite at the display refresh rate;
-  /// a still wallpaper schedules no frame at all. Only the bundled wallpaper
-  /// reacts to this flag — solid colours and custom images never animate.
-  bool dynamicBackground;
+  AppThemeVariant themeVariant;
 
   // ── 端口 ──
   int proxyPort; // mixed-port, 默认7890
@@ -61,10 +38,7 @@ class AppSettings {
   List<String> forceDirectSites;
 
   AppSettings({
-    this.glassEffectLevel,
-    this.backgroundStyle = BackgroundStyle.flowing,
-    this.customBackgroundPath = '',
-    this.dynamicBackground = false,
+    this.themeVariant = AppThemeVariant.defaultTheme,
     this.proxyPort = 7890,
     this.socksPort = 7891,
     this.apiPort = 9090,
@@ -113,10 +87,7 @@ class AppSettings {
   // ── copyWith ──
 
   AppSettings copyWith({
-    GlassEffectLevel? glassEffectLevel,
-    BackgroundStyle? backgroundStyle,
-    String? customBackgroundPath,
-    bool? dynamicBackground,
+    AppThemeVariant? themeVariant,
     int? proxyPort,
     int? socksPort,
     int? apiPort,
@@ -157,10 +128,7 @@ class AppSettings {
           hosts.contains(ForceProxySitePolicy.canonicalHostKey(site)));
     }
     return AppSettings(
-      glassEffectLevel: glassEffectLevel ?? this.glassEffectLevel,
-      backgroundStyle: backgroundStyle ?? this.backgroundStyle,
-      customBackgroundPath: customBackgroundPath ?? this.customBackgroundPath,
-      dynamicBackground: dynamicBackground ?? this.dynamicBackground,
+      themeVariant: themeVariant ?? this.themeVariant,
       proxyPort: proxyPort ?? this.proxyPort,
       socksPort: socksPort ?? this.socksPort,
       apiPort: apiPort ?? this.apiPort,
@@ -187,10 +155,7 @@ class AppSettings {
 
   Map<String, dynamic> toJson() {
     return {
-      'glassEffectLevel': glassEffectLevel?.name,
-      'backgroundStyle': backgroundStyle.name,
-      'customBackgroundPath': customBackgroundPath,
-      'dynamicBackground': dynamicBackground,
+      'themeVariant': themeVariant.name,
       'proxyPort': proxyPort,
       'socksPort': socksPort,
       'apiPort': apiPort,
@@ -209,17 +174,12 @@ class AppSettings {
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
     return AppSettings(
-      glassEffectLevel: GlassEffectLevel.values
-          .where((v) => v.name == json['glassEffectLevel'])
-          .firstOrNull,
-      backgroundStyle: BackgroundStyle.values
-              .where((v) => v.name == json['backgroundStyle'])
+      // Legacy color, image and quality preferences deliberately migrate to
+      // the default theme; networking and node preferences remain untouched.
+      themeVariant: AppThemeVariant.values
+              .where((v) => v.name == json['themeVariant'])
               .firstOrNull ??
-          BackgroundStyle.flowing,
-      customBackgroundPath: json['customBackgroundPath'] is String
-          ? json['customBackgroundPath'] as String
-          : '',
-      dynamicBackground: _parseBool(json['dynamicBackground'], false),
+          AppThemeVariant.defaultTheme,
       proxyPort: _parsePort(json['proxyPort'], 7890),
       socksPort: _parsePort(json['socksPort'], 7891),
       apiPort: _parsePort(json['apiPort'], 9090),
@@ -252,10 +212,7 @@ class AppSettings {
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
     return other is AppSettings &&
-        other.glassEffectLevel == glassEffectLevel &&
-        other.backgroundStyle == backgroundStyle &&
-        other.customBackgroundPath == customBackgroundPath &&
-        other.dynamicBackground == dynamicBackground &&
+        other.themeVariant == themeVariant &&
         other.proxyPort == proxyPort &&
         other.socksPort == socksPort &&
         other.apiPort == apiPort &&
@@ -274,10 +231,7 @@ class AppSettings {
   @override
   int get hashCode {
     return Object.hash(
-      glassEffectLevel,
-      backgroundStyle,
-      customBackgroundPath,
-      dynamicBackground,
+      themeVariant,
       proxyPort,
       socksPort,
       apiPort,

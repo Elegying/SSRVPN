@@ -79,19 +79,14 @@ void main() {
     final before = service.settings;
     await Future.wait([
       service.updateAppearance(
-          glassEffectLevel: GlassEffectLevel.medium,
-          backgroundStyle: BackgroundStyle.custom,
-          customBackgroundPath: '/synthetic/background.png',
-          dynamicBackground: true),
+        themeVariant: AppThemeVariant.aurora,
+      ),
       service.updateProxyPort(8123),
     ]);
     final reloaded = await load();
     addTearDown(reloaded.dispose);
     expect(reloaded.settings.proxyPort, 8123);
-    expect(reloaded.settings.glassEffectLevel, GlassEffectLevel.medium);
-    expect(reloaded.settings.backgroundStyle, BackgroundStyle.custom);
-    expect(reloaded.settings.customBackgroundPath, '/synthetic/background.png');
-    expect(reloaded.settings.dynamicBackground, isTrue);
+    expect(reloaded.settings.themeVariant, AppThemeVariant.aurora);
     expect(before.proxyPort, 7890);
     final saved = jsonDecode(await File(configPath).readAsString());
     expect(saved['apiSecret'], isNull);

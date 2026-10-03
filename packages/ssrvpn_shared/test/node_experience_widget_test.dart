@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/gestures.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
@@ -50,9 +51,11 @@ void main() {
           {String? directory,
           _MemoryPins? pins,
           TargetPlatform platform = TargetPlatform.android,
+          AppThemeVariant variant = AppThemeVariant.defaultTheme,
           double scale = 1}) =>
       MaterialApp(
-          theme: ThemeData.dark().copyWith(platform: platform),
+          theme: SsrvpnTheme(variant)
+              .material(ThemeData.dark().copyWith(platform: platform)),
           builder: (context, child) => MediaQuery(
               data: MediaQuery.of(context)
                   .copyWith(textScaler: TextScaler.linear(scale)),
@@ -78,6 +81,38 @@ void main() {
             onSecondaryTapDown: (_, __) {},
             onLongPressNode: (_) {},
           )));
+  testWidgets(
+      'Soft Android swipe clip contains the card shadows and pin action works',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+        page(directory: '/test-pins', variant: AppThemeVariant.soft));
+    await tester.pumpAndSettle();
+    final card = find.byKey(const ValueKey('ssrvpn-node-card-日本 Premium'));
+    await tester.ensureVisible(card);
+    final clip = find.ancestor(of: card, matching: find.byType(ClipRect)).first;
+    final cardRect = tester.getRect(card);
+    final clipWidget = tester.widget<ClipRect>(clip);
+    final clipRect = (clipWidget.clipper?.getClip(tester.getSize(clip)) ??
+            (Offset.zero & tester.getSize(clip)))
+        .shift(tester.getTopLeft(clip));
+    expect(clipRect.left, lessThanOrEqualTo(cardRect.left - 24));
+    expect(clipRect.top, lessThanOrEqualTo(cardRect.top - 24));
+    expect(clipRect.right, greaterThanOrEqualTo(cardRect.right + 24));
+    expect(clipRect.bottom, greaterThanOrEqualTo(cardRect.bottom + 30));
+    await tester.drag(card, const Offset(110, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('置顶').last);
+    await tester.pumpAndSettle();
+    expect(
+        tester.getTopLeft(card).dy,
+        lessThan(tester
+            .getTopLeft(
+                find.byKey(const ValueKey('ssrvpn-node-card-香港 Premium')))
+            .dy));
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('search and subscription filters combine and can be cleared',
       (tester) async {
     await tester.pumpWidget(page());

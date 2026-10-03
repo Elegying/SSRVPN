@@ -31,13 +31,13 @@ class _SubscriptionFilter extends StatelessWidget {
         builder: (dialogContext) => Dialog(
           backgroundColor: Colors.transparent,
           elevation: 0,
-          insetPadding: const EdgeInsets.symmetric(
+          insetPadding: EdgeInsets.symmetric(
             horizontal: 28,
             vertical: 36,
           ),
           child: SsrvpnModalGlassPanel(
-            padding: const EdgeInsets.all(24),
-            key: const Key('ssrvpn-subscription-picker-glass'),
+            padding: EdgeInsets.all(24),
+            key: Key('ssrvpn-subscription-picker-glass'),
             child: ConstrainedBox(
               constraints: BoxConstraints(
                 maxWidth: 420,
@@ -50,11 +50,12 @@ class _SubscriptionFilter extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Row(
+                  Row(
                     children: [
-                      Icon(
-                        Icons.rss_feed_rounded,
-                        color: SsrvpnUiTokens.primary,
+                      SsrvpnThemeIcon(
+                        'subscription',
+                        fallback: Icons.rss_feed_rounded,
+                        color: SsrvpnUiTokens.of(context).primary,
                       ),
                       SizedBox(width: 10),
                       Expanded(
@@ -68,10 +69,10 @@ class _SubscriptionFilter extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 14),
+                  SizedBox(height: 14),
                   Flexible(
                     child: ListView(
-                      key: const Key('ssrvpn-subscription-picker-list'),
+                      key: Key('ssrvpn-subscription-picker-list'),
                       shrinkWrap: true,
                       children: [
                         _SubscriptionPickerItem(
@@ -116,12 +117,12 @@ class _SubscriptionFilter extends StatelessWidget {
                 button: true,
                 label: '选择订阅，当前：$label',
                 child: InkWell(
-                  borderRadius: const BorderRadius.horizontal(
+                  borderRadius: BorderRadius.horizontal(
                     left: Radius.circular(18),
                   ),
                   onTap: () => _openPicker(context),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(
+                    padding: EdgeInsets.symmetric(
                       horizontal: 18,
                       vertical: 15,
                     ),
@@ -134,7 +135,7 @@ class _SubscriptionFilter extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        const Icon(Icons.arrow_drop_down_rounded),
+                        Icon(Icons.arrow_drop_down_rounded),
                       ],
                     ),
                   ),
@@ -142,22 +143,23 @@ class _SubscriptionFilter extends StatelessWidget {
               ),
             ),
             IconButton(
-              key: const Key('ssrvpn-node-search'),
+              key: Key('ssrvpn-node-search'),
               tooltip: searching ? '修改或清除节点搜索' : '搜索节点',
               onPressed: onSearchPressed,
-              icon: const Icon(Icons.search_rounded),
+              icon: Icon(Icons.search_rounded),
               color: searching
-                  ? SsrvpnUiTokens.primary
-                  : SsrvpnUiTokens.textSecondary,
+                  ? SsrvpnUiTokens.of(context).primary
+                  : SsrvpnUiTokens.of(context).textSecondary,
             ),
-            Container(width: 1, height: 30, color: SsrvpnUiTokens.border),
+            Container(
+                width: 1, height: 30, color: SsrvpnUiTokens.of(context).border),
             IconButton(
-              key: const Key('ssrvpn-node-latency-sort'),
+              key: Key('ssrvpn-node-latency-sort'),
               tooltip: sortByLatency ? '恢复默认节点顺序' : '按延迟从低到高排序',
               onPressed: onSortPressed,
               color: sortByLatency
-                  ? SsrvpnUiTokens.primary
-                  : SsrvpnUiTokens.textSecondary,
+                  ? SsrvpnUiTokens.of(context).primary
+                  : SsrvpnUiTokens.of(context).textSecondary,
               icon: Icon(
                 sortByLatency
                     ? Icons.filter_list_off_rounded
@@ -188,14 +190,16 @@ class _SubscriptionPickerItem extends StatelessWidget {
       type: MaterialType.transparency,
       child: ListTile(
         dense: true,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+        contentPadding: EdgeInsets.symmetric(horizontal: 8),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         selected: selected,
-        selectedTileColor: SsrvpnUiTokens.primary.withValues(alpha: 0.14),
+        selectedTileColor:
+            SsrvpnUiTokens.of(context).primary.withValues(alpha: 0.14),
         leading: Icon(
           selected ? Icons.check_circle_rounded : Icons.circle_outlined,
-          color:
-              selected ? SsrvpnUiTokens.primary : SsrvpnUiTokens.textTertiary,
+          color: selected
+              ? SsrvpnUiTokens.of(context).primary
+              : SsrvpnUiTokens.of(context).textTertiary,
           size: 20,
         ),
         title: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),

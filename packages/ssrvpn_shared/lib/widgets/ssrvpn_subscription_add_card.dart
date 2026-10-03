@@ -22,23 +22,24 @@ class _SubscriptionAddCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SsrvpnSurfaceCard(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(
-                Icons.add_circle_outline_rounded,
-                color: SsrvpnUiTokens.accent,
+              SsrvpnThemeIcon(
+                'add',
+                fallback: Icons.add_circle_outline_rounded,
+                color: SsrvpnUiTokens.of(context).accent,
                 size: 24,
               ),
-              const SizedBox(width: 10),
-              const Expanded(
+              SizedBox(width: 10),
+              Expanded(
                 child: Text(
                   '添加订阅',
                   style: TextStyle(
-                    color: SsrvpnUiTokens.textPrimary,
+                    color: SsrvpnUiTokens.of(context).textPrimary,
                     fontSize: 19,
                     fontWeight: FontWeight.w700,
                   ),
@@ -52,10 +53,10 @@ class _SubscriptionAddCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: 10),
           SsrvpnLiquidField(
               child: TextField(
-            key: const Key('ssrvpn-subscription-input'),
+            key: Key('ssrvpn-subscription-input'),
             controller: urlController,
             focusNode: inputFocusNode,
             enabled: !isBusy,
@@ -64,64 +65,68 @@ class _SubscriptionAddCard extends StatelessWidget {
             autocorrect: false,
             enableSuggestions: true,
             enableIMEPersonalizedLearning: false,
-            scrollPadding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
+            scrollPadding: EdgeInsets.fromLTRB(20, 20, 20, 120),
             onSubmitted: isBusy ? null : (_) => onAdd(),
             decoration: InputDecoration(
               hintText: '粘贴订阅或节点链接',
-              prefixIcon: const Icon(Icons.link_rounded),
+              prefixIcon: Icon(Icons.link_rounded),
               filled: true,
               fillColor: Colors.transparent,
-              contentPadding: const EdgeInsets.symmetric(
+              contentPadding: EdgeInsets.symmetric(
                 horizontal: 16,
                 vertical: 12,
               ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(18),
-                borderSide: const BorderSide(color: SsrvpnUiTokens.border),
+                borderSide:
+                    BorderSide(color: SsrvpnUiTokens.of(context).border),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(18),
-                borderSide: const BorderSide(color: SsrvpnUiTokens.border),
+                borderSide:
+                    BorderSide(color: SsrvpnUiTokens.of(context).border),
               ),
             ),
           )),
-          const SizedBox(height: 10),
+          SizedBox(height: 10),
           ConstrainedBox(
             key: addActionKey,
-            constraints: const BoxConstraints(minHeight: 48),
+            constraints: BoxConstraints(minHeight: 48),
             child: SizedBox(
               width: double.infinity,
               child: SsrvpnLiquidSurface(
                   radius: 16,
                   dense: true,
                   child: FilledButton(
-                    key: const Key('ssrvpn-subscription-add'),
+                    key: Key('ssrvpn-subscription-add'),
                     onPressed: isBusy ? null : onAdd,
                     style: FilledButton.styleFrom(
-                      backgroundColor:
-                          SsrvpnUiTokens.primaryBlue.withValues(alpha: .58),
-                      foregroundColor: Colors.white,
-                      disabledBackgroundColor:
-                          SsrvpnUiTokens.primaryBlue.withValues(alpha: 0.42),
+                      backgroundColor: SsrvpnUiTokens.of(context)
+                          .primaryBlue
+                          .withValues(alpha: .58),
+                      foregroundColor: SsrvpnUiTokens.of(context).onPrimary,
+                      disabledBackgroundColor: SsrvpnUiTokens.of(context)
+                          .primaryBlue
+                          .withValues(alpha: 0.42),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
-                      padding: const EdgeInsets.symmetric(
+                      padding: EdgeInsets.symmetric(
                         horizontal: 16,
                         vertical: 10,
                       ),
                     ),
                     child: isAdding
-                        ? const SizedBox(
+                        ? SizedBox(
                             width: 20,
                             height: 20,
                             child: CircularProgressIndicator(
                               semanticsLabel: '正在添加订阅',
                               strokeWidth: 2,
-                              color: Colors.white,
+                              color: SsrvpnUiTokens.of(context).onPrimary,
                             ),
                           )
-                        : const Text(
+                        : Text(
                             '添加',
                             style: TextStyle(
                               fontSize: 17,

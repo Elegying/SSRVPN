@@ -1,3 +1,6 @@
+import 'ssrvpn_cloud_art.dart';
+import '../models/app_settings.dart';
+import 'ssrvpn_themed_power_button.dart';
 import 'ssrvpn_liquid_glass.dart';
 import 'package:flutter/material.dart';
 import 'ssrvpn_home_text.dart';
@@ -13,6 +16,7 @@ import 'ssrvpn_app_surface.dart';
 part 'ssrvpn_home_overview_header.dart';
 part 'ssrvpn_power_button.dart';
 part 'ssrvpn_home_centered_layout.dart';
+part 'ssrvpn_themed_home.dart';
 
 class SsrvpnHomeOverview extends StatefulWidget {
   const SsrvpnHomeOverview({
@@ -75,40 +79,41 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
         liveRegion: true,
         child: SsrvpnHomeText(
           _connectionProgress ?? '',
-          key: const Key('connection-progress'),
+          key: Key('connection-progress'),
           maxFontSize: 14,
           lineHeight: 1.4,
           textAlign: TextAlign.center,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-              color: SsrvpnUiTokens.textSecondary, fontSize: 12, height: 1.4),
+          style: TextStyle(
+              color: SsrvpnUiTokens.of(context).textSecondary,
+              fontSize: 12,
+              height: 1.4),
         ),
       );
 
   // Preserve both samplers when responsive rows reparent the statistics subtree.
   final _statisticsKey = GlobalKey();
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => SizedBox.expand(
+      key: const Key('ssrvpn-home-canvas'), child: _homeCanvas());
+
+  Widget _homeCanvas() {
+    if (!SsrvpnTheme.of(context).isDefault) return _themedHome();
     final viewport = MediaQuery.of(context);
     // Include the navigation in the home midpoint, exclude system/window insets.
-    final centerY = (viewport.size.height - viewport.padding.vertical) / 2 -
-        4 -
-        SsrvpnHomeShell.bodyTopOf(context);
+    final centerY = ((viewport.size.height - viewport.padding.vertical) / 2 -
+            SsrvpnHomeShell.bodyTopOf(context)) -
+        4;
     return SafeArea(
       bottom: false,
       child: LayoutBuilder(builder: (context, constraints) {
         final compact = constraints.maxWidth < SsrvpnUiTokens.compactBreakpoint;
-        final short = constraints.maxHeight < 610;
-        final wide = constraints.maxWidth >= 560 && constraints.maxHeight < 450;
         final padding = compact ? 18.0 : 20.0;
-        final powerSize =
-            short ? (wide ? 120.0 : 124.0) : (compact ? 154.0 : 170.0);
+        final powerSize = compact ? 154.0 : 170.0;
         final detailsVisible = !widget.isConnecting ||
             widget.errorMessage != null ||
             widget.connectionNotice != null;
-        final minimal = constraints.maxHeight < (detailsVisible ? 490 : 430);
-        final gap = minimal ? 4.0 : 12.0;
         final status =
             _ConnectionStatusPill(label: _statusText, color: _statusColor);
         final details = _ConnectionDetails(
@@ -119,21 +124,6 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
             isRefreshingPublicIp: widget.isRefreshingPublicIp,
             onShowLogs: widget.onShowLogs,
             onRefreshPublicIp: widget.onRefreshPublicIp);
-        final powerButton = SsrvpnPowerButton(
-            size: powerSize,
-            isConnected: widget.isConnected,
-            isConnecting: widget.isConnecting,
-            hasConnectionError: widget.errorMessage != null,
-            onTap: widget.onToggleConnection);
-        final power = _connectionProgress == null
-            ? powerButton
-            : SizedBox(
-                width: minimal ? powerSize : powerSize + 48,
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  powerButton,
-                  const SizedBox(height: 8),
-                  _buildConnectionProgress(),
-                ]));
         Widget node() => ConstrainedBox(
             constraints: BoxConstraints(
                 maxWidth: compact ? 300 : SsrvpnUiTokens.currentNodeMaxWidth),
@@ -143,197 +133,21 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
                 countryCode: widget.selectedCountryCode,
                 compact: true,
                 onTap: widget.onOpenNodes));
-        Widget statistics({bool fill = true}) {
-          if (widget.bottomContent == null) return const SizedBox();
-          final balanced = !wide && !minimal;
-          final child = Align(
-              heightFactor: balanced ? 1 : null,
-              alignment: Alignment.bottomCenter,
-              child: KeyedSubtree(
-                  key: _statisticsKey, child: widget.bottomContent!));
-          return fill
-              ? Flexible(
-                  flex: minimal && !wide ? 2 : 1,
-                  fit: balanced ? FlexFit.loose : FlexFit.tight,
-                  child: child)
-              : ConstrainedBox(
-                  constraints: BoxConstraints(
-                      maxHeight: (constraints.maxHeight - powerSize - 36)
-                          .clamp(0, double.infinity)),
-                  child: child);
-        }
-
         return Padding(
-          padding: EdgeInsets.fromLTRB(padding, 4, padding, 4),
-          child: Center(
-              child: ConstrainedBox(
-                  key: const Key('ssrvpn-home-content'),
-                  constraints: BoxConstraints(
-                      maxWidth: wide ? 920 : SsrvpnUiTokens.pageMaxWidth),
-                  child: !wide && !minimal && !short
-                      ? _centeredHome(
-                          centerY: centerY,
-                          powerSize: powerSize,
-                          compact: compact,
-                          status: status,
-                          node: node(),
-                          details: details,
-                          detailsVisible: detailsVisible)
-                      : !wide && !minimal
-                          ? Column(
-                              // Let the statistics take their natural height, then
-                              // share the remaining space between the main groups.
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                  Padding(
-                                    padding: EdgeInsets.only(bottom: gap),
-                                    child: SizedBox(
-                                        key: const Key('home-overview-header'),
-                                        height: 48,
-                                        child: _HomeHeader(
-                                            compact: compact,
-                                            onShowAbout: widget.onShowAbout,
-                                            onShowTutorial:
-                                                widget.onShowTutorial)),
-                                  ),
-                                  Padding(
-                                      padding:
-                                          const EdgeInsets.only(bottom: 10),
-                                      child: status),
-                                  Padding(
-                                      padding: EdgeInsets.only(bottom: gap),
-                                      child: power),
-                                  Padding(
-                                      padding: EdgeInsets.only(bottom: gap),
-                                      child: Column(
-                                          key: const Key('home-node-details'),
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            node(),
-                                            if (detailsVisible) ...[
-                                              const SizedBox(height: 12),
-                                              ConstrainedBox(
-                                                  constraints:
-                                                      const BoxConstraints(
-                                                          maxHeight: 60),
-                                                  child: details),
-                                            ],
-                                          ])),
-                                  statistics(),
-                                ])
-                          : Column(children: [
-                              if (!wide) ...[
-                                SizedBox(
-                                    height: 48,
-                                    child: _HomeHeader(
-                                        compact: compact,
-                                        onShowAbout: widget.onShowAbout,
-                                        onShowTutorial: widget.onShowTutorial)),
-                                SizedBox(height: gap),
-                              ],
-                              if (wide)
-                                Expanded(
-                                    child: Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.center,
-                                        children: [
-                                      Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            status,
-                                            const SizedBox(height: 8),
-                                            Flexible(
-                                                child: FittedBox(
-                                                    fit: BoxFit.scaleDown,
-                                                    child: power))
-                                          ]),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                          child: Column(children: [
-                                        SizedBox(
-                                            height: 48,
-                                            child: _HomeHeader(
-                                                compact: compact,
-                                                onShowAbout: widget.onShowAbout,
-                                                onShowTutorial:
-                                                    widget.onShowTutorial)),
-                                        SizedBox(height: gap),
-                                        Flexible(
-                                            child: Row(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                              Expanded(child: node()),
-                                              const SizedBox(width: 8),
-                                              Expanded(
-                                                  child: ConstrainedBox(
-                                                      constraints:
-                                                          const BoxConstraints(
-                                                              maxHeight: 100),
-                                                      child: Column(
-                                                          mainAxisSize:
-                                                              MainAxisSize.min,
-                                                          children: [
-                                                            if (detailsVisible)
-                                                              Flexible(
-                                                                  child:
-                                                                      details)
-                                                          ]))),
-                                            ])),
-                                      ])),
-                                    ])),
-                              if (wide)
-                                statistics(fill: false)
-                              else ...[
-                                if (minimal)
-                                  Flexible(
-                                      flex: 3,
-                                      fit: FlexFit.tight,
-                                      child: Row(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.center,
-                                          children: [
-                                            Column(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  status,
-                                                  const SizedBox(height: 8),
-                                                  Flexible(
-                                                      child: FittedBox(
-                                                          fit: BoxFit.scaleDown,
-                                                          child: power))
-                                                ]),
-                                            const SizedBox(width: 12),
-                                            Expanded(
-                                                child: Column(
-                                                    mainAxisSize:
-                                                        MainAxisSize.min,
-                                                    children: [
-                                                  if (constraints.maxWidth >=
-                                                      360)
-                                                    Flexible(child: node()),
-                                                  if (detailsVisible) ...[
-                                                    if (constraints.maxWidth >=
-                                                        360)
-                                                      const SizedBox(
-                                                          height: 12),
-                                                    Flexible(
-                                                        child: ConstrainedBox(
-                                                            constraints:
-                                                                const BoxConstraints(
-                                                                    maxHeight:
-                                                                        100),
-                                                            child: details)),
-                                                  ],
-                                                ])),
-                                          ])),
-                                if (minimal && constraints.maxWidth < 360)
-                                  node(),
-                                SizedBox(height: gap),
-                                statistics(),
-                              ],
-                            ]))),
-        );
+            padding: EdgeInsets.fromLTRB(padding, 4, padding, 4),
+            child: Center(
+                child: ConstrainedBox(
+                    key: const Key('ssrvpn-home-content'),
+                    constraints: const BoxConstraints(
+                        maxWidth: SsrvpnUiTokens.pageMaxWidth),
+                    child: _centeredHome(
+                        centerY: centerY,
+                        powerSize: powerSize,
+                        compact: compact,
+                        status: status,
+                        node: node(),
+                        details: details,
+                        detailsVisible: detailsVisible))));
       }),
     );
   }
@@ -366,13 +180,13 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
     final latencyText = NodeDisplayPolicy.latencyText(latency);
     final Color latencyColor;
     if (latency == null || NodeDisplayPolicy.isLocalProbeBlocked(latency)) {
-      latencyColor = SsrvpnUiTokens.textSecondary;
+      latencyColor = SsrvpnUiTokens.of(context).textSecondary;
     } else if (latencyTimedOut || latency! >= 350) {
-      latencyColor = SsrvpnUiTokens.error;
+      latencyColor = SsrvpnUiTokens.of(context).error;
     } else if (latency! < 180) {
-      latencyColor = SsrvpnUiTokens.success;
+      latencyColor = SsrvpnUiTokens.of(context).success;
     } else {
-      latencyColor = SsrvpnUiTokens.warning;
+      latencyColor = SsrvpnUiTokens.of(context).warning;
     }
     final radius = compact ? 22.0 : 26.0;
     final iconSize = compact ? 48.0 : 58.0;
@@ -380,7 +194,7 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
       button: true,
       label: node == null ? '选择服务器' : '当前节点 $displayName，打开服务器选择',
       child: Material(
-        key: const Key('ssrvpn-current-node-card'),
+        key: Key('ssrvpn-current-node-card'),
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(radius),
         child: InkWell(
@@ -398,22 +212,23 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
                   width: iconSize,
                   height: iconSize,
                   decoration: BoxDecoration(
-                    color: SsrvpnUiTokens.primary,
+                    color: SsrvpnUiTokens.of(context).primary,
                     borderRadius: BorderRadius.circular(compact ? 15 : 17),
                     boxShadow: ssrvpnUsesLowEffects(context)
-                        ? const []
+                        ? []
                         : [
                             BoxShadow(
-                              color: SsrvpnUiTokens.primary
+                              color: SsrvpnUiTokens.of(context)
+                                  .primary
                                   .withValues(alpha: 0.28),
                               blurRadius: 18,
-                              offset: const Offset(0, 8),
+                              offset: Offset(0, 8),
                             ),
                           ],
                   ),
                   child: Icon(
                     Icons.auto_awesome_rounded,
-                    color: Colors.white,
+                    color: SsrvpnUiTokens.of(context).onPrimary,
                     size: compact ? 24 : 26,
                   ),
                 ),
@@ -428,11 +243,11 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
                         '当前节点',
                         maxFontSize: 12,
                         style: TextStyle(
-                          color: SsrvpnUiTokens.textSecondary,
+                          color: SsrvpnUiTokens.of(context).textSecondary,
                           fontSize: compact ? 12 : 13,
                         ),
                       )),
-                      const SizedBox(height: 4),
+                      SizedBox(height: 4),
                       Flexible(
                           flex: 2,
                           child: Row(
@@ -451,7 +266,8 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
-                                      color: SsrvpnUiTokens.textPrimary,
+                                      color: SsrvpnUiTokens.of(context)
+                                          .textPrimary,
                                       fontSize: compact ? 16 : 18,
                                       fontWeight: FontWeight.w600,
                                     ),
@@ -460,7 +276,7 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
                               ),
                             ],
                           )),
-                      const SizedBox(height: 3),
+                      SizedBox(height: 3),
                       Flexible(
                           child: SsrvpnHomeText(
                         latencyText,
@@ -476,7 +292,7 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
                 SizedBox(width: compact ? 8 : 12),
                 Icon(
                   Icons.chevron_right_rounded,
-                  color: SsrvpnUiTokens.textSecondary,
+                  color: SsrvpnUiTokens.of(context).textSecondary,
                   size: compact ? 24 : 28,
                 ),
               ],
@@ -512,7 +328,7 @@ class _ConnectionDetails extends StatelessWidget {
     if (errorMessage != null) {
       return TextButton.icon(
         onPressed: onShowLogs,
-        icon: const Icon(Icons.error_outline_rounded, size: 18),
+        icon: Icon(Icons.error_outline_rounded, size: 18),
         label: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -521,32 +337,34 @@ class _ConnectionDetails extends StatelessWidget {
                 flex: 3,
                 child: SsrvpnHomeText(errorMessage!,
                     maxLines: null, maxFontSize: 14)),
-            const SizedBox(height: 4),
-            const Flexible(
+            SizedBox(height: 4),
+            Flexible(
                 child: SsrvpnHomeText(
               '查看诊断与解决建议',
               maxLines: null,
               maxFontSize: 12,
               style: TextStyle(
-                color: SsrvpnUiTokens.textSecondary,
+                color: SsrvpnUiTokens.of(context).textSecondary,
                 decoration: TextDecoration.underline,
               ),
             )),
           ],
         ),
-        style: TextButton.styleFrom(foregroundColor: SsrvpnUiTokens.error),
+        style: TextButton.styleFrom(
+            foregroundColor: SsrvpnUiTokens.of(context).error),
       );
     }
     if (connectionNotice != null) {
       return TextButton.icon(
         onPressed: onShowLogs,
-        icon: const Icon(Icons.sync_rounded, size: 18),
+        icon: Icon(Icons.sync_rounded, size: 18),
         label: SsrvpnHomeText(
           connectionNotice!,
           maxLines: null,
           maxFontSize: 14,
         ),
-        style: TextButton.styleFrom(foregroundColor: SsrvpnUiTokens.warning),
+        style: TextButton.styleFrom(
+            foregroundColor: SsrvpnUiTokens.of(context).warning),
       );
     }
     final label = isRefreshingPublicIp
@@ -555,18 +373,18 @@ class _ConnectionDetails extends StatelessWidget {
             ? '公网 IPv4  $publicIpv4'
             : publicIpError ?? '获取公网 IPv4';
     return TextButton.icon(
-      key: const Key('home-public-ip'),
+      key: Key('home-public-ip'),
       onPressed: isRefreshingPublicIp ? null : onRefreshPublicIp,
       icon: isRefreshingPublicIp
-          ? const SizedBox(
+          ? SizedBox(
               width: 15,
               height: 15,
               child: CircularProgressIndicator(strokeWidth: 2),
             )
-          : const Icon(Icons.public_rounded, size: 17),
-      label: SsrvpnHomeText(label, maxLines: null, maxFontSize: 14),
+          : Icon(Icons.public_rounded, size: 17),
+      label: SsrvpnHomeText(label, maxLines: null, maxFontSize: 16),
       style: TextButton.styleFrom(
-        foregroundColor: SsrvpnUiTokens.textSecondary,
+        foregroundColor: SsrvpnUiTokens.of(context).textSecondary,
       ),
     );
   }

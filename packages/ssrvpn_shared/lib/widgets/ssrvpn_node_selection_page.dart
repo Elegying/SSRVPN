@@ -1,3 +1,5 @@
+import 'ssrvpn_theme_icon.dart';
+import 'ssrvpn_soft_inset.dart';
 import 'ssrvpn_glass_dialog_route.dart';
 import 'ssrvpn_liquid_glass.dart';
 import 'package:flutter/material.dart';
@@ -230,14 +232,14 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
         ),
         if (widget.onShowForceProxySites != null ||
             widget.onShowForceDirectSites != null) ...[
-          const SizedBox(height: 10),
+          SizedBox(height: 10),
           _UtilityActions(
             forceProxyEnabled: !selectionBusy,
             onShowForceProxySites: widget.onShowForceProxySites,
             onShowForceDirectSites: widget.onShowForceDirectSites,
           ),
         ],
-        const SizedBox(height: 14),
+        SizedBox(height: 14),
         _SubscriptionFilter(
           groups: groups,
           value: effectiveSubscription,
@@ -273,31 +275,31 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
               if (batchRunning && widget.onCancelTest != null)
                 TextButton.icon(
                   onPressed: _stopRequested ? null : _stopTests,
-                  icon: const Icon(Icons.stop_rounded),
+                  icon: Icon(Icons.stop_rounded),
                   label: Text(_stopRequested ? '正在结束当前检测…' : '停止测速'),
                 ),
             ],
           ),
-          const Text('测速仅检测连接延迟，不代表下载速度或长期稳定性。'),
+          Text('测速仅检测连接延迟，不代表下载速度或长期稳定性。'),
         ],
-        const SizedBox(height: 12),
+        SizedBox(height: 12),
       ],
     );
 
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
-        const SingleActivator(LogicalKeyboardKey.escape): _requestClose,
+        SingleActivator(LogicalKeyboardKey.escape): _requestClose,
       },
       child: Focus(
         autofocus: true,
         child: Scaffold(
-          backgroundColor: SsrvpnUiTokens.background,
+          backgroundColor: SsrvpnUiTokens.of(context).background,
           body: SsrvpnAppBackdrop(
             child: SafeArea(
               child: Center(
                 child: ConstrainedBox(
-                  key: const Key('ssrvpn-node-selection-content'),
-                  constraints: const BoxConstraints(
+                  key: Key('ssrvpn-node-selection-content'),
+                  constraints: BoxConstraints(
                     maxWidth: SsrvpnUiTokens.pageMaxWidth,
                   ),
                   child: Column(
@@ -315,11 +317,12 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
                       ),
                       Expanded(
                         child: Padding(
-                          padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
+                          padding: _nodeListPadding(context),
                           child: CustomScrollView(
-                            key: const Key('ssrvpn-node-list'),
+                            key: Key('ssrvpn-node-list'),
                             slivers: [
-                              SliverToBoxAdapter(child: controls),
+                              SliverToBoxAdapter(
+                                  child: _nodeListControls(context, controls)),
                               if (visibleNodes.isEmpty)
                                 SliverFillRemaining(
                                   hasScrollBody: false,
@@ -328,7 +331,7 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
                                 )
                               else
                                 SliverPadding(
-                                  padding: const EdgeInsets.only(bottom: 20),
+                                  padding: EdgeInsets.only(bottom: 20),
                                   sliver: SliverList.builder(
                                     itemCount: visibleNodes.length,
                                     itemBuilder: (context, index) => _nodeCard(

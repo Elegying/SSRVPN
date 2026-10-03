@@ -60,21 +60,12 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
   /// 旧版 Base64 前缀（用于迁移）
   static const _legacyPrefix = 'b64:';
 
-  String get appearanceDirectory => File(_configPath).parent.path;
-
   Future<void> updateProxyPort(int port) =>
       _updateSettings((settings) => settings.copyWith(proxyPort: port));
 
-  Future<void> updateAppearance(
-          {GlassEffectLevel? glassEffectLevel,
-          BackgroundStyle? backgroundStyle,
-          String? customBackgroundPath,
-          bool? dynamicBackground}) =>
-      _updateSettings((settings) => settings.copyWith(
-          glassEffectLevel: glassEffectLevel,
-          backgroundStyle: backgroundStyle,
-          customBackgroundPath: customBackgroundPath,
-          dynamicBackground: dynamicBackground));
+  Future<void> updateAppearance({AppThemeVariant? themeVariant}) =>
+      _updateSettings(
+          (settings) => settings.copyWith(themeVariant: themeVariant));
 
   SettingsService._({
     Future<String?> Function()? readApiSecret,

@@ -8,7 +8,6 @@ import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import '../services/settings_service.dart';
 import '../services/subscription_service.dart';
-import '../theme/app_theme.dart';
 
 class NodeEditScreen extends StatefulWidget {
   final ProxyNode node;
@@ -94,7 +93,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
           entry.key: entry.value,
     };
     _extraController = TextEditingController(
-      text: const JsonEncoder.withIndent('  ').convert(extras),
+      text: JsonEncoder.withIndent('  ').convert(extras),
     );
   }
 
@@ -129,7 +128,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
             obscureText: secret,
             keyboardType: keyboardType,
             inputFormatters: inputFormatters,
-            decoration: const InputDecoration(),
+            decoration: InputDecoration(),
             validator: required
                 ? (value) =>
                     value == null || value.trim().isEmpty ? '请输入$label' : null
@@ -143,7 +142,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     final port = int.tryParse(_controllers['port']!.text.trim());
     if (port == null || port < 1 || port > 65535) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
           content: Text('端口必须是 1-65535 之间的数字'),
         ),
@@ -156,11 +155,11 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
       final decoded = jsonDecode(
         _extraController.text.trim().isEmpty ? '{}' : _extraController.text,
       );
-      if (decoded is! Map) throw const FormatException();
+      if (decoded is! Map) throw FormatException();
       extras = Map<String, dynamic>.from(decoded);
     } catch (_) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
           content: Text('其他参数必须是有效的 JSON 对象'),
         ),
@@ -221,7 +220,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
             content: Text(msg.contains('首选节点恢复失败')
                 ? '$friendlyMsg；首选节点恢复失败，请恢复存储权限后重试'
                 : friendlyMsg),
-            backgroundColor: AppTheme.errorColor,
+            backgroundColor: SsrvpnTheme.of(context).error,
           ),
         );
       }
@@ -235,7 +234,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return SsrvpnAppBackdrop(
       child: SsrvpnModalGlassPanel(
-        key: const Key('ssrvpn-node-edit-glass'),
+        key: Key('ssrvpn-node-edit-glass'),
         borderRadius: 0,
         child: Scaffold(
           backgroundColor: Colors.transparent,
@@ -259,7 +258,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                   label: Text(
                     '保存',
                     style: TextStyle(
-                      color: AppTheme.primaryColor,
+                      color: SsrvpnTheme.of(context).primary,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -276,8 +275,8 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                   '修改仅保存在本地，刷新订阅后会被订阅内容覆盖。',
                   style: TextStyle(
                     color: isDark
-                        ? AppTheme.darkTextSecondary
-                        : AppTheme.lightTextSecondary,
+                        ? SsrvpnTheme.of(context).textSecondary
+                        : SsrvpnTheme.of(context).textSecondary,
                   ),
                 ),
                 SizedBox(height: 20),
@@ -296,7 +295,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                       label: '节点类型',
                       child: DropdownButtonFormField<String>(
                         initialValue: _type,
-                        decoration: const InputDecoration(),
+                        decoration: InputDecoration(),
                         items: ({..._types, _type}.toList()..sort())
                             .map(
                               (type) => DropdownMenuItem(
@@ -357,7 +356,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                     label: '其他参数（JSON）',
                     helperText: 'TLS、插件、WebSocket 等未列出的参数可在这里修改',
                     child: TextFormField(
-                      key: const Key('ssrvpn-node-extra'),
+                      key: Key('ssrvpn-node-extra'),
                       controller: _extraController,
                       minLines: 5,
                       maxLines: 12,
@@ -365,7 +364,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                         fontFamily: 'monospace',
                         fontSize: Responsive.sp(12),
                       ),
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         alignLabelWithHint: true,
                       ),
                     )),
@@ -377,8 +376,9 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                       dense: true,
                       child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                              backgroundColor:
-                                  AppTheme.primaryColor.withValues(alpha: .58)),
+                              backgroundColor: SsrvpnTheme.of(context)
+                                  .primary
+                                  .withValues(alpha: .58)),
                           onPressed: _save,
                           child: Text('保存修改'))),
                 ),

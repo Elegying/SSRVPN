@@ -1,4 +1,4 @@
-import '../services/background_image_picker.dart';
+import '../services/qr_image_picker.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import '../utils/responsive.dart';
 import 'package:flutter/material.dart';
@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import '../services/clash_service.dart';
 import '../services/subscription_service.dart';
-import '../theme/app_theme.dart';
 import '../widgets/android_diagnostics_sheet.dart';
 import '../widgets/subscription_network_error_dialog.dart';
 
@@ -105,47 +104,48 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
 
   void _showAddResult(SubscriptionAddResult result) {
     if (result.isSuccess && result.warning != null) {
-      _showSnack(result.warning!, AppTheme.warningColor);
+      _showSnack(result.warning!, SsrvpnTheme.of(context).warning);
       return;
     }
     switch (result.status) {
       case SubscriptionAddStatus.emptyInput:
-        _showSnack('请输入订阅或节点链接', AppTheme.errorColor);
+        _showSnack('请输入订阅或节点链接', SsrvpnTheme.of(context).error);
       case SubscriptionAddStatus.duplicate:
-        _showSnack('该订阅已存在，无需重复添加', AppTheme.warningColor);
+        _showSnack('该订阅已存在，无需重复添加', SsrvpnTheme.of(context).warning);
       case SubscriptionAddStatus.invalidUrl:
-        _showSnack('请输入有效的URL地址', AppTheme.errorColor);
+        _showSnack('请输入有效的URL地址', SsrvpnTheme.of(context).error);
       case SubscriptionAddStatus.singleNodeImported:
         _showSnack(
           '节点链接已导入，当前共 ${result.nodeCount} 个节点',
-          AppTheme.successColor,
+          SsrvpnTheme.of(context).success,
         );
       case SubscriptionAddStatus.singleNodeNoData:
-        _showSnack('节点链接已添加，但未获取到数据', AppTheme.warningColor);
+        _showSnack('节点链接已添加，但未获取到数据', SsrvpnTheme.of(context).warning);
       case SubscriptionAddStatus.singleNodeImportFailed:
-        _showSnack('导入失败，请检查链接是否有效', AppTheme.errorColor);
+        _showSnack('导入失败，请检查链接是否有效', SsrvpnTheme.of(context).error);
       case SubscriptionAddStatus.subscriptionAdded:
-        _showSnack('订阅成功，获取到 ${result.nodeCount} 个节点', AppTheme.successColor);
+        _showSnack('订阅成功，获取到 ${result.nodeCount} 个节点',
+            SsrvpnTheme.of(context).success);
       case SubscriptionAddStatus.subscriptionNoData:
-        _showSnack('订阅已添加，但未获取到数据', AppTheme.warningColor);
+        _showSnack('订阅已添加，但未获取到数据', SsrvpnTheme.of(context).warning);
       case SubscriptionAddStatus.refreshFailed:
         _showSnack(
           '刷新失败，请检查网络后重试',
-          AppTheme.errorColor,
-          duration: const Duration(seconds: 4),
+          SsrvpnTheme.of(context).error,
+          duration: Duration(seconds: 4),
         );
       case SubscriptionAddStatus.failed:
-        _showSnack('添加失败，请检查链接是否有效', AppTheme.errorColor);
+        _showSnack('添加失败，请检查链接是否有效', SsrvpnTheme.of(context).error);
     }
   }
 
   void _showSnack(String message, Color backgroundColor, {Duration? duration}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
+        margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
         content: Text(message),
         backgroundColor: backgroundColor,
-        duration: duration ?? const Duration(seconds: 4),
+        duration: duration ?? Duration(seconds: 4),
       ),
     );
   }
@@ -168,7 +168,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
         backgroundColor: Colors.transparent,
         contentPadding: EdgeInsets.zero,
         content: SsrvpnModalGlassPanel(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(24),
           borderRadius: 20,
           child: ConstrainedBox(
             constraints: BoxConstraints(
@@ -180,7 +180,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
                 Icon(
                   Icons.warning_amber_rounded,
                   size: 48,
-                  color: AppTheme.warningColor,
+                  color: SsrvpnTheme.of(context).warning,
                 ),
                 SizedBox(height: 16),
                 Text(
@@ -195,7 +195,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
                     fontSize: Responsive.sp(13),
                     color: Theme.of(context).brightness == Brightness.dark
                         ? Colors.white.withValues(alpha: 120 / 255)
-                        : AppTheme.lightTextSecondary,
+                        : SsrvpnTheme.of(context).textSecondary,
                   ),
                 ),
                 SizedBox(height: 24),
@@ -212,7 +212,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
                       child: ElevatedButton(
                         onPressed: () => dismissSsrvpnDialog<bool>(ctx, true),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.errorColor,
+                          backgroundColor: SsrvpnTheme.of(context).error,
                         ),
                         child: Text('删除'),
                       ),
@@ -255,7 +255,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
           ).displayError;
           _showSnack(
             '删除失败：$displayError',
-            AppTheme.errorColor,
+            SsrvpnTheme.of(context).error,
           );
         }
         return;
@@ -268,17 +268,17 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
       if (!result.removed) {
         _showSnack(
           '删除失败：${result.displayError}',
-          AppTheme.errorColor,
+          SsrvpnTheme.of(context).error,
         );
       } else if (result.error != null) {
         _showSnack(
           '订阅已删除，但断开 VPN 失败：${result.displayError}',
-          AppTheme.warningColor,
+          SsrvpnTheme.of(context).warning,
         );
       } else if (result.stoppedClash) {
-        _showSnack('订阅已删除，VPN 已断开', AppTheme.warningColor);
+        _showSnack('订阅已删除，VPN 已断开', SsrvpnTheme.of(context).warning);
       } else {
-        _showSnack('订阅已删除', AppTheme.successColor);
+        _showSnack('订阅已删除', SsrvpnTheme.of(context).success);
       }
     }
   }
@@ -297,19 +297,20 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
 
     switch (result.status) {
       case SubscriptionEditStatus.emptyName:
-        _showSnack('订阅名称不能为空', AppTheme.errorColor);
+        _showSnack('订阅名称不能为空', SsrvpnTheme.of(context).error);
       case SubscriptionEditStatus.emptyUrl:
-        _showSnack('订阅链接不能为空', AppTheme.errorColor);
+        _showSnack('订阅链接不能为空', SsrvpnTheme.of(context).error);
       case SubscriptionEditStatus.duplicateUrl:
-        _showSnack('该订阅链接已存在', AppTheme.warningColor);
+        _showSnack('该订阅链接已存在', SsrvpnTheme.of(context).warning);
       case SubscriptionEditStatus.invalidUrl:
-        _showSnack('请输入有效的订阅链接', AppTheme.errorColor);
+        _showSnack('请输入有效的订阅链接', SsrvpnTheme.of(context).error);
       case SubscriptionEditStatus.unchanged:
-        _showSnack('订阅信息没有变化', AppTheme.warningColor);
+        _showSnack('订阅信息没有变化', SsrvpnTheme.of(context).warning);
       case SubscriptionEditStatus.saved:
-        _showSnack('订阅已更新', AppTheme.successColor);
+        _showSnack('订阅已更新', SsrvpnTheme.of(context).success);
       case SubscriptionEditStatus.failed:
-        _showSnack('更新失败：${result.displayError}', AppTheme.errorColor);
+        _showSnack(
+            '更新失败：${result.displayError}', SsrvpnTheme.of(context).error);
     }
   }
 
@@ -319,10 +320,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
     final subService = context.watch<SubscriptionService>();
     final refreshResult = _refreshResult;
     final refreshColor = switch (refreshResult?.status) {
-      SubscriptionRefreshStatus.success => SsrvpnUiTokens.success,
-      SubscriptionRefreshStatus.partialSuccess => SsrvpnUiTokens.warning,
-      SubscriptionRefreshStatus.failure => SsrvpnUiTokens.error,
-      SubscriptionRefreshStatus.cancelled => SsrvpnUiTokens.textSecondary,
+      SubscriptionRefreshStatus.success => SsrvpnUiTokens.of(context).success,
+      SubscriptionRefreshStatus.partialSuccess =>
+        SsrvpnUiTokens.of(context).warning,
+      SubscriptionRefreshStatus.failure => SsrvpnUiTokens.of(context).error,
+      SubscriptionRefreshStatus.cancelled =>
+        SsrvpnUiTokens.of(context).textSecondary,
       null => null,
     };
 
@@ -340,7 +343,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
           isRefreshing: _isRefreshing,
           isBusy: _isBusy,
           refreshMessage: refreshResult?.message,
-          refreshFailureDetails: refreshResult?.failureDetails ?? const [],
+          refreshFailureDetails: refreshResult?.failureDetails ?? [],
           refreshMessageColor: refreshColor,
           onAdd: _addSubscription,
           onRefresh: _refreshAll,

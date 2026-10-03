@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as glass;
-import 'package:ssrvpn_shared/widgets/ssrvpn_drifting_background.dart';
+import 'support/animated_test_background.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_glass_capture.dart';
 
 class _CaptureBinding extends AutomatedTestWidgetsFlutterBinding {
@@ -173,7 +173,7 @@ void main() {
             // Motion stays enabled, so the source repaints on every frame the
             // way the production drifting wallpaper does.
             SsrvpnGlassBackgroundSource(
-                child: SsrvpnDriftingBackground(
+                child: TestAnimatedBackground(
                     drift: true, child: const ColoredBox(color: Colors.blue))),
             Builder(
                 builder: (context) => ValueListenableBuilder<SsrvpnGlassFrame?>(
@@ -221,7 +221,7 @@ void main() {
           captureSupported: true,
           child: Stack(fit: StackFit.expand, children: [
             const SsrvpnGlassBackgroundSource(
-                child: SsrvpnDriftingBackground(
+                child: TestAnimatedBackground(
                     drift: true, child: ColoredBox(color: Colors.blue))),
             Builder(
                 builder: (context) => ValueListenableBuilder<SsrvpnGlassFrame?>(

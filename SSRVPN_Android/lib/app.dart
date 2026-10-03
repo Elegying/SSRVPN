@@ -1,4 +1,3 @@
-import 'services/background_image_picker.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_appearance.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_settings_page.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_scroll_behavior.dart';
@@ -666,8 +665,6 @@ Widget _buildSettingsPage(BuildContext context) {
   return SsrvpnSettingsPage(
     settings: service.settings,
     core: context.read<clash.ClashService>(),
-    dataDirectory: service.appearanceDirectory,
-    pickBackgroundImage: pickAndroidBackgroundImage,
     onAppearanceChanged: service.updateAppearance,
     onPortChanged: service.updateProxyPort,
     onRoutingSitesChanged: (sites, direct) => direct

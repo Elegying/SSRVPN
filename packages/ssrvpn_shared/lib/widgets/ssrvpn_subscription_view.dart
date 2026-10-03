@@ -1,3 +1,4 @@
+import 'ssrvpn_theme_icon.dart';
 import 'package:file_selector/file_selector.dart';
 import 'ssrvpn_qr_import_button.dart';
 import 'ssrvpn_liquid_glass.dart';
@@ -124,7 +125,7 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
     _refreshMessageTimer?.cancel();
     _refreshMessageTimer = null;
     if (_visibleRefreshMessage == null) return;
-    _refreshMessageTimer = Timer(const Duration(seconds: 10), () {
+    _refreshMessageTimer = Timer(Duration(seconds: 10), () {
       if (!mounted) return;
       setState(() {
         _visibleRefreshMessage = null;
@@ -146,7 +147,7 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
       Scrollable.ensureVisible(
         actionContext,
         alignment: 1,
-        duration: const Duration(milliseconds: 180),
+        duration: Duration(milliseconds: 180),
         curve: Curves.easeOut,
       );
     });
@@ -172,7 +173,7 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
               ((constraints.maxWidth - SsrvpnUiTokens.pageMaxWidth) / 2)
                   .clamp(horizontalPadding, double.infinity);
           return CustomScrollView(
-            key: const Key('ssrvpn-subscription-scroll'),
+            key: Key('ssrvpn-subscription-scroll'),
             controller: _scrollController,
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             slivers: [
@@ -182,18 +183,18 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
                 sliver: SliverMainAxisGroup(slivers: [
                   SliverToBoxAdapter(
                       child: Column(
-                    key: const Key('ssrvpn-subscription-content'),
+                    key: Key('ssrvpn-subscription-content'),
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _SubscriptionHeader(onShowLogs: widget.onShowLogs),
                       if (widget.connectionStatus != null) ...[
-                        const SizedBox(height: 20),
+                        SizedBox(height: 20),
                         _SubscriptionConnectionCard(
                           status: widget.connectionStatus!,
                           currentNodeName: widget.currentNodeName,
                         ),
                       ],
-                      const SizedBox(height: 16),
+                      SizedBox(height: 16),
                       _SubscriptionAddCard(
                         urlController: widget.urlController,
                         inputFocusNode: _inputFocusNode,
@@ -203,7 +204,7 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
                         onAdd: widget.onAdd,
                         pickQrImage: widget.pickQrImage,
                       ),
-                      const SizedBox(height: 16),
+                      SizedBox(height: 16),
                       _SubscriptionListHeader(
                         count: widget.subscriptions.length,
                         isRefreshing: widget.isRefreshing,
@@ -212,18 +213,18 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
                         onCancelRefresh: widget.onCancelRefresh,
                       ),
                       if (_visibleRefreshMessage != null) ...[
-                        const SizedBox(height: 10),
+                        SizedBox(height: 10),
                         _RefreshMessage(
                           message: _visibleRefreshMessage!,
                           color: _visibleRefreshMessageColor ??
-                              SsrvpnUiTokens.primary,
+                              SsrvpnUiTokens.of(context).primary,
                         ),
                       ],
                       if (widget.refreshFailureDetails.isNotEmpty)
                         Align(
                           alignment: Alignment.centerLeft,
                           child: TextButton.icon(
-                            key: const Key('subscription-refresh-details'),
+                            key: Key('subscription-refresh-details'),
                             onPressed: () => showDialog<void>(
                               context: context,
                               builder: (_) => SsrvpnSubscriptionErrorDialog(
@@ -233,15 +234,15 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
                                     widget.refreshFailureDetails.join('\n\n'),
                               ),
                             ),
-                            icon: const Icon(Icons.info_outline_rounded),
-                            label: const Text('查看失败原因'),
+                            icon: Icon(Icons.info_outline_rounded),
+                            label: Text('查看失败原因'),
                           ),
                         ),
-                      const SizedBox(height: 14),
+                      SizedBox(height: 14),
                     ],
                   )),
                   if (widget.subscriptions.isEmpty)
-                    const SliverToBoxAdapter(child: _SubscriptionEmptyState())
+                    SliverToBoxAdapter(child: _SubscriptionEmptyState())
                   else
                     SliverList.builder(
                       itemCount: widget.subscriptions.length,
@@ -306,24 +307,26 @@ class _SubscriptionListHeader extends StatelessWidget {
           spacing: 9,
           runSpacing: 4,
           children: [
-            const Text(
+            Text(
               '我的订阅',
               style: TextStyle(
-                color: SsrvpnUiTokens.textPrimary,
+                color: SsrvpnUiTokens.of(context).textPrimary,
                 fontSize: 21,
                 fontWeight: FontWeight.w800,
               ),
             ),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+              padding: EdgeInsets.symmetric(horizontal: 9, vertical: 3),
               decoration: BoxDecoration(
-                color: SsrvpnUiTokens.primaryBlue.withValues(alpha: 0.16),
+                color: SsrvpnUiTokens.of(context)
+                    .primaryBlue
+                    .withValues(alpha: 0.16),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Text(
                 '$count',
-                style: const TextStyle(
-                  color: SsrvpnUiTokens.primaryBlue,
+                style: TextStyle(
+                  color: SsrvpnUiTokens.of(context).primaryBlue,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -339,7 +342,7 @@ class _SubscriptionListHeader extends StatelessWidget {
           ),
           label: Text(isRefreshing ? '取消刷新' : '全部刷新'),
           style: TextButton.styleFrom(
-            foregroundColor: SsrvpnUiTokens.primaryBlue,
+            foregroundColor: SsrvpnUiTokens.of(context).primaryBlue,
           ),
         ),
       ],
@@ -362,7 +365,7 @@ class _RefreshMessage extends StatelessWidget {
       excludeSemantics: true,
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(12),
+        padding: EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(14),
@@ -399,7 +402,7 @@ class _SubscriptionCard extends StatelessWidget {
         platform == TargetPlatform.macOS ||
         platform == TargetPlatform.linux;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: EdgeInsets.only(bottom: 8),
       child: Semantics(
         container: true,
         label: subscription.name,
@@ -411,7 +414,7 @@ class _SubscriptionCard extends StatelessWidget {
           onSecondaryTapUp:
               isDesktop && onEdit != null ? (_) => onEdit!() : null,
           child: SsrvpnSurfaceCard(
-            padding: const EdgeInsets.all(14),
+            padding: EdgeInsets.all(14),
             radius: 22,
             child: Column(
               children: [
@@ -421,17 +424,22 @@ class _SubscriptionCard extends StatelessWidget {
                       width: 48,
                       height: 48,
                       decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF1C315E), Color(0xFF173D42)],
+                        gradient: LinearGradient(
+                          colors: [
+                            SsrvpnUiTokens.of(context).surface,
+                            SsrvpnUiTokens.of(context).surfaceStrong
+                          ],
                         ),
                         borderRadius: BorderRadius.circular(14),
                       ),
-                      child: const Icon(
-                        Icons.rss_feed_rounded,
-                        color: SsrvpnUiTokens.primaryBlue,
+                      child: SsrvpnThemeIcon(
+                        'subscription',
+                        fallback: Icons.rss_feed_rounded,
+                        size: 36,
+                        color: SsrvpnUiTokens.of(context).primaryBlue,
                       ),
                     ),
-                    const SizedBox(width: 14),
+                    SizedBox(width: 14),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -444,14 +452,14 @@ class _SubscriptionCard extends StatelessWidget {
                               subscription.name,
                               maxLines: 3,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: SsrvpnUiTokens.textPrimary,
+                              style: TextStyle(
+                                color: SsrvpnUiTokens.of(context).textPrimary,
                                 fontSize: 17,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),
-                          const SizedBox(height: 4),
+                          SizedBox(height: 4),
                           Tooltip(
                             message: LogRedactor.subscriptionUrlForDisplay(
                               subscription.url,
@@ -464,8 +472,8 @@ class _SubscriptionCard extends StatelessWidget {
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: SsrvpnUiTokens.textTertiary,
+                              style: TextStyle(
+                                color: SsrvpnUiTokens.of(context).textTertiary,
                                 fontSize: 12,
                               ),
                             ),
@@ -476,18 +484,18 @@ class _SubscriptionCard extends StatelessWidget {
                     IconButton(
                       tooltip: '编辑订阅',
                       onPressed: onEdit,
-                      color: SsrvpnUiTokens.textSecondary,
-                      icon: const Icon(Icons.edit_outlined),
+                      color: SsrvpnUiTokens.of(context).textSecondary,
+                      icon: Icon(Icons.edit_outlined),
                     ),
                     IconButton(
                       tooltip: '删除订阅',
                       onPressed: onDelete,
-                      color: SsrvpnUiTokens.error,
-                      icon: const Icon(Icons.delete_outline_rounded),
+                      color: SsrvpnUiTokens.of(context).error,
+                      icon: Icon(Icons.delete_outline_rounded),
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
+                SizedBox(height: 14),
                 Wrap(
                   spacing: 18,
                   runSpacing: 6,
@@ -501,18 +509,18 @@ class _SubscriptionCard extends StatelessWidget {
                           height: 8,
                           decoration: BoxDecoration(
                             color: subscription.enabled
-                                ? SsrvpnUiTokens.success
-                                : SsrvpnUiTokens.error,
+                                ? SsrvpnUiTokens.of(context).success
+                                : SsrvpnUiTokens.of(context).error,
                             shape: BoxShape.circle,
                           ),
                         ),
-                        const SizedBox(width: 7),
+                        SizedBox(width: 7),
                         Text(
                           subscription.enabled ? '已启用' : '已禁用',
                           style: TextStyle(
                             color: subscription.enabled
-                                ? SsrvpnUiTokens.success
-                                : SsrvpnUiTokens.error,
+                                ? SsrvpnUiTokens.of(context).success
+                                : SsrvpnUiTokens.of(context).error,
                             fontSize: 12,
                           ),
                         ),
@@ -520,27 +528,29 @@ class _SubscriptionCard extends StatelessWidget {
                     ),
                     Text.rich(
                       TextSpan(children: [
-                        const WidgetSpan(
+                        WidgetSpan(
                           alignment: PlaceholderAlignment.middle,
                           child: Icon(Icons.access_time_rounded,
-                              size: 15, color: SsrvpnUiTokens.textTertiary),
+                              size: 15,
+                              color: SsrvpnUiTokens.of(context).textTertiary),
                         ),
                         TextSpan(
                             text:
                                 ' ${_formatUpdateTime(subscription.lastUpdate)}'),
                       ]),
-                      style: const TextStyle(
-                          color: SsrvpnUiTokens.textTertiary, fontSize: 12),
+                      style: TextStyle(
+                          color: SsrvpnUiTokens.of(context).textTertiary,
+                          fontSize: 12),
                     ),
                     TextButton.icon(
                       onPressed: onRefresh,
                       icon: isRefreshing
-                          ? const SizedBox(
+                          ? SizedBox(
                               width: 16,
                               height: 16,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Icon(Icons.refresh_rounded, size: 18),
+                          : Icon(Icons.refresh_rounded, size: 18),
                       label: Text(isRefreshing ? '刷新中…' : '刷新'),
                     ),
                   ],

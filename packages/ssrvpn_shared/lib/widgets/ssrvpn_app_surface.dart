@@ -1,9 +1,12 @@
+import 'ssrvpn_theme_icon.dart';
+import 'ssrvpn_soft_inset.dart';
+import 'ssrvpn_soft_surface.dart';
 import '../models/app_settings.dart';
 import 'ssrvpn_appearance.dart';
+export 'ssrvpn_theme.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as liquid;
 import 'ssrvpn_liquid_glass.dart';
 import 'ssrvpn_glass_capture.dart';
-import 'ssrvpn_drifting_background.dart';
 
 import 'package:flutter/material.dart';
 
@@ -16,6 +19,7 @@ import 'ssrvpn_home_text.dart';
 part 'ssrvpn_high_contrast_navigation.dart';
 
 abstract final class SsrvpnUiTokens {
+  static SsrvpnTheme of(BuildContext context) => SsrvpnTheme.of(context);
   static const background = Color(0xFF0A1020);
   static const backgroundRaised = Color(0xFF14152F);
   static const surface = Color(0xFF242641);
@@ -65,97 +69,35 @@ class SsrvpnAppBackdrop extends StatelessWidget {
   final Widget child;
   @override
   Widget build(BuildContext context) {
-    final appearance = SsrvpnAppearance.maybeOf(context);
-    final background = appearance?.background ?? BackgroundStyle.flowing;
-    // An absent scope keeps the shipped default: a still wallpaper.
-    final drift = appearance?.dynamicBackground ?? false;
-    final color = ssrvpnBackgroundColor(background);
-    final shade = Colors.black
-        .withValues(alpha: MediaQuery.highContrastOf(context) ? .65 : .28);
+    final theme = SsrvpnTheme.of(context);
+    final shade = MediaQuery.highContrastOf(context)
+        ? .82
+        : (theme.isDefault ? .28 : 0.0);
     return liquid.LiquidGlassScope(
       child: SsrvpnGlassCapture(
           child: Stack(fit: StackFit.expand, children: [
         Positioned.fill(
             child: IgnorePointer(
                 child: SsrvpnGlassBackgroundSource(
-          child: color != null
-              ? ColoredBox(color: color)
-              : background == BackgroundStyle.custom
-                  ? SsrvpnCustomBackground(path: appearance?.imagePath ?? '')
-                  : SsrvpnDriftingBackground(
-                      drift: drift,
-                      child: Image.asset(
-                        'assets/backgrounds/network-glass-deep.png',
-                        package: 'ssrvpn_shared',
-                        fit: BoxFit.cover,
-                        alignment: Alignment.center,
-                        filterQuality: FilterQuality.medium,
-                        // Fold the black overlay into the image draw instead of blending
-                        // another full-screen rectangle on every wallpaper frame.
-                        color: shade,
-                        colorBlendMode: BlendMode.srcATop,
-                        frameBuilder: (_, child, frame, synchronous) =>
-                            frame != null || synchronous
-                                ? child
-                                : ColoredBox(color: shade, child: child),
-                        errorBuilder: (_, __, ___) => _SsrvpnAssetErrorBackdrop(
-                            child: ColoredBox(color: shade)),
-                      )),
+          child: ColoredBox(
+              color: theme.background,
+              child: (theme.variant == AppThemeVariant.cloud || theme.isSoft)
+                  ? ColoredBox(color: theme.background)
+                  : Image.asset(
+                      theme.wallpaper,
+                      package: 'ssrvpn_shared',
+                      fit: BoxFit.cover,
+                      alignment: Alignment.topCenter,
+                      filterQuality: FilterQuality.medium,
+                      color: (theme.isLight ? Colors.white : Colors.black)
+                          .withValues(alpha: shade),
+                      colorBlendMode: BlendMode.srcATop,
+                      errorBuilder: (_, __, ___) =>
+                          ColoredBox(color: theme.background),
+                    )),
         ))),
         child,
       ])),
-    );
-  }
-}
-
-class _SsrvpnAssetErrorBackdrop extends StatelessWidget {
-  const _SsrvpnAssetErrorBackdrop({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF181B3B),
-            SsrvpnUiTokens.background,
-            Color(0xFF09152A),
-          ],
-          stops: [0, 0.48, 1],
-        ),
-      ),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          const IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: Alignment(1.05, -0.1),
-                  radius: 0.9,
-                  colors: [Color(0x332B4D9E), Colors.transparent],
-                ),
-              ),
-            ),
-          ),
-          const IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: Alignment(0.95, 0.35),
-                  radius: 0.75,
-                  colors: [Color(0x2410B9C4), Colors.transparent],
-                ),
-              ),
-            ),
-          ),
-          child,
-        ],
-      ),
     );
   }
 }
@@ -241,11 +183,11 @@ class SsrvpnBottomNavigation extends StatelessWidget {
   Widget build(BuildContext context) {
     return SafeArea(
       top: false,
-      minimum: const EdgeInsets.fromLTRB(18, 8, 18, 8),
+      minimum: EdgeInsets.fromLTRB(18, 8, 18, 8),
       child: Center(
         heightFactor: 1,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(
+          constraints: BoxConstraints(
             maxWidth: SsrvpnUiTokens.bottomNavigationMaxWidth,
           ),
           child: Column(
@@ -266,17 +208,19 @@ class SsrvpnBottomNavigation extends StatelessWidget {
                   quality: ssrvpnGlassQuality(context),
                   backgroundQuality: ssrvpnGlassQuality(context),
                   settings: SsrvpnLiquidSurface.settingsFor(context),
-                  indicatorColor: SsrvpnUiTokens.primary.withValues(alpha: .25),
+                  indicatorColor:
+                      SsrvpnUiTokens.of(context).primary.withValues(alpha: .25),
                   indicatorExpansion: EdgeInsets.zero,
                   magnification: 1.04,
                   pressScale: 1.02,
-                  selectedIconColor: SsrvpnUiTokens.textPrimary,
-                  selectedLabelColor: SsrvpnUiTokens.textPrimary,
-                  unselectedIconColor: SsrvpnUiTokens.textSecondary,
-                  unselectedLabelColor: SsrvpnUiTokens.textSecondary,
+                  selectedIconColor: SsrvpnUiTokens.of(context).textPrimary,
+                  selectedLabelColor: SsrvpnUiTokens.of(context).textPrimary,
+                  unselectedIconColor: SsrvpnUiTokens.of(context).textSecondary,
+                  unselectedLabelColor:
+                      SsrvpnUiTokens.of(context).textSecondary,
                   labelFontSize: 12,
                   iconSize: 23,
-                  tabs: const [
+                  tabs: [
                     liquid.GlassTab(
                         icon: Icon(Icons.home_outlined),
                         activeIcon: Icon(Icons.home_rounded),
@@ -291,15 +235,15 @@ class SsrvpnBottomNavigation extends StatelessWidget {
                         label: '设置'),
                   ],
                 ),
-              const SizedBox(height: 6),
+              SizedBox(height: 6),
               SsrvpnVersionUpdateFooter(
                 version: version,
                 fitHomeText: true,
                 availableVersion: availableVersion,
                 onUpdateTap: onUpdateTap,
-                versionColor: SsrvpnUiTokens.textTertiary,
-                updateLabelColor: SsrvpnUiTokens.warning,
-                updateActionColor: SsrvpnUiTokens.accent,
+                versionColor: SsrvpnUiTokens.of(context).textTertiary,
+                updateLabelColor: SsrvpnUiTokens.of(context).warning,
+                updateActionColor: SsrvpnUiTokens.of(context).accent,
               ),
             ],
           ),
@@ -332,30 +276,43 @@ class SsrvpnNavigationDestination extends StatelessWidget {
     final color = highContrast
         ? (selected ? scheme.onPrimary : scheme.onSurface)
         : (selected
-            ? SsrvpnUiTokens.textPrimary
-            : SsrvpnUiTokens.textSecondary);
-    return Semantics(
+            ? SsrvpnUiTokens.of(context).textPrimary
+            : SsrvpnUiTokens.of(context).textSecondary);
+    final soft = SsrvpnTheme.of(context).isSoft && !highContrast;
+    final destination = Semantics(
       button: true,
       selected: selected,
       label: label,
       child: Material(
-        color: selected
-            ? (highContrast
-                ? scheme.primary
-                : SsrvpnUiTokens.primary.withValues(alpha: 0.16))
-            : Colors.transparent,
+        color: soft
+            ? Colors.transparent
+            : selected
+                ? (highContrast
+                    ? scheme.primary
+                    : SsrvpnUiTokens.of(context)
+                        .primary
+                        .withValues(alpha: 0.16))
+                : Colors.transparent,
         borderRadius: BorderRadius.circular(22),
         child: InkWell(
           borderRadius: BorderRadius.circular(22),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: EdgeInsets.symmetric(vertical: 8),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(selected ? selectedIcon : icon, color: color, size: 23),
-                const SizedBox(height: 2),
+                SsrvpnThemeIcon(
+                    label == '主页'
+                        ? 'home'
+                        : label == '订阅'
+                            ? 'subscription'
+                            : 'settings',
+                    fallback: selected ? selectedIcon : icon,
+                    color: color,
+                    size: SsrvpnTheme.of(context).isDefault ? 23 : 32),
+                SizedBox(height: 2),
                 Flexible(
                     child: SsrvpnHomeText(
                   label,
@@ -373,5 +330,6 @@ class SsrvpnNavigationDestination extends StatelessWidget {
         ),
       ),
     );
+    return soft && selected ? SsrvpnSoftInset(child: destination) : destination;
   }
 }

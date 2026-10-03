@@ -11,7 +11,8 @@ class MainFlutterWindow: NSWindow {
 
   func configureIntegratedTitlebar() {
     // Match DesktopWindowStateStore, including safe mode before plugins initialize.
-    minSize = NSSize(width: 380, height: 560)
+    styleMask.remove(.resizable)
+    standardWindowButton(.zoomButton)?.isEnabled = false
     title = ""
     titleVisibility = .hidden
     titlebarAppearsTransparent = true

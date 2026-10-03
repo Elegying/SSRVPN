@@ -73,9 +73,7 @@ void main() {
         ],
         child: SsrvpnAppearanceScope(
           settings: AppSettings(
-            glassEffectLevel: GlassEffectLevel.none,
-            backgroundStyle: BackgroundStyle.black,
-            dynamicBackground: false,
+            themeVariant: AppThemeVariant.aurora,
           ),
           child: MaterialApp(
             theme: AppTheme.light,
