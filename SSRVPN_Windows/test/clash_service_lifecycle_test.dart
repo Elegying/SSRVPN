@@ -150,6 +150,8 @@ Future<void> main(List<String> args) async {
       // Repeat rapid spawns without weakening the production deadline or
       // identity assertions: FILETIME can retain sub-microsecond digits.
       for (var attempt = 0; attempt < 6; attempt++) {
+        final spawnedMarker = File('${config.path}.spawned');
+        if (await spawnedMarker.exists()) await spawnedMarker.delete();
         final proxy = _ControlledStopProxy();
         final core = startup(proxy);
         proxy.set = () async {
@@ -158,6 +160,7 @@ Future<void> main(List<String> args) async {
           expect(record, isNotNull);
           expect(record!.canonicalExecutablePath.toLowerCase(),
               validator.path.toLowerCase());
+          await _waitForSpawnedPid(spawnedMarker, record.pid);
           expect(record.pid,
               int.parse(await File('${config.path}.spawned').readAsString()));
           expect(core.isRunning, isFalse);
@@ -1187,6 +1190,28 @@ Future<void> _waitForStartupMarker(
     }
     if (watch.elapsed >= const Duration(seconds: 10)) {
       throw TimeoutException('等待启动标记超时: ${failureReason()}');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+}
+
+Future<void> _waitForSpawnedPid(File marker, int expectedPid) async {
+  // Native identity capture can finish before the fixture's Dart main runs.
+  // Observe the current child's acknowledgement, keeping the existing marker
+  // budget; neither a fixed sleep nor a previous child's marker is sufficient.
+  final watch = Stopwatch()..start();
+  while (true) {
+    try {
+      if (await marker.exists() &&
+          (await marker.readAsString()).trim() == '$expectedPid') {
+        return;
+      }
+    } on FileSystemException catch (error) {
+      // The writer may be between creating and closing its marker.
+      if (![2, 3, 32].contains(error.osError?.errorCode)) rethrow;
+    }
+    if (watch.elapsed >= const Duration(seconds: 10)) {
+      throw TimeoutException('Fixture did not publish the current spawn PID');
     }
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }

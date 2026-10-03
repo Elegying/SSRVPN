@@ -14,6 +14,7 @@ import '../services/windows_start_transaction.dart';
 import '../services/windows_version_provider.dart';
 import '../src/services/windows_core_pid_record.dart';
 import '../src/services/windows_core_identity_failure.dart';
+import '../src/services/windows_core_process_query.dart';
 import '../src/services/windows_powershell.dart';
 
 part 'clash_service_config.dart';
