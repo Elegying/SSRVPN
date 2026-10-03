@@ -95,7 +95,7 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
         _notice = message;
       });
 
-  Future<void> _save(Future<void> Function() action, String success,
+  Future<void> _save(Future<void> Function() action, String? success,
       {String location = 'appearance'}) async {
     if (_saving) return;
     setState(() {
@@ -104,7 +104,7 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
     });
     try {
       await action();
-      if (mounted) _showNotice(success, location);
+      if (mounted && success != null) _showNotice(success, location);
     } catch (_) {
       if (mounted) _showNotice('保存失败，原设置已保留，请重试', location);
     } finally {
@@ -339,7 +339,7 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                                     contentPadding: const EdgeInsets.symmetric(
                                         horizontal: 12, vertical: 12),
                                     border: const OutlineInputBorder(),
-                                    errorMaxLines: 3,
+                                    errorMaxLines: 8,
                                     errorText: _portError),
                                 onSubmitted:
                                     _saving ? null : (_) => _savePort()),
@@ -490,7 +490,7 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
         onChanged: interactive
             ? (value) => _save(
                 () => widget.onAppearanceChanged(dynamicBackground: value),
-                value ? '已开启动态背景' : '已关闭动态背景')
+                null)
             : null,
       ),
     ]));

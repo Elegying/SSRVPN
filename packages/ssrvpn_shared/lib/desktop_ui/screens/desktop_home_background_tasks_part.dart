@@ -42,9 +42,9 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
         _isConnected = true;
         _connectivityWarning = clashService.connectionStatusWarning;
       });
-      _schedulePublicIpRefresh();
       _checkUpdateDelayed();
     }
+    _schedulePublicIpRefresh();
 
     if (nodes.isEmpty) {
       _maybeShowInitialSubscriptionDialog(subService);
@@ -77,9 +77,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
       if (!running) {
         _latencyController.clear();
         _selectedNode = null;
-        _resetPublicIpState();
       } else {
-        _schedulePublicIpRefresh();
         unawaited(_syncSelectedNodeFromRuntime(statusEpoch));
       }
     });

@@ -3,7 +3,7 @@ part of desktop_home_screen;
 extension _DesktopHomePublicIpActions on _HomeScreenState {
   void _schedulePublicIpRefresh() {
     _publicIpTimer?.cancel();
-    if (!_isConnected || _isConnecting || !mounted || _disposed) return;
+    if (_isConnecting || !mounted || _disposed) return;
     final generation = ++_publicIpGeneration;
     _publicIpTimer = Timer(Duration.zero, () {
       unawaited(_refreshPublicIpInfo(generation: generation));
@@ -14,7 +14,8 @@ extension _DesktopHomePublicIpActions on _HomeScreenState {
     int? generation,
     bool retried = false,
   }) async {
-    if (!_isConnected || _isConnecting || !mounted || _disposed) return;
+    if (_isConnecting || !mounted || _disposed) return;
+    final connected = _isConnected;
     final effectiveGeneration = generation ?? ++_publicIpGeneration;
     _publicIpTimer?.cancel();
     setState(() {
@@ -25,7 +26,11 @@ extension _DesktopHomePublicIpActions on _HomeScreenState {
     try {
       final info =
           await context.read<ClashService>().fetchCurrentPublicIpInfo();
-      if (!mounted || _disposed || effectiveGeneration != _publicIpGeneration) {
+      if (!mounted ||
+          _disposed ||
+          effectiveGeneration != _publicIpGeneration ||
+          connected != _isConnected ||
+          _isConnecting) {
         return;
       }
       setState(() {
@@ -35,15 +40,20 @@ extension _DesktopHomePublicIpActions on _HomeScreenState {
       });
     } catch (e) {
       AppLogger.warning('PublicIP', '获取公网 IP 失败: $e');
-      if (!mounted || _disposed || effectiveGeneration != _publicIpGeneration) {
+      if (!mounted ||
+          _disposed ||
+          effectiveGeneration != _publicIpGeneration ||
+          connected != _isConnected ||
+          _isConnecting) {
         return;
       }
-      if (!_isConnected || _isConnecting) return;
       if (!retried) {
         // One bounded retry for startup/transient request failures. A new
         // session, node selection or manual refresh invalidates this timer.
         _publicIpTimer = Timer(const Duration(seconds: 2), () {
-          if (effectiveGeneration != _publicIpGeneration) return;
+          if (effectiveGeneration != _publicIpGeneration ||
+              connected != _isConnected ||
+              _isConnecting) return;
           unawaited(_refreshPublicIpInfo(
               generation: effectiveGeneration, retried: true));
         });
@@ -62,5 +72,6 @@ extension _DesktopHomePublicIpActions on _HomeScreenState {
     _publicIpInfo = null;
     _isRefreshingPublicIp = false;
     _publicIpError = null;
+    _schedulePublicIpRefresh();
   }
 }

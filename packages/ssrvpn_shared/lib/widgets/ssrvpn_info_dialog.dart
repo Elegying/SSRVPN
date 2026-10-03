@@ -13,6 +13,7 @@ Future<void> showSsrvpnInfoDialog(
   required String title,
   required Widget content,
   String buttonLabel = '知道了',
+  String? cancelButtonLabel,
   VoidCallback? onConfirm,
 }) async {
   final navigator = Navigator.of(context, rootNavigator: true);
@@ -89,9 +90,19 @@ Future<void> showSsrvpnInfoDialog(
                       ),
                     ),
                     const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: TextButton(
+                    Row(children: [
+                      if (cancelButtonLabel != null) ...[
+                        Expanded(
+                            child: TextButton(
+                                style: TextButton.styleFrom(
+                                    minimumSize: const Size(48, 48)),
+                                onPressed: () =>
+                                    dismissSsrvpnDialog<void>(dialogContext),
+                                child: Text(cancelButtonLabel))),
+                        const SizedBox(width: 8),
+                      ],
+                      Expanded(
+                          child: TextButton(
                         onPressed: () {
                           if (!dismissSsrvpnDialog<void>(dialogContext)) return;
                           onConfirm?.call();
@@ -112,8 +123,8 @@ Future<void> showSsrvpnInfoDialog(
                           ),
                         ),
                         child: Text(buttonLabel),
-                      ),
-                    ),
+                      )),
+                    ]),
                   ],
                 ),
               ),

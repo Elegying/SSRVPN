@@ -502,13 +502,14 @@ mixin _ClashDataPlaneSupport {
   }
 
   Future<PublicIpInfo> fetchCurrentPublicIpInfo() async {
-    if (_exitObservationHasManualDirectOverride) {
+    final connected = isRunning;
+    if (connected && _exitObservationHasManualDirectOverride) {
       throw const PublicIpInfoException('手动直连规则覆盖出口查询，暂停节点出口归属');
     }
     final client = IOClient(
       HttpClient()
         ..connectionTimeout = const Duration(seconds: 5)
-        ..findProxy = (_) => _localHttpProxyConfig(),
+        ..findProxy = (_) => connected ? _localHttpProxyConfig() : 'DIRECT',
     );
     final elapsed = Stopwatch()..start();
     try {
