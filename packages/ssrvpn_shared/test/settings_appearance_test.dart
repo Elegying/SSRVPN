@@ -366,11 +366,12 @@ void main() {
   });
 
   testWidgets(
-      'dynamic wallpaper switch reports the choice and locks itself elsewhere',
+      'dynamic wallpaper saves silently, reports failures and locks itself elsewhere',
       (tester) async {
     var settings = AppSettings();
     late StateSetter update;
     bool? reported;
+    var failSave = false;
     final core = _Core();
     addTearDown(core.dispose);
     await tester.pumpWidget(MaterialApp(
@@ -389,6 +390,9 @@ void main() {
                           backgroundStyle,
                           customBackgroundPath,
                           dynamicBackground}) async {
+                        if (failSave) {
+                          throw const FileSystemException('disk full');
+                        }
                         reported = dynamicBackground;
                         update(() => settings = settings.copyWith(
                             dynamicBackground: dynamicBackground));
@@ -407,6 +411,12 @@ void main() {
     await tester.pump();
     expect(reported, isTrue);
     expect(tile().value, isTrue);
+    expect(find.byKey(const Key('settings-notice')), findsNothing);
+    failSave = true;
+    await tester.tap(find.byType(Switch));
+    await tester.pump();
+    expect(tile().value, isTrue, reason: '保存失败后保留原值');
+    expect(find.text('保存失败，原设置已保留，请重试'), findsOneWidget);
     update(() =>
         settings = settings.copyWith(backgroundStyle: BackgroundStyle.gray));
     await tester.pump();

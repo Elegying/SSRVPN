@@ -48,7 +48,9 @@ class HomeScreenState extends State<HomeScreen>
   bool get wantKeepAlive => true;
 
   void _updateHomeState(VoidCallback update) {
+    final previous = (_isConnected, _isConnecting);
     setState(update);
+    if (previous != (_isConnected, _isConnecting)) _resetPublicIpState();
     _nodeSelectionRefresh.value++;
     _syncNodeCountries();
   }

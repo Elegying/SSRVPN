@@ -3,7 +3,7 @@ part of 'home_screen.dart';
 extension _AndroidHomePublicIpActions on HomeScreenState {
   void _schedulePublicIpRefresh() {
     _publicIpTimer?.cancel();
-    if (!_isConnected || _isConnecting || !mounted || _disposed) return;
+    if (_isConnecting || !mounted || _disposed) return;
     final generation = ++_publicIpGeneration;
     _publicIpTimer = Timer(const Duration(seconds: 2), () {
       unawaited(_refreshPublicIpInfo(generation: generation));
@@ -11,7 +11,8 @@ extension _AndroidHomePublicIpActions on HomeScreenState {
   }
 
   Future<void> _refreshPublicIpInfo({int? generation}) async {
-    if (!_isConnected || _isConnecting || !mounted || _disposed) return;
+    if (_isConnecting || !mounted || _disposed) return;
+    final connected = _isConnected;
     final effectiveGeneration = generation ?? ++_publicIpGeneration;
     _publicIpTimer?.cancel();
     _updateHomeState(() {
@@ -22,7 +23,11 @@ extension _AndroidHomePublicIpActions on HomeScreenState {
     try {
       final info =
           await context.read<ClashService>().fetchCurrentPublicIpInfo();
-      if (!mounted || _disposed || effectiveGeneration != _publicIpGeneration) {
+      if (!mounted ||
+          _disposed ||
+          effectiveGeneration != _publicIpGeneration ||
+          connected != _isConnected ||
+          _isConnecting) {
         return;
       }
       _updateHomeState(() {
@@ -32,7 +37,11 @@ extension _AndroidHomePublicIpActions on HomeScreenState {
       });
     } catch (e) {
       AppLogger.warning('PublicIP', '获取公网 IP 失败: $e');
-      if (!mounted || _disposed || effectiveGeneration != _publicIpGeneration) {
+      if (!mounted ||
+          _disposed ||
+          effectiveGeneration != _publicIpGeneration ||
+          connected != _isConnected ||
+          _isConnecting) {
         return;
       }
       _updateHomeState(() {
@@ -48,5 +57,6 @@ extension _AndroidHomePublicIpActions on HomeScreenState {
     _publicIpInfo = null;
     _isRefreshingPublicIp = false;
     _publicIpError = null;
+    _schedulePublicIpRefresh();
   }
 }

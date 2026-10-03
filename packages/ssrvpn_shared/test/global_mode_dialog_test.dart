@@ -49,6 +49,16 @@ void main() {
         expect(find.textContaining('系统代理模式仅影响'), findsOneWidget);
         expect(find.textContaining('代理设备所有流量'), findsNothing);
         expect(tester.takeException(), isNull);
+        expect(find.text('取消').hitTestable(), findsOneWidget);
+        expect(tester.getCenter(find.text('取消')).dy,
+            tester.getCenter(find.text('确定')).dy);
+        await tester.tap(find.text('取消'));
+        await tester.pumpAndSettle();
+        expect(mode, ProxyMode.rule);
+        expect(changes, 0);
+        expect(find.byType(Dialog), findsNothing);
+        await tester.tap(find.bySemanticsLabel('全局'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('确定'));
         await tester.pumpAndSettle();
         expect(mode, ProxyMode.global);

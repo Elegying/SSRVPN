@@ -2672,11 +2672,32 @@ proxies:
       },
     );
 
+    test(
+        'public IP uses device network when stopped and runtime proxy when running',
+        () async {
+      final service = _ApiClashService();
+      addTearDown(service.dispose);
+      service.updateSettings(AppSettings(proxyPort: 17890));
+      for (final running in [false, true]) {
+        service.setRunning(running);
+        final client = _PublicIpRouteClient();
+        await HttpOverrides.runZoned(() async {
+          await expectLater(
+              service.fetchCurrentPublicIpInfo(), throwsException);
+        }, createHttpClient: (_) => client);
+        expect(client.routes, isNotEmpty);
+        expect(client.routes.toSet(),
+            {running ? 'PROXY 127.0.0.1:17890' : 'DIRECT'});
+        expect(client.closed, isTrue);
+      }
+    });
+
     test('manual direct diagnostics cannot be attributed to a proxy node',
         () async {
       final service = _ApiClashService();
       addTearDown(service.dispose);
       service.updateSettings(AppSettings(forceDirectSites: ['ipify.org']));
+      service.setRunning(true);
       expect(await service.confirmedProxyExitNode(), isNull);
       await expectLater(
           service.fetchCurrentPublicIpInfo(),
@@ -4899,4 +4920,23 @@ class _DelayedObservationClashService extends _TestClashService {
 class _IPv6FailureDiagnosticService extends _DiagnosticClashService {
   @override
   Future<bool> diagnosticRecentIPv6Failure() async => true;
+}
+
+class _PublicIpRouteClient implements HttpClient {
+  final routes = <String>[];
+  bool closed = false;
+  @override
+  Duration? connectionTimeout;
+  @override
+  String Function(Uri)? findProxy;
+  @override
+  Future<HttpClientRequest> openUrl(String method, Uri uri) async {
+    routes.add(findProxy!(uri));
+    throw const SocketException('Synthetic unavailable IP endpoint');
+  }
+
+  @override
+  void close({bool force = false}) => closed = true;
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

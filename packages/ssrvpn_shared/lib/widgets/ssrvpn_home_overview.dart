@@ -104,7 +104,7 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
         final padding = compact ? 18.0 : 20.0;
         final powerSize =
             short ? (wide ? 120.0 : 124.0) : (compact ? 154.0 : 170.0);
-        final detailsVisible = widget.isConnected ||
+        final detailsVisible = !widget.isConnecting ||
             widget.errorMessage != null ||
             widget.connectionNotice != null;
         final minimal = constraints.maxHeight < (detailsVisible ? 490 : 430);

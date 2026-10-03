@@ -166,9 +166,7 @@ void main() {
       await tester.tap(find.byType(Switch));
       await tester.pumpAndSettle();
       expect(settings.dynamicBackground, isFalse);
-      await reveal(find.byTooltip('关闭提示'));
-      await tester.tap(find.byTooltip('关闭提示'));
-      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('settings-notice')), findsNothing);
       await reveal(find.widgetWithText(ChoiceChip, '中'));
       await tester.tap(find.widgetWithText(ChoiceChip, '中'));
       await tester.pumpAndSettle();

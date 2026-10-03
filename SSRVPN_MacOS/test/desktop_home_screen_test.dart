@@ -365,6 +365,57 @@ void main() {
 
   tearDown(SubscriptionService.resetInstanceForTesting);
 
+  testWidgets('disconnected home queries device IP and manual refresh works',
+      (tester) async {
+    final fixture = (await tester
+        .runAsync(() => _HomeFixture.create(withNodes: true, running: false)))!;
+    addTearDown(fixture.dispose);
+    await tester.pumpWidget(fixture.build());
+    await tester.pumpAndSettle();
+    expect(find.textContaining('198.51.100.9'), findsOneWidget);
+    expect(fixture.clash.publicIpCalls, 1);
+    await tester.tap(find.byKey(const Key('home-public-ip')));
+    await tester.pumpAndSettle();
+    expect(fixture.clash.publicIpCalls, 2);
+    expect(fixture.clash.startCalls, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('late connected IP cannot overwrite disconnected device IP',
+      (tester) async {
+    final fixture = (await tester
+        .runAsync(() => _HomeFixture.create(withNodes: true, running: true)))!;
+    addTearDown(fixture.dispose);
+    final pending = Completer<PublicIpInfo>();
+    fixture.clash.pendingPublicIp = pending;
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(fixture.clash.publicIpCalls, 1);
+    fixture.clash.requestConnectionIntent(false);
+    fixture.clash.publishRunning(false);
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pump();
+    expect(find.textContaining('198.51.100.9'), findsOneWidget,
+        reason: tester
+            .widgetList<Text>(find.byType(Text))
+            .map((t) => t.data)
+            .toList()
+            .toString());
+    pending.complete(const PublicIpInfo(ip: '203.0.113.99', countryCode: 'US'));
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pump();
+    expect(find.textContaining('198.51.100.9'), findsOneWidget,
+        reason: tester
+            .widgetList<Text>(find.byType(Text))
+            .map((t) => t.data)
+            .toList()
+            .toString());
+    expect(find.textContaining('203.0.113.99'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('exit IP retries a transient failure without reconnecting',
       (tester) async {
     final fixture = (await tester
@@ -385,7 +436,8 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('exit IP retry is cancelled on disconnect', (tester) async {
+  testWidgets('disconnect replaces exit retry with a device IP query',
+      (tester) async {
     final fixture = (await tester
         .runAsync(() => _HomeFixture.create(withNodes: true, running: true)))!;
     addTearDown(fixture.dispose);
@@ -395,9 +447,20 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
     expect(fixture.clash.publicIpCalls, 1);
+    fixture.clash.publicIpFailures = 0;
+    fixture.clash.requestConnectionIntent(false);
     fixture.clash.publishRunning(false);
     await tester.pump(const Duration(seconds: 3));
-    expect(fixture.clash.publicIpCalls, 1);
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pump();
+    expect(fixture.clash.publicIpCalls, 2);
+    expect(find.textContaining('198.51.100.9'), findsOneWidget,
+        reason: tester
+            .widgetList<Text>(find.byType(Text))
+            .map((t) => t.data)
+            .toList()
+            .toString());
+    expect(find.textContaining('203.0.113.7'), findsNothing);
     expect(find.text('IP 暂未查到，点击重试'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
   });
@@ -2583,6 +2646,7 @@ class _FakeClashService extends ClashService {
     return null;
   }
 
+  Completer<PublicIpInfo>? pendingPublicIp;
   int publicIpCalls = 0;
   int publicIpFailures = 0;
 
@@ -2592,7 +2656,11 @@ class _FakeClashService extends ClashService {
     if (publicIpCalls <= publicIpFailures) {
       throw const SocketException('Synthetic temporary failure');
     }
-    return const PublicIpInfo(ip: '203.0.113.7', countryCode: 'JP');
+    final pending = pendingPublicIp;
+    pendingPublicIp = null;
+    if (pending != null) return pending.future;
+    return PublicIpInfo(
+        ip: isRunning ? '203.0.113.7' : '198.51.100.9', countryCode: 'JP');
   }
 }
 
