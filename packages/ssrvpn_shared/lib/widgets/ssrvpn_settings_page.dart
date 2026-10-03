@@ -10,8 +10,6 @@ import '../services/background_image_store.dart';
 import '../services/clash_service_base.dart';
 import '../services/update_checker.dart';
 import 'ssrvpn_diagnostics_dialog.dart';
-import 'ssrvpn_liquid_dialog.dart';
-import 'ssrvpn_glass_dialog_route.dart';
 import 'ssrvpn_appearance.dart';
 import 'ssrvpn_liquid_glass.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart'
@@ -170,8 +168,18 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
       _saving = true;
       _notice = null;
     });
+    final directory = widget.dataDirectory;
+    final oldPath = widget.settings.customBackgroundPath;
+    final oldStyle = widget.settings.backgroundStyle;
+    final saveAppearance = widget.onAppearanceChanged;
+    bool current() =>
+        mounted &&
+        widget.dataDirectory == directory &&
+        widget.settings.customBackgroundPath == oldPath &&
+        widget.settings.backgroundStyle == oldStyle;
     File? imported;
     bool saved = false;
+    bool savingSettings = false;
     try {
       final selected = widget.pickBackgroundImage != null
           ? await widget.pickBackgroundImage!()
@@ -181,47 +189,37 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                   extensions: ['png', 'jpg', 'jpeg', 'webp'],
                   uniformTypeIdentifiers: ['public.image'])
             ]);
-      if (selected == null || !mounted) return;
-      imported = await BackgroundImageStore.importImage(
-          selected, widget.dataDirectory);
-      if (!mounted) return;
-      final accepted = await showSsrvpnGlassDialog<bool>(
-          context: context,
-          builder: (context) => SsrvpnLiquidAlertDialog(
-                  title: const Text('背景预览'),
-                  content: SizedBox(
-                      width: 300,
-                      height: 240,
-                      child: SsrvpnCustomBackground(path: imported!.path)),
-                  actions: [
-                    TextButton(
-                        onPressed: () =>
-                            dismissSsrvpnDialog<bool>(context, false),
-                        child: const Text('取消')),
-                    FilledButton(
-                        onPressed: () =>
-                            dismissSsrvpnDialog<bool>(context, true),
-                        child: const Text('使用这张背景'))
-                  ]));
-      if (accepted != true || !mounted) return;
-      final oldPath = widget.settings.customBackgroundPath;
-      await widget.onAppearanceChanged(
+      if (selected == null || !current()) return;
+      imported = await BackgroundImageStore.importImage(selected, directory);
+      if (!mounted || !current()) return;
+      if (oldPath.isNotEmpty) {
+        // Finish any thumbnail/background read before deleting its file after
+        // commit; changing the image widget can detach its error listener.
+        await precacheImage(FileImage(File(oldPath)), context,
+            onError: (_, __) {});
+        if (!current()) return;
+      }
+      savingSettings = true;
+      await saveAppearance(
           backgroundStyle: BackgroundStyle.custom,
           customBackgroundPath: imported.path);
       saved = true;
       try {
-        await BackgroundImageStore.removeOwned(oldPath, widget.dataDirectory);
+        await BackgroundImageStore.removeOwned(oldPath, directory);
       } catch (_) {}
       if (mounted) _showNotice('自定义背景已应用', 'appearance');
     } on FormatException catch (error) {
       if (mounted) _showNotice(error.message, 'appearance');
     } catch (_) {
-      if (mounted) _showNotice('图片导入失败，请选择有效的静态图片重试，原背景已保留', 'appearance');
+      if (mounted) {
+        _showNotice(
+            savingSettings ? '保存失败，原壁纸已保留，请重试' : '图片导入失败，请选择有效的静态图片重试，原背景已保留',
+            'appearance');
+      }
     } finally {
       if (!saved && imported != null) {
         try {
-          await BackgroundImageStore.removeOwned(
-              imported.path, widget.dataDirectory);
+          await BackgroundImageStore.removeOwned(imported.path, directory);
         } catch (_) {}
       }
       if (mounted) setState(() => _saving = false);
@@ -281,32 +279,9 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                         for (final style in BackgroundStyle.values
                             .where((s) => s != BackgroundStyle.custom))
                           _backgroundChoice(style),
-                        if (widget.settings.customBackgroundPath
-                            .trim()
-                            .isNotEmpty)
-                          ChoiceChip(
-                              key: const Key('settings-saved-background'),
-                              label: const Text('使用已保存图片'),
-                              selected: widget.settings.backgroundStyle ==
-                                  BackgroundStyle.custom,
-                              onSelected: _saving
-                                  ? null
-                                  : (_) => _save(
-                                      () => widget.onAppearanceChanged(
-                                          backgroundStyle:
-                                              BackgroundStyle.custom),
-                                      '已使用保存的背景图片')),
-                        OutlinedButton.icon(
-                            key: const Key('settings-custom-background'),
-                            style: OutlinedButton.styleFrom(
-                                minimumSize: const Size(116, 52)),
-                            onPressed: _saving ? null : _pickBackground,
-                            icon: Icon(widget.settings.backgroundStyle ==
-                                    BackgroundStyle.custom
-                                ? Icons.check
-                                : Icons.add_photo_alternate_outlined),
-                            label: const Text('自定义')),
                       ]),
+                      const SizedBox(height: 12),
+                      _customBackgroundChoice(),
                       if (_notice != null && _noticeLocation == 'appearance')
                         _noticeView(),
                     ],
@@ -509,6 +484,69 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
             : null,
       ),
     ]));
+  }
+
+  Widget _customBackgroundChoice() {
+    final image = widget.settings.customBackgroundPath;
+    final hasImage = image.trim().isNotEmpty;
+    final active =
+        hasImage && widget.settings.backgroundStyle == BackgroundStyle.custom;
+    final title = !hasImage
+        ? '上传壁纸'
+        : active
+            ? '使用中'
+            : '使用自定义壁纸';
+    final hint = !hasImage
+        ? '选择图片后自动应用'
+        : active
+            ? '点击更换壁纸'
+            : '点击恢复，无须重新上传';
+    return Semantics(
+      selected: active,
+      child: Tooltip(
+        message: '$title，$hint',
+        excludeFromSemantics: true,
+        child: OutlinedButton(
+          key: const Key('settings-custom-background'),
+          onPressed: _saving
+              ? null
+              : !hasImage || active
+                  ? _pickBackground
+                  : () => _save(
+                      () => widget.onAppearanceChanged(
+                          backgroundStyle: BackgroundStyle.custom),
+                      '已使用保存的背景图片'),
+          style: OutlinedButton.styleFrom(
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              padding: const EdgeInsets.all(12),
+              side: BorderSide(
+                  color: active
+                      ? Theme.of(context).colorScheme.primary
+                      : Colors.white30)),
+          child: Row(children: [
+            SizedBox(
+                width: 52,
+                height: 52,
+                child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: hasImage
+                        ? SsrvpnCustomBackground(path: image)
+                        : const Icon(Icons.add_photo_alternate_outlined))),
+            const SizedBox(width: 12),
+            Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text(title,
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  Text(hint, style: const TextStyle(fontSize: 12)),
+                ])),
+          ]),
+        ),
+      ),
+    );
   }
 
   Widget _backgroundChoice(BackgroundStyle style) {

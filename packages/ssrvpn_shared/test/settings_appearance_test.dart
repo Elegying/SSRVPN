@@ -78,8 +78,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(settings.backgroundStyle, BackgroundStyle.gray);
     expect(settings.customBackgroundPath, saved.path);
-    await tester.ensureVisible(find.text('使用已保存图片'));
-    await tester.tap(find.text('使用已保存图片'));
+    await tester.ensureVisible(find.text('使用自定义壁纸'));
+    await tester.tap(find.text('使用自定义壁纸'));
     await tester.pumpAndSettle();
     expect(settings.backgroundStyle, BackgroundStyle.custom);
     expect(settings.customBackgroundPath, saved.path);
@@ -123,8 +123,9 @@ void main() {
                     checkForUpdate: () async => null,
                     onUpdateFound: (_) {})))));
     for (var i = 0; i < 2; i++) {
-      await tester.ensureVisible(find.text('自定义'));
-      await tester.tap(find.text('自定义'));
+      await tester
+          .ensureVisible(find.byKey(const Key('settings-custom-background')));
+      await tester.tap(find.byKey(const Key('settings-custom-background')));
       await tester.pump();
     }
     expect(selections, 2);
@@ -160,9 +161,7 @@ void main() {
       addTearDown(() => dir.delete(recursive: true));
       var settings = AppSettings(
           glassEffectLevel: GlassEffectLevel.none,
-          backgroundStyle: outcome == 'success'
-              ? BackgroundStyle.flowing
-              : BackgroundStyle.custom,
+          backgroundStyle: BackgroundStyle.custom,
           customBackgroundPath: old.path);
       final core = _Core();
       addTearDown(core.dispose);
@@ -177,7 +176,8 @@ void main() {
                     settings: settings,
                     core: core,
                     dataDirectory: dir.path,
-                    pickBackgroundImage: () async => XFile(source.path),
+                    pickBackgroundImage: () async =>
+                        outcome == 'cancel' ? null : XFile(source.path),
                     onAppearanceChanged: (
                         {glassEffectLevel,
                         backgroundStyle,
@@ -195,42 +195,27 @@ void main() {
                     checkForUpdate: () async => null,
                     onUpdateFound: (_) {},
                   ))))));
-      await tester.ensureVisible(find.text('自定义'));
-      await tester.runAsync(() => tester.tap(find.text('自定义')));
-      for (var i = 0; i < 100 && find.text('使用这张背景').evaluate().isEmpty; i++) {
-        await tester.runAsync(
-            () => Future<void>.delayed(const Duration(milliseconds: 10)));
-        await tester.pump(const Duration(milliseconds: 20));
-      }
-      expect(find.text('使用这张背景'), findsOneWidget,
-          reason: tester
-              .widgetList<Text>(find.byType(Text))
-              .map((text) => text.data)
-              .join(' | '));
-      await tester.pump(const Duration(milliseconds: 400));
-      final preview = tester
-          .widget<SsrvpnCustomBackground>(find.byType(SsrvpnCustomBackground));
-      final imported = File(preview.path);
-      expect(await tester.runAsync(imported.exists), isTrue);
-      await tester.runAsync(
-          () => tester.tap(find.text(outcome == 'cancel' ? '取消' : '使用这张背景')));
+      await tester
+          .ensureVisible(find.byKey(const Key('settings-custom-background')));
+      await tester.runAsync(() =>
+          tester.tap(find.byKey(const Key('settings-custom-background'))));
       for (var i = 0; i < 100; i++) {
         await tester.runAsync(
             () => Future<void>.delayed(const Duration(milliseconds: 10)));
         await tester.pump(const Duration(milliseconds: 20));
         if (find.byType(LinearProgressIndicator).evaluate().isEmpty) break;
       }
-      await tester.pump(const Duration(milliseconds: 400));
       expect(find.byType(LinearProgressIndicator), findsNothing);
       expect(saves, outcome == 'cancel' ? 0 : 1);
+      final imported = File(settings.customBackgroundPath);
       await tester.runAsync(() async {
         expect(await source.exists(), isTrue);
         expect(await old.exists(), outcome != 'success');
-        expect(await imported.exists(), outcome == 'success');
+        expect(await imported.exists(), isTrue);
         expect(await Directory('${dir.path}/backgrounds').list().length, 1);
       });
       expect(settings.customBackgroundPath,
-          outcome == 'success' ? imported.path : old.path);
+          outcome == 'success' ? isNot(old.path) : old.path);
       if (outcome == 'success') {
         expect(settings.backgroundStyle, BackgroundStyle.custom);
         expect(find.text('自定义背景已应用'), findsOneWidget);
