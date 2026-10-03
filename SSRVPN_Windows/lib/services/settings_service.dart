@@ -14,6 +14,7 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart'
         SubscriptionUndoRecord;
 import '../models/app_settings.dart';
 import 'windows_dpapi_secret_store.dart';
+import 'windows_settings_migration.dart';
 
 /// 设置持久化服务（Windows 安装版）。
 ///
@@ -133,24 +134,52 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
         : WindowsDpapiSecretStore(_dataDir).write(value);
   }
 
-  Future<String> _resolveDataDirectory() async {
-    final exeDir = File(Platform.resolvedExecutable).parent.path;
+  @visibleForTesting
+  static Future<String> resolveDataDirectoryForTesting(
+          String executablePath, String? localAppData) =>
+      SettingsService._()._resolveDataDirectory(
+          executablePath: executablePath, localAppData: localAppData);
+
+  Future<String> _resolveDataDirectory(
+      {String? executablePath, String? localAppData}) async {
+    final exeDir =
+        File(executablePath ?? Platform.resolvedExecutable).parent.path;
     final installedDir = '$exeDir${Platform.pathSeparator}ssrvpn';
+    final appData = localAppData ?? Platform.environment['LOCALAPPDATA'];
+    final fallbackDir = appData == null || appData.trim().isEmpty
+        ? null
+        : '$appData${Platform.pathSeparator}SSRVPN${Platform.pathSeparator}ssrvpn';
+    if (fallbackDir != null &&
+        await WindowsSettingsMigration.isCommitted(fallbackDir)) {
+      await _verifyWritableDirectory(fallbackDir);
+      final imageNotice =
+          await _migrateWithImageNotice(installedDir, fallbackDir);
+      _storageNotice = '继续使用已迁移的数据目录：$fallbackDir$imageNotice';
+      return fallbackDir;
+    }
     try {
       await _verifyWritableDirectory(installedDir);
       return installedDir;
     } catch (e) {
-      final localAppData = Platform.environment['LOCALAPPDATA'];
-      if (localAppData == null || localAppData.trim().isEmpty) {
+      if (fallbackDir == null) {
         rethrow;
       }
 
-      final fallbackDir =
-          '$localAppData${Platform.pathSeparator}SSRVPN${Platform.pathSeparator}ssrvpn';
       await _verifyWritableDirectory(fallbackDir);
-      await _migrateInstalledData(installedDir, fallbackDir);
-      _storageNotice = '程序目录不可写，数据已改存到 $fallbackDir（原因: $e）';
+      final imageNotice =
+          await _migrateWithImageNotice(installedDir, fallbackDir);
+      _storageNotice = '程序目录不可写，数据已改存到 $fallbackDir（原因: $e）$imageNotice';
       return fallbackDir;
+    }
+  }
+
+  Future<String> _migrateWithImageNotice(
+      String source, String destination) async {
+    try {
+      await _migrateInstalledData(source, destination);
+      return '';
+    } on WindowsBackgroundMigrationPending {
+      return '；背景迁移未完成，原图片已保留，重启后重试';
     }
   }
 
@@ -178,26 +207,18 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
     String installedDir,
     String fallbackDir,
   ) async {
-    final source = Directory(installedDir);
-    if (!await source.exists()) return;
     final migrationMarker = File(
       '$fallbackDir${Platform.pathSeparator}$_installedMigrationMarkerName',
     );
-    final markerType = await FileSystemEntity.type(
-      migrationMarker.path,
-      followLinks: false,
-    );
-    if (markerType == FileSystemEntityType.file &&
-        (await migrationMarker.readAsString()).trim() == '1') {
+    if (await WindowsSettingsMigration.isCommitted(fallbackDir)) {
+      await WindowsSettingsMigration.repairBackground(
+          installedDir, fallbackDir);
       return;
     }
-    if (markerType != FileSystemEntityType.notFound &&
-        markerType != FileSystemEntityType.file) {
-      throw FileSystemException(
-        'Installed migration marker must be a regular file',
-        migrationMarker.path,
-      );
-    }
+
+    final sourceFiles = await WindowsSettingsMigration.readableSourceFiles(
+        installedDir,
+        {..._criticalInstalledDataFiles, SubscriptionUndoRecord.fileName});
 
     // The installed directory may be read-only. Migrate the committed snapshot
     // from its undo record without changing the source or copying staged data.
@@ -232,7 +253,13 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
         sourceFile.path,
         followLinks: false,
       );
-      if (!fromUndo && sourceType == FileSystemEntityType.notFound) continue;
+      if (!fromUndo && sourceType == FileSystemEntityType.notFound) {
+        if (sourceFiles.contains(name)) {
+          throw FileSystemException(
+              'Installed data became inaccessible', sourceFile.path);
+        }
+        continue;
+      }
       if (!fromUndo && sourceType != FileSystemEntityType.file) {
         if (critical) {
           throw FileSystemException(
@@ -295,6 +322,9 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
       } catch (_) {}
       Error.throwWithStackTrace(error, stackTrace);
     }
+    // Primary stores are now authoritative; background repair can retry without
+    // replaying old metadata after a crash or a failed optional-file copy.
+    await WindowsSettingsMigration.repairBackground(installedDir, fallbackDir);
   }
 
   static Future<void> _copyInstalledFile(File source, File target,

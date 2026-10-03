@@ -91,6 +91,18 @@ void main() {
     expect(reloaded.settings.backgroundStyle, BackgroundStyle.custom);
     expect(reloaded.settings.customBackgroundPath, '/synthetic/background.png');
     expect(reloaded.settings.dynamicBackground, isTrue);
+    await reloaded.updateAppearance(backgroundStyle: BackgroundStyle.gray);
+    final builtin = await load();
+    addTearDown(builtin.dispose);
+    expect(builtin.settings.backgroundStyle, BackgroundStyle.gray);
+    expect(builtin.settings.customBackgroundPath, '/synthetic/background.png');
+    await builtin.updateAppearance(backgroundStyle: BackgroundStyle.custom);
+    final restored = await load();
+    addTearDown(restored.dispose);
+    expect(restored.settings.backgroundStyle, BackgroundStyle.custom);
+    expect(restored.settings.customBackgroundPath, '/synthetic/background.png');
+    expect(restored.settings.dynamicBackground, isTrue);
+
     expect(before.proxyPort, 7890);
     final saved = jsonDecode(await File(settingsPath).readAsString());
     expect(saved['apiSecret'], isNull);

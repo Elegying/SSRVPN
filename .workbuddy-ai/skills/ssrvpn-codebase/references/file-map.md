@@ -74,6 +74,7 @@ SSRVPN/
 ### Windows（`SSRVPN_Windows/`）
 - 安装/事务：`lib/services/windows_start_transaction.dart`、`windows_tun_elevation_service.dart`
 - 凭据：`windows_dpapi_secret_store.dart`（DPAPI）
+- 数据目录与背景迁移：`settings_service.dart`、`windows_settings_migration.dart`（已完成回退目录优先；源目录可读性检查；受管图片摘要恢复记录与路径提交）
 - 系统代理恢复日志 I/O：`system_proxy_recovery_journal.dart`（`system_proxy_service.dart` 的私有 extension part；锁与事务顺序仍在主服务）
 - 有界进程退出支持：`clash_service_process_support.dart`（同库 part，原退出顺序与结果语义不变）
 - 进程身份采集入口：`clash_service_identity.dart`（同库 extension part）；原生持有句柄查询：`lib/src/services/windows_core_process_query.dart`；完整 FILETIME：`lib/src/services/windows_file_time.dart`；脱敏失败分类：`lib/src/services/windows_core_identity_failure.dart`

@@ -169,7 +169,9 @@ final class WindowsCoreIdentityEstablishment {
         creationTime > spawnReturnedAtUtcFileTime) {
       throw WindowsCoreIdentityFailure(
         WindowsCoreIdentityFailureKind.mismatch,
-        'Captured Mihomo identity was outside the exact spawn window',
+        'Captured Mihomo identity was outside the exact spawn window '
+        '(creation-start ticks=${creationTime - spawnStartedAtUtcFileTime}, '
+        'creation-return ticks=${creationTime - spawnReturnedAtUtcFileTime})',
       );
     }
 
