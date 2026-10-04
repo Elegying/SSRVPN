@@ -37,13 +37,25 @@ try {
       $value = $policy.GetValue('ProxySettingsPerUser', $null)
       if ($null -ne $value) {
         if ($policy.GetValueKind('ProxySettingsPerUser') -ne [Microsoft.Win32.RegistryValueKind]::DWord -or $value -ne 1) {
-          throw 'SSRVPN requires per-user proxy settings; machine proxy policy is active or invalid.'
+          Write-Output 'SSRVPN_PROXY_POLICY_NOT_PER_USER'
+          exit 2
         }
       }
     } finally { $policy.Dispose() }
   }
 } finally { $policyBase.Dispose() }
 ''';
+
+/// Unknown failures (including timeout/access denial) are not proof that the
+/// user's policy changed. Acquisition still requires an explicit success.
+bool? windowsPerUserProxyPolicyResult(ProcessResult result) {
+  if (result.exitCode == 0) return true;
+  if (result.exitCode == 2 &&
+      result.stdout.toString().trim() == 'SSRVPN_PROXY_POLICY_NOT_PER_USER') {
+    return false;
+  }
+  return null;
+}
 
 String formatWindowsPowerShellError(String prefix, ProcessResult result) {
   if (result.exitCode == 124) {

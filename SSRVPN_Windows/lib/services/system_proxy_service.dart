@@ -294,8 +294,11 @@ class SystemProxyService {
       _lastError = 'SSRVPN 当前未持有 Windows 系统代理';
       return SystemProxyOwnershipStatus.unavailable;
     }
-    if (!await _supportsPerUserProxy(cancellation: cancellation)) {
-      return SystemProxyOwnershipStatus.externallyChanged;
+    final supported = await _supportsPerUserProxy(cancellation: cancellation);
+    if (supported != true) {
+      return supported == false
+          ? SystemProxyOwnershipStatus.externallyChanged
+          : SystemProxyOwnershipStatus.unavailable;
     }
     final current = await _readCurrentProxy(cancellation: cancellation);
     if (current == null) {
@@ -344,7 +347,8 @@ class SystemProxyService {
 
     try {
       cancellation.throwIfRequested();
-      if (!await _supportsPerUserProxy(cancellation: cancellation.future)) {
+      if (await _supportsPerUserProxy(cancellation: cancellation.future) !=
+          true) {
         cancellation.throwIfRequested();
         return false;
       }
@@ -921,16 +925,16 @@ try {
 
   // Recovery still restores only our HKCU values. Never write HKLM or change
   // an administrator's policy to make per-user proxy acquisition succeed.
-  Future<bool> _supportsPerUserProxy({Future<void>? cancellation}) async {
+  Future<bool?> _supportsPerUserProxy({Future<void>? cancellation}) async {
     final result = await _runPowerShell(windowsPerUserProxyPolicyScript,
         cancellation: cancellation);
     if (result.exitCode == 125) throw const _SystemProxyAcquisitionCancelled();
-    if (result.exitCode != 0) {
+    final supported = windowsPerUserProxyPolicyResult(result);
+    if (supported != true) {
       _lastError =
           'Windows 代理策略不允许或无法确认按用户设置代理。请联系管理员检查 ProxySettingsPerUser，或使用 TUN 模式';
-      return false;
     }
-    return true;
+    return supported;
   }
 
   Future<_ProxySnapshot?> _readCurrentProxy({

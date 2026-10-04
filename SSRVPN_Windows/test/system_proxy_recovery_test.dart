@@ -12,35 +12,42 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart'
 import 'package:ssrvpn_windows/services/system_proxy_service.dart';
 
 void main() {
-  test('machine-level proxy policy blocks acquisition without mutation',
-      () async {
-    final temp =
-        await Directory.systemTemp.createTemp('ssrvpn-machine-policy-');
-    addTearDown(() => temp.delete(recursive: true));
-    final scripts = <String>[];
-    final service = SystemProxyService.forTesting(
-      isWindows: true,
-      localAppData: temp.path,
-      scriptRunner: (script) async {
-        scripts.add(script);
-        if (script.contains("OpenSubKey('SOFTWARE")) {
-          expect(script, contains('ProxySettingsPerUser'));
-          expect(script, contains('Registry64'));
-          return ProcessResult(1, 1, '', 'machine proxy policy');
-        }
-        throw StateError('Unexpected operation under machine policy');
-      },
-    );
-    await service.initialize(temp.path);
-    expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
-    expect(service.lastError, contains('ProxySettingsPerUser'));
-    expect(service.isProxyEnabled, isFalse);
-    expect(scripts, hasLength(1));
-    expect(
-        File('${temp.path}/SSRVPN/runtime/system_proxy_backup.json')
-            .existsSync(),
-        isFalse);
-  });
+  for (final failure in [
+    ProcessResult(1, 2, 'SSRVPN_PROXY_POLICY_NOT_PER_USER', ''),
+    ProcessResult(1, 124, '', 'timeout'),
+    ProcessResult(1, 1, '', 'registry access denied'),
+  ]) {
+    test(
+        'unconfirmed per-user policy blocks acquisition (${failure.exitCode}) without mutation',
+        () async {
+      final temp =
+          await Directory.systemTemp.createTemp('ssrvpn-machine-policy-');
+      addTearDown(() => temp.delete(recursive: true));
+      final scripts = <String>[];
+      final service = SystemProxyService.forTesting(
+        isWindows: true,
+        localAppData: temp.path,
+        scriptRunner: (script) async {
+          scripts.add(script);
+          if (script.contains("OpenSubKey('SOFTWARE")) {
+            expect(script, contains('ProxySettingsPerUser'));
+            expect(script, contains('Registry64'));
+            return failure;
+          }
+          throw StateError('Unexpected operation under machine policy');
+        },
+      );
+      await service.initialize(temp.path);
+      expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
+      expect(service.lastError, contains('ProxySettingsPerUser'));
+      expect(service.isProxyEnabled, isFalse);
+      expect(scripts, hasLength(1));
+      expect(
+          File('${temp.path}/SSRVPN/runtime/system_proxy_backup.json')
+              .existsSync(),
+          isFalse);
+    });
+  }
 
   test('every PowerShell proxy operation forces UTF-8 output first', () async {
     final temp = await Directory.systemTemp.createTemp('ssrvpn_proxy_utf8_');
@@ -48,13 +55,18 @@ void main() {
     final scripts = <String>[];
     var proxyReads = 0;
     var machinePolicy = false;
+    ProcessResult? policyProbeFailure;
     final service = SystemProxyService.forTesting(
       isWindows: true,
       localAppData: temp.path,
       scriptRunner: (script) async {
         scripts.add(script);
+        if (script.contains("OpenSubKey('SOFTWARE") &&
+            policyProbeFailure != null) {
+          return policyProbeFailure;
+        }
         if (script.contains("OpenSubKey('SOFTWARE") && machinePolicy) {
-          return ProcessResult(1, 1, '', 'machine policy changed');
+          return ProcessResult(1, 2, 'SSRVPN_PROXY_POLICY_NOT_PER_USER', '');
         }
         if (script.contains('ConvertTo-Json -Compress')) {
           proxyReads += 1;
@@ -88,6 +100,25 @@ void main() {
     await service.initialize(temp.path);
     expect(await service.setSystemProxy('127.0.0.1', 7890), isTrue);
 
+    for (final result in [
+      ProcessResult(1, 124, '', 'timeout'),
+      ProcessResult(1, 1, '', 'registry access denied'),
+      ProcessResult(1, 2, '', 'unclassified script failure'),
+    ]) {
+      policyProbeFailure = result;
+      final before = scripts.length;
+      expect(await service.currentSystemProxyOwnershipStatus(),
+          SystemProxyOwnershipStatus.unavailable);
+      expect(service.isProxyEnabled, isTrue);
+      expect(scripts.length, before + 1);
+      expect(
+          File('${temp.path}/SSRVPN/runtime/system_proxy_backup.json')
+              .existsSync(),
+          isTrue);
+    }
+    policyProbeFailure = null;
+    expect(await service.currentSystemProxyOwnershipStatus(),
+        SystemProxyOwnershipStatus.owned);
     machinePolicy = true;
     expect(await service.currentSystemProxyOwnershipStatus(),
         SystemProxyOwnershipStatus.externallyChanged);
