@@ -1726,8 +1726,13 @@ void main() {
       final service = SystemProxyService.forTesting(
         isWindows: true,
         localAppData: temp.path,
+        pendingCommandExitTimeout: Duration.zero,
         scriptRunner: (script) async {
           scripts.add(script);
+          if (script.contains("OpenSubKey('SOFTWARE")) {
+            // Cold policy/file preparation can exceed one second on Windows.
+            await Future<void>.delayed(const Duration(milliseconds: 1100));
+          }
           if (script.contains('ConvertTo-Json -Compress')) {
             proxyReads += 1;
             final connected = proxyReads > 1;
@@ -1766,22 +1771,40 @@ void main() {
 
       await service.initialize(temp.path);
       final setting = service.setSystemProxy('127.0.0.1', 7890);
-      await activationStarted.future.timeout(const Duration(seconds: 1));
-      final clearing = service.clearSystemProxy();
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      final scriptsBeforeFailure = scripts.length;
-
-      activationResult.completeError(
-        ProcessTerminationNotConfirmedException(pendingProcessExit.future),
-      );
-      expect(await setting.timeout(const Duration(seconds: 1)), isFalse);
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(scripts, hasLength(scriptsBeforeFailure));
-
-      pendingProcessExit.complete(125);
-
-      expect(await clearing.timeout(const Duration(seconds: 1)), isTrue);
-      expect(service.recoveryPending, isFalse);
+      Future<bool>? clearing;
+      try {
+        // Synchronize on the activation stage, not filesystem speed. The test
+        // runner still bounds hangs; an early acquisition failure is explicit.
+        await Future.any<void>([
+          activationStarted.future,
+          setting.then<void>((_) {
+            throw StateError('Acquisition ended before the activation gate');
+          }),
+        ]);
+        clearing = service.clearSystemProxy();
+        await Future<void>.delayed(Duration.zero);
+        final scriptsBeforeFailure = scripts.length;
+        activationResult.completeError(
+          ProcessTerminationNotConfirmedException(pendingProcessExit.future),
+        );
+        expect(await setting, isFalse);
+        // A queued clear must actually finish refusing this unknown process,
+        // not merely remain unscheduled during a short observation window.
+        expect(await clearing, isFalse);
+        expect(scripts, hasLength(scriptsBeforeFailure));
+        pendingProcessExit.complete(125);
+        expect(await service.clearSystemProxy(), isTrue);
+        expect(service.recoveryPending, isFalse);
+      } finally {
+        // Never delete the fixture while an assertion left a held journal
+        // handle or pending simulated PowerShell command behind.
+        if (!activationResult.isCompleted) {
+          activationResult.complete(ProcessResult(1, 125, '', 'cancelled'));
+        }
+        if (!pendingProcessExit.isCompleted) pendingProcessExit.complete(125);
+        await setting;
+        if (clearing != null) await clearing;
+      }
     },
   );
 
