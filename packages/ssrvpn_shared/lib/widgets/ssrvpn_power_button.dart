@@ -52,6 +52,8 @@ class SsrvpnPowerButton extends StatelessWidget {
           color: Colors.transparent,
           shape: CircleBorder(),
           child: InkWell(
+            splashFactory: NoSplash.splashFactory,
+            highlightColor: Colors.transparent,
             customBorder: CircleBorder(),
             onTap: onTap,
             child: Container(

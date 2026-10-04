@@ -14,10 +14,11 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart'
         SubscriptionUndoRecord;
 import '../models/app_settings.dart';
 import 'windows_dpapi_secret_store.dart';
+import 'windows_settings_migration.dart';
 
 /// 设置持久化服务（Windows 安装版）。
 ///
-/// 数据优先放在内部应用 EXE 旁；目录不可写时回退到 LocalAppData。
+/// 已迁移数据持续使用 LocalAppData；首次运行优先使用内部 EXE 旁的可写目录。
 class SettingsService extends ChangeNotifier implements NodePreferenceStore {
   static const _apiSecretFileName = '.api-secret.dpapi';
   // Keep the legacy filename so completed migrations are not replayed after
@@ -118,20 +119,35 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
         : WindowsDpapiSecretStore(_dataDir).write(value);
   }
 
-  Future<String> _resolveDataDirectory() async {
-    final exeDir = File(Platform.resolvedExecutable).parent.path;
+  @visibleForTesting
+  static Future<String> resolveDataDirectoryForTesting(
+          String executablePath, String? localAppData) =>
+      SettingsService._()._resolveDataDirectory(
+          executablePath: executablePath, localAppData: localAppData);
+
+  Future<String> _resolveDataDirectory(
+      {String? executablePath, String? localAppData}) async {
+    final exeDir =
+        File(executablePath ?? Platform.resolvedExecutable).parent.path;
     final installedDir = '$exeDir${Platform.pathSeparator}ssrvpn';
+    final appData = localAppData ?? Platform.environment['LOCALAPPDATA'];
+    final fallbackDir = appData == null || appData.trim().isEmpty
+        ? null
+        : '$appData${Platform.pathSeparator}SSRVPN${Platform.pathSeparator}ssrvpn';
+    if (fallbackDir != null &&
+        await WindowsSettingsMigration.isCommitted(fallbackDir)) {
+      await _verifyWritableDirectory(fallbackDir);
+      _storageNotice = '继续使用已迁移的数据目录：$fallbackDir';
+      return fallbackDir;
+    }
     try {
       await _verifyWritableDirectory(installedDir);
       return installedDir;
     } catch (e) {
-      final localAppData = Platform.environment['LOCALAPPDATA'];
-      if (localAppData == null || localAppData.trim().isEmpty) {
+      if (fallbackDir == null) {
         rethrow;
       }
 
-      final fallbackDir =
-          '$localAppData${Platform.pathSeparator}SSRVPN${Platform.pathSeparator}ssrvpn';
       await _verifyWritableDirectory(fallbackDir);
       await _migrateInstalledData(installedDir, fallbackDir);
       _storageNotice = '程序目录不可写，数据已改存到 $fallbackDir（原因: $e）';
@@ -163,26 +179,13 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
     String installedDir,
     String fallbackDir,
   ) async {
-    final source = Directory(installedDir);
-    if (!await source.exists()) return;
     final migrationMarker = File(
       '$fallbackDir${Platform.pathSeparator}$_installedMigrationMarkerName',
     );
-    final markerType = await FileSystemEntity.type(
-      migrationMarker.path,
-      followLinks: false,
-    );
-    if (markerType == FileSystemEntityType.file &&
-        (await migrationMarker.readAsString()).trim() == '1') {
-      return;
-    }
-    if (markerType != FileSystemEntityType.notFound &&
-        markerType != FileSystemEntityType.file) {
-      throw FileSystemException(
-        'Installed migration marker must be a regular file',
-        migrationMarker.path,
-      );
-    }
+    if (await WindowsSettingsMigration.isCommitted(fallbackDir)) return;
+    final sourceFiles = await WindowsSettingsMigration.readableSourceFiles(
+        installedDir,
+        {..._criticalInstalledDataFiles, SubscriptionUndoRecord.fileName});
 
     // The installed directory may be read-only. Migrate the committed snapshot
     // from its undo record without changing the source or copying staged data.
@@ -217,7 +220,13 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
         sourceFile.path,
         followLinks: false,
       );
-      if (!fromUndo && sourceType == FileSystemEntityType.notFound) continue;
+      if (!fromUndo && sourceType == FileSystemEntityType.notFound) {
+        if (sourceFiles.contains(name)) {
+          throw FileSystemException(
+              'Installed data became inaccessible', sourceFile.path);
+        }
+        continue;
+      }
       if (!fromUndo && sourceType != FileSystemEntityType.file) {
         if (critical) {
           throw FileSystemException(

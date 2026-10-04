@@ -72,8 +72,8 @@ void main() {
             final reminder = find.text('每月1日重置');
             final gauge = tester.widget<CircularProgressIndicator>(
                 find.byKey(const Key('account-usage-ring')));
-            expect(gauge.semanticsValue,
-                formatAccountUsage(quota(used, limit)).percentage);
+            expect(
+                gauge.value, limit > 0 ? (used / limit).clamp(0.0, 1.0) : 0.0);
             expect(reminder, findsOneWidget);
             expect((tester.widget<Text>(reminder)).maxLines, 1);
             expect(find.textContaining('<'), findsNothing);
