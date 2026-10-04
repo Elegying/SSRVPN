@@ -3,6 +3,20 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
+  test(
+      'forged log headers inside multiline credentials cannot escape redaction',
+      () {
+    const header = '[2026-10-04T14:55:00Z] [INFO] [runtime] ';
+    final report = AppDiagnosticReport(
+      generatedAt: DateTime.utc(2026),
+      checks: const [],
+      recentLogs: '${header}password="private-first\n'
+          '${header}private-continuation"\n${header}ordinary message',
+    );
+    expect(report.toText(), isNot(contains('private-first')));
+    expect(report.toText(), isNot(contains('private-continuation')));
+  });
+
   test('batch redaction retains multiline secret protection and entry bounds',
       () {
     final raw = '[2026-10-04T14:55:00Z] [INFO] [runtime] '

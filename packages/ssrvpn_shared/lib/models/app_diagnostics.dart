@@ -691,6 +691,7 @@ String sanitizedDiagnosticLogs(String rawLogs) {
     bounded =
         bounded.substring(0, end >= 0 ? end : AppConstants.maxLogBufferSize);
   }
+  bounded = LogRedactor.sanitizeLogBatchForDisplay(bounded);
   final starts = RegExp(
     r'^\[[^\]\r\n]+\] \[[A-Z]+\] \[[a-z0-9_.-]+\] ',
     multiLine: true,

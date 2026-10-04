@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../constants/app_constants.dart';
 import 'proxy_node_usage_policy.dart';
 
 class LogRedactor {
@@ -127,11 +128,13 @@ class LogRedactor {
     caseSensitive: false,
   );
 
-  static String sanitize(Object? value) {
+  static String sanitize(Object? value) => _sanitize(value, maxInputCharacters);
+
+  static String _sanitize(Object? value, int inputLimit) {
     var message = value?.toString() ?? '';
-    final wasTruncated = message.length > maxInputCharacters;
+    final wasTruncated = message.length > inputLimit;
     if (wasTruncated) {
-      var end = maxInputCharacters;
+      var end = inputLimit;
       if (end < message.length &&
           end > 0 &&
           _isHighSurrogate(message.codeUnitAt(end - 1)) &&
@@ -310,7 +313,16 @@ class LogRedactor {
       codeUnit >= 0xDC00 && codeUnit <= 0xDFFF;
 
   static String sanitizeForDisplay(Object? value) {
-    final safe = sanitize(value);
+    return _sanitizeUrlsForDisplay(sanitize(value));
+  }
+
+  /// Redact the bounded batch before splitting entries: a forged log header
+  /// inside a multiline credential must not expose the credential's tail.
+  /// Single-entry callers retain their original 4 KiB resource limit.
+  static String sanitizeLogBatchForDisplay(String value) =>
+      _sanitizeUrlsForDisplay(_sanitize(value, AppConstants.maxLogBufferSize));
+
+  static String _sanitizeUrlsForDisplay(String safe) {
     return safe.replaceAllMapped(
       _httpUrlPattern,
       (match) => subscriptionUrlForDisplay(match.group(0)),
