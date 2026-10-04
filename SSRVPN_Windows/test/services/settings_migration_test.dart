@@ -169,10 +169,26 @@ void main() {
               path.join(root.path, 'bin', 'SSRVPN.exe'), alias),
           throwsA(isA<FileSystemException>()));
       expect((await settings())['proxyPort'], 7890);
+      await Directory(path.join(root.path, 'local'))
+          .rename(path.join(root.path, 'moved-local'));
+      await expectLater(
+          SettingsService.resolveDataDirectoryForTesting(
+              path.join(root.path, 'bin', 'SSRVPN.exe'), alias),
+          throwsA(isA<FileSystemException>()));
     } finally {
       final cleanup =
           await Process.run('cmd.exe', ['/d', '/c', 'rmdir', alias]);
       expect(cleanup.exitCode, 0, reason: '${cleanup.stderr}');
     }
   }, skip: !Platform.isWindows);
+  test('a broken data-directory link is not an absent migration marker',
+      () async {
+    final target =
+        await Directory(path.join(root.path, 'link-target')).create();
+    final link = Link(path.join(root.path, 'broken-store'));
+    await link.create(target.path);
+    await target.delete();
+    await expectLater(WindowsSettingsMigration.isCommitted(link.path),
+        throwsA(isA<FileSystemException>()));
+  }, skip: Platform.isWindows);
 }

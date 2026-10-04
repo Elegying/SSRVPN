@@ -26,6 +26,7 @@ class WindowsSettingsMigration {
   /// Listing reports permission failures that file-type probes can hide.
   static Future<Set<String>> readableSourceFiles(
       String source, Set<String> names) async {
+    await _directory(source, allowMissing: true);
     final found = <String>{};
     final wanted = {
       for (final name in names)
@@ -55,18 +56,18 @@ class WindowsSettingsMigration {
     return found;
   }
 
-  static Future<void> _regular(String name, FileSystemEntityType type) async {
-    if (await FileSystemEntity.type(name, followLinks: false) != type) {
-      throw const FileSystemException('Migration data has an unsafe file type');
-    }
-  }
-
-  static Future<void> _directory(String name) async {
+  static Future<void> _directory(String name,
+      {bool allowMissing = false}) async {
     // Windows canonical names may expand an ordinary 8.3 alias. Inspect every
     // component without following links instead; this also rejects junctions.
     var current = path.normalize(path.absolute(name));
     while (true) {
-      await _regular(current, FileSystemEntityType.directory);
+      final type = await FileSystemEntity.type(current, followLinks: false);
+      if (type != FileSystemEntityType.directory &&
+          !(allowMissing && type == FileSystemEntityType.notFound)) {
+        throw const FileSystemException(
+            'Migration data has an unsafe directory');
+      }
       if (!Platform.isWindows) return;
       final parent = path.dirname(current);
       if (path.equals(parent, current)) return;
