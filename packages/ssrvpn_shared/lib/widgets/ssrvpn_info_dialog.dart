@@ -160,6 +160,7 @@ class SsrvpnModalGlassPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return SsrvpnLiquidSurface(
       radius: borderRadius,
+      floating: true,
       padding: opaque ? EdgeInsets.zero : padding,
       child: opaque
           ? Padding(

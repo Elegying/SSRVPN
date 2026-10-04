@@ -57,7 +57,10 @@ extension _ThemedHome on _HomeOverviewState {
                                 if (!cloud)
                                   LayoutId(
                                       id: _ThemedPart.header, child: header),
-                                LayoutId(id: _ThemedPart.status, child: status),
+                                LayoutId(
+                                    id: _ThemedPart.status,
+                                    child: FittedBox(
+                                        fit: BoxFit.scaleDown, child: status)),
                                 LayoutId(
                                     id: _ThemedPart.power,
                                     child: cloud

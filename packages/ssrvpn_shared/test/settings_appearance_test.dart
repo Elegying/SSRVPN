@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
@@ -58,6 +59,7 @@ void main() {
       (tester) async {
     var settings = AppSettings();
     var fail = false;
+    Completer<void>? pending;
     await tester.pumpWidget(MaterialApp(
         home: StatefulBuilder(
             builder: (context, update) => SsrvpnAppearanceScope(
@@ -67,6 +69,7 @@ void main() {
                   settings: settings,
                   core: _Core(),
                   onAppearanceChanged: ({themeVariant}) async {
+                    await pending?.future;
                     if (fail) throw StateError('disk full');
                     update(() => settings =
                         settings.copyWith(themeVariant: themeVariant));
@@ -85,8 +88,20 @@ void main() {
       await tester.tap(finder);
       await tester.pumpAndSettle();
       expect(settings.themeVariant, theme);
+      expect(find.text('主题已应用'), findsNothing);
       expect(tester.takeException(), isNull);
     }
+    await tester.ensureVisible(find.byKey(const ValueKey('theme-aurora')));
+    await tester.pumpAndSettle();
+    pending = Completer<void>();
+    await tester.tap(find.byKey(const ValueKey('theme-aurora')));
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+    expect(settings.themeVariant, AppThemeVariant.soft);
+    pending.complete();
+    await tester.pumpAndSettle();
+    expect(settings.themeVariant, AppThemeVariant.aurora);
+    pending = null;
     final input = find.byType(TextField);
     await tester.ensureVisible(input);
     await tester.enterText(input, '8999');

@@ -159,7 +159,6 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
     return SafeArea(
         bottom: false,
         child: Column(children: [
-          if (_saving) const LinearProgressIndicator(),
           Expanded(
               child: ListView(
                   key: const PageStorageKey('settings-page'),
@@ -181,7 +180,7 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                         : (theme) => _save(
                               () => widget.onAppearanceChanged(
                                   themeVariant: theme),
-                              '主题已应用',
+                              null,
                             ),
                   ),
                   if (_notice != null && _noticeLocation == 'appearance')

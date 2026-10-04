@@ -18,6 +18,7 @@ class SsrvpnLiquidSurface extends StatelessWidget {
       this.radius = 16,
       this.padding = EdgeInsets.zero,
       this.dense = false,
+      this.floating = false,
       this.tint,
       this.tintOpacity,
       this.borderColor,
@@ -26,6 +27,9 @@ class SsrvpnLiquidSurface extends StatelessWidget {
   final double radius;
   final EdgeInsetsGeometry padding;
   final bool dense;
+
+  /// Only the outer modal panel casts a floating shadow.
+  final bool floating;
   final Color? tint;
 
   /// Opacity applied to [tint] before it becomes the glass color. Dialogs pass
@@ -60,7 +64,7 @@ class SsrvpnLiquidSurface extends StatelessWidget {
             circular: circular,
             tint: tint,
             borderColor: borderColor,
-            floating: ModalRoute.of(context)?.opaque == false),
+            floating: floating),
         child: content,
       );
     }

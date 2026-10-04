@@ -39,24 +39,28 @@ class SsrvpnUsageRing extends StatelessWidget {
                   strokeCap: StrokeCap.round,
                   color: colors.primary,
                   backgroundColor: colors.primary.withValues(alpha: .17),
-                  semanticsLabel: '已用流量',
-                  semanticsValue: percentage,
+                  semanticsLabel: '已用流量，$percentage',
                 )),
                 if (size >= 40)
-                  Text(
-                      percentage.length > 5
-                          ? '>999\n%'
-                          : percentage.length > 4
+                  SizedBox(
+                    width: size * .72,
+                    height: size * .65,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                          percentage.length > 4
                               ? percentage.replaceFirst('%', '\n%')
                               : percentage,
-                      key: const Key('account-usage-percentage'),
-                      textAlign: TextAlign.center,
-                      textScaler: TextScaler.noScaling,
-                      style: TextStyle(
-                          fontSize: 10,
-                          height: 1.0,
-                          fontWeight: FontWeight.w700,
-                          color: colors.textPrimary)),
+                          key: const Key('account-usage-percentage'),
+                          textAlign: TextAlign.center,
+                          textScaler: TextScaler.noScaling,
+                          style: TextStyle(
+                              fontSize: 10,
+                              height: 1.0,
+                              fontWeight: FontWeight.w700,
+                              color: colors.textPrimary)),
+                    ),
+                  ),
               ])),
           SizedBox(width: math.min(6, box.maxWidth * .025)),
           Expanded(child: child),
