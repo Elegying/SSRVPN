@@ -41,32 +41,7 @@ class WindowsSettingsMigration {
       }
     } on FileSystemException catch (error) {
       final code = error.osError?.errorCode;
-      if (code == 2 || (Platform.isWindows && code == 3)) {
-        // Windows can report FILE_NOT_FOUND when directory enumeration is
-        // denied. Only accept absence after inspecting the readable parent.
-        var candidate = path.normalize(path.absolute(source));
-        while (true) {
-          final parent = path.dirname(candidate);
-          if (path.equals(parent, candidate)) rethrow;
-          try {
-            final entries =
-                await Directory(parent).list(followLinks: false).toList();
-            if (entries.any((entry) =>
-                path.basename(entry.path).toLowerCase() ==
-                path.basename(candidate).toLowerCase())) {
-              rethrow;
-            }
-            return found;
-          } on FileSystemException catch (parentError) {
-            if (identical(parentError, error)) rethrow;
-            final parentCode = parentError.osError?.errorCode;
-            if (parentCode != 2 && !(Platform.isWindows && parentCode == 3)) {
-              rethrow;
-            }
-            candidate = parent;
-          }
-        }
-      }
+      if (code == 2 || (Platform.isWindows && code == 3)) return found;
       rethrow;
     }
     await _directory(source);

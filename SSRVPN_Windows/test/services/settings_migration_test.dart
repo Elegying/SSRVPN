@@ -37,10 +37,17 @@ void main() {
       final sid = RegExp(r'S-1-[0-9-]+')
           .firstMatch(identity.stdout as String)!
           .group(0)!;
+      // Denying only a directory does not make child file data unreadable.
+      final inherit = !allow &&
+              !readable &&
+              await FileSystemEntity.type(protectedPath) ==
+                  FileSystemEntityType.directory
+          ? '(OI)(CI)'
+          : '';
       final result = await Process.run('icacls.exe', [
         protectedPath,
         allow ? '/remove:d' : '/deny',
-        allow ? '*$sid' : '*$sid:${readable ? '(W)' : '(R,W)'}',
+        allow ? '*$sid' : '*$sid:$inherit${readable ? '(W)' : '(R,W)'}',
       ]);
       expect(result.exitCode, 0, reason: '${result.stdout} ${result.stderr}');
     } else {
@@ -65,8 +72,8 @@ void main() {
     await sourceAccess(false);
     try {
       await expectLater(
-          installed.list().toList(), throwsA(isA<FileSystemException>()),
-          reason: 'The fixture must deny directory enumeration');
+          sourceSettings.readAsBytes(), throwsA(isA<FileSystemException>()),
+          reason: 'The fixture must deny reading critical source data');
       await expectLater(migrate(), throwsA(isA<FileSystemException>()));
       expect(await marker.exists(), isFalse);
       expect(await targetSettings.exists(), isFalse);
