@@ -6,8 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_appearance.dart';
-import 'package:ssrvpn_shared/widgets/ssrvpn_diagnostics_dialog.dart';
-import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_glass.dart';
 
 void main() {
   final output = Platform.environment['SSRVPN_DIAGNOSTIC_CAPTURE'];
