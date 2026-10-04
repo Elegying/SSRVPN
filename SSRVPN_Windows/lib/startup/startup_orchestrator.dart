@@ -73,20 +73,27 @@ class StartupOrchestrator {
       StartupStatus.instance.markStepSkipped(name);
       return;
     }
-    StartupStatus.instance.markStepStarted(name);
+    final status = StartupStatus.instance;
+    final owner = status.markStepStarted(name);
     StartupLogger.info('START $name');
     try {
-      final operation = step();
+      // Native plugin calls cannot be cancelled by Future.timeout. If setup
+      // finishes late, publish the actual state so hidden native decorations
+      // are paired with working Flutter controls. Ignore superseded attempts.
+      final operation = step().then((_) {
+        if (!status.isStepCurrent(name, owner)) return;
+        StartupLogger.info('OK $name');
+        status.markStepOk(name);
+      });
       if (timeout == null) {
         await operation;
       } else {
         await operation.timeout(timeout);
       }
-      StartupLogger.info('OK $name');
-      StartupStatus.instance.markStepOk(name);
     } catch (error, stack) {
+      if (!status.isStepCurrent(name, owner)) return;
       StartupLogger.error('FAILED $name', error, stack);
-      StartupStatus.instance.reportFailure(name, error);
+      status.reportFailure(name, error);
     }
   }
 

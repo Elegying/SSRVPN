@@ -138,7 +138,9 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
       _clashService?.clearDesktopConnectionRecoveryPlan();
     }
 
-    if (status.windowManagerReady && !_windowListenerAttached) {
+    // Listener registration is Dart-only. Attach before native setup can
+    // enable preventClose and then fail or time out partway through.
+    if (!_windowListenerAttached) {
       try {
         windowManager.addListener(this);
         _windowListenerAttached = true;
@@ -374,7 +376,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
 
   @override
   void onWindowMinimize() async {
-    if (_trayManager.isReady) {
+    if (await _trayManager.verifyReady()) {
       try {
         await windowManager.hide();
       } catch (error, stack) {
@@ -386,7 +388,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
   @override
   void onWindowClose() async {
     if (_isQuitting) return;
-    if (_trayManager.isReady) {
+    if (await _trayManager.verifyReady()) {
       try {
         await windowManager.hide();
       } catch (error, stack) {

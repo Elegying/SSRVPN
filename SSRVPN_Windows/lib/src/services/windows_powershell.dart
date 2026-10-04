@@ -1,6 +1,9 @@
 import 'dart:io';
 
 const _utf8OutputPrologue = r'''$ErrorActionPreference = 'Stop'
+# Only use Windows PowerShell's system modules, regardless of the parent
+# terminal or user's PSModulePath (including inherited PowerShell 7 paths).
+$env:PSModulePath = $PSHOME + '\Modules'
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $OutputEncoding = [Console]::OutputEncoding
 ''';

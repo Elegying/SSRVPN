@@ -85,4 +85,8 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $identityTest = Join-Path $build 'native-tests\ssrvpn_windows_user_identity_test.exe'
 & $identityTest
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& $cmake --build $build --config Release --target ssrvpn_tray_shell_notifications_test
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& (Join-Path $build 'native-tests\ssrvpn_tray_shell_notifications_test.exe')
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 exit 0

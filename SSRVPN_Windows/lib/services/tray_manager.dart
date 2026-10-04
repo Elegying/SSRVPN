@@ -57,6 +57,24 @@ class TrayManager {
   /// 托盘是否已成功初始化
   bool get isReady => _initialized;
 
+  /// Explorer can restart after initialization. Never hide the only window
+  /// based solely on a cached ready flag when the icon may no longer exist.
+  Future<bool> verifyReady() async {
+    if (!_initialized) return false;
+    try {
+      final icon = _iconAssetPathResolver?.call() ?? _resolveIconAssetPath();
+      if (icon == null) return _failInitialization('找不到可用的托盘图标文件');
+      final verified = await (_nativeTrayVerifier?.call(icon) ??
+              _systemTray.setSystemTrayInfo(iconPath: icon))
+          .timeout(const Duration(seconds: 2));
+      if (!_initialized) return false;
+      return verified || _failInitialization('系统托盘已不可用，保留窗口访问入口');
+    } catch (error, stack) {
+      AppLogger.error('Tray', '运行时托盘复核失败', error: error, stack: stack);
+      return _failInitialization('无法确认系统托盘可用，保留窗口访问入口');
+    }
+  }
+
   /// 最近一次托盘初始化失败原因。
   String? get lastError => _lastError;
 

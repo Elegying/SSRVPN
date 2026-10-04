@@ -55,6 +55,7 @@ class StartupStatus extends ChangeNotifier {
 
   final List<StartupFailure> _failures = [];
   final Map<String, String> _stepStates = {};
+  final Map<String, Object> _stepOwners = {};
 
   bool starting = false;
   bool completed = false;
@@ -76,6 +77,7 @@ class StartupStatus extends ChangeNotifier {
       subscriptionService != null;
 
   void markStarting() {
+    _stepOwners.clear();
     starting = true;
     completed = false;
     notifyListeners();
@@ -87,6 +89,7 @@ class StartupStatus extends ChangeNotifier {
     currentStep = null;
     coreInitialized = false;
     _stepStates.remove('mihomo_core');
+    _stepOwners.remove('mihomo_core');
     _failures.removeWhere((failure) => failure.step == 'mihomo_core');
     settingsService = null;
     clashService = null;
@@ -94,15 +97,22 @@ class StartupStatus extends ChangeNotifier {
     notifyListeners();
   }
 
-  void markStepStarted(String name) {
+  Object markStepStarted(String name) {
+    final owner = Object();
+    _stepOwners[name] = owner;
     currentStep = name;
     _stepStates[name] = 'running';
     notifyListeners();
+    return owner;
   }
+
+  bool isStepCurrent(String name, Object owner) =>
+      identical(_stepOwners[name], owner);
 
   void markStepOk(String name) {
     if (currentStep == name) currentStep = null;
     _stepStates[name] = 'ok';
+    _failures.removeWhere((failure) => failure.step == name);
     switch (name) {
       case 'window_manager':
         windowManagerReady = true;
@@ -121,6 +131,7 @@ class StartupStatus extends ChangeNotifier {
   }
 
   void markStepSkipped(String name) {
+    _stepOwners.remove(name);
     if (currentStep == name) currentStep = null;
     _stepStates[name] = 'skipped';
     switch (name) {

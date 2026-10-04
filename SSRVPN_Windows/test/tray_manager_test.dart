@@ -4,6 +4,27 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_windows/services/tray_manager.dart';
 
 void main() {
+  for (final throws in [false, true]) {
+    test('a vanished tray does not authorize hiding the window, throws=$throws',
+        () async {
+      var present = true;
+      final manager = TrayManager.forTesting(
+        initializeNativeTray: (_) async => true,
+        verifyNativeTray: (_) async {
+          if (!present && throws) throw StateError('Explorer is unavailable');
+          return present;
+        },
+      );
+      expect(await manager.init(), isTrue);
+      present = false;
+      expect(await manager.verifyReady(), isFalse);
+      expect(manager.isReady, isFalse);
+      present = true;
+      expect(await manager.init(), isTrue);
+      expect(await manager.verifyReady(), isTrue);
+    });
+  }
+
   test('concurrent initialization shares one verified native transaction',
       () async {
     final nativeInitialization = Completer<bool>();
