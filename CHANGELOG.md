@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.32] - 2026-10-04
+
 ### 修复
 
 - Soft 诊断弹窗中的卡片使用独立凸起阴影和滚动留白，避免内层误用弹窗阴影形成灰色断层。

@@ -64,6 +64,9 @@ void main() {
         .writeAsString('["retained"]');
     await sourceAccess(false);
     try {
+      await expectLater(
+          installed.list().toList(), throwsA(isA<FileSystemException>()),
+          reason: 'The fixture must deny directory enumeration');
       await expectLater(migrate(), throwsA(isA<FileSystemException>()));
       expect(await marker.exists(), isFalse);
       expect(await targetSettings.exists(), isFalse);
@@ -74,6 +77,13 @@ void main() {
     expect((await settings())['proxyPort'], 7890);
     expect(await File('${fallback.path}/subscriptions.json').readAsString(),
         '["retained"]');
+  });
+
+  test('a genuinely absent nested store has no committed migration', () async {
+    expect(
+        await WindowsSettingsMigration.isCommitted(
+            path.join(root.path, 'absent', 'nested', 'store')),
+        isFalse);
   });
 
   test('listable source without traversal cannot commit migration', () async {
