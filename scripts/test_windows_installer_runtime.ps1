@@ -200,6 +200,52 @@ public static class Program {
     Copy-Item -LiteralPath $corePath -Destination $copyPath
   }
 
+  # Simulate an over-the-shoulder elevation mismatch without creating users.
+  # Use the production token query, changing only the expected SID comparison.
+  $ownerCheck = 'owner.User.Equals(current.User)'
+  if (-not $stopSource.Contains($ownerCheck)) { throw 'Token ownership boundary missing.' }
+  $deniedSource = $stopSource.Replace($ownerCheck,
+    'owner.User.Equals(new System.Security.Principal.SecurityIdentifier("S-1-0-0"))')
+  $deniedDirectory = Join-Path $testRoot 'denied-owner'
+  New-Item -ItemType Directory -Path $deniedDirectory | Out-Null
+  foreach ($helper in @('proxy_transaction_state.ps1', 'tun_ownership.ps1', 'name_based_process_sweep.ps1')) {
+    Copy-Item (Join-Path (Split-Path $stopScript -Parent) $helper) $deniedDirectory
+  }
+  $deniedScript = Join-Path $deniedDirectory 'stop_ssrvpn_processes.ps1'
+  [IO.File]::WriteAllText($deniedScript, $deniedSource, [Text.UTF8Encoding]::new($false))
+  $deniedStatus = Join-Path $testRoot 'denied-owner.status'
+  $ownerFixture = Start-Process -FilePath $appPath -PassThru
+  try {
+    $proxyBeforeOwnerCheck = Get-InternetSettingsSnapshot
+    $denied = Start-Process powershell.exe -ArgumentList @(
+      '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+      '-File', $deniedScript, '-InstalledAppPath', $appPath,
+      '-InstalledLauncherPath', $launcherPath, '-InstalledCorePath', $corePath,
+      '-InstalledCorePidPath', (Join-Path $processBin 'ssrvpn\mihomo.pid'), '-StatusPath', $deniedStatus
+    ) -Wait -PassThru -WindowStyle Hidden
+    $ownerFixture.Refresh()
+    if ($denied.ExitCode -eq 0 -or $ownerFixture.HasExited -or
+        [IO.File]::ReadAllText($deniedStatus) -cne 'IDENTITY_UNVERIFIED' -or
+        (Get-InternetSettingsSnapshot) -cne $proxyBeforeOwnerCheck) {
+      throw 'Cross-account preflight changed a process or system proxy.'
+    }
+    $nativeMatch = [regex]::Match($deniedSource, "(?s)Add-Type -TypeDefinition @'\r?\n(.*?)\r?\n'@")
+    if (-not $nativeMatch.Success) { throw 'Native termination source not found.' }
+    Add-Type -TypeDefinition ($nativeMatch.Groups[1].Value.Replace(
+      'SsrvpnVerifiedProcessTerminator', 'SsrvpnDeniedOwnerTerminator'))
+    $disposition = [SsrvpnDeniedOwnerTerminator]::Terminate(
+      [uint32]$ownerFixture.Id, $appPath, [uint32]$ownerFixture.SessionId,
+      [uint64]$ownerFixture.StartTime.ToUniversalTime().ToFileTimeUtc())
+    $ownerFixture.Refresh()
+    if ($disposition -ne 2 -or $ownerFixture.HasExited) {
+      throw 'Held-handle termination bypassed the account boundary.'
+    }
+    Write-Host 'Cross-account process preflight and held-handle termination both refused safely.'
+  } finally {
+    if (-not $ownerFixture.HasExited) { $ownerFixture.Kill(); $ownerFixture.WaitForExit() }
+    $ownerFixture.Dispose()
+  }
+
   # A foreign-NAMED fixture owns the app-wide mutex while no SSRVPN-named
   # process holds it. Same-named copies anywhere must be stopped by name
   # (ADR-021); a foreign-named holder must still abort the stopper before it

@@ -177,6 +177,9 @@ function Get-ProcessesAtPath {
                 -Expected $ExpectedPath))) {
           throw "Process identity changed while verifying PID $processId."
         }
+        if (-not [SsrvpnVerifiedProcessTerminator]::IsCurrentUser($live.Handle)) {
+          throw 'ACCOUNT_MISMATCH: Refusing to stop another Windows user.'
+        }
         $liveCreationTimeUtcFileTime =
           [uint64]($live.StartTime.ToUniversalTime().ToFileTimeUtc())
         if ($liveCreationTimeUtcFileTime -le 0) {
@@ -294,6 +297,19 @@ public static class SsrvpnVerifiedProcessTerminator {
   [return: MarshalAs(UnmanagedType.Bool)]
   private static extern bool CloseHandle(IntPtr handle);
 
+  [DllImport("advapi32.dll", SetLastError = true)]
+  private static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+
+  public static bool IsCurrentUser(IntPtr process) {
+    IntPtr token;
+    if (!OpenProcessToken(process, 8, out token))
+      throw new Win32Exception(Marshal.GetLastWin32Error());
+    try {
+      using (var owner = new System.Security.Principal.WindowsIdentity(token))
+      using (var current = System.Security.Principal.WindowsIdentity.GetCurrent())
+        return owner.User != null && owner.User.Equals(current.User);
+    } finally { CloseHandle(token); }
+  }
   // 0 = terminated, 1 = already gone, 2 = identity mismatch.
   public static int Terminate(
       uint expectedProcessId,
@@ -353,6 +369,7 @@ public static class SsrvpnVerifiedProcessTerminator {
           liveCreationTimeUtcFileTime != expectedCreationTimeUtcFileTime) {
         return 2;
       }
+      if (!IsCurrentUser(process)) return 2;
       if (!TerminateProcess(process, 1)) {
         throw new Win32Exception(Marshal.GetLastWin32Error());
       }

@@ -3,6 +3,88 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
+  test(
+      'forged log headers inside multiline credentials cannot escape redaction',
+      () {
+    const header = '[2026-10-04T14:55:00Z] [INFO] [runtime] ';
+    final report = AppDiagnosticReport(
+      generatedAt: DateTime.utc(2026),
+      checks: const [],
+      recentLogs: '${header}password="private-first\n'
+          '${header}private-continuation"\n${header}ordinary message',
+    );
+    expect(report.toText(), isNot(contains('private-first')));
+    expect(report.toText(), isNot(contains('private-continuation')));
+  });
+
+  test('batch redaction retains multiline secret protection and entry bounds',
+      () {
+    final raw = '[2026-10-04T14:55:00Z] [INFO] [runtime] '
+        'password="private-first\nprivate-second"\n'
+        '[2026-10-04T14:54:59Z] [INFO] [runtime] ${'x' * 4300}\n'
+        '[2026-10-04T14:54:58Z] [WARNING] [runtime] '
+        'NETWORK_TIMEOUT target=8.8.4.4 token=another-secret';
+    final safe = sanitizedDiagnosticLogs(raw);
+    expect(safe, isNot(contains('private-first')));
+    expect(safe, isNot(contains('private-second')));
+    expect(safe, isNot(contains('another-secret')));
+    expect(safe, isNot(contains('8.8.4.4')));
+    expect(safe, contains('log entry truncated ...\n[2026'));
+    expect(
+        readableDiagnosticLogs(raw).last.level, AppDiagnosticLogLevel.warning);
+  });
+
+  test('export drops complete records rather than cutting off error details',
+      () {
+    final report = AppDiagnosticReport(
+      generatedAt: DateTime.utc(2026, 10, 4),
+      checks: const [],
+      recentLogs: '[2026-10-04T14:55:00Z] [WARNING] [runtime] '
+          'START_OF_RECORD ${'x' * 700} END_OF_RECORD',
+    );
+    final text = report.toText(maxLength: 400);
+    expect(text.length, lessThanOrEqualTo(400));
+    expect(text, isNot(contains('START_OF_RECORD')));
+    expect(text, contains('报告已截断'));
+  });
+
+  test('explicit IPv4 egress rejection has an actionable scoped explanation',
+      () {
+    final entry = readableDiagnosticLogs(
+      '[2026-10-04T14:55:00Z] [INFO] [runtime] '
+      '[mihomo] time="2026-10-04T22:55:00+08:00" level=warning '
+      'msg="[TCP] dial PROXY mihomo --> [2001:db8::1]:443 '
+      'error: IPv4-only node cannot reach literal IPv6 target: could not find ip"',
+    ).single;
+    expect(entry.level, AppDiagnosticLogLevel.warning);
+    expect(entry.message, contains('节点配置声明仅支持 IPv4'));
+    expect(entry.message, contains('不代表所有网站'));
+    expect(entry.technicalDetail, contains('IPv4-only node'));
+    final unrelated = readableDiagnosticLogs(
+      '[2026-10-04T14:55:00Z] [INFO] [runtime] '
+      'untrusted text [SSRVPN_IPV6_TARGET_UNSUPPORTED]',
+    ).single;
+    expect(unrelated.message, isNot(contains('节点配置声明')));
+  });
+
+  test('diagnostic batch retains complete errors beyond the first 4 KiB', () {
+    final logs = [
+      for (var i = 0; i < 12; i++)
+        '[2026-10-04T14:55:00Z] [INFO] [runtime] message-$i ${'x' * 340}',
+      '[2026-10-04T14:54:59Z] [WARNING] [runtime] '
+          'connect failed: NETWORK_TIMEOUT token=private-token',
+    ].join('\n');
+    final report = AppDiagnosticReport(
+        generatedAt: DateTime.utc(2026, 10, 4),
+        checks: const [],
+        recentLogs: logs);
+    expect(report.readableLogs, hasLength(13));
+    expect(report.readableLogs.last.message, contains('NETWORK_TIMEOUT'));
+    expect(report.toText(), contains('NETWORK_TIMEOUT'));
+    expect(report.toText(), isNot(contains('private-token')));
+    expect(report.toText(), isNot(contains('log entry truncated')));
+  });
+
   test('phase timing stays informational in the user diagnostic conclusion',
       () {
     final report = AppDiagnosticReport(

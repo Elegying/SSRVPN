@@ -48,6 +48,7 @@ mixin _ClashDataPlaneSupport {
   int? _activeDataPlaneObservationEpoch;
   int? _coalescedDataPlaneObservationEpoch;
   String? _dataPlaneConnectivityWarning;
+  DateTime? _dataPlaneResultAt;
   String? _connectivityOwnershipWarning;
   Timer? _networkChangeWatchTimer;
   String? _networkFingerprint;
@@ -118,6 +119,11 @@ mixin _ClashDataPlaneSupport {
   @protected
   DateTime? get dataPlaneObservationAt => null;
 
+  /// Completed evidence only; platform observation clocks may mark the start
+  /// for throttling and cannot prove that an external request has succeeded.
+  @protected
+  DateTime? get dataPlaneResultAt => _dataPlaneResultAt;
+
   @protected
   bool get isDataPlaneObservationCurrent {
     final observationEpoch =
@@ -134,6 +140,7 @@ mixin _ClashDataPlaneSupport {
     if (!_canPublishHealthCheckResult || !isDataPlaneObservationCurrent) {
       return;
     }
+    _dataPlaneResultAt = DateTime.now();
     if (_dataPlaneConnectivityWarning == value) return;
     final previous = connectivityWarning;
     _dataPlaneConnectivityWarning = value;
@@ -152,6 +159,7 @@ mixin _ClashDataPlaneSupport {
   @protected
   void clearConnectivityWarningSilently() {
     _dataPlaneConnectivityWarning = null;
+    _dataPlaneResultAt = null;
   }
 
   @protected
@@ -200,7 +208,7 @@ mixin _ClashDataPlaneSupport {
     _dataPlaneObservationEpoch++;
     _coalescedDataPlaneObservationEpoch = null;
     onDataPlaneObservationSessionReset();
-    _dataPlaneConnectivityWarning = null;
+    clearConnectivityWarningSilently();
     _connectivityOwnershipWarning = null;
   }
 

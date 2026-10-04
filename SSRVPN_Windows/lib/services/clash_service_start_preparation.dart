@@ -65,7 +65,7 @@ extension _WindowsStartPreparationSupport on _WindowsCoreLifecycle {
     createConnectionProgressReporter()('正在检查连接设置…');
     if (!File(_corePath).existsSync()) {
       log('❌ 核心文件不存在: $_corePath');
-      log('请下载 mihomo-windows-amd64 并重命名为 mihomo.exe 放到应用目录');
+      log('请重新运行官方 SSRVPN 安装包修复，保留现有用户数据；不要替换为其他 Mihomo 内核');
       setLastStartError('找不到 mihomo.exe，文件可能未完整解压或被安全软件隔离');
       return null;
     }

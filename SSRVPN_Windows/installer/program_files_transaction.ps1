@@ -43,9 +43,6 @@ $maxProgramDirectoryCount = 50000
 $maxProgramFileCount = 50000
 $maxProgramFileBytes = 2GB
 $maxProgramTotalBytes = 8GB
-$utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
-$strictUtf8 = New-Object System.Text.UTF8Encoding -ArgumentList $false, $true
-. (Join-Path $PSScriptRoot 'program_file_ownership.ps1')
 
 function Get-SafeDirectoryPath {
   param(
@@ -1385,15 +1382,30 @@ function Write-TransactionStatus {
   try {
     $parent = [System.IO.Path]::GetDirectoryName($StatusPath)
     if ($parent) {
-      New-Item -ItemType Directory -Path $parent -Force | Out-Null
+      [void][IO.Directory]::CreateDirectory($parent)
     }
-    [System.IO.File]::WriteAllText($StatusPath, $Status, $script:utf8NoBom)
+    [System.IO.File]::WriteAllText($StatusPath, $Status, [Text.UTF8Encoding]::new($false))
   } catch {
     Write-Warning "Could not write program-file transaction status: $($_.Exception.Message)"
   }
 }
 
+$failureStage = 'INITIALIZING'
 try {
+  Write-TransactionStatus -Status 'INITIALIZING'
+  $utf8NoBom = [Text.UTF8Encoding]::new($false)
+  $strictUtf8 = [Text.UTF8Encoding]::new($false, $true)
+  if ($transactionRegistryRoot -eq 'HKLM') {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    try {
+      $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+      if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        throw 'ADMIN_REQUIRED: Installer helper does not have administrative privileges.'
+      }
+    } finally { $identity.Dispose() }
+  }
+  . (Join-Path $PSScriptRoot 'program_file_ownership.ps1')
+  $failureStage = 'VALIDATING_PATHS'
   $script:installDir = Get-SafeDirectoryPath -Path $InstallDir -Name 'InstallDir'
   $script:recoveryRoot = Get-SafeDirectoryPath `
     -Path $RecoveryRoot -Name 'RecoveryRoot'
@@ -1455,6 +1467,7 @@ try {
     }
   )
 
+  $failureStage = $Action.ToUpperInvariant()
   $status = switch ($Action) {
     'Begin' { Begin-ProgramFilesTransaction }
     'Recover' { Recover-ProgramFilesTransaction }
@@ -1471,7 +1484,7 @@ try {
   exit 0
 } catch {
   $message = $_.Exception.Message.Replace("`r", ' ').Replace("`n", ' ')
-  Write-TransactionStatus -Status "ERROR:$message"
+  Write-TransactionStatus -Status "ERROR:${failureStage}:$message"
   Write-Error $message
   exit 3
 }

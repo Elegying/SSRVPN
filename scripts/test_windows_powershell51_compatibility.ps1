@@ -99,12 +99,28 @@ $fixturePath = 'Software\SSRVPNPolicyTest-' + [Guid]::NewGuid().ToString('N')
 $probe = $proxySource.Substring($scriptStart, $scriptEnd - $scriptStart)
 $probe = $probe.Replace('[Microsoft.Win32.RegistryHive]::LocalMachine', '[Microsoft.Win32.RegistryHive]::CurrentUser')
 $probe = $probe.Replace('SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings', $fixturePath)
+# Run in a child like the client: the production probe uses an explicit exit
+# code for unsupported policy and must not terminate this test process.
+$encodedProbe = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(
+  '$ErrorActionPreference = ''Stop''' + "`n" + $probe))
+function Assert-PolicyProbe {
+  param([bool]$Allowed)
+  $output = @(& (Join-Path $PSHOME 'powershell.exe') -NoLogo -NoProfile `
+    -NonInteractive -EncodedCommand $encodedProbe)
+  $exitCode = $LASTEXITCODE
+  $text = ($output -join "`n").Trim()
+  if ($Allowed) {
+    if ($exitCode -ne 0 -or $text) { throw 'Per-user policy was not accepted.' }
+  } elseif ($exitCode -ne 2 -or $text -cne 'SSRVPN_PROXY_POLICY_NOT_PER_USER') {
+    throw 'Machine or malformed policy was not explicitly rejected.'
+  }
+}
 $fixtureBase = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::Registry64)
 try {
-  & ([scriptblock]::Create($probe))
+  Assert-PolicyProbe -Allowed $true
   $fixture = $fixtureBase.CreateSubKey($fixturePath)
   try {
-    & ([scriptblock]::Create($probe))
+    Assert-PolicyProbe -Allowed $true
     foreach ($case in @(
       @{ Value = 1; Kind = [Microsoft.Win32.RegistryValueKind]::DWord; Allowed = $true },
       @{ Value = 0; Kind = [Microsoft.Win32.RegistryValueKind]::DWord; Allowed = $false },
@@ -112,9 +128,7 @@ try {
       @{ Value = '1'; Kind = [Microsoft.Win32.RegistryValueKind]::String; Allowed = $false }
     )) {
       $fixture.SetValue('ProxySettingsPerUser', $case.Value, $case.Kind)
-      $allowed = $true
-      try { & ([scriptblock]::Create($probe)) } catch { $allowed = $false }
-      if ($allowed -ne $case.Allowed) { throw 'ProxySettingsPerUser policy probe failed.' }
+      Assert-PolicyProbe -Allowed $case.Allowed
     }
   } finally { $fixture.Dispose() }
 } finally {

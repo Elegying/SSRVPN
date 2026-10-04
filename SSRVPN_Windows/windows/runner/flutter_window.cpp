@@ -1,4 +1,5 @@
 #include "flutter_window.h"
+#include "tray_shell_notifications.h"
 
 #include <flutter/plugin_registry.h>
 #include <flutter/standard_method_codec.h>
@@ -459,6 +460,9 @@ bool FlutterWindow::OnCreate() {
   startup_diagnostics::Log(L"Flutter engine create end");
 
   RegisterPluginsSafely(flutter_controller_->engine());
+  if (!EnableTaskbarRecreationNotifications(GetHandle())) {
+    startup_diagnostics::Log(L"Could not enable taskbar recreation notifications");
+  }
   physical_latency_channel_ = std::make_unique<PhysicalTcpLatencyChannel>(
       flutter_controller_->engine()->messenger(), GetHandle());
   tun_elevation_channel_ =
