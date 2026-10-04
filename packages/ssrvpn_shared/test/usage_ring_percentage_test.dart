@@ -27,9 +27,33 @@ void main() {
       expect(value.data!.replaceAll('\n', ''), label);
       final ring = tester.widget<CircularProgressIndicator>(
           find.byKey(const Key('account-usage-ring')));
-      expect(ring.semanticsLabel, '已用流量，$label');
+      expect(
+          tester
+              .getSemantics(find.byKey(const Key('account-usage-ring')))
+              .getSemanticsData()
+              .value,
+          label);
       expect(ring.value, 1);
       expect(tester.takeException(), isNull);
     });
   }
+  testWidgets('unknown allowance never announces zero percent', (tester) async {
+    for (final account in [null, quota(0, 0)]) {
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: Center(
+                  child: SizedBox(
+                      width: 220,
+                      height: 80,
+                      child: SsrvpnUsageRing(
+                          account: account, child: const Text('已用流量')))))));
+      expect(
+          tester
+              .getSemantics(find.byKey(const Key('account-usage-ring')))
+              .getSemanticsData()
+              .value,
+          '百分比暂不可用');
+      expect(tester.takeException(), isNull);
+    }
+  });
 }

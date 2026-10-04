@@ -32,14 +32,19 @@ class SsrvpnUsageRing extends StatelessWidget {
               height: size,
               child: Stack(alignment: Alignment.center, children: [
                 Positioned.fill(
-                    child: CircularProgressIndicator(
-                  key: const Key('account-usage-ring'),
-                  value: progress,
-                  strokeWidth: (size * .12).clamp(2.0, 6.0),
-                  strokeCap: StrokeCap.round,
-                  color: colors.primary,
-                  backgroundColor: colors.primary.withValues(alpha: .17),
-                  semanticsLabel: '已用流量，$percentage',
+                    child: Semantics(
+                  // Account usage is not bounded to a progress bar's 0–100.
+                  label: '已用流量',
+                  value: known ? percentage : '百分比暂不可用',
+                  excludeSemantics: true,
+                  child: CircularProgressIndicator(
+                    key: const Key('account-usage-ring'),
+                    value: progress,
+                    strokeWidth: (size * .12).clamp(2.0, 6.0),
+                    strokeCap: StrokeCap.round,
+                    color: colors.primary,
+                    backgroundColor: colors.primary.withValues(alpha: .17),
+                  ),
                 )),
                 if (size >= 40)
                   SizedBox(
