@@ -17,55 +17,64 @@ void main() {
     expect(service.probed.length, lessThanOrEqualTo(33));
   });
 
-  test('IPv6-only UDP occupancy prevents port reuse', () async {
-    final service = _RuntimePortProbe();
-    addTearDown(service.dispose);
+  for (final initialTcpError in <int?>[null, 48, 98, 10048, 10013]) {
+    test(
+        'IPv6-only UDP occupancy prevents port reuse '
+        '(initial TCP error=$initialTcpError)', () async {
+      final service = _RuntimePortProbe();
+      addTearDown(service.dispose);
 
-    // Windows 会把 Hyper-V / WSL / Docker 预留的端口放进「排除端口范围」，
-    // 对落在其中的端口 bind 会得到 WSAEACCES（errno 10013）。而 OS 分配给
-    // IPv6 UDP 的临时端口可能正好落在其中——此时失败与代码无关。
-    // 因此这里换端口重试，直到拿到一个 IPv4 也能绑的端口。
-    late RawDatagramSocket held;
-    var port = 0;
-    for (var attempt = 0; attempt < 8 && port == 0; attempt++) {
-      final RawDatagramSocket candidate;
-      try {
-        candidate = await RawDatagramSocket.bind(
-          InternetAddress.loopbackIPv6,
-          0,
-          reuseAddress: false,
-          reusePort: false,
-        );
-      } on SocketException catch (error) {
-        if (![47, 49, 97, 99, 10047, 10049]
-            .contains(error.osError?.errorCode)) {
-          rethrow;
+      // UDP allocation does not reserve TCP: another test or process can own
+      // the same TCP port. Windows may also exclude it for Hyper-V/WSL/Docker.
+      // Select a fixture port with a usable IPv4 listener before testing IPv6.
+      late RawDatagramSocket held;
+      var port = 0;
+      for (var attempt = 0; attempt < 8 && port == 0; attempt++) {
+        final RawDatagramSocket candidate;
+        try {
+          candidate = await RawDatagramSocket.bind(
+            InternetAddress.loopbackIPv6,
+            0,
+            reuseAddress: false,
+            reusePort: false,
+          );
+        } on SocketException catch (error) {
+          if (![47, 49, 97, 99, 10047, 10049]
+              .contains(error.osError?.errorCode)) {
+            rethrow;
+          }
+          markTestSkipped('IPv6 loopback is unavailable on this host');
+          return;
         }
-        markTestSkipped('IPv6 loopback is unavailable on this host');
+        // The IPv4 listener must be free: rejection has to come from the IPv6 check.
+        try {
+          if (attempt == 0 && initialTcpError != null) {
+            throw SocketException('fixture TCP bind failure',
+                osError: OSError('fixture', initialTcpError));
+          }
+          final ipv4 = await ServerSocket.bind(
+            InternetAddress.loopbackIPv4,
+            candidate.port,
+            shared: false,
+          );
+          await ipv4.close();
+          held = candidate;
+          port = candidate.port;
+        } on SocketException catch (error) {
+          candidate.close();
+          if (![48, 98, 10048, 10013].contains(error.osError?.errorCode)) {
+            rethrow;
+          }
+        }
+      }
+      if (port == 0) {
+        markTestSkipped('the host never offered an IPv4-bindable port');
         return;
       }
-      // The IPv4 listener must be free: rejection has to come from the IPv6 check.
-      try {
-        final ipv4 = await ServerSocket.bind(
-          InternetAddress.loopbackIPv4,
-          candidate.port,
-          shared: false,
-        );
-        await ipv4.close();
-        held = candidate;
-        port = candidate.port;
-      } on SocketException catch (error) {
-        candidate.close();
-        if (error.osError?.errorCode != 10013) rethrow;
-      }
-    }
-    if (port == 0) {
-      markTestSkipped('the host never offered an IPv4-bindable port');
-      return;
-    }
-    addTearDown(held.close);
-    expect(await service.probe(port), isFalse);
-  });
+      addTearDown(held.close);
+      expect(await service.probe(port), isFalse);
+    });
+  }
 
   test('ephemeral port fallback stops after a bounded number of failures',
       () async {
