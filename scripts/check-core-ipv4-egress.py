@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -94,4 +95,13 @@ if __name__ == '__main__':
         if not args.core:
             core.write_bytes(gzip.decompress((ROOT / 'SSRVPN_MacOS/assets/AtlasCore.gz').read_bytes()))
             core.chmod(0o700)
-        run(core, folder)
+        try:
+            run(core, folder)
+        except Exception:
+            # This fixture contains synthetic loopback data only. Preserve the
+            # core's reason before TemporaryDirectory removes the evidence.
+            log = folder / 'core.log'
+            if log.exists():
+                print('IPv4 egress probe core log:\n' +
+                      log.read_text(errors='replace')[-16384:], file=sys.stderr)
+            raise
