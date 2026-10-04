@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.33] - 2026-10-05
+
 ### 修复
 
 - Windows 安装器检查实际管理员权限，隔离辅助进程的临时目录，捕获回滚脚本初始化失败；区分脚本启动、权限、依赖与结果文件错误，并提示安装日志位置，保留已有回滚及个人文件保护。
