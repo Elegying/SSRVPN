@@ -71,6 +71,8 @@ class SsrvpnThemedPowerButton extends StatelessWidget {
                           color: Colors.transparent,
                           shape: const CircleBorder(),
                           child: InkWell(
+                              splashFactory: NoSplash.splashFactory,
+                              highlightColor: Colors.transparent,
                               key: const Key('ssrvpn-power-button'),
                               customBorder: const CircleBorder(),
                               onTap: onTap,

@@ -1,4 +1,5 @@
 import 'ssrvpn_liquid_glass.dart';
+import 'ssrvpn_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -201,6 +202,9 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
     ];
 
     return ListView(
+      padding: SsrvpnTheme.of(context).isSoft
+          ? const EdgeInsets.fromLTRB(18, 18, 18, 24)
+          : EdgeInsets.zero,
       children: [
         Semantics(
           liveRegion: true,
@@ -430,7 +434,8 @@ class _DiagnosticCheckTile extends StatelessWidget {
     return Semantics(
       label: '${check.title}，$statusLabel，${check.summary}',
       child: Padding(
-        padding: const EdgeInsets.only(bottom: 8),
+        padding:
+            EdgeInsets.only(bottom: SsrvpnTheme.of(context).isSoft ? 20 : 8),
         child: SsrvpnLiquidSurface(
           dense: true,
           padding: const EdgeInsets.all(12),
