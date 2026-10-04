@@ -148,9 +148,8 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('theme-sakura')));
       await tester.pumpAndSettle();
       expect(settings.themeVariant, AppThemeVariant.sakura);
-      await reveal(find.byTooltip('关闭提示'));
-      await tester.tap(find.byTooltip('关闭提示'));
-      await tester.pumpAndSettle();
+      expect(find.text('主题已应用'), findsNothing);
+      expect(find.byTooltip('关闭提示'), findsNothing);
       final port = find.byType(TextField);
       await reveal(port);
       expect(find.text('连接'), findsNothing);
