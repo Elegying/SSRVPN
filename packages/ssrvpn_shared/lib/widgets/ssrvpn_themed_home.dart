@@ -101,6 +101,7 @@ extension _ThemedHome on _HomeOverviewState {
                                 LayoutId(
                                     id: _ThemedPart.ip,
                                     child: TextButton.icon(
+                                        key: const Key('home-public-ip'),
                                         onPressed: widget.isRefreshingPublicIp
                                             ? null
                                             : widget.onRefreshPublicIp,
@@ -110,7 +111,8 @@ extension _ThemedHome on _HomeOverviewState {
                                         label: Text(
                                             widget.isRefreshingPublicIp
                                                 ? '查询中…'
-                                                : widget.publicIpv4 ??
+                                                : widget.publicIpError ??
+                                                    widget.publicIpv4 ??
                                                     '获取公网 IPv4',
                                             style: TextStyle(
                                                 fontSize: 15,
@@ -123,8 +125,7 @@ extension _ThemedHome on _HomeOverviewState {
                                             tapTargetSize: MaterialTapTargetSize
                                                 .shrinkWrap))),
                                 if (widget.errorMessage != null ||
-                                    widget.connectionNotice != null ||
-                                    widget.publicIpError != null)
+                                    widget.connectionNotice != null)
                                   LayoutId(
                                       id: _ThemedPart.details,
                                       child: _ConnectionDetails(

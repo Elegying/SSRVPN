@@ -8,6 +8,26 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WindowsInstallerConfigTest(unittest.TestCase):
+    def test_installer_checks_actual_token_and_captures_bootstrap_failure(self):
+        installer = (ROOT / "SSRVPN_Windows/installer/SSRVPN.iss").read_text(encoding="utf-8-sig")
+        initialize = installer.split("function InitializePowerShellEnvironment(): Boolean;", 1)[1].split("function InitializeSetup", 1)[0]
+        self.assertLess(initialize.index("Result := IsAdmin"), initialize.index("WinSetEnvironmentVariable"))
+        for variable in ("TEMP", "TMP"):
+            self.assertIn(f"WinSetEnvironmentVariable('{variable}', ExpandConstant('{{tmp}}'))", initialize)
+        transaction = installer.split("function RunProgramFilesTransactionScript(", 1)[1].split("function RunProgramFilesTransaction(Action:", 1)[0]
+        self.assertIn("ExecAndLogOutput", transaction)
+        self.assertIn("@ClassifyProgramFilesHelperOutput", transaction)
+        self.assertIn("STATUS_PATH_NOT_WRITABLE", transaction)
+        self.assertIn("HELPER_LAUNCH_FAILED", transaction)
+        self.assertIn("finally\n    DeleteFile(StatusPath)", transaction)
+        callback = installer.split("procedure ClassifyProgramFilesHelperOutput", 1)[1].split("function RunProgramFilesTransactionScript", 1)[0]
+        self.assertNotIn("Log(S)", callback)
+        helper = (ROOT / "SSRVPN_Windows/installer/program_files_transaction.ps1").read_text()
+        bootstrap = helper.split("$failureStage = 'INITIALIZING'", 1)[1]
+        self.assertLess(bootstrap.index("try {"), bootstrap.index(". (Join-Path"))
+        self.assertLess(bootstrap.index("IsInRole"), bootstrap.index(". (Join-Path"))
+        self.assertIn('"ERROR:${failureStage}:$message"', bootstrap)
+
     def test_formal_package_acceptance_keeps_isolation_and_exact_asset_identity(self):
         acceptance = (ROOT / "scripts/test_windows_public_installer.ps1").read_text(encoding="utf-8-sig")
         for required in (

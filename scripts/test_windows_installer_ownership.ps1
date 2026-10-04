@@ -156,6 +156,36 @@ function Seal-Case($Case) {
 function Pass([string]$Name) { [void]$results.Add([ordered]@{ case = $Name; result = 'PASS' }); Write-Host "PASS $Name" }
 
 try {
+  $c = New-Case 'bootstrap-dependency-failure'
+  $brokenHelper = Join-Path $c.root 'isolated\program_files_transaction.ps1'
+  Write-FixtureFile $brokenHelper ([IO.File]::ReadAllText($helper))
+  Invoke-Case $c Begin -Script $brokenHelper -Failure
+  $status = [IO.File]::ReadAllText((Join-Path $c.root '1-Begin.status'))
+  if (-not $status.StartsWith('ERROR:INITIALIZING:')) {
+    throw "Bootstrap failure did not report its phase: $status"
+  }
+  Assert-UserFiles $c
+  Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
+  if (Test-Path -LiteralPath $c.recovery) { throw 'Bootstrap failure created recovery state.' }
+  Pass 'Missing bootstrap dependency reports a phase without changing files'
+
+  if ($UninstallRegistryRoot -eq 'HKLM') {
+    $c = New-Case 'helper-token-rejected'
+    $deniedHelper = Join-Path $c.root 'denied.ps1'
+    $source = [IO.File]::ReadAllText($helper)
+    $tokenCheck = '-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)'
+    if (-not $source.Contains($tokenCheck)) { throw 'Production token check not found.' }
+    Write-FixtureFile $deniedHelper ($source.Replace($tokenCheck, '$true'))
+    Invoke-Case $c Begin -Script $deniedHelper -Failure
+    $status = [IO.File]::ReadAllText((Join-Path $c.root '1-Begin.status'))
+    if (-not $status.StartsWith('ERROR:INITIALIZING:ADMIN_REQUIRED:')) {
+      throw "Rejected helper token did not report the permission failure: $status"
+    }
+    Assert-UserFiles $c
+    if (Test-Path -LiteralPath $c.recovery) { throw 'Rejected token created recovery state.' }
+    Pass 'Rejected helper token stops before transaction mutation'
+  }
+
   # N03 red evidence runs the historical production helper, without replacing
   # its inventory/deletion implementation. Only test-owned files are affected.
   $c = New-Case 'n03-baseline-data-loss'

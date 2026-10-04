@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 
 import '../models/app_diagnostics.dart';
 import '../services/app_diagnostic_history_store.dart';
-import '../utils/log_redactor.dart';
 
 typedef RunAppDiagnostics = Future<AppDiagnosticReport> Function();
 typedef RepairAppDiagnostic = Future<AppRepairResult> Function(
@@ -267,7 +266,7 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: SelectableText(
-                  LogRedactor.sanitizeForDisplay(report.recentLogs),
+                  sanitizedDiagnosticLogs(report.recentLogs),
                   style: theme.textTheme.bodySmall?.copyWith(
                     fontFamily: 'monospace',
                     height: 1.5,

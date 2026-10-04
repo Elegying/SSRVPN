@@ -51,7 +51,7 @@ void main() {
         expect(tester.takeException(), isNull);
         await tester.tap(find.text('查看诊断与解决建议'));
         expect(diagnostics, 1);
-        await tester.tap(find.text('获取公网 IPv4'));
+        await tester.tap(find.text('公网 IP 获取失败'));
         expect(refresh, 1);
         final card =
             tester.getRect(find.byKey(const Key('ssrvpn-current-node-card')));

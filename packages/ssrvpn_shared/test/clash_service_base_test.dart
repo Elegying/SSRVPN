@@ -3628,10 +3628,83 @@ proxies:
 
         expect(runtime.status, AppDiagnosticStatus.passed);
         expect(dataPlane.status, AppDiagnosticStatus.warning);
-        expect(dataPlane.summary, '外部探测未通过，实际访问情况尚未确认');
+        expect(dataPlane.summary, startsWith('外部探测未通过，实际访问情况尚未确认'));
+        expect(dataPlane.summary, contains('最近一次观察'));
         expect(dataPlane.summary, isNot(contains('恢复状态')));
       },
     );
+
+    test('a stale platform snapshot cannot hide a newly failed probe',
+        () async {
+      final service = _RacingDataPlaneDiagnosticService();
+      addTearDown(service.dispose);
+      service.setRunning(true);
+      service.publishConnectivityWarning(null);
+      final report = await service.runDiagnostics();
+      expect(report.checks.singleWhere((c) => c.id == 'data_plane').status,
+          AppDiagnosticStatus.warning);
+      expect(service.isRunning, isTrue);
+    });
+
+    test('an unobserved data plane is not reported as healthy', () async {
+      final service = _DiagnosticClashService(configRequired: false);
+      addTearDown(service.dispose);
+      service.setRunning(true);
+      final report = await service.runDiagnostics();
+      final check =
+          report.checks.singleWhere((check) => check.id == 'data_plane');
+      expect(check.status, AppDiagnosticStatus.warning);
+      expect(check.summary, contains('尚未完成'));
+      expect(report.userConclusion, isNot(contains('正常')));
+    });
+
+    test('diagnostics reject pending and previous-session reachability',
+        () async {
+      final service = _PendingDataPlaneDiagnosticService();
+      addTearDown(service.dispose);
+      service.setRunning(true);
+      service.startObservation();
+      await Future<void>.delayed(Duration.zero);
+      var report = await service.runDiagnostics();
+      expect(report.checks.singleWhere((c) => c.id == 'data_plane').status,
+          AppDiagnosticStatus.warning);
+      service.changeRoute();
+      await Future<void>.delayed(Duration.zero);
+      expect(service.probes, hasLength(2));
+      service.probes.first.complete(null);
+      await Future<void>.delayed(Duration.zero);
+      report = await service.runDiagnostics();
+      expect(report.checks.singleWhere((c) => c.id == 'data_plane').status,
+          AppDiagnosticStatus.warning);
+      service.probes.last.complete(null);
+      await Future<void>.delayed(Duration.zero);
+      report = await service.runDiagnostics();
+      expect(report.checks.singleWhere((c) => c.id == 'data_plane').status,
+          AppDiagnosticStatus.passed);
+      service.setRunning(false);
+      service.setRunning(true);
+      report = await service.runDiagnostics();
+      expect(report.checks.singleWhere((c) => c.id == 'data_plane').status,
+          AppDiagnosticStatus.warning);
+      expect(service.isRunning, isTrue);
+    });
+
+    test('expired and future reachability timestamps are not current success',
+        () async {
+      final service = _DiagnosticClashService();
+      addTearDown(service.dispose);
+      service.setRunning(true);
+      service.publishConnectivityWarning(null);
+      for (final offset in [
+        const Duration(hours: 2),
+        const Duration(hours: -1)
+      ]) {
+        final report = await service.runDiagnostics(
+            clock: () => DateTime.now().add(offset));
+        expect(report.checks.singleWhere((c) => c.id == 'data_plane').status,
+            AppDiagnosticStatus.warning);
+      }
+    });
 
     test(
       'reports a healthy data plane instead of omitting the check',
@@ -3639,6 +3712,7 @@ proxies:
         final service = _DiagnosticClashService();
         addTearDown(service.dispose);
         service.setRunning(true);
+        service.publishConnectivityWarning(null);
 
         final report = await service.runDiagnostics();
         final dataPlane = report.checks.singleWhere(
@@ -3664,6 +3738,8 @@ proxies:
         expect(service.isRunning, isTrue);
         expect(service.recentLogs, isNot(contains('private-snapshot-detail')));
         service.fail = false;
+        // A successful local snapshot is not proof of external reachability.
+        service.publishConnectivityWarning(null);
         report = await service.runDiagnostics();
         dataPlane =
             report.checks.singleWhere((check) => check.id == 'data_plane');
@@ -3746,7 +3822,7 @@ proxies:
       final report = await service.runDiagnostics();
       final check = report.checks.singleWhere((c) => c.id == 'data_plane');
       expect(check.status, AppDiagnosticStatus.warning);
-      expect(check.summary, '外部探测未通过，实际访问情况尚未确认');
+      expect(check.summary, startsWith('外部探测未通过，实际访问情况尚未确认'));
       expect(
           report.readableLogs
               .any((entry) => entry.message == '外部探测未通过，实际访问情况尚未确认'),
@@ -3788,6 +3864,7 @@ proxies:
         addTearDown(service.dispose);
         service.setRunning(true);
         service.publishOwnershipWarning('系统代理所有权暂时无法确认');
+        service.publishConnectivityWarning(null);
 
         final report = await service.runDiagnostics();
         final dataPlane = report.checks.singleWhere(
@@ -4845,6 +4922,27 @@ mixin _ExplicitTestDiagnosticCapability on ClashServiceBase {
   @override
   Future<AppRepairResult> repairDiagnosticIssue(AppRepairAction action) async =>
       const AppRepairResult(success: false, message: 'test capability');
+}
+
+class _RacingDataPlaneDiagnosticService extends _DiagnosticClashService {
+  @override
+  Future<String?> diagnosticDataPlaneWarning() async {
+    final oldSnapshot = dataPlaneConnectivityWarning;
+    setConnectivityWarning('NETWORK_TIMEOUT');
+    return oldSnapshot;
+  }
+}
+
+class _PendingDataPlaneDiagnosticService extends _DiagnosticClashService {
+  final probes = <Completer<String?>>[];
+  void startObservation() => scheduleDataPlaneObservation();
+  void changeRoute() => onDataPlaneRouteChanged();
+  @override
+  Future<void> observeDataPlaneHealth() async {
+    final probe = Completer<String?>();
+    probes.add(probe);
+    setConnectivityWarning(await probe.future);
+  }
 }
 
 class _IncompleteDataPlaneDiagnosticService extends _DiagnosticClashService {

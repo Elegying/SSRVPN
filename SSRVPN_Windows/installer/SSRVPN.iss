@@ -141,6 +141,7 @@ var
   ProgramFilesRecoveryPending: Boolean;
   ProgramFilesTransactionPrepared: Boolean;
   LastProgramFilesTransactionStatus: String;
+  ProgramFilesHelperOutputCode: String;
   UninstallMetadataRelativePath: String;
   InstallSucceeded: Boolean;
   PostInstallCommitFailed: Boolean;
@@ -216,10 +217,23 @@ function WinSetEnvironmentVariable(Name, Value: String): Boolean;
 
 function InitializePowerShellEnvironment(): Boolean;
 begin
+  { Check the actual token, never whether Windows displayed a UAC prompt. }
+  Result := IsAdmin;
+  if not Result then
+  begin
+    Log('SSRVPN installer preflight: ADMIN_REQUIRED');
+    SuppressibleMsgBox('安装程序未获得管理员权限，尚未修改程序文件。' + #13#10 +
+      '请右键安装包选择“以管理员身份运行”；如果仍失败，请联系系统管理员。',
+      mbError, MB_OK, IDOK);
+    exit;
+  end;
   { Scope is this installer and its children only. Do not inherit PowerShell 7
     or caller-specific module paths into our fixed Windows PowerShell 5.1. }
   Result := WinSetEnvironmentVariable('PSModulePath',
     ExpandConstant('{sys}\WindowsPowerShell\v1.0\Modules'));
+  { Add-Type and child tools must not inherit an inaccessible caller TEMP. }
+  if Result then Result := WinSetEnvironmentVariable('TEMP', ExpandConstant('{tmp}'));
+  if Result then Result := WinSetEnvironmentVariable('TMP', ExpandConstant('{tmp}'));
   if not Result then
   begin
     Log('SSRVPN could not initialize the Windows PowerShell module path.');
@@ -444,6 +458,23 @@ begin
   Result := ExpandConstant('{app}\') + UninstallMetadataRelativePath;
 end;
 
+procedure ClassifyProgramFilesHelperOutput(const S: String;
+  const Error, FirstLine: Boolean);
+begin
+  { Log only allowlisted categories: raw PowerShell output can contain user
+    paths, script source or credentials. Exit code and phase remain available. }
+  if Error then ProgramFilesHelperOutputCode := 'OUTPUT_CAPTURE_FAILED'
+  else if Pos('ParserError', S) > 0 then
+    ProgramFilesHelperOutputCode := 'SCRIPT_PARSE_FAILED'
+  else if (Pos('UnauthorizedAccess', S) > 0) or
+    (Pos('PermissionDenied', S) > 0) then
+    ProgramFilesHelperOutputCode := 'ACCESS_DENIED'
+  else if Pos('CommandNotFoundException', S) > 0 then
+    ProgramFilesHelperOutputCode := 'SCRIPT_DEPENDENCY_MISSING'
+  else if Pos('PSSecurityException', S) > 0 then
+    ProgramFilesHelperOutputCode := 'SCRIPT_POLICY_BLOCKED';
+end;
+
 function RunProgramFilesTransactionScript(Action: String; ScriptPath: String;
   ExpectedPayloadManifestPath: String): Boolean;
 var
@@ -456,53 +487,75 @@ var
 begin
   Result := False;
   ResultCode := -1;
-  LastProgramFilesTransactionStatus := 'STATUS_MISSING';
+  LastProgramFilesTransactionStatus := 'HELPER_NOT_STARTED';
+  ProgramFilesHelperOutputCode := 'HELPER_EXIT_WITHOUT_STATUS';
   PowerShellPath := ExpandConstant(
     '{sys}\WindowsPowerShell\v1.0\powershell.exe');
   StatusPath := GenerateUniqueName(
     ExpandConstant('{tmp}'), ProgramFilesTransactionStatusSuffix);
   try
-    if not FileExists(ScriptPath) then
-    begin
-      LastProgramFilesTransactionStatus := 'HELPER_MISSING';
-      Log('SSRVPN program-file transaction helper is missing: ' + ScriptPath);
-      exit;
+    try
+      if not FileExists(PowerShellPath) then
+      begin
+        LastProgramFilesTransactionStatus := 'POWERSHELL_MISSING';
+        exit;
+      end;
+      if not SaveStringToFile(StatusPath, 'HELPER_NOT_STARTED', False) then
+      begin
+        LastProgramFilesTransactionStatus := 'STATUS_PATH_NOT_WRITABLE';
+        exit;
+      end;
+      if not FileExists(ScriptPath) then
+      begin
+        LastProgramFilesTransactionStatus := 'HELPER_MISSING';
+        Log('SSRVPN program-file transaction helper is missing: ' + ScriptPath);
+        exit;
+      end;
+      Parameters := '-NoLogo -NoProfile -NonInteractive ' +
+        '-ExecutionPolicy Bypass -File ' + AddQuotes(ScriptPath) +
+        ' -Action ' + AddQuotes(Action) +
+        ' -InstallDir ' + AddQuotes(ExpandConstant('{app}')) +
+        ' -RecoveryRoot ' + AddQuotes(ProgramFilesRecoveryRoot) +
+        ' -StatusPath ' + AddQuotes(StatusPath) +
+        ' -UninstallRegistrySubkey ' + AddQuotes(UninstallRegistryKey) +
+        ' -UninstallRegistryRoot HKLM -UninstallRegistryView 64' +
+        ' -LegacyRecoveryRoot ' + AddQuotes(ExpandConstant('{localappdata}\SSRVPN\installer-recovery')) +
+        ' -PayloadSourceRoot ' + AddQuotes(ExpandConstant('{tmp}\payload')) +
+        ' -DesktopShortcutPath ' +
+          AddQuotes(ExpandConstant('{commondesktop}\SSRVPN.lnk')) +
+        ' -StartMenuShortcutPath ' +
+          AddQuotes(ExpandConstant('{commonprograms}\SSRVPN.lnk'));
+      if Action = 'Begin' then
+        Parameters := Parameters + ' -LegacyCatalogPath ' +
+          AddQuotes(ExpandConstant('{tmp}\legacy-program-catalogs.json')) +
+          ' -UninstallMetadataRelativePath ' + AddQuotes(UninstallMetadataRelativePath);
+      if ExpectedPayloadManifestPath <> '' then
+        Parameters := Parameters + ' -ExpectedPayloadManifestPath ' +
+          AddQuotes(ExpectedPayloadManifestPath);
+      Started := ExecAndLogOutput(PowerShellPath, Parameters,
+        ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, ResultCode,
+        @ClassifyProgramFilesHelperOutput);
+      if LoadStringFromFile(StatusPath, RawStatus) then
+        LastProgramFilesTransactionStatus := Trim(Utf8Decode(RawStatus));
+      if not Started then
+        LastProgramFilesTransactionStatus := 'HELPER_LAUNCH_FAILED'
+      else if (LastProgramFilesTransactionStatus = 'HELPER_NOT_STARTED') or
+        (LastProgramFilesTransactionStatus = 'INITIALIZING') or
+        (LastProgramFilesTransactionStatus = '') then
+        LastProgramFilesTransactionStatus := ProgramFilesHelperOutputCode;
+      Result := Started and (ResultCode = 0);
+      Log('SSRVPN program-file transaction action=' + Action +
+        ' exit=' + IntToStr(ResultCode) +
+        ' stage=' + LastProgramFilesTransactionStatus);
+    except
+      LastProgramFilesTransactionStatus := 'HELPER_EXECUTION_EXCEPTION';
+      Log('SSRVPN program-file transaction action=' + Action +
+        ' raised an internal exception.');
+      Result := False;
     end;
-    Parameters := '-NoLogo -NoProfile -NonInteractive ' +
-      '-ExecutionPolicy Bypass -File ' + AddQuotes(ScriptPath) +
-      ' -Action ' + AddQuotes(Action) +
-      ' -InstallDir ' + AddQuotes(ExpandConstant('{app}')) +
-      ' -RecoveryRoot ' + AddQuotes(ProgramFilesRecoveryRoot) +
-      ' -StatusPath ' + AddQuotes(StatusPath) +
-      ' -UninstallRegistrySubkey ' + AddQuotes(UninstallRegistryKey) +
-      ' -UninstallRegistryRoot HKLM -UninstallRegistryView 64' +
-      ' -LegacyRecoveryRoot ' + AddQuotes(ExpandConstant('{localappdata}\SSRVPN\installer-recovery')) +
-      ' -PayloadSourceRoot ' + AddQuotes(ExpandConstant('{tmp}\payload')) +
-      ' -DesktopShortcutPath ' +
-        AddQuotes(ExpandConstant('{commondesktop}\SSRVPN.lnk')) +
-      ' -StartMenuShortcutPath ' +
-        AddQuotes(ExpandConstant('{commonprograms}\SSRVPN.lnk'));
-    if Action = 'Begin' then
-      Parameters := Parameters + ' -LegacyCatalogPath ' +
-        AddQuotes(ExpandConstant('{tmp}\legacy-program-catalogs.json')) +
-        ' -UninstallMetadataRelativePath ' + AddQuotes(UninstallMetadataRelativePath);
-    if ExpectedPayloadManifestPath <> '' then
-      Parameters := Parameters + ' -ExpectedPayloadManifestPath ' +
-        AddQuotes(ExpectedPayloadManifestPath);
-    Started := Exec(PowerShellPath, Parameters, '', SW_HIDE,
-      ewWaitUntilTerminated, ResultCode);
-    if LoadStringFromFile(StatusPath, RawStatus) then
-      LastProgramFilesTransactionStatus := Trim(Utf8Decode(RawStatus));
-    Result := Started and (ResultCode = 0);
-    Log('SSRVPN program-file transaction action=' + Action +
-      ' exit=' + IntToStr(ResultCode) +
-      ' stage=' + LastProgramFilesTransactionStatus);
-  except
-    Log('SSRVPN program-file transaction action=' + Action +
-      ' raised an internal exception.');
-    Result := False;
+  finally
+    DeleteFile(StatusPath);
   end;
-  DeleteFile(StatusPath);
 end;
 
 function RunProgramFilesTransaction(Action: String;
@@ -670,7 +723,8 @@ begin
       ReleaseInstallGates;
       Result := '无法建立 SSRVPN 程序文件回滚点，安装尚未开始覆盖。' + #13#10 +
         '请以日志中的恢复结果为准；不要删除仍在的恢复材料或个人文件。' + #13#10 +
-        '诊断阶段码：' + BeginFailureStatus + '。';
+        '诊断阶段码：' + BeginFailureStatus + '。' + #13#10 +
+        '请保留安装日志供排查：' + ExpandConstant('{log}');
       exit;
     end;
     if not ClearProgramFilesForInstall then
@@ -681,7 +735,8 @@ begin
       ReleaseInstallGates;
       Result := '无法在回滚点保护下清理旧版程序文件，安装尚未写入新版本。' + #13#10 +
         '请以日志中的恢复结果为准；不要删除仍在的恢复材料或个人文件。' + #13#10 +
-        '诊断阶段码：' + BeginFailureStatus + '。';
+        '诊断阶段码：' + BeginFailureStatus + '。' + #13#10 +
+        '请保留安装日志供排查：' + ExpandConstant('{log}');
       exit;
     end;
     Result := '';

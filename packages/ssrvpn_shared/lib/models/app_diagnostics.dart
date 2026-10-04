@@ -681,12 +681,36 @@ class AppDiagnosticLogEntry {
   bool get requiresAttention => level != AppDiagnosticLogLevel.information;
 }
 
+/// Runtime entries are individually bounded and normalized by the logger.
+/// Keep continuation lines with their entry so quoted multiline secrets are
+/// redacted together. Never apply the single-entry 4 KiB limit to a batch.
+String sanitizedDiagnosticLogs(String rawLogs) {
+  var bounded = rawLogs;
+  if (bounded.length > AppConstants.maxLogBufferSize) {
+    final end = bounded.lastIndexOf('\n', AppConstants.maxLogBufferSize);
+    bounded =
+        bounded.substring(0, end >= 0 ? end : AppConstants.maxLogBufferSize);
+  }
+  final starts = RegExp(
+    r'^\[[^\]\r\n]+\] \[[A-Z]+\] \[[a-z0-9_.-]+\] ',
+    multiLine: true,
+  ).allMatches(bounded).map((match) => match.start).toList();
+  final boundaries = {0, ...starts, bounded.length}.toList()..sort();
+  final result = StringBuffer();
+  for (var i = 0; i + 1 < boundaries.length; i++) {
+    result.writeln(LogRedactor.sanitizeForDisplay(
+            bounded.substring(boundaries[i], boundaries[i + 1]))
+        .trimRight());
+  }
+  return result.toString();
+}
+
 List<AppDiagnosticLogEntry> readableDiagnosticLogs(
   String rawLogs, {
   int maxEntries = 20,
 }) {
   if (maxEntries <= 0) throw ArgumentError.value(maxEntries, 'maxEntries');
-  final sanitized = LogRedactor.sanitizeForDisplay(rawLogs);
+  final sanitized = sanitizedDiagnosticLogs(rawLogs);
   final pattern = RegExp(
     r'^\[([^\]]+)\] \[([^\]]+)\] \[([^\]]+)\] '
     r'(?:\[session=[^\]]+\] )?(.*)$',
@@ -737,6 +761,17 @@ List<AppDiagnosticLogEntry> readableDiagnosticLogs(
 // Match owned event categories and explicit observations, never guess a cause
 // from arbitrary core output. Raw evidence remains available in the report.
 String? _plainRuntimeSummary(String? event, String text) {
+  if (event == 'runtime' &&
+      RegExp(r'^\[mihomo\] time="[^"]+" level=(info|warning) msg="')
+          .hasMatch(text) &&
+      (text.contains(
+              'msg="[SSRVPN_IPV6_TARGET_UNSUPPORTED] selected node declares IPv4-only egress"') ||
+          (RegExp(r'msg="\[(TCP|UDP)\] dial PROXY ').hasMatch(text) &&
+              text.contains(
+                  ' error: IPv4-only node cannot reach literal IPv6 target:')))) {
+    return '当前节点配置声明仅支持 IPv4 出口，这次 IPv6 目标无法通过该节点访问；'
+        '访问此目标需要支持 IPv6 的节点。这不代表所有网站都无法访问。';
+  }
   if (event == 'runtime' &&
       RegExp(r'^\[mihomo\] time="[^"]+" level=warning msg="\[SSRVPN_IPV6_TARGET_FAILED\] ')
           .hasMatch(text)) {
@@ -958,23 +993,29 @@ class AppDiagnosticReport {
       );
     }
     final logs = readableLogs;
+    const marker = '\n…报告已截断';
     if (logs.isNotEmpty) {
       buffer
         ..writeln()
         ..writeln('最近运行记录（已整理、已脱敏）');
       for (final entry in logs) {
-        buffer.writeln(
-          '- ${entry.timeLabel}｜${entry.levelLabel}｜${entry.category}：'
-          '${entry.message}',
-        );
+        final record = StringBuffer()
+          ..writeln(
+            '- ${entry.timeLabel}｜${entry.levelLabel}｜${entry.category}：'
+            '${entry.message}',
+          );
         if (entry.technicalDetail != null) {
-          buffer.writeln('  技术详情：${_safeField(entry.technicalDetail!)}');
+          record.writeln('  技术详情：${_safeField(entry.technicalDetail!)}');
         }
+        if (buffer.length + record.length > maxLength - marker.length) {
+          buffer.write(marker);
+          break;
+        }
+        buffer.write(record);
       }
     }
     final text = buffer.toString();
     if (text.length <= maxLength) return text;
-    const marker = '\n…报告已截断';
     if (maxLength <= marker.length) return text.substring(0, maxLength);
     return '${text.substring(0, maxLength - marker.length)}$marker';
   }

@@ -83,7 +83,7 @@ function Uninstall-Current([string]$Phase) {
   if ($code -ne 0 -or (Test-Path -LiteralPath $exe) -or (Test-Path -LiteralPath $registryPath) -or
       (Test-Path -LiteralPath $desktop) -or (Test-Path -LiteralPath $menu)) { throw 'Real uninstall failed.' }
 }
-function Build-Candidate([string]$Name, [switch]$Legacy, [switch]$Fault) {
+function Build-Candidate([string]$Name, [switch]$Legacy, [switch]$Fault, [string]$BootstrapFault = '') {
   $buildRoot = Join-Path $root $Name
   $project = Join-Path $buildRoot 'SSRVPN_Windows'
   New-Item -ItemType Directory -Path $buildRoot | Out-Null
@@ -112,6 +112,16 @@ function Build-Candidate([string]$Name, [switch]$Legacy, [switch]$Fault) {
   throw ('TEST_ONLY_PRE_COMMIT_AFTER_HKLM64 ' + [char]0x4e2d + [char]0x6587)
 '@
     Write-Text $helper ($source.Replace($boundary, $boundary + $inject))
+  }
+  if ($BootstrapFault) {
+    $helper = Join-Path $project 'installer\program_files_transaction.ps1'
+    $source = [IO.File]::ReadAllText($helper)
+    if ($BootstrapFault -eq 'dependency') {
+      $source = $source.Replace("'program_file_ownership.ps1'", "'test-only-missing-dependency.ps1'")
+    } elseif ($BootstrapFault -eq 'parse') {
+      $source = 'param( [string]$Incomplete'
+    } else { throw 'Unknown bootstrap fault.' }
+    Write-Text $helper $source
   }
   $version = if ($Fault) { '9.9.9' } else { '5.0.19' }
   & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $project 'tool\build_installer.ps1') `
@@ -286,6 +296,26 @@ try {
   }
   [IO.File]::WriteAllBytes($modifiedPath, $originalBytes)
   Pass 'Real installer rejects a third-party modified DLL before any program or metadata changes'
+
+  foreach ($bootstrapFault in @('dependency', 'parse')) {
+    $name = 'bootstrap-' + $bootstrapFault
+    $broken = Build-Candidate $name -BootstrapFault $bootstrapFault
+    $before = Snapshot ($name + '-before')
+    if ((Run-Installer $broken $name) -eq 0) { throw 'Broken helper unexpectedly installed.' }
+    $log = [IO.File]::ReadAllText((Join-Path $root ($name + '.log')))
+    $stage = if ($bootstrapFault -eq 'dependency') { 'ERROR:INITIALIZING:' } else { 'SCRIPT_PARSE_FAILED' }
+    if (-not $log.Contains('stage=' + $stage) -or $log.Contains('action=Clear')) {
+      throw "Bootstrap failure was not diagnosed before destructive work: $name"
+    }
+    $after = Snapshot ($name + '-after')
+    foreach ($part in @('files', 'registry', 'shortcuts')) {
+      if (($before[$part] | ConvertTo-Json -Depth 5 -Compress) -cne ($after[$part] | ConvertTo-Json -Depth 5 -Compress)) {
+        throw "Bootstrap failure changed ${part}: $name"
+      }
+    }
+    Assert-UserFiles
+    Pass ("Real installer bootstrap $bootstrapFault failure reports a phase and retains all installed state")
+  }
 
   $fault = Build-Candidate 'candidate-fault' -Fault
   $before = Snapshot 'n04-green-before'

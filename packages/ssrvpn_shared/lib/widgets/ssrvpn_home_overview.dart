@@ -369,9 +369,8 @@ class _ConnectionDetails extends StatelessWidget {
     }
     final label = isRefreshingPublicIp
         ? '正在获取公网 IPv4…'
-        : publicIpv4 != null
-            ? '公网 IPv4  $publicIpv4'
-            : publicIpError ?? '获取公网 IPv4';
+        : publicIpError ??
+            (publicIpv4 != null ? '公网 IPv4  $publicIpv4' : '获取公网 IPv4');
     return TextButton.icon(
       key: Key('home-public-ip'),
       onPressed: isRefreshingPublicIp ? null : onRefreshPublicIp,

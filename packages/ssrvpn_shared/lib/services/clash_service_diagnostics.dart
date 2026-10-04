@@ -59,6 +59,7 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
 
   /// 最近一次数据面观察完成的时间；null 表示平台没有可用的时间戳。
   DateTime? get dataPlaneObservationAt;
+  DateTime? get dataPlaneResultAt;
   String get recentLogs => _logBuffer;
   String get configPath;
   @protected
@@ -314,7 +315,18 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
     final dataPlaneResult = isRunning
         ? await _runDiagnosticCheck(
             'data_plane',
-            () async => (warning: await diagnosticDataPlaneWarning()),
+            () async {
+              final platformWarning = await diagnosticDataPlaneWarning();
+              // A probe can finish while the platform snapshot is pending.
+              // A stale null snapshot must not hide its newly published failure.
+              final warning = platformWarning ?? dataPlaneConnectivityWarning;
+              return (
+                warning: warning,
+                observedAt: warning == dataPlaneConnectivityWarning
+                    ? dataPlaneResultAt
+                    : null,
+              );
+            },
           )
         : null;
     final dataPlaneWarning = dataPlaneResult?.warning?.trim();
@@ -336,19 +348,30 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
           title: '节点与外部网络',
           status: AppDiagnosticStatus.warning,
           summary: buildDataPlaneDiagnosticSummary(
-            observedAt: dataPlaneObservationAt,
+            observedAt: dataPlaneResult?.observedAt,
             now: (clock ?? DateTime.now)(),
           ),
           errorCode: AppErrorCode.dataPlaneDegraded,
         ),
       );
     } else if (isRunning) {
+      final observedAt = dataPlaneResult?.observedAt;
+      final age = observedAt == null
+          ? null
+          : (clock ?? DateTime.now)().difference(observedAt).inSeconds;
+      final verified = age != null && age >= 0 && age <= 3600;
       checks.add(
-        const AppDiagnosticCheck(
+        AppDiagnosticCheck(
           id: 'data_plane',
           title: '节点与外部网络',
-          status: AppDiagnosticStatus.passed,
-          summary: '当前没有检测到数据通道降级',
+          status: verified
+              ? AppDiagnosticStatus.passed
+              : AppDiagnosticStatus.warning,
+          summary: verified
+              ? '最近一次外部网络验证通过（$age 秒前）；不代表所有网站均可访问'
+              : observedAt == null
+                  ? '外部网络验证尚未完成，实际访问情况尚未确认；请稍后重新检查'
+                  : '外部网络验证结果已过期，实际访问情况尚未确认；请稍后重新检查',
         ),
       );
     }
