@@ -14,6 +14,7 @@ import 'package:ssrvpn_shared/models/app_diagnostics.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/models/proxy_node.dart';
 import 'package:ssrvpn_shared/services/clash_service_base.dart';
+import 'package:ssrvpn_shared/services/app_diagnostic_history_store.dart';
 import 'package:ssrvpn_shared/services/clash_config_generator.dart';
 import 'package:ssrvpn_shared/services/node_country_lookup.dart';
 import 'package:ssrvpn_shared/services/smart_rule_bundle.dart';
@@ -3689,6 +3690,81 @@ proxies:
       expect(service.isRunning, isTrue);
     });
 
+    for (final change in ['network', 'route', 'none']) {
+      test('diagnostic validates $change changes while platform check waits',
+          () async {
+        final directory = await Directory.systemTemp.createTemp('diag-epoch-');
+        addTearDown(() => directory.delete(recursive: true));
+        final service = _PendingPlatformDiagnosticService();
+        addTearDown(service.dispose);
+        service.setPaths(configDir: directory.path, configPath: '');
+        service.requestConnectionIntent(true);
+        service.setRunning(true);
+        service.publishConnectivityWarning(null);
+        await service.runNetworkChangeCheck();
+        final pending = service.runDiagnostics();
+        await service.platformStarted.future;
+        if (change == 'network') {
+          service.fingerprint = 'en0:192.168.1.9';
+          await service.runNetworkChangeCheck();
+        } else if (change == 'route') {
+          service.changeRoute();
+        }
+        service.platformFinished.complete();
+        final report = await pending;
+        if (change == 'none') {
+          expect(report.checks.singleWhere((c) => c.id == 'data_plane').status,
+              AppDiagnosticStatus.passed);
+          expect(await service.loadDiagnosticHistory(), hasLength(1));
+        } else {
+          expect(report.checks.map((check) => check.id), ['session_changed']);
+          expect(await service.loadDiagnosticHistory(), isEmpty);
+        }
+        expect(service.isRunning, isTrue);
+        expect(service.connectionDesired, isTrue);
+      });
+    }
+
+    for (final change in ['network', 'route', 'session']) {
+      test('history publication rejects $change during its asynchronous load',
+          () async {
+        final directory = await Directory.systemTemp.createTemp('diag-save-');
+        addTearDown(() => directory.delete(recursive: true));
+        final history = File('${directory.path}/diagnostic-history.json');
+        final store = _DelayedDiagnosticHistoryStore(history.path);
+        final service = _HistoryPublicationDiagnosticService(store);
+        addTearDown(service.dispose);
+        service.setPaths(configDir: directory.path, configPath: '');
+        service.requestConnectionIntent(true);
+        service.setRunning(true);
+        service.publishConnectivityWarning(null);
+        await service.runNetworkChangeCheck();
+        await service.runDiagnostics();
+        final original = await history.readAsBytes();
+        store.pause = true;
+        final pending = service.runDiagnostics();
+        await store.loadStarted.future;
+        if (change == 'network') {
+          service.fingerprint = 'en0:192.168.1.9';
+          await service.runNetworkChangeCheck();
+        } else if (change == 'route') {
+          service.changeRoute();
+        } else {
+          service.setRunning(false);
+          service.setRunning(true);
+        }
+        store.resumeLoad.complete();
+        final report = await pending;
+        expect(report.checks.map((check) => check.id), ['session_changed']);
+        expect(await history.readAsBytes(), original);
+        expect(await service.loadDiagnosticHistory(), hasLength(1));
+        expect(await directory.list().length, 1);
+        service.publishConnectivityWarning(null);
+        await service.runDiagnostics();
+        expect(await service.loadDiagnosticHistory(), hasLength(2));
+      });
+    }
+
     test('expired and future reachability timestamps are not current success',
         () async {
       final service = _DiagnosticClashService();
@@ -5124,4 +5200,50 @@ class _PublicIpClashService extends _TestClashService {
   }
 
   void changeRoute() => onDataPlaneRouteChanged();
+}
+
+class _PendingPlatformDiagnosticService extends _DiagnosticClashService {
+  final platformStarted = Completer<void>();
+  final platformFinished = Completer<void>();
+  String fingerprint = 'en0:10.0.0.2';
+
+  void changeRoute() => onDataPlaneRouteChanged();
+
+  @override
+  Future<String?> buildNetworkFingerprint() async => fingerprint;
+
+  @override
+  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async {
+    platformStarted.complete();
+    await platformFinished.future;
+    return const [];
+  }
+}
+
+class _DelayedDiagnosticHistoryStore extends AppDiagnosticHistoryStore {
+  _DelayedDiagnosticHistoryStore(super.path);
+  bool pause = false;
+  final loadStarted = Completer<void>();
+  final resumeLoad = Completer<void>();
+
+  @override
+  Future<List<AppDiagnosticHistoryEntry>> load() async {
+    final entries = await super.load();
+    if (pause) {
+      pause = false;
+      loadStarted.complete();
+      await resumeLoad.future;
+    }
+    return entries;
+  }
+}
+
+class _HistoryPublicationDiagnosticService extends _DiagnosticClashService {
+  _HistoryPublicationDiagnosticService(this.diagnosticHistoryStore);
+  @override
+  final AppDiagnosticHistoryStore diagnosticHistoryStore;
+  String fingerprint = 'en0:10.0.0.2';
+  void changeRoute() => onDataPlaneRouteChanged();
+  @override
+  Future<String?> buildNetworkFingerprint() async => fingerprint;
 }
