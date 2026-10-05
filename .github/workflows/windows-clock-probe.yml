@@ -1,0 +1,17 @@
+name: Isolated Windows clock probe
+on:
+  push:
+    branches: [codex/windows-clock-probe]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Compare native clocks around owned test-child creation
+        shell: powershell
+        run: |
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool/windows_clock_probe.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
