@@ -183,9 +183,25 @@ namespace SsrvpnInstaller {
         target.PinParents(path, true);
         // Same-directory CREATE_NEW staging remains exclusive and its parents
         // pinned through verification and publication. Never reopen by path.
-        var staging = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path)),
-          ".ssrvpn-copy-" + Guid.NewGuid().ToString("N") + ".tmp");
-        var handle = CreateFile(staging, 0xC0010000, 0, IntPtr.Zero, 1, 0x00200000, IntPtr.Zero);
+        var destination = Path.GetFullPath(path);
+        var parent = Path.GetDirectoryName(destination);
+        int nameLength = Math.Min(32, Path.GetFileName(destination).Length);
+        if (nameLength == 0) throw new IOException("Missing program filename.");
+        // Do not make a formerly valid MAX_PATH target uncopyable. Ownership
+        // comes from CREATE_NEW plus the exclusive handle, not name entropy.
+        string staging = null;
+        SafeFileHandle handle = null;
+        for (int attempt = 0; attempt < 32; attempt++) {
+          staging = Path.Combine(parent, Guid.NewGuid().ToString("N").Substring(0, nameLength));
+          if (String.Equals(staging, destination, StringComparison.OrdinalIgnoreCase)) continue;
+          handle = CreateFile(staging, 0xC0010000, 0, IntPtr.Zero, 1, 0x00200000, IntPtr.Zero);
+          if (!handle.IsInvalid) break;
+          int error = Marshal.GetLastWin32Error();
+          handle.Dispose(); handle = null;
+          if (error != 80 && error != 183)
+            throw new Win32Exception(error, "Cannot create exclusive staging file.");
+        }
+        if (handle == null) throw new IOException("No exclusive staging filename available.");
         try { Check(handle, staging, false); target.stream = new FileStream(handle, FileAccess.ReadWrite); }
         catch { handle.Dispose(); throw; }
         try {
