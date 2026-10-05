@@ -957,6 +957,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         final processStillHealthy = await healthCheck();
         _ensureStartCurrent(startToken);
         final nativeStatus = await _readNativeCoreStatus(startedProcess);
+        _ensureStartCurrent(startToken);
         _recordNativeCoreDiagnostics(nativeStatus, startupOutput);
         final startupExitCode = nativeStatus.isRunning
             ? readStartupExitCode()
@@ -979,6 +980,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         return canCommitRunning;
       },
       commit: () async {
+        _ensureStartCurrent(startToken);
         setRunning(true);
         resetHealthCheckFailures();
         log('Mihomo API 就绪，耗时 ${startupWatch.elapsedMilliseconds}ms');

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修复
+
+- macOS 在最终原生核心就绪查询期间取消连接时，不再短暂发布已连接状态；重新核对启动令牌并沿原有流程恢复代理、停止本次核心。
+
 ## [5.0.33] - 2026-10-05
 
 ### 修复
