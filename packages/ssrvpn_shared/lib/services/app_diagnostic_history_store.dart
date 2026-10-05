@@ -135,7 +135,9 @@ class AppDiagnosticHistoryStore {
         reportText.length > maxReportLength) {
       return null;
     }
-    final redactedReport = LogRedactor.sanitize(reportText);
+    // A report contains many entries; the single-log limit would discard its
+    // tail here and permanently rewrite that truncated copy on the next append.
+    final redactedReport = LogRedactor.sanitizeLogBatchForDisplay(reportText);
     return AppDiagnosticHistoryEntry(
       generatedAt: generatedAt,
       failureCount: failureCount,

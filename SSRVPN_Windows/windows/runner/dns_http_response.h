@@ -6,7 +6,8 @@
 #include <vector>
 
 namespace physical_tcp_latency {
-// 0 = incomplete, 1 = complete, -1 = invalid. No redirects or compression.
+// 0 = incomplete, 1 = complete, -1 = invalid. Body is published only on 1.
+// No redirects or compression.
 inline int ParseDnsHttpResponse(const std::string& response,
                                 std::vector<unsigned char>& body) {
   body.clear();
@@ -64,6 +65,7 @@ inline int ParseDnsHttpResponse(const std::string& response,
     body.assign(response.begin() + pos, response.end());
     return 1;
   }
+  std::vector<unsigned char> chunks;
   while (true) {
     const auto next = response.find("\r\n", pos);
     if (next == std::string::npos) return 0;
@@ -73,16 +75,20 @@ inline int ParseDnsHttpResponse(const std::string& response,
     pos = next + 2;
     if (!chunk) {
       if (response.size() < pos + 2) return 0;
-      if (response.compare(pos, 2, "\r\n") == 0)
-        return response.size() == pos + 2 ? 1 : -1;
-      const auto trailer = response.find("\r\n\r\n", pos);
-      if (trailer == std::string::npos) return 0;
-      return response.size() == trailer + 4 ? 1 : -1;
+      if (response.compare(pos, 2, "\r\n") == 0) {
+        if (response.size() != pos + 2) return -1;
+      } else {
+        const auto trailer = response.find("\r\n\r\n", pos);
+        if (trailer == std::string::npos) return 0;
+        if (response.size() != trailer + 4) return -1;
+      }
+      body.swap(chunks);
+      return 1;
     }
-    if (body.size() + chunk > 65535) return -1;
+    if (chunks.size() + chunk > 65535) return -1;
     if (response.size() < pos + chunk + 2) return 0;
     if (response.compare(pos + chunk, 2, "\r\n") != 0) return -1;
-    body.insert(body.end(), response.begin() + pos, response.begin() + pos + chunk);
+    chunks.insert(chunks.end(), response.begin() + pos, response.begin() + pos + chunk);
     pos += chunk + 2;
   }
 }

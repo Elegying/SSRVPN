@@ -68,6 +68,18 @@ void main() {
     expect(await provider(2).exists(), isTrue);
   });
 
+  test('subscription list beside runtime config does not disable collection',
+      () async {
+    final subscriptions = File('${root.path}/subscriptions.json');
+    const saved = '[{"id":"saved-subscription","name":"用户订阅"}]';
+    await subscriptions.writeAsString(saved);
+    await config('${root.path}/config.yaml', [2]);
+    expect(await prune(), 1);
+    expect(await subscriptions.readAsString(), saved);
+    expect(await provider(2).exists(), isTrue);
+    expect(await provider(3).exists(), isFalse);
+  });
+
   test('noncanonical bundle casing defers deletion on every platform',
       () async {
     final path = '${root.path}/config.yaml';
@@ -118,10 +130,11 @@ void main() {
     expect(await file.readAsBytes(), original);
   });
 
-  for (final invalid in ['missing', 'malformed', 'traversal']) {
+  for (final invalid in ['missing', 'malformed', 'traversal', 'non-map']) {
     test('$invalid reference defers every deletion', () async {
       final path = '${root.path}/config.yaml';
       if (invalid == 'malformed') await File(path).writeAsString('{broken');
+      if (invalid == 'non-map') await File(path).writeAsString('[]');
       if (invalid == 'traversal') {
         await File(path).writeAsString(
             'rule-providers: {p: {path: ./providers/bundles/../a.yaml}}');

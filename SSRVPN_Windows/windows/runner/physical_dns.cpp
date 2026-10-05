@@ -199,9 +199,9 @@ std::vector<IN_ADDR> QueryPhysicalDns(SOCKET socket, const std::string& host,
     if (!tls.Read(response)) return {};
     const int state = ParseDnsHttpResponse(response, body);
     if (state < 0) { Trace("HTTP framing", state); return {}; }
-    if (state > 0) break;
+    if (state > 0) return ParsePhysicalDns(std::move(body), ttl);
   }
-  return ParsePhysicalDns(std::move(body), ttl);
+  return {};
 }
 
 std::vector<IN_ADDR> ParsePhysicalDns(std::vector<unsigned char> body, DWORD& ttl) {
