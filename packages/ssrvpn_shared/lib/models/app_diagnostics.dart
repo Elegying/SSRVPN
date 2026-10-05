@@ -941,7 +941,13 @@ class AppDiagnosticReport {
 
   List<AppDiagnosticCheck> get attentionChecks => [
         ...checks.where((check) => check.status == AppDiagnosticStatus.failed),
-        ...checks.where((check) => check.status == AppDiagnosticStatus.warning),
+        ...checks.where((check) =>
+            check.status == AppDiagnosticStatus.warning &&
+            check.id != 'last_start' &&
+            check.id != 'ports'),
+        ...checks.where((check) =>
+            check.status == AppDiagnosticStatus.warning &&
+            (check.id == 'last_start' || check.id == 'ports')),
       ];
 
   String get userConclusion {
@@ -967,16 +973,16 @@ class AppDiagnosticReport {
           ? '尚无当前检查结果，历史记录有 $logAttentionCount 条提醒'
           : '本次检查未发现异常，历史记录有 $logAttentionCount 条提醒';
     }
+    if (checks.every((check) => check.status == AppDiagnosticStatus.skipped)) {
+      return '尚无足够检查结果，请重新检查';
+    }
     if (checks.any(
       (check) =>
           check.id == 'runtime' && check.status == AppDiagnosticStatus.skipped,
     )) {
       return '本地检查通过，连接尚未验证';
     }
-    return checks.isEmpty ||
-            checks.every((check) => check.status == AppDiagnosticStatus.skipped)
-        ? '尚无足够检查结果，请重新检查'
-        : '本次已完成的检查未发现异常';
+    return '本次已完成的检查未发现异常';
   }
 
   String toText({int maxLength = 8192}) {

@@ -63,6 +63,7 @@ void main() {
     for (final checks in [
       <AppDiagnosticCheck>[],
       [check('platform', status: AppDiagnosticStatus.skipped)],
+      [check('runtime', status: AppDiagnosticStatus.skipped)],
     ]) {
       expect(
         AppDiagnosticReport(
@@ -78,9 +79,11 @@ void main() {
     final history = check('last_start', code: AppErrorCode.permissionRequired);
     final current = check('core',
         code: AppErrorCode.coreMissing, status: AppDiagnosticStatus.failed);
+    final pending =
+        check('system_proxy', code: AppErrorCode.proxyRecoveryPending);
     final report = AppDiagnosticReport(
-        generatedAt: DateTime(2026), checks: [history, current]);
-    expect(report.attentionChecks, [current, history]);
+        generatedAt: DateTime(2026), checks: [history, pending, current]);
+    expect(report.attentionChecks, [current, pending, history]);
     expect(report.userConclusion, contains('连接服务文件未确认可用'));
     expect(history.status, AppDiagnosticStatus.warning);
     final unchecked = AppDiagnosticReport(
