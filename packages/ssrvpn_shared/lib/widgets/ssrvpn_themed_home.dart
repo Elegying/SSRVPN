@@ -339,7 +339,8 @@ class _ThemedNodeCard extends StatelessWidget {
                                 flex: 2,
                                 child: Tooltip(
                                     message: name,
-                                    child: SsrvpnHomeText(name,
+                                    child: SsrvpnHomeText(
+                                        compactNodeDisplayName(name),
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(

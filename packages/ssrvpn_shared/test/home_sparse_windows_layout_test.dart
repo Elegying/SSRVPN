@@ -84,7 +84,11 @@ void main() {
                       isConnected: true,
                       isConnecting: false,
                       selectedNode: ProxyNode(
-                          name: account ? '私家车' : '普通节点',
+                          name: account
+                              ? '私家车'
+                              : dpi == 1.5
+                                  ? '普通节点${'很长的名称' * 50}东京'
+                                  : '普通节点',
                           type: 'ss',
                           server: 'example.com',
                           port: 443),
