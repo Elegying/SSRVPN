@@ -11,7 +11,8 @@ void main() {
 
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('ssrvpn-diagnostics-');
-    historyFile = File('${tempDir.path}/diagnostic-history.json');
+    historyFile =
+        File('${tempDir.path}${Platform.pathSeparator}diagnostic-history.json');
   });
 
   tearDown(() async {
@@ -111,6 +112,7 @@ void main() {
     await store.append(first);
     final original = await historyFile.readAsBytes();
     Object? failure;
+    var failedReads = 0;
     await IOOverrides.runZoned(() async {
       expect(await store.load(), isEmpty);
       try {
@@ -122,9 +124,10 @@ void main() {
         fseGetType: (path, followLinks) => Zone.root
             .run(() => FileSystemEntity.type(path, followLinks: followLinks)),
         createFile: (path) => path == historyFile.path
-            ? _UnreadableHistoryFile(historyFile)
+            ? _UnreadableHistoryFile(historyFile, () => failedReads++)
             : Zone.root.run(() => File(path)));
     expect(await historyFile.readAsBytes(), original);
+    expect(failedReads, 2);
     expect(failure, isA<FileSystemException>());
     expect(await tempDir.list().length, 1);
     await store.append(second);
@@ -145,6 +148,7 @@ void main() {
     await service.runDiagnostics(clock: () => firstAt);
     final original = await historyFile.readAsBytes();
     final failedAt = firstAt.add(const Duration(minutes: 1));
+    var failedReads = 0;
     await IOOverrides.runZoned(() async {
       final report = await service.runDiagnostics(clock: () => failedAt);
       expect(report.generatedAt, failedAt);
@@ -152,9 +156,10 @@ void main() {
         fseGetType: (path, followLinks) => Zone.root
             .run(() => FileSystemEntity.type(path, followLinks: followLinks)),
         createFile: (path) => path == historyFile.path
-            ? _UnreadableHistoryFile(historyFile)
+            ? _UnreadableHistoryFile(historyFile, () => failedReads++)
             : Zone.root.run(() => File(path)));
     expect(await historyFile.readAsBytes(), original);
+    expect(failedReads, 1);
     final retryAt = failedAt.add(const Duration(minutes: 1));
     await service.runDiagnostics(clock: () => retryAt);
     expect(
@@ -202,8 +207,9 @@ class _HistoryDiagnosticService extends ClashServiceBase
 }
 
 class _UnreadableHistoryFile implements File {
-  _UnreadableHistoryFile(this.delegate);
+  _UnreadableHistoryFile(this.delegate, this.onRead);
   final File delegate;
+  final void Function() onRead;
   @override
   String get path => delegate.path;
   @override
@@ -211,8 +217,11 @@ class _UnreadableHistoryFile implements File {
   @override
   Future<int> length() => delegate.length();
   @override
-  Future<String> readAsString({Encoding encoding = utf8}) async =>
-      throw FileSystemException('synthetic transient read failure', path);
+  Future<String> readAsString({Encoding encoding = utf8}) async {
+    onRead();
+    throw FileSystemException('synthetic transient read failure', path);
+  }
+
   @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw StateError('unexpected test file method ${invocation.memberName}');
