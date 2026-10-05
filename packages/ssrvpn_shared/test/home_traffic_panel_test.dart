@@ -284,30 +284,26 @@ void main() {
               MediaQueryData(size: size, textScaler: TextScaler.linear(scale)),
           child: Scaffold(
               body: SsrvpnAppBackdrop(
-                  child: Column(children: [
-            Expanded(
-                child: Scaffold(
-              backgroundColor: Colors.transparent,
-              body: SsrvpnHomeOverview(
-                bottomContent: SsrvpnHomeTrafficPanel(
-                    active: true, connected: true, readSample: () => reader()),
-                isConnected: true,
-                isConnecting: false,
-                selectedNode: null,
-                selectedLatency: 30,
-                selectedCountryCode: 'US',
-                publicIpv4: '203.0.113.1 US',
-                onToggleConnection: () {},
-                onOpenNodes: () {},
-                onShowAbout: () {},
-                onShowTutorial: () {},
-                onShowLogs: () {},
-                onRefreshPublicIp: () {},
-              ),
-            )),
-            SsrvpnBottomNavigation(
+                  child: SsrvpnHomeShell(
+            body: SsrvpnHomeOverview(
+              bottomContent: SsrvpnHomeTrafficPanel(
+                  active: true, connected: true, readSample: () => reader()),
+              isConnected: true,
+              isConnecting: false,
+              selectedNode: null,
+              selectedLatency: 30,
+              selectedCountryCode: 'US',
+              publicIpv4: '203.0.113.1 US',
+              onToggleConnection: () {},
+              onOpenNodes: () {},
+              onShowAbout: () {},
+              onShowTutorial: () {},
+              onShowLogs: () {},
+              onRefreshPublicIp: () {},
+            ),
+            navigation: SsrvpnBottomNavigation(
                 currentIndex: 0, version: '4.0.28', onTap: (_) {}),
-          ]))),
+          ))),
         )));
         await tester.pump();
         expect(find.text('上传速率'), findsOneWidget);
