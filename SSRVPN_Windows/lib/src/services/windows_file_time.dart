@@ -19,15 +19,15 @@ typedef _ReadFileTime = void Function(Pointer<_FileTime>);
 final _ReadFileTime? _readFileTime = Platform.isWindows
     ? DynamicLibrary.open('kernel32.dll')
         .lookupFunction<_ReadFileTimeNative, _ReadFileTime>(
-            'GetSystemTimeAsFileTime')
+            'GetSystemTimePreciseAsFileTime')
     : null;
 
 BigInt windowsFileTimeFromParts(int high, int low) =>
     (BigInt.from(high) << 32) | BigInt.from(low);
 
-/// Uses the same Windows wall clock as Dart, preserving all 100-ns digits.
-/// DateTime truncates FILETIME to microseconds: converting it back can place a
-/// valid process creation time after the recorded return from Process.start.
+/// Reads precise Windows UTC without truncating the native 100-ns digits.
+/// GetSystemTimeAsFileTime can lag a newly created process even though it also
+/// returns FILETIME. Its coarse tick must not define the strict spawn window.
 BigInt currentWindowsUtcFileTime() {
   final read = _readFileTime;
   if (read == null) {
