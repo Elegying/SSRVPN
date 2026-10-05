@@ -58,7 +58,16 @@ class DNS(socketserver.BaseRequestHandler):
                 address = b''
             if address:
                 answer = b'\xc0\x0c' + struct.pack('!HHIH', kind, 1, 30, len(address)) + address
-        header = query[:2] + struct.pack('!HHHHH', 0x8180, 1, bool(answer), 0, 0)
+        answer_count = int(bool(answer))
+        if host == 'multi.fixture' and kind in (1, 28):
+            addresses = ['192.0.2.10', '192.0.2.11'] if kind == 1 else ['2001:db8::10', '2001:db8::11']
+            records = []
+            for value in addresses:
+                address = socket.inet_pton(socket.AF_INET if kind == 1 else socket.AF_INET6, value)
+                records.append(b'\xc0\x0c' + struct.pack('!HHIH', kind, 1, 30, len(address)) + address)
+            answer = b''.join(records)
+            answer_count = len(records)
+        header = query[:2] + struct.pack('!HHHHH', 0x8180, 1, answer_count, 0, 0)
         transport.sendto(header + query[12:end] + answer, self.client_address)
 
 
@@ -66,6 +75,7 @@ class Proxy(traffic.ConnectProxy):
     targets = []
     fail_ipv6 = False
     fail_ipv4 = False
+    fail_first_targets = 0
 
     def handle(self):
         first = self.rfile.readline().decode()
@@ -75,11 +85,11 @@ class Proxy(traffic.ConnectProxy):
         assert method == 'CONNECT'
         host, port = destination.rsplit(':', 1)
         host = host.strip('[]')
-        assert host in {'192.0.2.10', '2001:db8::10', 'v6.fixture', 'fallback.fixture', '127.0.0.1', '::1', 'leak.fixture'}, host
+        assert host in {'192.0.2.10', '192.0.2.11', '2001:db8::10', '2001:db8::11', 'v6.fixture', 'fallback.fixture', '127.0.0.1', '::1', 'leak.fixture'}, host
         self.targets.append(host)
         while self.rfile.readline() not in (b'\r\n', b'\n', b''):
             pass
-        if host in {'127.0.0.1', '::1', 'leak.fixture'} or (self.fail_ipv6 and host in {'2001:db8::10', 'v6.fixture'}) or (self.fail_ipv4 and host == '192.0.2.10'):
+        if len(self.targets) <= self.fail_first_targets or host in {'127.0.0.1', '::1', 'leak.fixture'} or (self.fail_ipv6 and host in {'2001:db8::10', 'v6.fixture'}) or (self.fail_ipv4 and host == '192.0.2.10'):
             self.wfile.write(b'HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n')
             return
         with socket.create_connection(('127.0.0.1', int(port)), timeout=3) as remote:
@@ -251,6 +261,18 @@ def main():
                     status, _ = traffic.request(mixed, f'http://{host}:{target}/payload', False)
                     assert status == 200 and Proxy.targets[0] == expected, (host, status, Proxy.targets)
                 Proxy.targets.clear()
+                Proxy.fail_first_targets = 2
+                try:
+                    status, _ = traffic.request(mixed, f'http://multi.fixture:{target}/multi-address', False)
+                    assert status == 200, (status, Proxy.targets)
+                    assert len(Proxy.targets) == 3, Proxy.targets
+                    assert Proxy.targets[0].startswith('192.0.2.'), Proxy.targets
+                    assert Proxy.targets[1].startswith('2001:db8::'), Proxy.targets
+                    assert Proxy.targets[2].startswith('192.0.2.'), Proxy.targets
+                    assert Proxy.targets[0] != Proxy.targets[2], Proxy.targets
+                finally:
+                    Proxy.fail_first_targets = 0
+                Proxy.targets.clear()
                 assert traffic.request(mixed, f'http://[::1]:{target6}/payload', False)[0] == 200
                 assert traffic.request(mixed, f'http://127.0.0.1:{target}/payload', False)[0] == 200
                 assert not Proxy.targets, 'direct traffic reached proxy'
@@ -331,7 +353,7 @@ def main():
                 observation = json.loads(body)
                 assert status == 200 and observation['ipv6TargetFailures'] > 0, observation
                 assert traffic.request(mixed, f'http://127.0.0.1:{target}/still-running', False)[0] == 200
-                print('PASS: TCP/UDP, actual-response family preference, IPv6-only, dual Fake-IP reverse mapping, no DIRECT payload leak, IPv4/IPv6 DIRECT, TLS/SNI, certificate rejection, surviving core')
+                print('PASS: TCP/UDP, multi-address fallback after both first-family targets fail, actual-response family preference, IPv6-only, dual Fake-IP reverse mapping, no DIRECT payload leak, IPv4/IPv6 DIRECT, TLS/SNI, certificate rejection, surviving core')
             except BaseException:
                 log.flush()
                 log.seek(0)
