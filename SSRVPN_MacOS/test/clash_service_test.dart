@@ -917,6 +917,127 @@ void main() {
       );
     });
 
+    test('cancel during final native readiness never commits a connection',
+        () async {
+      const channel = MethodChannel('ssrvpn/core_process');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_final_status_cancel_',
+      );
+      var statusCalls = 0;
+      var removeCalls = 0;
+      var terminateCalls = 0;
+      final finalStatusRequested = Completer<void>();
+      final releaseFinalStatus = Completer<Map<String, Object?>>();
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        switch (call.method) {
+          case 'launchOwnedCore':
+            return {
+              'pid': 4242,
+              'pidRecordContents': 'v2 4242 100 123456\n',
+            };
+          case 'ownedCoreStatus':
+            statusCalls++;
+            if (statusCalls == 1) {
+              return {
+                'isRunning': true,
+                'standardOutput': '',
+                'standardError': '',
+              };
+            }
+            if (!finalStatusRequested.isCompleted) {
+              finalStatusRequested.complete();
+            }
+            return releaseFinalStatus.future;
+          case 'removeOwnedCorePidRecord':
+            removeCalls++;
+            return true;
+          case 'terminateOwnedCoreRecord':
+            terminateCalls++;
+            return true;
+          case 'beginProxyLifecycleTransaction':
+            return 'test-proxy-lease';
+          case 'endProxyLifecycleTransaction':
+            return true;
+        }
+        return null;
+      });
+      var proxyOwned = false;
+      final proxyService = SystemProxyService(
+        startProxyGuardian: (_, __) async => true,
+        beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
+        endProxyLifecycleTransaction: (_) async => true,
+        networkServiceIdentityRunner: () async => {
+          'Wi-Fi': 'test-service-wifi',
+        },
+        effectiveProxyRunner: () async => ProcessResult(
+          1,
+          0,
+          proxyOwned ? _effectiveProxyOutput(7890) : '<dictionary> {\n}',
+          '',
+        ),
+        networkSetupRunner: (arguments) async {
+          if (arguments.first == '-listallnetworkservices') {
+            return ProcessResult(1, 0, 'Wi-Fi\n', '');
+          }
+          if (arguments.first.startsWith('-get')) {
+            return ProcessResult(
+              1,
+              0,
+              proxyOwned
+                  ? 'Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n'
+                  : 'Enabled: No\nServer: \nPort: 0\n',
+              '',
+            );
+          }
+          if (const {
+            '-setwebproxy',
+            '-setsecurewebproxy',
+            '-setsocksfirewallproxy',
+          }.contains(arguments.first)) {
+            proxyOwned = true;
+          } else if (arguments.first.endsWith('state')) {
+            proxyOwned = arguments.last == 'on';
+          }
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+      final service = _AlwaysHealthyClashService(proxyService: proxyService);
+      addTearDown(() async {
+        service.dispose();
+        await service.flushLogs();
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      await service.init(
+        AppSettings(),
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      await service.writeConfig(
+        service.generateClashConfig(_subscriptionYaml, AppSettings()),
+      );
+      final observedRunning = <bool>[];
+      service.onStatusChanged = () => observedRunning.add(service.isRunning);
+      final starting = service.start();
+      await finalStatusRequested.future.timeout(const Duration(seconds: 3));
+      final stopping = service.stop();
+      releaseFinalStatus.complete({
+        'isRunning': true,
+        'standardOutput': '',
+        'standardError': '',
+      });
+      final started = await starting;
+      await stopping;
+      expect(started, isFalse);
+      expect(observedRunning, isNot(contains(true)));
+      expect(service.lastStartError, contains('取消'));
+      expect(terminateCalls, 1);
+      expect(removeCalls, 0);
+      expect(proxyOwned, isFalse);
+      expect(service.isRunning, isFalse);
+    });
+
     test('stop cancels and drains native status watch before termination',
         () async {
       const channel = MethodChannel('ssrvpn/core_process');
