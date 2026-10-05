@@ -523,7 +523,9 @@ jobs:
       - run: flutter pub get --enforce-lockfile
 
       - name: Shared tests on Windows
-        run: flutter test --reporter expanded
+        # These suites launch real publication helpers and loopback servers.
+        # Keep the 30s per-test deadline without competing cold-start processes.
+        run: flutter test --concurrency=1 --reporter expanded
         working-directory: packages/ssrvpn_shared
 
       - name: Windows UI DPI and typography audit
