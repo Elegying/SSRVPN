@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 
@@ -94,6 +95,74 @@ void main() {
     expect(entries.single.reportText, isNot(contains('manually-injected')));
   });
 
+  test('read failure cannot replace prior history and a later append retries',
+      () async {
+    final store = AppDiagnosticHistoryStore(historyFile.path);
+    final first = AppDiagnosticReport(
+      generatedAt: DateTime.utc(2026, 10, 5),
+      checks: const [],
+      recentLogs: 'original evidence',
+    );
+    final second = AppDiagnosticReport(
+      generatedAt: DateTime.utc(2026, 10, 5, 0, 1),
+      checks: const [],
+      recentLogs: 'new evidence',
+    );
+    await store.append(first);
+    final original = await historyFile.readAsBytes();
+    Object? failure;
+    await IOOverrides.runZoned(() async {
+      expect(await store.load(), isEmpty);
+      try {
+        await store.append(second);
+      } catch (error) {
+        failure = error;
+      }
+    },
+        fseGetType: (path, followLinks) => Zone.root
+            .run(() => FileSystemEntity.type(path, followLinks: followLinks)),
+        createFile: (path) => path == historyFile.path
+            ? _UnreadableHistoryFile(historyFile)
+            : Zone.root.run(() => File(path)));
+    expect(await historyFile.readAsBytes(), original);
+    expect(failure, isA<FileSystemException>());
+    expect(await tempDir.list().length, 1);
+    await store.append(second);
+    expect((await store.load()).map((entry) => entry.generatedAt),
+        [second.generatedAt, first.generatedAt]);
+  });
+
+  test('diagnostic read failure preserves history without poisoning its queue',
+      () async {
+    final service = _HistoryDiagnosticService();
+    addTearDown(service.dispose);
+    service.setPaths(
+      configDir: tempDir.path,
+      configPath: '${tempDir.path}/config.yaml',
+    );
+    await File(service.configPath).writeAsString('mixed-port: 7890');
+    final firstAt = DateTime.utc(2026, 10, 5);
+    await service.runDiagnostics(clock: () => firstAt);
+    final original = await historyFile.readAsBytes();
+    final failedAt = firstAt.add(const Duration(minutes: 1));
+    await IOOverrides.runZoned(() async {
+      final report = await service.runDiagnostics(clock: () => failedAt);
+      expect(report.generatedAt, failedAt);
+    },
+        fseGetType: (path, followLinks) => Zone.root
+            .run(() => FileSystemEntity.type(path, followLinks: followLinks)),
+        createFile: (path) => path == historyFile.path
+            ? _UnreadableHistoryFile(historyFile)
+            : Zone.root.run(() => File(path)));
+    expect(await historyFile.readAsBytes(), original);
+    final retryAt = failedAt.add(const Duration(minutes: 1));
+    await service.runDiagnostics(clock: () => retryAt);
+    expect(
+        (await service.loadDiagnosticHistory())
+            .map((entry) => entry.generatedAt),
+        [retryAt, firstAt]);
+  });
+
   test('runDiagnostics appends history after producing a report', () async {
     final service = _HistoryDiagnosticService();
     service.setPaths(
@@ -130,4 +199,21 @@ class _HistoryDiagnosticService extends ClashServiceBase
 
   @override
   Future<void> onStopRequired() async {}
+}
+
+class _UnreadableHistoryFile implements File {
+  _UnreadableHistoryFile(this.delegate);
+  final File delegate;
+  @override
+  String get path => delegate.path;
+  @override
+  Directory get parent => delegate.parent;
+  @override
+  Future<int> length() => delegate.length();
+  @override
+  Future<String> readAsString({Encoding encoding = utf8}) async =>
+      throw FileSystemException('synthetic transient read failure', path);
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('unexpected test file method ${invocation.memberName}');
 }

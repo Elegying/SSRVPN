@@ -5227,8 +5227,9 @@ class _DelayedDiagnosticHistoryStore extends AppDiagnosticHistoryStore {
   final resumeLoad = Completer<void>();
 
   @override
-  Future<List<AppDiagnosticHistoryEntry>> load() async {
-    final entries = await super.load();
+  Future<List<AppDiagnosticHistoryEntry>> load(
+      {bool requireReadable = false}) async {
+    final entries = await super.load(requireReadable: requireReadable);
     if (pause) {
       pause = false;
       loadStarted.complete();

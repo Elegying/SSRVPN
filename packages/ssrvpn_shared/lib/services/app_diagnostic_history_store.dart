@@ -40,7 +40,8 @@ class AppDiagnosticHistoryStore {
   final int maxReportLength;
   final int maxFileBytes;
 
-  Future<List<AppDiagnosticHistoryEntry>> load() async {
+  Future<List<AppDiagnosticHistoryEntry>> load(
+      {bool requireReadable = false}) async {
     final file = File(path);
     try {
       if (await FileSystemEntity.type(path, followLinks: false) !=
@@ -65,6 +66,9 @@ class AppDiagnosticHistoryStore {
           .sort((left, right) => right.generatedAt.compareTo(left.generatedAt));
       return List.unmodifiable(entries);
     } on FileSystemException {
+      // A transient read failure is not an empty history. Writers must retain
+      // the existing bytes; read-only display can still degrade gracefully.
+      if (requireReadable) rethrow;
       return const [];
     } on FormatException {
       return const [];
@@ -77,7 +81,7 @@ class AppDiagnosticHistoryStore {
     AppDiagnosticReport report, {
     bool Function()? canPublish,
   }) async {
-    final entries = (await load()).toList();
+    final entries = (await load(requireReadable: true)).toList();
     entries.insert(
       0,
       AppDiagnosticHistoryEntry(
