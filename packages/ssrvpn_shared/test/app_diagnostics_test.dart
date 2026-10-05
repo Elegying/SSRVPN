@@ -101,7 +101,7 @@ void main() {
           '连接阶段：系统授权与提权交接；耗时 6000ms；累计 6050ms；'
           'attempt=1 outcome=advanced',
     );
-    expect(report.userConclusion, '运行正常，未发现异常');
+    expect(report.userConclusion, '本次已完成的检查未发现异常');
     expect(report.readableLogs.single.category, '连接耗时');
     expect(report.readableLogs.single.requiresAttention, isFalse);
     expect(report.toText(), contains('耗时 6000ms'));

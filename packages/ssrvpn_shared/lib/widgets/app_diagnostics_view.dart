@@ -4,18 +4,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/app_diagnostics.dart';
+import '../utils/log_redactor.dart';
 import '../services/app_diagnostic_history_store.dart';
 
 typedef RunAppDiagnostics = Future<AppDiagnosticReport> Function();
 typedef RepairAppDiagnostic = Future<AppRepairResult> Function(
-  AppRepairAction action,
-);
+    AppRepairAction action);
 typedef LoadAppDiagnosticHistory = Future<List<AppDiagnosticHistoryEntry>>
     Function();
 
 @visibleForTesting
 bool diagnosticClipboardMatchesReport(
-    String? clipboardText, String reportText) {
+  String? clipboardText,
+  String reportText,
+) {
   if (clipboardText == null) return false;
   String normalizeNewlines(String value) =>
       value.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
@@ -148,10 +150,7 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
                 const SizedBox(height: 8),
                 const Text('诊断未能完成'),
                 const SizedBox(height: 4),
-                Text(
-                  '没有修改任何系统状态，请稍后重试。',
-                  style: theme.textTheme.bodySmall,
-                ),
+                Text('没有修改任何系统状态，请稍后重试。', style: theme.textTheme.bodySmall),
                 const SizedBox(height: 8),
                 FilledButton.tonal(onPressed: _load, child: const Text('重试')),
               ],
@@ -211,6 +210,11 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               summaryText,
+              const SizedBox(height: 6),
+              Text(
+                '结论仅对应本次检查；历史提醒不代表当前仍有故障。',
+                style: theme.textTheme.bodySmall,
+              ),
               Align(
                 alignment: Alignment.centerRight,
                 child: Wrap(
@@ -236,7 +240,7 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
           ),
         ],
         const SizedBox(height: 8),
-        for (final check in report.checks)
+        for (final check in report.attentionChecks)
           _DiagnosticCheckTile(
             check: check,
             repairing: _repairing == check.repairAction,
@@ -245,13 +249,32 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
                 ? null
                 : () => _repair(check.repairAction!),
           ),
+        if (report.checks.any((check) => !check.needsAttention))
+          ExpansionTile(
+            title: const Text('已通过与未执行的检查'),
+            subtitle: Text(
+              '共 ${report.checks.where((check) => !check.needsAttention).length} 项，点击查看',
+            ),
+            children: [
+              for (final check in report.checks.where(
+                (check) => !check.needsAttention,
+              ))
+                _DiagnosticCheckTile(
+                  check: check,
+                  repairing: false,
+                  repairEnabled: false,
+                  onRepair: null,
+                ),
+            ],
+          ),
         if (readableLogs.isNotEmpty)
           ExpansionTile(
             leading: const Icon(Icons.article_outlined, size: 20),
             title: Text('最近运行记录（${readableLogs.length}）'),
-            subtitle: const Text('已按本地时间整理，并隐藏内部标识'),
-            initiallyExpanded:
-                readableLogs.any((entry) => entry.requiresAttention),
+            subtitle: const Text('历史记录，可能已恢复；按本地时间显示'),
+            initiallyExpanded: readableLogs.any(
+              (entry) => entry.requiresAttention,
+            ),
             children: [
               for (final entry in readableLogs) _ReadableLogTile(entry: entry),
             ],
@@ -361,8 +384,10 @@ class _ReadableLogTile extends StatelessWidget {
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        Text(entry.category,
-                            style: theme.textTheme.labelMedium),
+                        Text(
+                          entry.category,
+                          style: theme.textTheme.labelMedium,
+                        ),
                         Text(
                           entry.timeLabel,
                           style: theme.textTheme.labelSmall?.copyWith(
@@ -410,31 +435,34 @@ class _DiagnosticCheckTile extends StatelessWidget {
       AppDiagnosticStatus.passed => (
           Icons.check_circle_outline,
           Colors.green,
-          '通过'
+          '通过',
         ),
       AppDiagnosticStatus.warning => (
           Icons.warning_amber_rounded,
           Colors.orange,
-          '提醒'
+          '提醒',
         ),
       AppDiagnosticStatus.failed => (
           Icons.error_outline,
           theme.colorScheme.error,
-          '失败'
+          '失败',
         ),
       AppDiagnosticStatus.skipped => (
           Icons.remove_circle_outline,
           theme.colorScheme.outline,
-          '已跳过'
+          '已跳过',
         ),
     };
     final code = check.errorCode?.wireName;
+    final guidance = check.guidance;
+    final safeSummary = LogRedactor.sanitizeForDisplay(check.summary);
 
     return Semantics(
-      label: '${check.title}，$statusLabel，${check.summary}',
+      label: '${check.title}，$statusLabel，${guidance?.problem ?? safeSummary}',
       child: Padding(
-        padding:
-            EdgeInsets.only(bottom: SsrvpnTheme.of(context).isSoft ? 20 : 8),
+        padding: EdgeInsets.only(
+          bottom: SsrvpnTheme.of(context).isSoft ? 20 : 8,
+        ),
         child: SsrvpnLiquidSurface(
           dense: true,
           padding: const EdgeInsets.all(12),
@@ -449,12 +477,30 @@ class _DiagnosticCheckTile extends StatelessWidget {
                   children: [
                     Text(check.title, style: theme.textTheme.titleSmall),
                     const SizedBox(height: 3),
-                    Text(check.summary, style: theme.textTheme.bodySmall),
-                    if (code != null)
+                    Text(
+                      guidance?.problem ?? safeSummary,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    if (guidance != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        '影响：${guidance.impact}',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '下一步：${guidance.nextStep}',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ],
+                    if (code != null || guidance != null)
                       ExpansionTile(
                         tilePadding: EdgeInsets.zero,
                         title: const Text('技术详情'),
-                        children: [SelectableText('错误编号：$code')],
+                        children: [
+                          SelectableText(safeSummary),
+                          if (code != null) SelectableText('错误编号：$code'),
+                        ],
                       ),
                     if (onRepair != null) ...[
                       const SizedBox(height: 8),
@@ -463,8 +509,9 @@ class _DiagnosticCheckTile extends StatelessWidget {
                         icon: repairing
                             ? const SizedBox.square(
                                 dimension: 14,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                             : const Icon(Icons.build_outlined, size: 16),
                         label: const Text('修复系统代理'),
