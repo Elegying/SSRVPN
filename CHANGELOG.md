@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修复
+
+- 诊断期间物理网络或节点路由发生变化时，丢弃旧网络结论并提示重新检查，避免将过期通过结果展示或排入诊断历史。
+
 ## [5.0.33] - 2026-10-05
 
 ### 修复

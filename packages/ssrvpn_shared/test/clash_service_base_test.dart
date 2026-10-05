@@ -3689,6 +3689,41 @@ proxies:
       expect(service.isRunning, isTrue);
     });
 
+    for (final change in ['network', 'route', 'none']) {
+      test('diagnostic validates $change changes while platform check waits',
+          () async {
+        final directory = await Directory.systemTemp.createTemp('diag-epoch-');
+        addTearDown(() => directory.delete(recursive: true));
+        final service = _PendingPlatformDiagnosticService();
+        addTearDown(service.dispose);
+        service.setPaths(configDir: directory.path, configPath: '');
+        service.requestConnectionIntent(true);
+        service.setRunning(true);
+        service.publishConnectivityWarning(null);
+        await service.runNetworkChangeCheck();
+        final pending = service.runDiagnostics();
+        await service.platformStarted.future;
+        if (change == 'network') {
+          service.fingerprint = 'en0:192.168.1.9';
+          await service.runNetworkChangeCheck();
+        } else if (change == 'route') {
+          service.changeRoute();
+        }
+        service.platformFinished.complete();
+        final report = await pending;
+        if (change == 'none') {
+          expect(report.checks.singleWhere((c) => c.id == 'data_plane').status,
+              AppDiagnosticStatus.passed);
+          expect(await service.loadDiagnosticHistory(), hasLength(1));
+        } else {
+          expect(report.checks.map((check) => check.id), ['session_changed']);
+          expect(await service.loadDiagnosticHistory(), isEmpty);
+        }
+        expect(service.isRunning, isTrue);
+        expect(service.connectionDesired, isTrue);
+      });
+    }
+
     test('expired and future reachability timestamps are not current success',
         () async {
       final service = _DiagnosticClashService();
@@ -5124,4 +5159,22 @@ class _PublicIpClashService extends _TestClashService {
   }
 
   void changeRoute() => onDataPlaneRouteChanged();
+}
+
+class _PendingPlatformDiagnosticService extends _DiagnosticClashService {
+  final platformStarted = Completer<void>();
+  final platformFinished = Completer<void>();
+  String fingerprint = 'en0:10.0.0.2';
+
+  void changeRoute() => onDataPlaneRouteChanged();
+
+  @override
+  Future<String?> buildNetworkFingerprint() async => fingerprint;
+
+  @override
+  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async {
+    platformStarted.complete();
+    await platformFinished.future;
+    return const [];
+  }
 }

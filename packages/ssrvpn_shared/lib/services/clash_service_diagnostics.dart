@@ -36,6 +36,11 @@ String buildDataPlaneDiagnosticSummary({
 /// Read-only diagnostics and narrowly scoped, platform-owned repair hooks.
 mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
   bool get _canPublishHealthCheckResult;
+  bool get isDataPlaneObservationCurrent;
+
+  // A live connection can change networks without changing health or intent.
+  bool get _canPublishDiagnosticResult =>
+      _canPublishHealthCheckResult && isDataPlaneObservationCurrent;
   static int _nextLogSession = 0;
   static const bool _kReleaseMode = bool.fromEnvironment('dart.vm.product');
 
@@ -140,19 +145,19 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
     String id,
     Future<T> Function() operation,
   ) async {
-    if (!_canPublishHealthCheckResult) throw const _DiagnosticSessionChanged();
+    if (!_canPublishDiagnosticResult) throw const _DiagnosticSessionChanged();
     try {
       return await operation().timeout(diagnosticCheckTimeout);
     } on TimeoutException {
-      if (_canPublishHealthCheckResult) log('诊断检查 $id 超时');
+      if (_canPublishDiagnosticResult) log('诊断检查 $id 超时');
       return null;
     } catch (error) {
-      if (_canPublishHealthCheckResult) {
+      if (_canPublishDiagnosticResult) {
         log('诊断检查 $id 失败: cause=${safeRuntimeErrorCode(error)}');
       }
       return null;
     } finally {
-      if (!_canPublishHealthCheckResult) {
+      if (!_canPublishDiagnosticResult) {
         throw const _DiagnosticSessionChanged();
       }
     }
@@ -162,7 +167,7 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
       runDiagnosticInSession(() async {
         try {
           final report = await _runDiagnostics(clock: clock);
-          if (!_canPublishHealthCheckResult) {
+          if (!_canPublishDiagnosticResult) {
             throw const _DiagnosticSessionChanged();
           }
           return report;
@@ -431,7 +436,7 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
     );
     if (configDir.trim().isNotEmpty) {
       final operation = _diagnosticHistoryTail.then(
-        (_) => _canPublishHealthCheckResult
+        (_) => _canPublishDiagnosticResult
             ? AppDiagnosticHistoryStore(
                 '$configDir${Platform.pathSeparator}diagnostic-history.json',
               ).append(report)
