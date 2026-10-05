@@ -23,4 +23,4 @@ jobs:
       - run: flutter pub get --enforce-lockfile
       - name: Exercise production FILETIME reader against native creation
         working-directory: SSRVPN_Windows
-        run: flutter test --no-pub test/windows_file_time_test.dart
+        run: flutter test --no-pub --no-test-assets test/windows_file_time_test.dart
