@@ -946,8 +946,9 @@ void main() {
                 'standardError': '',
               };
             }
-            if (!finalStatusRequested.isCompleted)
+            if (!finalStatusRequested.isCompleted) {
               finalStatusRequested.complete();
+            }
             return releaseFinalStatus.future;
           case 'removeOwnedCorePidRecord':
             removeCalls++;
