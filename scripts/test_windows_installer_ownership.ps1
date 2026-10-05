@@ -156,6 +156,8 @@ function Seal-Case($Case) {
 function Pass([string]$Name) { [void]$results.Add([ordered]@{ case = $Name; result = 'PASS' }); Write-Host "PASS $Name" }
 
 try {
+  . (Join-Path $PSScriptRoot 'test_windows_installer_copy_interruption.ps1')
+
   $c = New-Case 'bootstrap-dependency-failure'
   $brokenHelper = Join-Path $c.root 'isolated\program_files_transaction.ps1'
   Write-FixtureFile $brokenHelper ([IO.File]::ReadAllText($helper))

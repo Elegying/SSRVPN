@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修复
+
+- Windows 安装和恢复先在独占暂存文件中完成复制、校验与落盘，再发布程序文件；辅助进程中途被终止不再留下阻塞恢复的残缺正式文件，目标出现外来文件时仍拒绝覆盖。
+
 ## [5.0.33] - 2026-10-05
 
 ### 修复

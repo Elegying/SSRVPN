@@ -22,6 +22,16 @@ namespace SsrvpnInstaller {
     static extern bool SetFileInformationByHandle(SafeFileHandle handle, int kind,
       ref byte data, uint size);
     [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool SetFileInformationByHandle(SafeFileHandle handle, int kind,
+      IntPtr data, uint size);
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct RenameInfo {
+      public uint ReplaceIfExists;
+      public IntPtr RootDirectory;
+      public uint FileNameLength;
+      public char FileName;
+    }
+    [DllImport("kernel32.dll", SetLastError = true)]
     static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
     [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
@@ -147,13 +157,40 @@ namespace SsrvpnInstaller {
           return reader.ReadToEnd();
       } finally { stream.Position = 0; }
     }
+    void PublishNew(string path) {
+      // FILE_RENAME_INFO with ReplaceIfExists=false: a late foreign target is
+      // an error, never a reason to overwrite. Rename the pinned file object.
+      var name = Encoding.Unicode.GetBytes(Path.GetFullPath(path));
+      int offset = Marshal.OffsetOf(typeof(RenameInfo), "FileName").ToInt32();
+      int size = Math.Max(Marshal.SizeOf(typeof(RenameInfo)), offset + name.Length + 2);
+      var data = Marshal.AllocHGlobal(size);
+      try {
+        Marshal.Copy(new byte[size], 0, data, size);
+        Marshal.WriteInt32(data, Marshal.OffsetOf(typeof(RenameInfo), "FileNameLength").ToInt32(), name.Length);
+        Marshal.Copy(name, 0, IntPtr.Add(data, offset), name.Length);
+        // Disposition is reversible because CreateFile did not use
+        // FILE_FLAG_DELETE_ON_CLOSE. A kill here can leave a complete random
+        // staging file, but never an incomplete authoritative program target.
+        byte keep = 0;
+        if (!SetFileInformationByHandle(stream.SafeFileHandle, 4, ref keep, 1))
+          throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot retain verified staging file.");
+        if (!SetFileInformationByHandle(stream.SafeFileHandle, 3, data, (uint)size))
+          throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot publish verified program file.");
+      } finally { Marshal.FreeHGlobal(data); }
+    }
     public void CopyNew(string path) {
       using (var target = new ProgramFile()) {
         target.PinParents(path, true);
-        var handle = CreateFile(path, 0xC0010000, 0, IntPtr.Zero, 1, 0x00200000, IntPtr.Zero);
-        try { Check(handle, path, false); target.stream = new FileStream(handle, FileAccess.ReadWrite); }
+        // Same-directory CREATE_NEW staging remains exclusive and its parents
+        // pinned through verification and publication. Never reopen by path.
+        var staging = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path)),
+          ".ssrvpn-copy-" + Guid.NewGuid().ToString("N") + ".tmp");
+        var handle = CreateFile(staging, 0xC0010000, 0, IntPtr.Zero, 1, 0x00200000, IntPtr.Zero);
+        try { Check(handle, staging, false); target.stream = new FileStream(handle, FileAccess.ReadWrite); }
         catch { handle.Dispose(); throw; }
         try {
+          // The kernel removes incomplete staging even on process termination.
+          target.Delete();
           stream.Position = 0;
           stream.CopyTo(target.stream);
           target.stream.Flush(true);
@@ -162,6 +199,7 @@ namespace SsrvpnInstaller {
             var digest = BitConverter.ToString(hash.ComputeHash(target.stream)).Replace("-", "").ToLowerInvariant();
             if (digest != Sha256) throw new IOException("Copied program file did not verify.");
           }
+          target.PublishNew(path);
         } catch { target.Delete(); throw; }
       }
     }
