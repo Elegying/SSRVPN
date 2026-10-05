@@ -281,6 +281,7 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
         child: Scaffold(
           backgroundColor: SsrvpnUiTokens.of(context).background,
           body: SsrvpnAppBackdrop(
+            readable: true,
             child: SafeArea(
               child: Center(
                 child: ConstrainedBox(

@@ -267,6 +267,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return SsrvpnAppBackdrop(
+      readable: true,
       child: SsrvpnModalGlassPanel(
         key: Key('ssrvpn-node-edit-glass'),
         borderRadius: 0,

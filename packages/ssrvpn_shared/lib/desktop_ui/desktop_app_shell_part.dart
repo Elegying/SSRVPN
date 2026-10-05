@@ -109,6 +109,7 @@ class _DesktopAppShell extends StatelessWidget {
       body: DefaultTextStyle.merge(
         style: TextStyle(decoration: TextDecoration.none),
         child: SsrvpnAppBackdrop(
+          readable: currentIndex != 0,
           child: SsrvpnHomeShell(
             notices: statusBanners,
             extendBehindNavigation: currentIndex != 0,

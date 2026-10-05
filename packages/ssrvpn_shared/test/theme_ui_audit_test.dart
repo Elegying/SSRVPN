@@ -83,6 +83,7 @@ void main() {
                   child: RepaintBoundary(key: captureKey, child: child!)),
               home: Scaffold(
                   body: SsrvpnAppBackdrop(
+                      readable: tab != 0,
                       child: SsrvpnHomeShell(
                           body: body,
                           navigation: SsrvpnBottomNavigation(

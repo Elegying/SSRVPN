@@ -65,14 +65,18 @@ class SsrvpnFrostedPanel extends StatelessWidget {
 
 /// Shared accepted wallpaper with a lightweight asset-error fallback.
 class SsrvpnAppBackdrop extends StatelessWidget {
-  const SsrvpnAppBackdrop({super.key, required this.child});
+  const SsrvpnAppBackdrop(
+      {super.key, required this.child, this.readable = false});
+  final bool readable;
   final Widget child;
   @override
   Widget build(BuildContext context) {
     final theme = SsrvpnTheme.of(context);
     final shade = MediaQuery.highContrastOf(context)
         ? .82
-        : (theme.isDefault ? .28 : 0.0);
+        : readable && theme.isIllustrated
+            ? (theme.isLight ? .82 : .25)
+            : (theme.isDefault ? .28 : 0.0);
     return liquid.LiquidGlassScope(
       child: SsrvpnGlassCapture(
           child: Stack(fit: StackFit.expand, children: [
