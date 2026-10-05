@@ -477,7 +477,9 @@ jobs:
 
       - name: Run Windows policy tests
         shell: powershell
-        timeout-minutes: 15
+        # Match CI for the same serial HKCU/HKLM interruption/ownership suite.
+        # Per-helper bounds and all assertions remain unchanged.
+        timeout-minutes: 20
         run: |
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts\test_windows_policy.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
