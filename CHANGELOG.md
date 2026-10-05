@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.34] - 2026-10-05
+
 ### 改进
 
 - 三端诊断优先展示待处理项，以白话说明问题、影响和下一步；正常检查与技术证据可展开查看，保留错误编号和脱敏报告，区分历史提醒与当前状态。
