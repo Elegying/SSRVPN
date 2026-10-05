@@ -115,6 +115,7 @@ class SsrvpnThemedPowerButton extends StatelessWidget {
                                       alignment: const Alignment(0, .45),
                                       child: SizedBox(
                                           width: size * .52,
+                                          height: size * .12,
                                           child: FittedBox(
                                               fit: BoxFit.scaleDown,
                                               child: Text(

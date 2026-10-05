@@ -119,6 +119,14 @@ void main() {
             final ip = rect('home-public-ip');
             final stats = rect('home-traffic-panel');
             final nav = rect('ssrvpn-bottom-navigation');
+            if (SsrvpnTheme(variant).isIllustrated &&
+                variant != AppThemeVariant.pixel) {
+              final power = rect('ssrvpn-power-button');
+              final label = tester.getRect(find.text('已连接'));
+              expect(label.height, lessThanOrEqualTo(power.height * .12 + .1));
+              expect(label.width, lessThanOrEqualTo(power.width * .52 + .1));
+              expect(label.bottom, lessThan(power.bottom));
+            }
             final canvasFinder = find.byKey(const Key('ssrvpn-home-canvas'));
             final scale = tester.getRect(canvasFinder).width /
                 tester.getSize(canvasFinder).width;
