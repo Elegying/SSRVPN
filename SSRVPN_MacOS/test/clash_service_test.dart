@@ -917,7 +917,7 @@ void main() {
       );
     });
 
-    test('cancel during final native readiness never commits a connection',
+    test('cancel during final native readiness never commits and can reconnect',
         () async {
       const channel = MethodChannel('ssrvpn/core_process');
       final messenger =
@@ -1036,6 +1036,15 @@ void main() {
       expect(removeCalls, 0);
       expect(proxyOwned, isFalse);
       expect(service.isRunning, isFalse);
+      observedRunning.clear();
+      expect(await service.start(), isTrue);
+      expect(service.isRunning, isTrue);
+      expect(observedRunning, contains(true));
+      expect(proxyOwned, isTrue);
+      await service.stop();
+      expect(service.isRunning, isFalse);
+      expect(proxyOwned, isFalse);
+      expect(terminateCalls, 2);
     });
 
     test('stop cancels and drains native status watch before termination',

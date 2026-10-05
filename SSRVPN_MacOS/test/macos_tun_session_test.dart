@@ -1109,12 +1109,15 @@ rule-providers:
     expect(await request.readAsString(), '777\n');
   });
 
-  test('cancelled authorization removes the pending TUN request', () async {
+  test('cancelled authorization removes its request and permits retry',
+      () async {
     final dataDir = await Directory.systemTemp.createTemp('ssrvpn_tun_cancel_');
     addTearDown(() => dataDir.delete(recursive: true));
     final runner = _writeTunAssets(dataDir);
     File('${dataDir.path}/config.yaml').writeAsStringSync('proxies: []\n');
     final status = File('${dataDir.path}/status');
+    var authorizations = 0;
+    final retryExit = Completer<int>();
     final session = MacosTunSession(
       dataDir: dataDir.path,
       resolvedExecutable: '/Applications/SSRVPN.app/Contents/MacOS/SSRVPN',
@@ -1123,14 +1126,35 @@ rule-providers:
       appPid: 123,
       routeProbe: (_, __) async =>
           ProcessResult(1, 0, '  interface: en0\n', ''),
-      authorizationLauncher: (_, __) async => TunAuthorizationHandle(
-        exitCode: Future<int>.value(1),
-        terminate: () {},
-      ),
+      authorizationLauncher: (_, __) async {
+        authorizations++;
+        if (authorizations == 1) {
+          return TunAuthorizationHandle(
+            exitCode: Future<int>.value(1),
+            terminate: () {},
+          );
+        }
+        await _writeCurrentStatus(status, 'starting');
+        return TunAuthorizationHandle(
+          exitCode: retryExit.future,
+          terminate: () {
+            if (!retryExit.isCompleted) retryExit.complete(0);
+          },
+        );
+      },
     );
 
     expect(await session.start(), isFalse);
     expect(session.lastError, 'TUN 模式需要管理员授权，已取消');
+    expect(await File(session.requestPath).exists(), isFalse);
+    expect(await session.start(), isTrue);
+    expect(authorizations, 2);
+    expect(session.lastError, isNull);
+    final stopping = session.stop();
+    expect(await _waitForRequestPhase(session.requestPath, 'recovery'), isTrue);
+    await File(session.requestPath).delete();
+    retryExit.complete(0);
+    await stopping;
     expect(await File(session.requestPath).exists(), isFalse);
   });
 
