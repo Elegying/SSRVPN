@@ -3,19 +3,13 @@ part of 'ssrvpn_node_selection_page.dart';
 class _ModePanel extends StatelessWidget {
   const _ModePanel({
     required this.proxyMode,
-    required this.enableTun,
-    required this.tunLabel,
     required this.busy,
     required this.onProxyModeChanged,
-    required this.onEnableTunChanged,
   });
 
   final ProxyMode proxyMode;
-  final bool? enableTun;
-  final String? tunLabel;
   final bool busy;
   final ValueChanged<ProxyMode> onProxyModeChanged;
-  final ValueChanged<bool>? onEnableTunChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -44,14 +38,6 @@ class _ModePanel extends StatelessWidget {
           padding: EdgeInsets.fromLTRB(18, 12, 18, 14),
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final tunControl = enableTun == null || onEnableTunChanged == null
-                  ? null
-                  : _TunHeaderControl(
-                      value: enableTun!,
-                      label: tunLabel ?? 'TUN',
-                      enabled: !busy,
-                      onChanged: onEnableTunChanged!,
-                    );
               final compactHeader = constraints.maxWidth < 340 ||
                   MediaQuery.textScalerOf(context).scale(13) > 18;
               return Column(
@@ -65,7 +51,6 @@ class _ModePanel extends StatelessWidget {
                       runSpacing: 8,
                       children: [
                         const _ModePanelTitle(),
-                        if (tunControl != null) tunControl,
                       ],
                     ),
                     SizedBox(height: 6),
@@ -94,10 +79,6 @@ class _ModePanel extends StatelessWidget {
                             ),
                           ),
                         ),
-                        if (tunControl != null) ...[
-                          SizedBox(width: 10),
-                          tunControl,
-                        ],
                       ],
                     ),
                   SizedBox(height: 12),
@@ -140,85 +121,6 @@ class _ModePanelTitle extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _TunHeaderControl extends StatelessWidget {
-  const _TunHeaderControl({
-    required this.value,
-    required this.label,
-    required this.enabled,
-    required this.onChanged,
-  });
-
-  final bool value;
-  final String label;
-  final bool enabled;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final activate = enabled ? () => onChanged(!value) : null;
-    return Semantics(
-      container: true,
-      label: label,
-      toggled: value,
-      enabled: enabled,
-      onTap: activate,
-      child: ExcludeSemantics(
-        child: Material(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
-          child: InkWell(
-            key: Key('ssrvpn-tun-toggle'),
-            borderRadius: BorderRadius.circular(16),
-            onTap: activate,
-            child: Padding(
-              padding: EdgeInsets.only(left: 4, top: 8, bottom: 8),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.settings_rounded,
-                    color: SsrvpnUiTokens.of(context).textSecondary,
-                    size: 18,
-                  ),
-                  SizedBox(width: 6),
-                  Text(
-                    label.startsWith('TUN') ? 'TUN' : label,
-                    style: TextStyle(
-                      color: SsrvpnUiTokens.of(context).textSecondary,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  SizedBox(width: 4),
-                  IgnorePointer(
-                    child: SizedBox(
-                      width: 52,
-                      height: 32,
-                      child: FittedBox(
-                        fit: BoxFit.fill,
-                        child: Switch(
-                          value: value,
-                          onChanged: enabled ? onChanged : null,
-                          activeThumbColor: Colors.white,
-                          activeTrackColor: SsrvpnUiTokens.of(context).primary,
-                          inactiveThumbColor: Colors.white,
-                          inactiveTrackColor: Color(0xFF53566F),
-                          materialTapTargetSize:
-                              MaterialTapTargetSize.shrinkWrap,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

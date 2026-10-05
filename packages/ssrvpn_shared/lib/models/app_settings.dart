@@ -2,12 +2,23 @@ import '../utils/force_proxy_site_policy.dart';
 import '../constants/app_constants.dart';
 
 /// Stable identifiers persisted independently of display names.
-enum AppThemeVariant { defaultTheme, aurora, sakura, cloud, dusk, soft }
+enum AppThemeVariant {
+  defaultTheme,
+  aurora,
+  sakura,
+  cloud,
+  dusk,
+  soft,
+  ocean,
+  journal,
+  orbital,
+  pixel
+}
 
 /// 应用设置数据模型 — 跨平台共享
 ///
 /// 所有平台共用此类。通过 re-export 暴露给各平台子项目。
-/// 连接与外观设置按平台持久化；旧版本缺少外观字段时保持原显示策略。
+/// 连接与外观设置按平台持久化；缺少外观字段时使用默认的云朵游乐场，已保存主题保持不变。
 class AppSettings {
   static const int forceProxySiteLimit = ForceProxySitePolicy.defaultLimit;
   static const int forceDirectSiteLimit = ForceProxySitePolicy.defaultLimit;
@@ -38,7 +49,7 @@ class AppSettings {
   List<String> forceDirectSites;
 
   AppSettings({
-    this.themeVariant = AppThemeVariant.defaultTheme,
+    this.themeVariant = AppThemeVariant.cloud,
     this.proxyPort = 7890,
     this.socksPort = 7891,
     this.apiPort = 9090,
@@ -179,7 +190,7 @@ class AppSettings {
       themeVariant: AppThemeVariant.values
               .where((v) => v.name == json['themeVariant'])
               .firstOrNull ??
-          AppThemeVariant.defaultTheme,
+          AppThemeVariant.cloud,
       proxyPort: _parsePort(json['proxyPort'], 7890),
       socksPort: _parsePort(json['socksPort'], 7891),
       apiPort: _parsePort(json['apiPort'], 9090),

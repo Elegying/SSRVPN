@@ -11,7 +11,7 @@ runtime=(
 native="SSRVPN_MacOS/macos/Runner"
 runner="SSRVPN_MacOS/assets/macos_tun_runner.sh"
 desktop_home="packages/ssrvpn_shared/lib/desktop_ui/screens/desktop_home_screen_part.dart"
-node_selection_controls="packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_controls.dart"
+home_network_controls="packages/ssrvpn_shared/lib/widgets/ssrvpn_home_network_controls.dart"
 shutdown_entrypoints=(
   "SSRVPN_MacOS/lib/app_runtime_actions_part.dart"
   "SSRVPN_MacOS/lib/startup/startup_orchestrator.dart"
@@ -572,9 +572,10 @@ print("macOS TUN staged resource digests passed.")
 PY
 
 for required in \
-  'enableTunOf:' \
-  "tunLabel: 'TUN 模式（需管理员权限）'" \
-  'onEnableTunChanged:'; do
+  'enableTun: _isConnected ? core.settings.enableTun : settings.enableTun' \
+  'onEnableTunChanged:' \
+  'service.updateEnableTun(enabled)' \
+  'unawaited(_applyNetworkSetting('; do
   if ! grep -Fq -- "$required" "$desktop_home"; then
     echo "macOS TUN UI guard failed: missing $required" >&2
     exit 1
@@ -582,9 +583,10 @@ for required in \
 done
 
 for required in \
-  "tunLabel ?? 'TUN'" \
-  'onEnableTunChanged'; do
-  if ! grep -Fq -- "$required" "$node_selection_controls"; then
+  '连接时可能需要系统授权' \
+  '!busy && onChanged != null' \
+  'enabled && !selected ? () => onChanged!(tun) : null'; do
+  if ! grep -Fq -- "$required" "$home_network_controls"; then
     echo "macOS shared TUN control guard failed: missing $required" >&2
     exit 1
   fi

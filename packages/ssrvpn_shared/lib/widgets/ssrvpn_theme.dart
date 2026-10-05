@@ -6,17 +6,42 @@ import '../models/app_settings.dart';
 class SsrvpnTheme extends ThemeExtension<SsrvpnTheme> {
   const SsrvpnTheme(this.variant);
   final AppThemeVariant variant;
+  static const selectionOrder = [
+    AppThemeVariant.cloud,
+    AppThemeVariant.defaultTheme,
+    AppThemeVariant.aurora,
+    AppThemeVariant.sakura,
+    AppThemeVariant.dusk,
+    AppThemeVariant.soft,
+    AppThemeVariant.ocean,
+    AppThemeVariant.journal,
+    AppThemeVariant.orbital,
+    AppThemeVariant.pixel
+  ];
+  String get selectionLabel =>
+      variant == AppThemeVariant.cloud ? '$name（默认）' : name;
   static SsrvpnTheme of(BuildContext context) =>
       Theme.of(context).extension<SsrvpnTheme>() ??
       const SsrvpnTheme(AppThemeVariant.defaultTheme);
   bool get isDefault => variant == AppThemeVariant.defaultTheme;
   bool get isSoft => variant == AppThemeVariant.soft;
+  bool get isIllustrated => const {
+        AppThemeVariant.ocean,
+        AppThemeVariant.journal,
+        AppThemeVariant.orbital,
+        AppThemeVariant.pixel
+      }.contains(variant);
   bool get isLight =>
+      (isIllustrated && variant != AppThemeVariant.pixel) ||
       isSoft ||
       variant == AppThemeVariant.sakura ||
       variant == AppThemeVariant.cloud;
   String get name => switch (variant) {
-        AppThemeVariant.defaultTheme => '默认',
+        AppThemeVariant.ocean => '深海来信',
+        AppThemeVariant.journal => '焦糖手账',
+        AppThemeVariant.orbital => '轨道电台',
+        AppThemeVariant.pixel => '像素旅程',
+        AppThemeVariant.defaultTheme => '液态玻璃',
         AppThemeVariant.aurora => '曜石极光',
         AppThemeVariant.sakura => '樱花晴空',
         AppThemeVariant.cloud => '云朵游乐场',
@@ -31,6 +56,10 @@ class SsrvpnTheme extends ThemeExtension<SsrvpnTheme> {
           ? 'assets/themes/cloud-hero.webp'
           : 'assets/themes/$assetName.webp';
   Color get background => switch (variant) {
+        AppThemeVariant.ocean => const Color(0xFFD4F2EE),
+        AppThemeVariant.journal => const Color(0xFFF2E7D3),
+        AppThemeVariant.orbital => const Color(0xFFF0E5CF),
+        AppThemeVariant.pixel => const Color(0xFF102E27),
         AppThemeVariant.defaultTheme => const Color(0xFF0A1020),
         AppThemeVariant.aurora => const Color(0xFF050B17),
         AppThemeVariant.sakura => const Color(0xFFFFF8FA),
@@ -39,6 +68,10 @@ class SsrvpnTheme extends ThemeExtension<SsrvpnTheme> {
         AppThemeVariant.soft => const Color(0xFFE4E9EF),
       };
   Color get surface => switch (variant) {
+        AppThemeVariant.ocean => const Color(0xFFE6FAF7),
+        AppThemeVariant.journal => const Color(0xFFFFF5E4),
+        AppThemeVariant.orbital => const Color(0xFFF8F0DF),
+        AppThemeVariant.pixel => const Color(0xFF183A30),
         AppThemeVariant.defaultTheme => const Color(0xFF242641),
         AppThemeVariant.aurora => const Color(0xFF111D30),
         AppThemeVariant.sakura => const Color(0xFFFFFDFE),
@@ -51,6 +84,10 @@ class SsrvpnTheme extends ThemeExtension<SsrvpnTheme> {
       ? const Color(0xFF2C2E4B)
       : Color.alphaBlend(primary.withValues(alpha: .08), surface);
   Color get primary => switch (variant) {
+        AppThemeVariant.ocean => const Color(0xFF006C88),
+        AppThemeVariant.journal => const Color(0xFF626D32),
+        AppThemeVariant.orbital => const Color(0xFFAD400D),
+        AppThemeVariant.pixel => const Color(0xFFA5E3AC),
         AppThemeVariant.defaultTheme => const Color(0xFF8A84FF),
         AppThemeVariant.aurora => const Color(0xFF48E7CF),
         AppThemeVariant.sakura => const Color(0xFFB83570),
@@ -60,6 +97,10 @@ class SsrvpnTheme extends ThemeExtension<SsrvpnTheme> {
       };
   Color get primaryBlue => isDefault ? const Color(0xFF3675FF) : primary;
   Color get accent => switch (variant) {
+        AppThemeVariant.ocean => const Color(0xFF17656E),
+        AppThemeVariant.journal => const Color(0xFF855B2D),
+        AppThemeVariant.orbital => const Color(0xFF23506A),
+        AppThemeVariant.pixel => const Color(0xFFFFC475),
         AppThemeVariant.defaultTheme => const Color(0xFF20C8B4),
         AppThemeVariant.aurora => const Color(0xFF86AEFF),
         AppThemeVariant.sakura => const Color(0xFF8354B3),
@@ -68,6 +109,10 @@ class SsrvpnTheme extends ThemeExtension<SsrvpnTheme> {
         AppThemeVariant.soft => const Color(0xFF586FAD),
       };
   Color get textPrimary => switch (variant) {
+        AppThemeVariant.ocean => const Color(0xFF123E56),
+        AppThemeVariant.journal => const Color(0xFF3C2B1C),
+        AppThemeVariant.orbital => const Color(0xFF202F3A),
+        AppThemeVariant.pixel => const Color(0xFFFFF1D5),
         AppThemeVariant.sakura => const Color(0xFF432039),
         AppThemeVariant.cloud => const Color(0xFF172D5B),
         AppThemeVariant.dusk => const Color(0xFFFFF3DA),
@@ -75,6 +120,10 @@ class SsrvpnTheme extends ThemeExtension<SsrvpnTheme> {
         _ => const Color(0xFFF5F7FF),
       };
   Color get textSecondary => switch (variant) {
+        AppThemeVariant.ocean => const Color(0xFF365E6C),
+        AppThemeVariant.journal => const Color(0xFF6D593F),
+        AppThemeVariant.orbital => const Color(0xFF58616A),
+        AppThemeVariant.pixel => const Color(0xFFBDD4BC),
         AppThemeVariant.defaultTheme => const Color(0xFFA7AFC2),
         AppThemeVariant.sakura => const Color(0xFF78586F),
         AppThemeVariant.cloud => const Color(0xFF506584),

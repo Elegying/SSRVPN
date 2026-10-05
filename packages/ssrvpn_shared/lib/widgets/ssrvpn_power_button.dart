@@ -8,9 +8,11 @@ class SsrvpnPowerButton extends StatelessWidget {
     required this.isConnecting,
     required this.onTap,
     this.hasConnectionError = false,
+    this.statusText,
   });
 
   final double size;
+  final String? statusText;
   final bool isConnected;
   final bool isConnecting;
   final bool hasConnectionError;
@@ -21,6 +23,7 @@ class SsrvpnPowerButton extends StatelessWidget {
     if (!SsrvpnTheme.of(context).isDefault) {
       return SsrvpnThemedPowerButton(
           size: size,
+          statusText: statusText,
           isConnected: isConnected,
           isConnecting: isConnecting,
           hasConnectionError: hasConnectionError,

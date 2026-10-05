@@ -55,6 +55,7 @@ void main() {
                     child: SsrvpnAppBackdrop(
                         child: SsrvpnHomeShell(
                       body: SsrvpnHomeOverview(
+                          hasAccountStatistics: five,
                           isConnected: true,
                           isConnecting: false,
                           selectedNode: usageNode(name: '私家车-隔离模拟账号'),
@@ -108,10 +109,17 @@ void main() {
           expect(
               ip.bottom, lessThanOrEqualTo(rect('home-traffic-card-上传速率').top));
           final firstCard = rect('home-traffic-card-上传速率');
-          expect(rect('home-traffic-panel').bottom,
-              closeTo(rect('ssrvpn-home-content').bottom, .1),
-              reason:
-                  'Statistics must remain anchored above the bottom navigation');
+          final lowerGap = ip.top - node.bottom;
+          if (five) {
+            expect(rect('home-traffic-panel').top - ip.bottom,
+                closeTo(lowerGap, .1),
+                reason: 'IP and statistics use the same adaptive gap');
+          }
+          expect(
+              rect('ssrvpn-bottom-navigation').top -
+                  rect('home-traffic-panel').bottom,
+              closeTo(lowerGap, .1),
+              reason: 'Navigation retains the shared adaptive gap');
           final spareGaps = <double>[];
           if (find
               .byKey(const Key('home-overview-header'))
@@ -126,7 +134,7 @@ void main() {
             spareGaps.addAll([
               status.top - header.bottom - 12 * canvasScale,
               power.top - status.bottom - 10 * canvasScale,
-              node.top - power.bottom - 12 * canvasScale,
+              rect('home-system-proxy').top - power.bottom - 12 * canvasScale,
               firstCard.top - ip.bottom - 12 * canvasScale,
             ]);
             // Share upper spare height without moving the centered card.

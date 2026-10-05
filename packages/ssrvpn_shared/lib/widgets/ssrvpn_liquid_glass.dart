@@ -1,3 +1,4 @@
+import 'ssrvpn_illustrated_surface.dart';
 import 'ssrvpn_appearance.dart';
 import 'ssrvpn_soft_surface.dart';
 import 'dart:async';
@@ -57,6 +58,15 @@ class SsrvpnLiquidSurface extends StatelessWidget {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final content = Padding(padding: padding, child: child);
     final theme = SsrvpnTheme.of(context);
+    if (theme.isIllustrated && !highContrast) {
+      return SsrvpnIllustratedSurface(
+          radius: radius,
+          padding: padding,
+          tint: tint?.withValues(alpha: tintOpacity ?? .16),
+          borderColor: borderColor,
+          circular: circular,
+          child: child);
+    }
     if (theme.isSoft && !highContrast) {
       return DecoratedBox(
         decoration: ssrvpnSoftDecoration(

@@ -683,6 +683,8 @@ class _HomeScreenState extends State<HomeScreen> {
       resizeToAvoidBottomInset: false,
       backgroundColor: Colors.transparent,
       body: SsrvpnHomeOverview(
+        hasAccountStatistics:
+            AccountUsageProviders.configured.resolve(displayNode) != null,
         bottomContent: SsrvpnHomeStatistics(
           onDiagnostic: (s) => core.log(s, event: 'account_usage'),
           localProxyPort: () => core.isRunning && !core.settings.enableTun
@@ -694,6 +696,9 @@ class _HomeScreenState extends State<HomeScreen> {
           connected: _isConnected,
           readSample: core.readTrafficSample,
         ),
+        enableTun: _isConnected ? core.settings.enableTun : settings.enableTun,
+        onEnableTunChanged: (enabled) => unawaited(_applyNetworkSetting(
+            (service) => service.updateEnableTun(enabled))),
         isConnected: _isConnected,
         isConnecting: isConnectionTransition,
         isAutoRecovering: core.isAutoRecovering,
@@ -743,7 +748,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   )?.name;
           },
           proxyModeOf: () => context.read<SettingsService>().settings.proxyMode,
-          enableTunOf: () => context.read<SettingsService>().settings.enableTun,
           testingNodeNameOf: () => _testingNodeName,
           isBatchTestingOf: () => _isBatchTesting,
           isConnectingOf: () => _isConnectionTransitionActive(
@@ -767,10 +771,6 @@ class _HomeScreenState extends State<HomeScreen> {
           onProxyModeChanged: (proxyMode) => _applyNetworkSetting(
             (service) => service.updateProxyMode(proxyMode),
           ),
-          onEnableTunChanged: (enableTun) => _applyNetworkSetting(
-            (service) => service.updateEnableTun(enableTun),
-          ),
-          tunLabel: 'TUN 模式（需管理员权限）',
           onShowForceProxySites: _showForceProxySitesDialog,
           onShowForceDirectSites: _showForceDirectSitesDialog,
           onSecondaryTapDown: _showNodeContextMenu,

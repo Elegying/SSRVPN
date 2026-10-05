@@ -1,6 +1,16 @@
 part of 'ssrvpn_home_overview.dart';
 
-enum _HomePart { header, status, power, progress, node, details, statistics }
+enum _HomePart {
+  header,
+  status,
+  power,
+  progress,
+  node,
+  ip,
+  modes,
+  details,
+  statistics
+}
 
 /// The card itself anchors the vertical layout; account cards never move it.
 class _CenteredHomeLayout extends MultiChildLayoutDelegate {
@@ -8,9 +18,11 @@ class _CenteredHomeLayout extends MultiChildLayoutDelegate {
     required this.centerY,
     required this.powerSize,
     required this.nodeWidth,
+    required this.hasAccountStatistics,
   });
 
   final double centerY, powerSize, nodeWidth;
+  final bool hasAccountStatistics;
 
   @override
   void performLayout(Size size) {
@@ -31,18 +43,66 @@ class _CenteredHomeLayout extends MultiChildLayoutDelegate {
     final nodeTop = centerY - node.height / 2;
     place(_HomePart.node, node, nodeTop);
 
+    final ip = layoutChild(
+        _HomePart.ip, BoxConstraints.tightFor(width: size.width, height: 42));
+    final available =
+        (size.height - nodeTop - node.height + 12).clamp(0.0, size.height);
+    final details = hasChild(_HomePart.details)
+        ? measure(_HomePart.details, height: available * .25)
+        : Size.zero;
+    final slots = 2 +
+        (hasChild(_HomePart.statistics) ? 1 : 0) +
+        (hasChild(_HomePart.details) ? 1 : 0);
+    final baseGap = (size.height * .016).clamp(12.0, 16.0);
+    final statistics = hasChild(_HomePart.statistics)
+        ? measure(_HomePart.statistics,
+            height: (available - ip.height - details.height - slots * baseGap)
+                .clamp(0.0, size.height))
+        : Size.zero;
+    final adaptiveGap =
+        ((available - ip.height - details.height - statistics.height) / slots)
+            .clamp(0.0, size.height);
+    final gap =
+        hasAccountStatistics ? adaptiveGap : baseGap.clamp(0.0, adaptiveGap);
+    var lower = nodeTop + node.height + gap;
+    place(_HomePart.ip, ip, lower);
+    lower += ip.height + gap;
+    if (hasChild(_HomePart.details)) {
+      place(_HomePart.details, details, lower);
+      lower += details.height + gap;
+    }
+    if (hasChild(_HomePart.statistics)) {
+      place(
+          _HomePart.statistics,
+          statistics,
+          hasAccountStatistics
+              ? lower
+              : nodeTop + node.height + available - gap - statistics.height);
+    }
+    final modeSpace =
+        hasChild(_HomePart.modes) ? 48.0 + gap.clamp(8.0, 18.0) : 0.0;
+    if (hasChild(_HomePart.modes)) {
+      final modes = layoutChild(_HomePart.modes,
+          BoxConstraints.tightFor(width: size.width, height: 48));
+      place(_HomePart.modes, modes, nodeTop - modeSpace);
+    }
     final header = measure(_HomePart.header, height: 48);
     final status = measure(_HomePart.status);
     final progress = hasChild(_HomePart.progress)
         ? measure(_HomePart.progress, height: 60)
         : Size.zero;
     final progressSpace = progress.height == 0 ? 0 : progress.height + 8;
-    final diameter =
-        (nodeTop - header.height - status.height - progressSpace - 34)
-            .clamp(48.0, powerSize);
+    final diameter = (nodeTop -
+            modeSpace -
+            header.height -
+            status.height -
+            progressSpace -
+            34)
+        .clamp(48.0, powerSize);
     final power = layoutChild(
         _HomePart.power, BoxConstraints.tight(Size.square(diameter)));
     final spare = (nodeTop -
+            modeSpace -
             header.height -
             status.height -
             power.height -
@@ -58,25 +118,11 @@ class _CenteredHomeLayout extends MultiChildLayoutDelegate {
       place(_HomePart.progress, progress,
           statusTop + status.height + 10 + spare + power.height + 8);
     }
-
-    var lowerTop = nodeTop + node.height + 12;
-    if (hasChild(_HomePart.details)) {
-      final details = measure(_HomePart.details,
-          height: (size.height - lowerTop) * .25 > 60
-              ? 60
-              : (size.height - lowerTop) * .25);
-      place(_HomePart.details, details, lowerTop);
-      lowerTop += details.height + 12;
-    }
-    if (hasChild(_HomePart.statistics)) {
-      final statistics =
-          measure(_HomePart.statistics, height: size.height - lowerTop);
-      place(_HomePart.statistics, statistics, size.height - statistics.height);
-    }
   }
 
   @override
   bool shouldRelayout(_CenteredHomeLayout oldDelegate) =>
+      hasAccountStatistics != oldDelegate.hasAccountStatistics ||
       centerY != oldDelegate.centerY ||
       powerSize != oldDelegate.powerSize ||
       nodeWidth != oldDelegate.nodeWidth;
@@ -96,8 +142,9 @@ extension _CenteredHomeContent on _HomeOverviewState {
       CustomMultiChildLayout(
           delegate: _CenteredHomeLayout(
               centerY: centerY,
+              hasAccountStatistics: widget.hasAccountStatistics,
               powerSize: powerSize,
-              nodeWidth: compact ? 300 : SsrvpnUiTokens.currentNodeMaxWidth),
+              nodeWidth: SsrvpnUiTokens.currentNodeMaxWidth),
           children: [
             LayoutId(
                 id: _HomePart.header,
@@ -122,6 +169,9 @@ extension _CenteredHomeContent on _HomeOverviewState {
               LayoutId(
                   id: _HomePart.progress, child: _buildConnectionProgress()),
             LayoutId(id: _HomePart.node, child: node),
+            LayoutId(id: _HomePart.ip, child: _publicIpCard()),
+            if (widget.showModeControls)
+              LayoutId(id: _HomePart.modes, child: _modeControls()),
             if (detailsVisible) LayoutId(id: _HomePart.details, child: details),
             if (widget.bottomContent != null)
               LayoutId(

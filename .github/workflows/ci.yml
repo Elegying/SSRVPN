@@ -526,6 +526,19 @@ jobs:
         run: flutter test --reporter expanded
         working-directory: packages/ssrvpn_shared
 
+      - name: Windows UI DPI and typography audit
+        working-directory: packages/ssrvpn_shared
+        env:
+          SSRVPN_WINDOWS_UI_CAPTURE_DIR: windows-ui-evidence
+        run: flutter test --no-pub --reporter expanded test/home_sparse_windows_layout_test.dart
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: windows-ui-evidence
+          path: packages/ssrvpn_shared/windows-ui-evidence/*.png
+          if-no-files-found: error
+
       - run: flutter analyze
         working-directory: SSRVPN_Windows
 

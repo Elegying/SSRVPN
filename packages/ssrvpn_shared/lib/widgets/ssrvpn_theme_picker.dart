@@ -14,22 +14,18 @@ class SsrvpnThemePicker extends StatelessWidget {
       Text('主题', style: Theme.of(context).textTheme.titleSmall),
       const SizedBox(height: 12),
       LayoutBuilder(builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 480
-            ? 3
-            : constraints.maxWidth >= 280
-                ? 3
-                : 2;
-        final width = (constraints.maxWidth - (columns - 1) * 10) / columns;
-        return Wrap(spacing: 10, runSpacing: 12, children: [
-          for (final variant in AppThemeVariant.values)
+        const columns = 4;
+        final width = (constraints.maxWidth - (columns - 1) * 8) / columns;
+        return Wrap(spacing: 8, runSpacing: 12, children: [
+          for (final variant in SsrvpnTheme.selectionOrder)
             SizedBox(
                 width: width,
                 child: Semantics(
                   button: true,
                   selected: selected == variant,
-                  label: '${SsrvpnTheme(variant).name}主题',
+                  label: '${SsrvpnTheme(variant).selectionLabel}主题',
                   child: Tooltip(
-                      message: SsrvpnTheme(variant).name,
+                      message: SsrvpnTheme(variant).selectionLabel,
                       child: Material(
                         color: selected == variant
                             ? colors.primary.withValues(alpha: .12)
@@ -45,7 +41,8 @@ class SsrvpnThemePicker extends StatelessWidget {
                                   onChanged!(variant);
                                 },
                           child: Padding(
-                              padding: const EdgeInsets.all(8),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 3, vertical: 8),
                               child: Column(children: [
                                 Stack(children: [
                                   ClipRRect(
@@ -53,11 +50,30 @@ class SsrvpnThemePicker extends StatelessWidget {
                                       child: Image.asset(
                                         SsrvpnTheme(variant).icon,
                                         package: 'ssrvpn_shared',
-                                        width: 60,
-                                        height: 60,
+                                        width: (width - 6).clamp(0.0, 60.0),
+                                        height: (width - 6).clamp(0.0, 60.0),
                                         cacheWidth: 128,
                                         excludeFromSemantics: true,
                                       )),
+                                  if (variant == AppThemeVariant.cloud)
+                                    Positioned(
+                                        left: 0,
+                                        top: 0,
+                                        child: DecoratedBox(
+                                            decoration: BoxDecoration(
+                                                color: colors.surface,
+                                                borderRadius:
+                                                    BorderRadius.circular(4)),
+                                            child: Padding(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 3,
+                                                        vertical: 1),
+                                                child: Text('默认',
+                                                    style: TextStyle(
+                                                        color:
+                                                            colors.textPrimary,
+                                                        fontSize: 9))))),
                                   if (selected == variant)
                                     Positioned(
                                         right: 0,
@@ -74,10 +90,10 @@ class SsrvpnThemePicker extends StatelessWidget {
                                 Text(SsrvpnTheme(variant).name,
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
-                                        fontSize: 12,
+                                        fontSize: 13,
                                         fontWeight: selected == variant
                                             ? FontWeight.w700
-                                            : FontWeight.w500)),
+                                            : FontWeight.w600)),
                               ])),
                         ),
                       )),

@@ -330,6 +330,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
           resizeToAvoidBottomInset: _currentIndex != 0,
           backgroundColor: Colors.transparent,
           body: SsrvpnAppBackdrop(
+            readable: _currentIndex != 0,
             child: SsrvpnHomeShell(
               extendBehindNavigation: true,
               body: PageView(
