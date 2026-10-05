@@ -73,7 +73,10 @@ class AppDiagnosticHistoryStore {
     }
   }
 
-  Future<void> append(AppDiagnosticReport report) async {
+  Future<void> append(
+    AppDiagnosticReport report, {
+    bool Function()? canPublish,
+  }) async {
     final entries = (await load()).toList();
     entries.insert(
       0,
@@ -104,6 +107,7 @@ class AppDiagnosticHistoryStore {
     final temp = File(
       '$path.$pid.${DateTime.now().microsecondsSinceEpoch}.tmp',
     );
+    var published = false;
     try {
       await temp.writeAsString(encoded, flush: true);
       if (!Platform.isWindows) {
@@ -113,9 +117,14 @@ class AppDiagnosticHistoryStore {
           throw FileSystemException('Unable to protect diagnostic history');
         }
       }
-      await temp.rename(path);
+      // Recheck after every asynchronous preparation step. Keep validation and
+      // the atomic replacement in one event-loop turn, so a changed session
+      // cannot publish an obsolete snapshot or erase prior valid history.
+      if (canPublish != null && !canPublish()) return;
+      temp.renameSync(path);
+      published = true;
     } finally {
-      if (await temp.exists()) await temp.delete();
+      if (!published && await temp.exists()) await temp.delete();
     }
   }
 

@@ -139,6 +139,12 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
   @override
   Future<List<AppDiagnosticCheck>> platformDiagnosticChecks();
 
+  @protected
+  AppDiagnosticHistoryStore get diagnosticHistoryStore =>
+      AppDiagnosticHistoryStore(
+        '$configDir${Platform.pathSeparator}diagnostic-history.json',
+      );
+
   Future<void> _diagnosticHistoryTail = Future<void>.value();
 
   Future<T?> _runDiagnosticCheck<T>(
@@ -437,9 +443,10 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
     if (configDir.trim().isNotEmpty) {
       final operation = _diagnosticHistoryTail.then(
         (_) => _canPublishDiagnosticResult
-            ? AppDiagnosticHistoryStore(
-                '$configDir${Platform.pathSeparator}diagnostic-history.json',
-              ).append(report)
+            ? diagnosticHistoryStore.append(
+                report,
+                canPublish: () => _canPublishDiagnosticResult,
+              )
             : Future<void>.value(),
       );
       _diagnosticHistoryTail = operation.catchError((Object error) {
