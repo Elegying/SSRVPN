@@ -15,3 +15,12 @@ jobs:
         run: |
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool/windows_clock_probe.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: ./.github/actions/setup-flutter
+        with:
+          flutter-version: 3.44.1
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Exercise production FILETIME reader against native creation
+        working-directory: SSRVPN_Windows
+        run: flutter test --no-pub test/windows_file_time_test.dart
