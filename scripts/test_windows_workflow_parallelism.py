@@ -1,3 +1,4 @@
+import re
 import unittest
 from pathlib import Path
 from typing import Optional
@@ -16,6 +17,22 @@ def job(workflow: str, name: str, next_name: Optional[str] = None) -> str:
 
 
 class WindowsWorkflowParallelismTest(unittest.TestCase):
+    def test_release_preserves_ci_policy_suite_time_budget(self) -> None:
+        budgets = []
+        for path in (CI, RELEASE):
+            workflow = path.read_text(encoding="utf-8")
+            step = workflow.split("      - name: Run Windows policy tests\n", 1)[1]
+            step = step.split("\n      - ", 1)[0]
+            budget = re.search(r"timeout-minutes: (\d+)", step)
+            self.assertIsNotNone(budget, path.name)
+            budgets.append(int(budget.group(1)))
+            self.assertIn("scripts\\test_windows_policy.ps1", step)
+            self.assertIn("if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }", step)
+        # The same serial HKCU/HKLM interruption matrix exceeded 15 minutes
+        # on release runners after passing CI with its 20-minute budget.
+        self.assertGreaterEqual(budgets[0], 20)
+        self.assertEqual(budgets[1], budgets[0])
+
     def test_ci_parallelizes_policy_and_build_behind_stable_windows_gate(self) -> None:
         workflow = CI.read_text(encoding="utf-8")
         platform = job(workflow, "flutter-app", "windows-policy-tests")
