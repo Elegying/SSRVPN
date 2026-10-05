@@ -42,6 +42,7 @@ class SsrvpnHomeOverview extends StatefulWidget {
     this.publicIpError,
     this.isRefreshingPublicIp = false,
     this.bottomContent,
+    this.hasAccountStatistics = false,
     this.enableTun = false,
     this.showModeControls = true,
     this.onEnableTunChanged,
@@ -63,6 +64,7 @@ class SsrvpnHomeOverview extends StatefulWidget {
   final String? publicIpError;
   final bool isRefreshingPublicIp;
   final Widget? bottomContent;
+  final bool hasAccountStatistics;
   final bool enableTun, showModeControls;
   final ValueChanged<bool>? onEnableTunChanged;
   final VoidCallback onToggleConnection;
@@ -275,14 +277,14 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
                                   message: displayName,
                                   child: SsrvpnHomeText(
                                     visibleName,
-                                    maxFontSize: compact ? 16 : 18,
+                                    maxFontSize: compact ? 18 : 20,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                       color: SsrvpnUiTokens.of(context)
                                           .textPrimary,
-                                      fontSize: compact ? 16 : 18,
-                                      fontWeight: FontWeight.w600,
+                                      fontSize: compact ? 18 : 20,
+                                      fontWeight: FontWeight.w700,
                                     ),
                                   ),
                                 ),
@@ -293,10 +295,11 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
                       Flexible(
                           child: SsrvpnHomeText(
                         latencyText,
-                        maxFontSize: 12,
+                        maxFontSize: 13,
                         style: TextStyle(
                           color: latencyColor,
-                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
                         ),
                       )),
                     ],

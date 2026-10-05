@@ -18,9 +18,11 @@ class _CenteredHomeLayout extends MultiChildLayoutDelegate {
     required this.centerY,
     required this.powerSize,
     required this.nodeWidth,
+    required this.hasAccountStatistics,
   });
 
   final double centerY, powerSize, nodeWidth;
+  final bool hasAccountStatistics;
 
   @override
   void performLayout(Size size) {
@@ -57,9 +59,11 @@ class _CenteredHomeLayout extends MultiChildLayoutDelegate {
             height: (available - ip.height - details.height - slots * baseGap)
                 .clamp(0.0, size.height))
         : Size.zero;
-    final gap =
+    final adaptiveGap =
         ((available - ip.height - details.height - statistics.height) / slots)
             .clamp(0.0, size.height);
+    final gap =
+        hasAccountStatistics ? adaptiveGap : baseGap.clamp(0.0, adaptiveGap);
     var lower = nodeTop + node.height + gap;
     place(_HomePart.ip, ip, lower);
     lower += ip.height + gap;
@@ -68,7 +72,12 @@ class _CenteredHomeLayout extends MultiChildLayoutDelegate {
       lower += details.height + gap;
     }
     if (hasChild(_HomePart.statistics)) {
-      place(_HomePart.statistics, statistics, lower);
+      place(
+          _HomePart.statistics,
+          statistics,
+          hasAccountStatistics
+              ? lower
+              : nodeTop + node.height + available - gap - statistics.height);
     }
     final modeSpace =
         hasChild(_HomePart.modes) ? 48.0 + gap.clamp(8.0, 18.0) : 0.0;
@@ -113,6 +122,7 @@ class _CenteredHomeLayout extends MultiChildLayoutDelegate {
 
   @override
   bool shouldRelayout(_CenteredHomeLayout oldDelegate) =>
+      hasAccountStatistics != oldDelegate.hasAccountStatistics ||
       centerY != oldDelegate.centerY ||
       powerSize != oldDelegate.powerSize ||
       nodeWidth != oldDelegate.nodeWidth;
@@ -132,6 +142,7 @@ extension _CenteredHomeContent on _HomeOverviewState {
       CustomMultiChildLayout(
           delegate: _CenteredHomeLayout(
               centerY: centerY,
+              hasAccountStatistics: widget.hasAccountStatistics,
               powerSize: powerSize,
               nodeWidth: SsrvpnUiTokens.currentNodeMaxWidth),
           children: [

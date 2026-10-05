@@ -55,6 +55,7 @@ void main() {
                     child: SsrvpnAppBackdrop(
                         child: SsrvpnHomeShell(
                       body: SsrvpnHomeOverview(
+                          hasAccountStatistics: five,
                           isConnected: true,
                           isConnecting: false,
                           selectedNode: usageNode(name: '私家车-隔离模拟账号'),
@@ -109,9 +110,11 @@ void main() {
               ip.bottom, lessThanOrEqualTo(rect('home-traffic-card-上传速率').top));
           final firstCard = rect('home-traffic-card-上传速率');
           final lowerGap = ip.top - node.bottom;
-          expect(
-              rect('home-traffic-panel').top - ip.bottom, closeTo(lowerGap, .1),
-              reason: 'IP and statistics use the same adaptive gap');
+          if (five) {
+            expect(rect('home-traffic-panel').top - ip.bottom,
+                closeTo(lowerGap, .1),
+                reason: 'IP and statistics use the same adaptive gap');
+          }
           expect(
               rect('ssrvpn-bottom-navigation').top -
                   rect('home-traffic-panel').bottom,

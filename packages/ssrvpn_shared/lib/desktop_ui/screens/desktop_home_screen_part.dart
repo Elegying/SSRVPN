@@ -683,6 +683,8 @@ class _HomeScreenState extends State<HomeScreen> {
       resizeToAvoidBottomInset: false,
       backgroundColor: Colors.transparent,
       body: SsrvpnHomeOverview(
+        hasAccountStatistics:
+            AccountUsageProviders.configured.resolve(displayNode) != null,
         bottomContent: SsrvpnHomeStatistics(
           onDiagnostic: (s) => core.log(s, event: 'account_usage'),
           localProxyPort: () => core.isRunning && !core.settings.enableTun

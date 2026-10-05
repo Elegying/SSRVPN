@@ -14,13 +14,9 @@ class SsrvpnThemePicker extends StatelessWidget {
       Text('主题', style: Theme.of(context).textTheme.titleSmall),
       const SizedBox(height: 12),
       LayoutBuilder(builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 480
-            ? 3
-            : constraints.maxWidth >= 280
-                ? 3
-                : 2;
-        final width = (constraints.maxWidth - (columns - 1) * 10) / columns;
-        return Wrap(spacing: 10, runSpacing: 12, children: [
+        const columns = 4;
+        final width = (constraints.maxWidth - (columns - 1) * 8) / columns;
+        return Wrap(spacing: 8, runSpacing: 12, children: [
           for (final variant in SsrvpnTheme.selectionOrder)
             SizedBox(
                 width: width,
@@ -45,7 +41,8 @@ class SsrvpnThemePicker extends StatelessWidget {
                                   onChanged!(variant);
                                 },
                           child: Padding(
-                              padding: const EdgeInsets.all(8),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 3, vertical: 8),
                               child: Column(children: [
                                 Stack(children: [
                                   ClipRRect(
@@ -53,8 +50,8 @@ class SsrvpnThemePicker extends StatelessWidget {
                                       child: Image.asset(
                                         SsrvpnTheme(variant).icon,
                                         package: 'ssrvpn_shared',
-                                        width: 60,
-                                        height: 60,
+                                        width: (width - 6).clamp(0.0, 60.0),
+                                        height: (width - 6).clamp(0.0, 60.0),
                                         cacheWidth: 128,
                                         excludeFromSemantics: true,
                                       )),
@@ -93,10 +90,10 @@ class SsrvpnThemePicker extends StatelessWidget {
                                 Text(SsrvpnTheme(variant).name,
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
-                                        fontSize: 12,
+                                        fontSize: 13,
                                         fontWeight: selected == variant
                                             ? FontWeight.w700
-                                            : FontWeight.w500)),
+                                            : FontWeight.w600)),
                               ])),
                         ),
                       )),

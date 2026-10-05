@@ -73,7 +73,7 @@ class SsrvpnThemedStatistics extends StatelessWidget {
         naturalHeight: (theme.isSoft ? 80 : 72) * scale +
             (!cloud ? 10 : 0) +
             (metrics.length > 3
-                ? (cloud || sakura ? (theme.isSoft ? 14 : 10) : 16) + 86 * scale
+                ? (cloud || sakura ? (theme.isSoft ? 14 : 10) : 16) + 92 * scale
                 : 0),
         child: Column(
             key: const Key('home-traffic-panel'),
@@ -120,11 +120,11 @@ class SsrvpnThemedStatistics extends StatelessWidget {
                                                   Flexible(
                                                       child: SsrvpnHomeText(
                                                           metrics[i].label,
-                                                          maxFontSize: 11,
+                                                          maxFontSize: 12,
                                                           style: TextStyle(
                                                               color: theme
                                                                   .textSecondary,
-                                                              fontSize: 11))),
+                                                              fontSize: 12))),
                                                 ]),
                                             const SizedBox(height: 7),
                                             Flexible(
@@ -156,7 +156,7 @@ class SsrvpnThemedStatistics extends StatelessWidget {
                                                           style: TextStyle(
                                                               color: theme
                                                                   .textSecondary,
-                                                              fontSize: 11)),
+                                                              fontSize: 12)),
                                                     ])))),
                                           ]),
                                       card: cloud,
@@ -172,7 +172,7 @@ class SsrvpnThemedStatistics extends StatelessWidget {
                     ? SizedBox(height: theme.isSoft ? 14 : 10)
                     : Divider(height: 16, color: theme.border),
                 SizedBox(
-                    height: 86 * scale,
+                    height: 92 * scale,
                     child: Row(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
@@ -193,6 +193,8 @@ class SsrvpnThemedStatistics extends StatelessWidget {
                                                 Text('已用流量',
                                                     style: TextStyle(
                                                         fontSize: 12,
+                                                        fontWeight:
+                                                            FontWeight.w600,
                                                         color: theme
                                                             .textSecondary)),
                                                 const SizedBox(height: 5),
@@ -203,7 +205,7 @@ class SsrvpnThemedStatistics extends StatelessWidget {
                                                         ? '暂未更新'
                                                         : '每月1日重置',
                                                     style: TextStyle(
-                                                        fontSize: 9,
+                                                        fontSize: 10,
                                                         color: theme
                                                             .textSecondary)),
                                               ])),
@@ -237,6 +239,8 @@ class SsrvpnThemedStatistics extends StatelessWidget {
                                                         maxFontSize: 12,
                                                         style: TextStyle(
                                                             fontSize: 12,
+                                                            fontWeight:
+                                                                FontWeight.w600,
                                                             color: theme
                                                                 .textSecondary)))
                                               ]),
@@ -244,7 +248,7 @@ class SsrvpnThemedStatistics extends StatelessWidget {
                                               number(metrics[4], 23),
                                               Text(metrics[4].unit,
                                                   style: TextStyle(
-                                                      fontSize: 9,
+                                                      fontSize: 10,
                                                       color:
                                                           theme.textSecondary)),
                                             ]),

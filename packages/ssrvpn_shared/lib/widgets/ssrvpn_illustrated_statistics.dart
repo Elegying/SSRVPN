@@ -29,12 +29,12 @@ class SsrvpnIllustratedStatistics extends StatelessWidget {
         style: TextStyle(
             fontSize: size,
             color: t.textPrimary,
-            fontWeight: bold ? FontWeight.w700 : FontWeight.w500));
+            fontWeight: bold ? FontWeight.w700 : FontWeight.w600));
     Widget label(String icon, IconData fallback, String title) =>
         Row(children: [
           SsrvpnThemeIcon(icon, fallback: fallback, size: 20, color: t.primary),
           const SizedBox(width: 5),
-          Expanded(child: text(title, 11)),
+          Expanded(child: text(title, 12)),
         ]);
     return SsrvpnStatisticsFit(
         naturalHeight: (metrics.length > 3 ? 160 : 70) * scale +
@@ -67,7 +67,7 @@ class SsrvpnIllustratedStatistics extends StatelessWidget {
                                     const SizedBox(height: 5),
                                     text(
                                         '${metrics[i].number.replaceFirst(RegExp(r"^[↑↓]"), "")} ${metrics[i].unit}',
-                                        17,
+                                        18,
                                         bold: true),
                                   ]))),
                     ]
@@ -93,12 +93,12 @@ class SsrvpnIllustratedStatistics extends StatelessWidget {
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
-                                            text('已用流量', 11),
+                                            text('已用流量', 12),
                                             const SizedBox(height: 3),
                                             text(metrics[3].number, 16,
                                                 bold: true),
                                             const SizedBox(height: 3),
-                                            text(metrics[3].unit, 9),
+                                            text(metrics[3].unit, 11),
                                           ])))),
                           if (metrics.length > 4) ...[
                             VerticalDivider(width: 14, color: t.border),
@@ -119,12 +119,12 @@ class SsrvpnIllustratedStatistics extends StatelessWidget {
                                                 size: 20,
                                                 color: t.textPrimary),
                                             const SizedBox(width: 5),
-                                            Expanded(child: text('已连接设备', 11))
+                                            Expanded(child: text('已连接设备', 12))
                                           ]),
                                           const SizedBox(height: 3),
                                           text(metrics[4].number, 20,
                                               bold: true),
-                                          text(metrics[4].unit, 9),
+                                          text(metrics[4].unit, 11),
                                         ]))),
                           ]
                         ]))),

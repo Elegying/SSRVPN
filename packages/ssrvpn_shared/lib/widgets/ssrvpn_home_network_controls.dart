@@ -63,13 +63,13 @@ class SsrvpnHomeModeControls extends StatelessWidget {
                               const SizedBox(width: 7),
                               Expanded(
                                   child: SsrvpnHomeText(label,
-                                      maxFontSize: 13,
+                                      maxFontSize: 14,
                                       style: TextStyle(
                                           color: theme.textPrimary,
-                                          fontSize: 13,
+                                          fontSize: 14,
                                           fontWeight: selected
                                               ? FontWeight.w700
-                                              : FontWeight.w500))),
+                                              : FontWeight.w600))),
                               Icon(
                                   selected
                                       ? Icons.check_circle_rounded
@@ -141,13 +141,14 @@ class SsrvpnPublicIpCard extends StatelessWidget {
                         const SizedBox(width: 9),
                         Expanded(
                             child: SsrvpnHomeText(label,
-                                maxFontSize: 14,
+                                maxFontSize: 15,
                                 maxLines: 1,
                                 style: TextStyle(
                                     color: error == null
                                         ? theme.textPrimary
                                         : theme.warning,
-                                    fontSize: 14))),
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600))),
                         const SizedBox(width: 4),
                         Icon(Icons.refresh_rounded,
                             size: 17, color: theme.textSecondary),

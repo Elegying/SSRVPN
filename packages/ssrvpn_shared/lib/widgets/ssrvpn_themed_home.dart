@@ -76,6 +76,8 @@ extension _ThemedHome on _HomeOverviewState {
                           child: CustomMultiChildLayout(
                               delegate: _ThemedHomeLayout(
                                   centerY: centerY,
+                                  hasAccountStatistics:
+                                      widget.hasAccountStatistics,
                                   cloud: cloud,
                                   illustrated: colors.isIllustrated),
                               children: [
@@ -114,16 +116,14 @@ extension _ThemedHome on _HomeOverviewState {
                                         : const SizedBox.shrink()),
                                 LayoutId(
                                     id: _ThemedPart.node,
-                                    child: FittedBox(
-                                        fit: BoxFit.scaleDown,
-                                        child: SizedBox(
-                                            width: contentWidth,
-                                            child: _ThemedNodeCard(
-                                                node: widget.selectedNode,
-                                                latency: widget.selectedLatency,
-                                                countryCode:
-                                                    widget.selectedCountryCode,
-                                                onTap: widget.onOpenNodes)))),
+                                    child: SizedBox(
+                                        width: contentWidth,
+                                        child: _ThemedNodeCard(
+                                            node: widget.selectedNode,
+                                            latency: widget.selectedLatency,
+                                            countryCode:
+                                                widget.selectedCountryCode,
+                                            onTap: widget.onOpenNodes))),
                                 LayoutId(
                                     id: _ThemedPart.ip, child: _publicIpCard()),
                                 if (widget.showModeControls)
@@ -152,9 +152,12 @@ extension _ThemedHome on _HomeOverviewState {
 
 class _ThemedHomeLayout extends MultiChildLayoutDelegate {
   _ThemedHomeLayout(
-      {required this.centerY, required this.cloud, required this.illustrated});
+      {required this.centerY,
+      required this.cloud,
+      required this.illustrated,
+      required this.hasAccountStatistics});
   final double centerY;
-  final bool cloud, illustrated;
+  final bool cloud, illustrated, hasAccountStatistics;
   @override
   void performLayout(Size size) {
     Size measure(_ThemedPart part, double height) => layoutChild(
@@ -189,9 +192,11 @@ class _ThemedHomeLayout extends MultiChildLayoutDelegate {
                     (available - ip.height - details.height - slots * baseGap)
                         .clamp(0.0, size.height)))
         : Size.zero;
-    final gap =
+    final adaptiveGap =
         ((available - ip.height - details.height - stats.height) / slots)
             .clamp(0.0, size.height);
+    final gap =
+        hasAccountStatistics ? adaptiveGap : baseGap.clamp(0.0, adaptiveGap);
     var lower = nodeTop + node.height + gap;
     place(_ThemedPart.ip, ip, lower);
     lower += ip.height + gap;
@@ -200,7 +205,12 @@ class _ThemedHomeLayout extends MultiChildLayoutDelegate {
       lower += details.height + gap;
     }
     if (hasChild(_ThemedPart.statistics)) {
-      place(_ThemedPart.statistics, stats, lower);
+      place(
+          _ThemedPart.statistics,
+          stats,
+          hasAccountStatistics
+              ? lower
+              : nodeTop + node.height + available - gap - stats.height);
     }
     final modeSpace =
         hasChild(_ThemedPart.modes) ? 48.0 + gap.clamp(8.0, 18.0) : 0.0;
@@ -239,6 +249,7 @@ class _ThemedHomeLayout extends MultiChildLayoutDelegate {
 
   @override
   bool shouldRelayout(_ThemedHomeLayout old) =>
+      old.hasAccountStatistics != hasAccountStatistics ||
       old.centerY != centerY ||
       old.cloud != cloud ||
       old.illustrated != illustrated;
@@ -317,25 +328,32 @@ class _ThemedNodeCard extends StatelessWidget {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                             if (!paper)
-                              Text('当前节点',
-                                  style: TextStyle(
-                                      color: secondary, fontSize: 13)),
+                              Flexible(
+                                  child: SsrvpnHomeText('当前节点',
+                                      style: TextStyle(
+                                          color: secondary,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600))),
                             const SizedBox(height: 3),
-                            Tooltip(
-                                message: name,
-                                child: Text(name,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                        color: ink,
-                                        fontSize: 19,
-                                        fontWeight: FontWeight.w700))),
+                            Flexible(
+                                flex: 2,
+                                child: Tooltip(
+                                    message: name,
+                                    child: SsrvpnHomeText(name,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                            color: ink,
+                                            fontSize: 19,
+                                            fontWeight: FontWeight.w700)))),
                             const SizedBox(height: 2),
-                            Text(NodeDisplayPolicy.latencyText(latency),
-                                style: TextStyle(
-                                    color: latencyColor,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600))
+                            Flexible(
+                                child: SsrvpnHomeText(
+                                    NodeDisplayPolicy.latencyText(latency),
+                                    style: TextStyle(
+                                        color: latencyColor,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600)))
                           ])),
                       Icon(
                           paper

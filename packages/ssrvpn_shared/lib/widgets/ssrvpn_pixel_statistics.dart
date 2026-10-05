@@ -57,7 +57,7 @@ class SsrvpnPixelStatistics extends StatelessWidget {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                  _text(metrics[i].label, 10, _cream),
+                                  _text(metrics[i].label, 12, _cream),
                                   const SizedBox(height: 5),
                                   _text(
                                       '${metrics[i].number.replaceFirst(RegExp(r"^[↑↓]"), "")} ${metrics[i].unit}',
@@ -116,7 +116,7 @@ class SsrvpnPixelStatistics extends StatelessWidget {
                       Row(children: [
                         Expanded(
                             child: _text(
-                                metrics[3].unit, 9, const Color(0xFF50664A))),
+                                metrics[3].unit, 11, const Color(0xFF50664A))),
                         if (metrics.length > 4)
                           Expanded(
                               flex: 2,
@@ -132,7 +132,7 @@ class SsrvpnPixelStatistics extends StatelessWidget {
                                     Expanded(
                                         child: _text(
                                             '已连接设备 ${metrics[4].number}',
-                                            10,
+                                            12,
                                             _ink))
                                   ]))),
                       ]),

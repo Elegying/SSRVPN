@@ -163,6 +163,7 @@ void main() {
           var toggles = 0;
           await tester.pumpWidget(host(
               SsrvpnHomeOverview(
+                  hasAccountStatistics: true,
                   isConnected: true,
                   isConnecting: false,
                   selectedNode: node,

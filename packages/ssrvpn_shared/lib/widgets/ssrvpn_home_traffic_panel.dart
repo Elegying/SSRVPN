@@ -289,7 +289,9 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
                                                     color: SsrvpnUiTokens.of(
                                                             context)
                                                         .textSecondary,
-                                                    fontSize: caption))),
+                                                    fontSize: caption,
+                                                    fontWeight:
+                                                        FontWeight.w600))),
                                         Flexible(
                                             flex: (number * 100).round(),
                                             child: SsrvpnHomeText(
@@ -308,7 +310,7 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
                                                     letterSpacing: 0,
                                                     color: row[index].color,
                                                     fontSize: number,
-                                                    fontWeight: FontWeight.w600,
+                                                    fontWeight: FontWeight.w700,
                                                     fontFeatures: [
                                                       FontFeature
                                                           .tabularFigures()
@@ -330,7 +332,9 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
                                                 style: TextStyle(
                                                     letterSpacing: 0,
                                                     color: row[index].color,
-                                                    fontSize: caption))),
+                                                    fontSize: caption,
+                                                    fontWeight:
+                                                        FontWeight.w600))),
                                       ])))),
                     )),
               ],

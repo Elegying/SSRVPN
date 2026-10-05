@@ -245,6 +245,8 @@ class HomeScreenState extends State<HomeScreen>
       resizeToAvoidBottomInset: false,
       backgroundColor: Colors.transparent,
       body: SsrvpnHomeOverview(
+        hasAccountStatistics:
+            AccountUsageProviders.configured.resolve(displayNode) != null,
         showModeControls: false,
         bottomContent: SsrvpnHomeStatistics(
           onDiagnostic: (message) =>
