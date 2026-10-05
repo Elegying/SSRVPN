@@ -1,5 +1,20 @@
 # Dot-sourced by the disposable-runner ownership suite; reuse its isolated
 # fixtures/registry roots. No installed application or unrelated process runs.
+function Ensure-CopyBaseline([string]$Repository, [string]$Commit) {
+  if ($Commit -cnotmatch '^[0-9a-f]{40}$') { throw 'Copy baseline must be an exact commit SHA.' }
+  # PR commits need not remain ancestors after squash merge and branch deletion.
+  $previousPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    & git -C $Repository cat-file -e ($Commit + '^{commit}') 2>$null
+    if ($LASTEXITCODE -ne 0) {
+      & git -C $Repository fetch --no-tags --depth=1 https://github.com/Elegying/SSRVPN.git $Commit | Out-Null
+      if ($LASTEXITCODE -ne 0) { throw 'Could not retrieve the pinned copy baseline.' }
+    }
+    $resolved = & git -C $Repository rev-parse --verify ($Commit + '^{commit}')
+    if ($LASTEXITCODE -ne 0 -or $resolved -cne $Commit) { throw 'Copy baseline commit verification failed.' }
+  } finally { $ErrorActionPreference = $previousPreference }
+}
 function New-CopyBarrierHelper($Case, [switch]$Baseline, [switch]$NoBarrier,
   [string]$BaselineRef = '95464f3ef480f53ae2769d14056687cb665ef3e8') {
   $isolated = Join-Path $Case.root 'copy-helper'
@@ -9,6 +24,7 @@ function New-CopyBarrierHelper($Case, [switch]$Baseline, [switch]$NoBarrier,
   }
   $source = [IO.File]::ReadAllText((Join-Path $isolated 'program_file_handles.cs'))
   if ($Baseline) {
+    Ensure-CopyBaseline $repo $BaselineRef
     $source = (& git -C $repo show ($BaselineRef + ':SSRVPN_Windows/installer/program_file_handles.cs')) -join "`n"
     if ($LASTEXITCODE -ne 0) { throw 'Pinned pre-fix copy helper is unavailable.' }
   }
@@ -102,6 +118,26 @@ function New-LargeCopyCase([string]$Name) {
   Write-FixtureFile $case.expected (($expected -join "`n") + "`n")
   return $case
 }
+
+# A fresh object database models main after a squash merge without PR history.
+$freshBaselineRepo = Join-Path $suite 'fresh-copy-baselines'
+& git init --quiet $freshBaselineRepo
+if ($LASTEXITCODE -ne 0) { throw 'Could not initialize isolated baseline repository.' }
+foreach ($commit in @('95464f3ef480f53ae2769d14056687cb665ef3e8', '66988dec761770a3e1ea1061985cc3d6b53b7213')) {
+  $previousPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    & git -C $freshBaselineRepo cat-file -e ($commit + '^{commit}') 2>$null
+    if ($LASTEXITCODE -eq 0) { throw 'Missing-object regression unexpectedly has its baseline.' }
+  } finally { $ErrorActionPreference = $previousPreference }
+  Ensure-CopyBaseline $freshBaselineRepo $commit
+  Ensure-CopyBaseline $freshBaselineRepo $commit
+  $baselineSource = & git -C $freshBaselineRepo show ($commit + ':SSRVPN_Windows/installer/program_file_handles.cs')
+  if ($LASTEXITCODE -ne 0 -or -not ($baselineSource -match 'stream.CopyTo')) {
+    throw 'Fetched copy baseline cannot supply the production source.'
+  }
+}
+Pass 'Fresh repository retrieves and verifies both immutable copy baselines without PR branches'
 
 foreach ($action in @('Install', 'Recover')) {
   foreach ($baselineCopy in @($true, $false)) {
