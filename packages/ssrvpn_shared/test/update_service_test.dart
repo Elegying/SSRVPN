@@ -149,7 +149,7 @@ void main() {
     });
   }
 
-  test('fallback starts only after the stalled update request is aborted',
+  test('fallback starts only after the timed-out update request is aborted',
       () async {
     final bytes = utf8.encode('verified-candidate');
     var pending = 0;
@@ -161,7 +161,10 @@ void main() {
             pending--;
           }));
         }
-        return Completer<http.StreamedResponse>().future;
+        // Exercise abort-before-fallback ordering without imposing a 200ms
+        // wall-clock budget on the fallback's real filesystem operations.
+        // Socket timeout and absolute attempt deadlines have separate tests.
+        throw TimeoutException('The primary update request stalled');
       }
       expect(pending, 0,
           reason:
@@ -179,7 +182,6 @@ void main() {
       outputDirectory: tempDir,
       fileName: 'SSRVPN_Setup.exe',
       client: client,
-      timeout: const Duration(milliseconds: 200),
     );
     expect(await file.readAsBytes(), bytes);
     expect(client.closed, isFalse);
