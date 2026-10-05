@@ -253,7 +253,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('当前检查正常，最近有 1 条提醒'), findsOneWidget);
+    expect(find.text('尚无当前检查结果，历史记录有 1 条提醒'), findsOneWidget);
     expect(find.text('最近运行记录（2）'), findsOneWidget);
     expect(find.text('智能规则'), findsOneWidget);
     expect(find.text('提醒'), findsOneWidget);
@@ -476,7 +476,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(find.text('发现 2 项需要处理的问题'), findsOneWidget);
+    expect(find.textContaining('发现 2 项需要处理的问题：'), findsOneWidget);
     expect(find.bySemanticsLabel('复制脱敏诊断报告'), findsOneWidget);
     expect(find.bySemanticsLabel('重新运行诊断'), findsOneWidget);
   });

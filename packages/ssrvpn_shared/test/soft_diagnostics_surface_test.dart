@@ -52,6 +52,14 @@ void main() {
                                 return AppDiagnosticReport(
                                     generatedAt: DateTime.utc(2026, 10, 4),
                                     checks: [
+                                      const AppDiagnosticCheck(
+                                        id: 'data_plane',
+                                        title: '节点与外部网络',
+                                        status: AppDiagnosticStatus.warning,
+                                        summary: '外部探测未通过（最近一次观察 12 秒前）',
+                                        errorCode:
+                                            AppErrorCode.dataPlaneDegraded,
+                                      ),
                                       for (final title in [
                                         '运行核心',
                                         '运行配置',
@@ -72,16 +80,6 @@ void main() {
         ));
         await tester.tap(find.text('打开日志'));
         await tester.pumpAndSettle();
-        final surfaces = tester
-            .widgetList<SsrvpnLiquidSurface>(find.byType(SsrvpnLiquidSurface))
-            .toList();
-        expect(surfaces.where((s) => s.floating), hasLength(1));
-        expect(surfaces.where((s) => !s.floating), isNotEmpty);
-        expect(tester.takeException(), isNull);
-        await tester.ensureVisible(find.text('重新检查'));
-        await tester.tap(find.text('重新检查'));
-        await tester.pumpAndSettle();
-        expect(runs, 2);
         if (output != null) {
           final boundary =
               tester.renderObject<RenderRepaintBoundary>(find.byKey(capture));
@@ -95,6 +93,22 @@ void main() {
                 .writeAsBytes(bytes!.buffer.asUint8List());
           });
         }
+        await tester.scrollUntilVisible(
+            find.text('已通过与未执行的检查').hitTestable(), 100,
+            scrollable: find.byType(Scrollable).first);
+        await tester.tap(find.text('已通过与未执行的检查'));
+        await tester.pumpAndSettle();
+        final surfaces = tester
+            .widgetList<SsrvpnLiquidSurface>(find.byType(SsrvpnLiquidSurface))
+            .toList();
+        expect(surfaces.where((s) => s.floating), hasLength(1));
+        expect(surfaces.where((s) => !s.floating), isNotEmpty);
+        expect(tester.takeException(), isNull);
+        await tester.scrollUntilVisible(find.text('重新检查').hitTestable(), -100,
+            scrollable: find.byType(Scrollable).first);
+        await tester.tap(find.text('重新检查'));
+        await tester.pumpAndSettle();
+        expect(runs, 2);
         await tester.tap(find.byTooltip('关闭诊断中心'));
         await tester.pumpAndSettle();
         expect(find.text('打开日志'), findsOneWidget);

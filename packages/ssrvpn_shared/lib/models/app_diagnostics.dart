@@ -5,6 +5,8 @@ import '../utils/log_redactor.dart';
 import '../services/subscription_failure_diagnosis.dart';
 import 'subscription.dart';
 
+part 'app_diagnostic_guidance.dart';
+
 enum AppErrorCode {
   coreMissing('CORE_MISSING'),
   coreStartTimeout('CORE_START_TIMEOUT'),
@@ -937,6 +939,11 @@ class AppDiagnosticReport {
   List<AppDiagnosticLogEntry> get readableLogs =>
       readableDiagnosticLogs(recentLogs);
 
+  List<AppDiagnosticCheck> get attentionChecks => [
+        ...checks.where((check) => check.status == AppDiagnosticStatus.failed),
+        ...checks.where((check) => check.status == AppDiagnosticStatus.warning),
+      ];
+
   String get userConclusion {
     if (checks.any((check) => check.id == 'session_changed')) {
       return '诊断期间连接已变化，请重新检查';
@@ -944,21 +951,32 @@ class AppDiagnosticReport {
     final failureCount = checks
         .where((check) => check.status == AppDiagnosticStatus.failed)
         .length;
-    if (failureCount > 0) return '发现 $failureCount 项需要处理的问题';
+    final first = attentionChecks.firstOrNull;
+    final primary = first?.guidance?.problem ??
+        (first == null ? '' : _safeField(first.title));
+    if (failureCount > 0) return '发现 $failureCount 项需要处理的问题：$primary';
     final warningCount = checks
         .where((check) => check.status == AppDiagnosticStatus.warning)
         .length;
-    if (warningCount > 0) return '检查完成，发现 $warningCount 项提醒';
+    if (warningCount > 0) return '发现 $warningCount 项提醒：$primary';
     final logAttentionCount =
         readableLogs.where((entry) => entry.requiresAttention).length;
     if (logAttentionCount > 0) {
-      return '当前检查正常，最近有 $logAttentionCount 条提醒';
+      return checks
+              .every((check) => check.status == AppDiagnosticStatus.skipped)
+          ? '尚无当前检查结果，历史记录有 $logAttentionCount 条提醒'
+          : '本次检查未发现异常，历史记录有 $logAttentionCount 条提醒';
     }
-    if (checks.any((check) =>
-        check.id == 'runtime' && check.status == AppDiagnosticStatus.skipped)) {
+    if (checks.any(
+      (check) =>
+          check.id == 'runtime' && check.status == AppDiagnosticStatus.skipped,
+    )) {
       return '本地检查通过，连接尚未验证';
     }
-    return '运行正常，未发现异常';
+    return checks.isEmpty ||
+            checks.every((check) => check.status == AppDiagnosticStatus.skipped)
+        ? '尚无足够检查结果，请重新检查'
+        : '本次已完成的检查未发现异常';
   }
 
   String toText({int maxLength = 8192}) {
@@ -988,10 +1006,17 @@ class AppDiagnosticReport {
         AppDiagnosticStatus.failed => '需要处理',
         AppDiagnosticStatus.skipped => '未检查',
       };
+      final guidance = check.guidance;
       buffer.writeln(
         '- $status｜$title：$summary'
         '${code == null ? '' : '（错误编号：$code）'}',
       );
+      if (guidance != null) {
+        buffer
+          ..writeln('  问题：${guidance.problem}')
+          ..writeln('  影响：${guidance.impact}')
+          ..writeln('  下一步：${guidance.nextStep}');
+      }
     }
     final logs = readableLogs;
     const marker = '\n…报告已截断';
