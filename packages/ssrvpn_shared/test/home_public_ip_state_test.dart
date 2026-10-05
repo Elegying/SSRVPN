@@ -46,8 +46,8 @@ void main() {
       expect(refreshes, 2);
       await show(loading: true);
       final action =
-          tester.widget<TextButton>(find.byKey(const Key('home-public-ip')));
-      expect(action.onPressed, isNull);
+          tester.widget<InkWell>(find.byKey(const Key('home-public-ip')));
+      expect(action.onTap, isNull);
       await show(ip: '192.0.2.20');
       expect(find.textContaining('192.0.2.20'), findsOneWidget);
       expect(find.textContaining('点击重试'), findsNothing);

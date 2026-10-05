@@ -87,7 +87,7 @@ void main() {
                           body: body,
                           navigation: SsrvpnBottomNavigation(
                               currentIndex: tab,
-                              version: '5.0.30',
+                              version: '5.0.35-test',
                               onTap: (_) {})))));
           Future<void> shot(String name) async {
             await tester.runAsync(() async {
@@ -124,6 +124,13 @@ void main() {
                     variant != AppThemeVariant.soft)
                   AssetImage('assets/themes/${variant.name}-control.webp',
                       package: 'ssrvpn_shared'),
+                if (SsrvpnTheme(variant).isIllustrated)
+                  for (final name in ['public-ip', 'system-proxy', 'tun'])
+                    AssetImage('assets/themes/${variant.name}-$name.webp',
+                        package: 'ssrvpn_shared'),
+                if (variant == AppThemeVariant.pixel)
+                  const AssetImage('assets/themes/pixel-country-JP.webp',
+                      package: 'ssrvpn_shared'),
                 for (final v in AppThemeVariant.values)
                   ResizeImage(
                       AssetImage(SsrvpnTheme(v).icon, package: 'ssrvpn_shared'),
@@ -159,6 +166,8 @@ void main() {
                   isConnecting: false,
                   selectedNode: node,
                   selectedLatency: 30,
+                  publicIpv4: '203.0.113.28',
+                  onEnableTunChanged: (_) {},
                   selectedCountryCode: 'JP',
                   onToggleConnection: () => toggles++,
                   onOpenNodes: () {},
@@ -198,6 +207,34 @@ void main() {
               tester.getRect(find.byKey(const Key('account-usage-ring')));
           final navRect = tester
               .getRect(find.byKey(const Key('ssrvpn-bottom-navigation')).first);
+          for (final key in [
+            'ssrvpn-current-node-card',
+            'home-public-ip',
+            'home-traffic-panel'
+          ]) {
+            final panel = tester.getRect(find.byKey(Key(key)).first);
+            expect(panel.left, closeTo(navRect.left, 1),
+                reason: '$key left edge aligns with navigation');
+            expect(panel.right, closeTo(navRect.right, 1),
+                reason: '$key right edge aligns with navigation');
+          }
+          final proxy =
+              tester.getRect(find.byKey(const Key('home-system-proxy')));
+          final tun = tester.getRect(find.byKey(const Key('home-tun-mode')));
+          expect(proxy.left, closeTo(navRect.left, 1));
+          expect(tun.right, closeTo(navRect.right, 1));
+          final nodeRect =
+              tester.getRect(find.byKey(const Key('ssrvpn-current-node-card')));
+          expect(proxy.bottom, lessThan(nodeRect.top));
+          expect(tun.bottom, closeTo(proxy.bottom, .5));
+          expect(powerRect.bottom, lessThanOrEqualTo(proxy.top));
+          final ipRect =
+              tester.getRect(find.byKey(const Key('home-public-ip')));
+          final statsRect =
+              tester.getRect(find.byKey(const Key('home-traffic-panel')));
+          final gap = ipRect.top - nodeRect.bottom;
+          expect(statsRect.top - ipRect.bottom, closeTo(gap, 1));
+          expect(navRect.top - statsRect.bottom, closeTo(gap, 1));
           expect(ringRect.bottom, lessThanOrEqualTo(navRect.top),
               reason: 'Account gauge must be on the first screen');
           expect(ringRect.top, greaterThanOrEqualTo(0));
@@ -238,8 +275,6 @@ void main() {
                   onTestLatency: (_) async {},
                   onSelectNode: (_) async {},
                   onProxyModeChanged: (_) async {},
-                  enableTunOf: () => true,
-                  onEnableTunChanged: (_) async {},
                   onShowForceProxySites: () {},
                   onShowForceDirectSites: () {}),
               0));
@@ -280,7 +315,8 @@ void main() {
                   onUpdateFound: (_) {}),
               2));
           await shot('settings');
-          await tester.ensureVisible(find.text('网站访问诊断'));
+          await tester.scrollUntilVisible(find.text('网站访问诊断'), 200,
+              scrollable: find.byType(Scrollable).first);
           await shot('settings-tools');
           final diagnosticTile = find.ancestor(
               of: find.text('网站访问诊断'), matching: find.byType(ListTile));

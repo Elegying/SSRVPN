@@ -234,7 +234,7 @@ void main() {
     expect(find.textContaining('1x'), findsNothing);
     expect(
       tester.getSize(find.byKey(const Key('ssrvpn-current-node-card'))).width,
-      lessThanOrEqualTo(310),
+      lessThanOrEqualTo(SsrvpnUiTokens.currentNodeMaxWidth),
     );
 
     await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
@@ -429,12 +429,12 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('node selection keeps rule choices and the TUN header switch',
+  testWidgets(
+      'node selection keeps rule choices without the moved home transport controls',
       (tester) async {
     final semantics = tester.ensureSemantics();
     var selectedName = '新加坡 | IEPL ①';
     var proxyMode = ProxyMode.rule;
-    var tunEnabled = false;
     var closeCalls = 0;
     ProxyNode? longPressedNode;
     final nodes = [
@@ -462,7 +462,6 @@ void main() {
           nodesOf: () => nodes,
           selectedNodeNameOf: () => selectedName,
           proxyModeOf: () => proxyMode,
-          enableTunOf: () => tunEnabled,
           testingNodeNameOf: () => null,
           isBatchTestingOf: () => false,
           isConnectingOf: () => false,
@@ -474,9 +473,7 @@ void main() {
           onTestLatency: (_) async {},
           onSelectNode: (node) async => selectedName = node.name,
           onProxyModeChanged: (value) async => proxyMode = value,
-          onEnableTunChanged: (value) async => tunEnabled = value,
           onLongPressNode: (node) => longPressedNode = node,
-          tunLabel: 'TUN 模式（需管理员权限）',
         ),
       ),
     );
@@ -486,7 +483,7 @@ void main() {
     expect(find.text('全局'), findsOneWidget);
     expect(find.text('国内服务直接连接，海外及未知流量走代理'), findsOneWidget);
     expect(find.text('系统代理'), findsNothing);
-    expect(find.text('TUN'), findsOneWidget);
+    expect(find.text('TUN'), findsNothing);
     expect(find.text('全部订阅'), findsOneWidget);
     expect(find.text('日本 | IEPL ①'), findsOneWidget);
     expect(find.textContaining('1x'), findsNothing);
@@ -520,15 +517,6 @@ void main() {
     expect(globalModeSemantics.flagsCollection.isSelected, Tristate.isFalse);
     expect(
       globalModeSemantics.flagsCollection.isInMutuallyExclusiveGroup,
-      isTrue,
-    );
-    final tunSemantics = tester.getSemantics(
-      find.bySemanticsLabel('TUN 模式（需管理员权限）'),
-    );
-    expect(tunSemantics.flagsCollection.isEnabled, Tristate.isTrue);
-    expect(tunSemantics.flagsCollection.isToggled, Tristate.isFalse);
-    expect(
-      tunSemantics.getSemanticsData().hasAction(SemanticsAction.tap),
       isTrue,
     );
     expect(
@@ -753,7 +741,6 @@ void main() {
     ];
     var selectedName = nodes.first.name;
     var proxyMode = ProxyMode.rule;
-    var enableTun = false;
     String? testingNodeName;
     var batchTesting = false;
     var connecting = false;
@@ -769,7 +756,6 @@ void main() {
           nodesOf: () => nodes,
           selectedNodeNameOf: () => selectedName,
           proxyModeOf: () => proxyMode,
-          enableTunOf: () => enableTun,
           testingNodeNameOf: () => testingNodeName,
           isBatchTestingOf: () => batchTesting,
           isConnectingOf: () => connecting,
@@ -781,8 +767,6 @@ void main() {
           onTestLatency: (_) async {},
           onSelectNode: (_) async {},
           onProxyModeChanged: (_) async {},
-          onEnableTunChanged: (_) async {},
-          tunLabel: 'TUN 模式（需管理员权限）',
           onShowForceProxySites: () {},
         ),
       ),
@@ -790,7 +774,6 @@ void main() {
 
     selectedName = nodes.last.name;
     proxyMode = ProxyMode.global;
-    enableTun = true;
     latencies[nodes.last.name] = 88;
     ownerChanges.value++;
     await tester.pump();
@@ -800,13 +783,6 @@ void main() {
           .getSemantics(find.bySemanticsLabel('全局'))
           .flagsCollection
           .isSelected,
-      Tristate.isTrue,
-    );
-    expect(
-      tester
-          .getSemantics(find.bySemanticsLabel('TUN 模式（需管理员权限）'))
-          .flagsCollection
-          .isToggled,
       Tristate.isTrue,
     );
     final selectedCard = find.byKey(
@@ -1358,7 +1334,6 @@ void main() {
         nodesOf: () => [node],
         selectedNodeNameOf: () => node.name,
         proxyModeOf: () => ProxyMode.rule,
-        enableTunOf: () => false,
         testingNodeNameOf: () => null,
         isBatchTestingOf: () => false,
         isConnectingOf: () => false,
@@ -1370,8 +1345,6 @@ void main() {
         onTestLatency: (_) async {},
         onSelectNode: (_) async {},
         onProxyModeChanged: (_) async {},
-        onEnableTunChanged: (_) async {},
-        tunLabel: 'TUN 模式（需管理员权限）',
       ),
       const Size(844, 390),
     );
@@ -1947,7 +1920,6 @@ void main() {
           nodesOf: () => nodes,
           selectedNodeNameOf: () => nodes.first.name,
           proxyModeOf: () => ProxyMode.rule,
-          enableTunOf: () => false,
           testingNodeNameOf: () => null,
           isBatchTestingOf: () => false,
           isConnectingOf: () => false,
@@ -1959,7 +1931,6 @@ void main() {
           onTestLatency: (_) async {},
           onSelectNode: (_) async {},
           onProxyModeChanged: (_) async {},
-          onEnableTunChanged: (_) async {},
         ),
         size: const Size(320, 360),
       ),
@@ -2145,7 +2116,7 @@ void main() {
     );
     expect(
       tester.getSize(find.byKey(const Key('ssrvpn-bottom-navigation'))).width,
-      lessThanOrEqualTo(380),
+      lessThanOrEqualTo(SsrvpnUiTokens.bottomNavigationMaxWidth),
     );
 
     await tester.pumpWidget(
@@ -2172,7 +2143,7 @@ void main() {
     );
     expect(
       tester.getSize(find.byKey(const Key('ssrvpn-current-node-card'))).width,
-      lessThanOrEqualTo(320),
+      lessThanOrEqualTo(SsrvpnUiTokens.currentNodeMaxWidth),
     );
 
     await tester.pumpWidget(
@@ -2181,7 +2152,6 @@ void main() {
           nodesOf: () => [node],
           selectedNodeNameOf: () => node.name,
           proxyModeOf: () => ProxyMode.rule,
-          enableTunOf: () => false,
           testingNodeNameOf: () => null,
           isBatchTestingOf: () => false,
           isConnectingOf: () => false,
@@ -2193,7 +2163,6 @@ void main() {
           onTestLatency: (_) async {},
           onSelectNode: (_) async {},
           onProxyModeChanged: (_) async {},
-          onEnableTunChanged: (_) async {},
         ),
         size: const Size(1200, 800),
       ),
@@ -2262,7 +2231,7 @@ void main() {
       );
       expect(
         tester.getSize(find.byKey(const Key('ssrvpn-current-node-card'))).width,
-        lessThanOrEqualTo(300),
+        closeTo(width - 36, .01),
       );
     }
 

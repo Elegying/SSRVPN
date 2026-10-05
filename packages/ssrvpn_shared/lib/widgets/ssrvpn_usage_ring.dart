@@ -10,8 +10,11 @@ class SsrvpnUsageRing extends StatelessWidget {
       {super.key,
       required this.account,
       required this.child,
-      this.compact = false});
+      this.compact = false,
+      this.foregroundColor,
+      this.progressColor});
   final AccountUsage? account;
+  final Color? foregroundColor, progressColor;
   final bool compact;
   final Widget child;
   @override
@@ -42,8 +45,9 @@ class SsrvpnUsageRing extends StatelessWidget {
                     value: progress,
                     strokeWidth: (size * .12).clamp(2.0, 6.0),
                     strokeCap: StrokeCap.round,
-                    color: colors.primary,
-                    backgroundColor: colors.primary.withValues(alpha: .17),
+                    color: progressColor ?? colors.primary,
+                    backgroundColor: (progressColor ?? colors.primary)
+                        .withValues(alpha: .17),
                   ),
                 )),
                 if (size >= 40)
@@ -63,7 +67,7 @@ class SsrvpnUsageRing extends StatelessWidget {
                               fontSize: 10,
                               height: 1.0,
                               fontWeight: FontWeight.w700,
-                              color: colors.textPrimary)),
+                              color: foregroundColor ?? colors.textPrimary)),
                     ),
                   ),
               ])),

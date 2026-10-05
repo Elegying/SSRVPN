@@ -15,6 +15,14 @@ class _Core extends Fake implements ClashServiceBase {
 }
 
 void main() {
+  test('new users default to cloud while saved liquid glass remains stable',
+      () {
+    expect(AppSettings().themeVariant, AppThemeVariant.cloud);
+    expect(AppSettings.fromJson({}).themeVariant, AppThemeVariant.cloud);
+    final saved = AppSettings.fromJson({'themeVariant': 'defaultTheme'});
+    expect(saved.themeVariant, AppThemeVariant.defaultTheme);
+    expect(saved.toJson()['themeVariant'], 'defaultTheme');
+  });
   test('legacy appearance migrates without dropping functional preferences',
       () {
     for (final old in [
@@ -38,7 +46,7 @@ void main() {
         'lastSelectedNodeName': '私家车·东京',
         'forceDirectSites': ['example.com']
       });
-      expect(settings.themeVariant, AppThemeVariant.defaultTheme);
+      expect(settings.themeVariant, AppThemeVariant.cloud);
       expect(settings.proxyPort, 8900);
       expect(settings.enableTun, isTrue);
       expect(settings.lastSelectedNodeName, '私家车·东京');
@@ -52,7 +60,7 @@ void main() {
       expect(value.copyWith(proxyPort: 8900).themeVariant, theme);
     }
     expect(AppSettings.fromJson({'themeVariant': 'future'}).themeVariant,
-        AppThemeVariant.defaultTheme);
+        AppThemeVariant.cloud);
   });
   testWidgets(
       'all themes apply without losing input; failed save retains theme',
@@ -79,12 +87,19 @@ void main() {
                   onUpdateFound: (_) {},
                 ))))));
     await tester.pumpAndSettle();
+    final cloudRect = tester.getRect(find.byKey(const ValueKey('theme-cloud')));
+    final glassRect =
+        tester.getRect(find.byKey(const ValueKey('theme-defaultTheme')));
+    expect(cloudRect.top, glassRect.top);
+    expect(cloudRect.left, lessThan(glassRect.left));
+    expect(find.text('液态玻璃'), findsOneWidget);
     expect(find.text('动态背景'), findsNothing);
     expect(find.text('自定义'), findsNothing);
     expect(find.text('液态玻璃特效'), findsNothing);
     for (final theme in AppThemeVariant.values) {
       final finder = find.byKey(ValueKey('theme-${theme.name}'));
       await tester.ensureVisible(finder);
+      await tester.pumpAndSettle();
       await tester.tap(finder);
       await tester.pumpAndSettle();
       expect(settings.themeVariant, theme);
@@ -97,7 +112,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('theme-aurora')));
     await tester.pump();
     expect(find.byType(LinearProgressIndicator), findsNothing);
-    expect(settings.themeVariant, AppThemeVariant.soft);
+    expect(settings.themeVariant, AppThemeVariant.values.last);
     pending.complete();
     await tester.pumpAndSettle();
     expect(settings.themeVariant, AppThemeVariant.aurora);
@@ -114,6 +129,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.widget<TextField>(input).controller!.text, '8999');
     fail = true;
+    await tester.ensureVisible(find.byKey(const ValueKey('theme-cloud')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('theme-cloud')));
     await tester.pumpAndSettle();
     expect(settings.themeVariant, AppThemeVariant.sakura);

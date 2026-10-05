@@ -712,7 +712,7 @@ void main() {
     expect(find.text('新加坡节点'), findsOneWidget);
     expect(find.text('智能'), findsOneWidget);
     expect(find.text('系统代理'), findsNothing);
-    expect(find.text('TUN'), findsOneWidget);
+    expect(find.text('TUN'), findsNothing);
 
     await tester.tap(find.text('强制代理网站'));
     await tester.pump();
@@ -1006,13 +1006,10 @@ void main() {
     await tester.pumpWidget(fixture.build());
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
-    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('ssrvpn-tun-toggle')));
+    await tester.tap(find.byKey(const Key('home-tun-mode')));
     await tester.pump();
     await _pumpUntil(tester, () => writeStarted.isCompleted);
 
-    await tester.tap(find.byKey(const Key('ssrvpn-node-close')));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
     await tester.pump();
@@ -1057,17 +1054,15 @@ void main() {
     await tester.pump(const Duration(milliseconds: 150));
     expect(fixture.clash.isRunning, isTrue);
 
-    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('ssrvpn-tun-toggle')));
+    await tester.tap(find.byKey(const Key('home-tun-mode')));
     await tester.pump();
     await _pumpUntil(
       tester,
       () => !tester
-          .widget<SsrvpnNodeSelectionPage>(
-            find.byType(SsrvpnNodeSelectionPage),
+          .widget<SsrvpnHomeOverview>(
+            find.byType(SsrvpnHomeOverview),
           )
-          .isConnectingOf(),
+          .isConnecting,
       maxPumps: 60,
     );
 
@@ -1077,7 +1072,6 @@ void main() {
     expect(fixture.clash.stopCalls, 1);
     expect(find.text('网络设置已更新，正在重新连接'), findsNothing);
 
-    await tester.tap(find.byKey(const Key('ssrvpn-node-close')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('更新网络设置失败，请重试'), findsOneWidget);
@@ -1112,9 +1106,7 @@ void main() {
 
     await tester.pumpWidget(fixture.build());
     await tester.pump();
-    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('ssrvpn-tun-toggle')));
+    await tester.tap(find.byKey(const Key('home-tun-mode')));
     await tester.pump();
     await _pumpUntil(tester, () => writeStarted.isCompleted);
 

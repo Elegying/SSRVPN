@@ -245,6 +245,7 @@ class HomeScreenState extends State<HomeScreen>
       resizeToAvoidBottomInset: false,
       backgroundColor: Colors.transparent,
       body: SsrvpnHomeOverview(
+        showModeControls: false,
         bottomContent: SsrvpnHomeStatistics(
           onDiagnostic: (message) =>
               context.read<ClashService>().log(message, event: 'account_usage'),

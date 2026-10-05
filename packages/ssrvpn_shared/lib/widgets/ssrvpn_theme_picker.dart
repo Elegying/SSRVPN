@@ -21,15 +21,15 @@ class SsrvpnThemePicker extends StatelessWidget {
                 : 2;
         final width = (constraints.maxWidth - (columns - 1) * 10) / columns;
         return Wrap(spacing: 10, runSpacing: 12, children: [
-          for (final variant in AppThemeVariant.values)
+          for (final variant in SsrvpnTheme.selectionOrder)
             SizedBox(
                 width: width,
                 child: Semantics(
                   button: true,
                   selected: selected == variant,
-                  label: '${SsrvpnTheme(variant).name}主题',
+                  label: '${SsrvpnTheme(variant).selectionLabel}主题',
                   child: Tooltip(
-                      message: SsrvpnTheme(variant).name,
+                      message: SsrvpnTheme(variant).selectionLabel,
                       child: Material(
                         color: selected == variant
                             ? colors.primary.withValues(alpha: .12)
@@ -58,6 +58,25 @@ class SsrvpnThemePicker extends StatelessWidget {
                                         cacheWidth: 128,
                                         excludeFromSemantics: true,
                                       )),
+                                  if (variant == AppThemeVariant.cloud)
+                                    Positioned(
+                                        left: 0,
+                                        top: 0,
+                                        child: DecoratedBox(
+                                            decoration: BoxDecoration(
+                                                color: colors.surface,
+                                                borderRadius:
+                                                    BorderRadius.circular(4)),
+                                            child: Padding(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 3,
+                                                        vertical: 1),
+                                                child: Text('默认',
+                                                    style: TextStyle(
+                                                        color:
+                                                            colors.textPrimary,
+                                                        fontSize: 9))))),
                                   if (selected == variant)
                                     Positioned(
                                         right: 0,

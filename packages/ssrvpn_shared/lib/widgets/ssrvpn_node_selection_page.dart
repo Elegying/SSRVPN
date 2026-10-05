@@ -52,9 +52,6 @@ class SsrvpnNodeSelectionPage extends StatefulWidget {
     required this.onTestLatency,
     required this.onSelectNode,
     required this.onProxyModeChanged,
-    this.enableTunOf,
-    this.onEnableTunChanged,
-    this.tunLabel,
     this.onShowForceProxySites,
     this.onShowForceDirectSites,
     this.onSecondaryTapDown,
@@ -70,7 +67,6 @@ class SsrvpnNodeSelectionPage extends StatefulWidget {
   final ValueGetter<List<ProxyNode>> nodesOf;
   final ValueGetter<String?> selectedNodeNameOf;
   final ValueGetter<ProxyMode> proxyModeOf;
-  final ValueGetter<bool>? enableTunOf;
   final ValueGetter<String?> testingNodeNameOf;
   final ValueGetter<bool> isBatchTestingOf;
   final ValueGetter<bool> isConnectingOf;
@@ -84,8 +80,6 @@ class SsrvpnNodeSelectionPage extends StatefulWidget {
   final SsrvpnNodeAction onTestLatency;
   final SsrvpnNodeAction onSelectNode;
   final Future<void> Function(ProxyMode mode) onProxyModeChanged;
-  final Future<void> Function(bool enabled)? onEnableTunChanged;
-  final String? tunLabel;
   final VoidCallback? onShowForceProxySites;
   final VoidCallback? onShowForceDirectSites;
   final void Function(ProxyNode node, TapDownDetails details)?
@@ -101,7 +95,6 @@ class SsrvpnNodeSelectionPage extends StatefulWidget {
 class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
   late String? _selectedNodeName;
   late ProxyMode _proxyMode;
-  late bool? _enableTun;
   String _subscription = _allSubscriptions;
   bool _sortByLatency = false;
   String _searchQuery = '';
@@ -164,7 +157,6 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
   void _syncFromOwner() {
     _selectedNodeName = widget.selectedNodeNameOf();
     _proxyMode = widget.proxyModeOf();
-    _enableTun = widget.enableTunOf?.call();
   }
 
   void _requestClose() {
@@ -221,14 +213,8 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
       children: [
         _ModePanel(
           proxyMode: _proxyMode,
-          enableTun: _enableTun,
-          tunLabel: widget.tunLabel,
           busy: selectionBusy,
           onProxyModeChanged: _changeProxyMode,
-          onEnableTunChanged: widget.onEnableTunChanged == null
-              ? null
-              : (enabled) =>
-                  _runAction(() => widget.onEnableTunChanged!(enabled)),
         ),
         if (widget.onShowForceProxySites != null ||
             widget.onShowForceDirectSites != null) ...[

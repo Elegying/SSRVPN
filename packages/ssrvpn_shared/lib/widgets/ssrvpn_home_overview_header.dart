@@ -14,9 +14,15 @@ class _HomeHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       LayoutBuilder(builder: (context, constraints) {
+        final theme = SsrvpnTheme.of(context);
+        final sceneInk = !MediaQuery.highContrastOf(context) &&
+                (theme.variant == AppThemeVariant.orbital ||
+                    theme.variant == AppThemeVariant.journal)
+            ? const Color(0xFFFFF0D0)
+            : theme.textPrimary;
         final actionWidth = (constraints.maxWidth * .24).clamp(48.0, 92.0);
         final style = TextButton.styleFrom(
-            foregroundColor: SsrvpnUiTokens.of(context).textSecondary,
+            foregroundColor: sceneInk,
             padding: EdgeInsets.symmetric(horizontal: 4),
             minimumSize: Size(48, 48));
         return Row(children: [
@@ -31,15 +37,34 @@ class _HomeHeader extends StatelessWidget {
                       child: SsrvpnHomeText('关于',
                           textAlign: TextAlign.center, maxFontSize: 20)))),
           Expanded(
-              child: SsrvpnHomeText('SSRVPN',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: SsrvpnUiTokens.of(context).textPrimary,
-                      fontSize: compact ? 29 : 34,
-                      fontWeight: SsrvpnTheme.of(context).isDefault
-                          ? FontWeight.w400
-                          : FontWeight.w700),
-                  minFontSize: 20)),
+              child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                Flexible(
+                    flex: 3,
+                    child: SsrvpnHomeText('SSRVPN',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            color: sceneInk,
+                            fontSize: theme.isIllustrated
+                                ? 25
+                                : compact
+                                    ? 29
+                                    : 34,
+                            fontWeight: SsrvpnTheme.of(context).isDefault
+                                ? FontWeight.w400
+                                : FontWeight.w700),
+                        minFontSize: 20)),
+                if (theme.isIllustrated)
+                  Flexible(
+                      child: SsrvpnHomeText(theme.name,
+                          minFontSize: 9,
+                          maxFontSize: 11,
+                          style: TextStyle(
+                              color: sceneInk,
+                              fontSize: 10,
+                              letterSpacing: 2))),
+              ])),
           SizedBox(
               width: actionWidth,
               child: Tooltip(

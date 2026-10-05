@@ -1,3 +1,5 @@
+import 'ssrvpn_home_network_controls.dart';
+import 'ssrvpn_pixel_surface.dart';
 import 'ssrvpn_cloud_art.dart';
 import '../models/app_settings.dart';
 import 'ssrvpn_themed_power_button.dart';
@@ -40,6 +42,9 @@ class SsrvpnHomeOverview extends StatefulWidget {
     this.publicIpError,
     this.isRefreshingPublicIp = false,
     this.bottomContent,
+    this.enableTun = false,
+    this.showModeControls = true,
+    this.onEnableTunChanged,
   });
 
   final bool isConnected;
@@ -58,6 +63,8 @@ class SsrvpnHomeOverview extends StatefulWidget {
   final String? publicIpError;
   final bool isRefreshingPublicIp;
   final Widget? bottomContent;
+  final bool enableTun, showModeControls;
+  final ValueChanged<bool>? onEnableTunChanged;
   final VoidCallback onToggleConnection;
   final VoidCallback onOpenNodes;
   final VoidCallback onShowAbout;
@@ -98,6 +105,17 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
   Widget build(BuildContext context) => SizedBox.expand(
       key: const Key('ssrvpn-home-canvas'), child: _homeCanvas());
 
+  Widget _publicIpCard() => SsrvpnPublicIpCard(
+      value: widget.publicIpv4,
+      error: widget.publicIpError,
+      refreshing: widget.isRefreshingPublicIp,
+      busy: widget.isConnecting || widget.isAutoRecovering,
+      onRefresh: widget.onRefreshPublicIp);
+  Widget _modeControls() => SsrvpnHomeModeControls(
+      enableTun: widget.enableTun,
+      busy: widget.isConnecting || widget.isAutoRecovering,
+      onChanged: widget.onEnableTunChanged);
+
   Widget _homeCanvas() {
     if (!SsrvpnTheme.of(context).isDefault) return _themedHome();
     final viewport = MediaQuery.of(context);
@@ -109,24 +127,19 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
       bottom: false,
       child: LayoutBuilder(builder: (context, constraints) {
         final compact = constraints.maxWidth < SsrvpnUiTokens.compactBreakpoint;
-        final padding = compact ? 18.0 : 20.0;
+        const padding = 18.0;
         final powerSize = compact ? 154.0 : 170.0;
-        final detailsVisible = !widget.isConnecting ||
-            widget.errorMessage != null ||
-            widget.connectionNotice != null;
+        final detailsVisible =
+            widget.errorMessage != null || widget.connectionNotice != null;
         final status =
             _ConnectionStatusPill(label: _statusText, color: _statusColor);
         final details = _ConnectionDetails(
             errorMessage: widget.errorMessage,
             connectionNotice: widget.connectionNotice,
-            publicIpv4: widget.publicIpv4,
-            publicIpError: widget.publicIpError,
-            isRefreshingPublicIp: widget.isRefreshingPublicIp,
-            onShowLogs: widget.onShowLogs,
-            onRefreshPublicIp: widget.onRefreshPublicIp);
+            onShowLogs: widget.onShowLogs);
         Widget node() => ConstrainedBox(
-            constraints: BoxConstraints(
-                maxWidth: compact ? 300 : SsrvpnUiTokens.currentNodeMaxWidth),
+            constraints:
+                BoxConstraints(maxWidth: SsrvpnUiTokens.currentNodeMaxWidth),
             child: SsrvpnCurrentNodeCard(
                 node: widget.selectedNode,
                 latency: widget.selectedLatency,
@@ -308,20 +321,12 @@ class _ConnectionDetails extends StatelessWidget {
   const _ConnectionDetails({
     required this.errorMessage,
     required this.connectionNotice,
-    required this.publicIpv4,
-    required this.publicIpError,
-    required this.isRefreshingPublicIp,
     required this.onShowLogs,
-    required this.onRefreshPublicIp,
   });
 
   final String? errorMessage;
   final String? connectionNotice;
-  final String? publicIpv4;
-  final String? publicIpError;
-  final bool isRefreshingPublicIp;
   final VoidCallback onShowLogs;
-  final VoidCallback onRefreshPublicIp;
 
   @override
   Widget build(BuildContext context) {
@@ -367,24 +372,6 @@ class _ConnectionDetails extends StatelessWidget {
             foregroundColor: SsrvpnUiTokens.of(context).warning),
       );
     }
-    final label = isRefreshingPublicIp
-        ? '正在获取公网 IPv4…'
-        : publicIpError ??
-            (publicIpv4 != null ? '公网 IPv4  $publicIpv4' : '获取公网 IPv4');
-    return TextButton.icon(
-      key: Key('home-public-ip'),
-      onPressed: isRefreshingPublicIp ? null : onRefreshPublicIp,
-      icon: isRefreshingPublicIp
-          ? SizedBox(
-              width: 15,
-              height: 15,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : Icon(Icons.public_rounded, size: 17),
-      label: SsrvpnHomeText(label, maxLines: null, maxFontSize: 16),
-      style: TextButton.styleFrom(
-        foregroundColor: SsrvpnUiTokens.of(context).textSecondary,
-      ),
-    );
+    return const SizedBox.shrink();
   }
 }

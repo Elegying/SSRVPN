@@ -39,8 +39,8 @@ abstract final class SsrvpnUiTokens {
   static const cardRadius = 24.0;
   static const compactBreakpoint = 460.0;
   static const pageMaxWidth = 440.0;
-  static const bottomNavigationMaxWidth = 380.0;
-  static const currentNodeMaxWidth = 320.0;
+  static const bottomNavigationMaxWidth = 440.0;
+  static const currentNodeMaxWidth = 440.0;
 }
 
 /// Shared translucent blur surface used by modal content on every platform.
@@ -273,18 +273,22 @@ class SsrvpnNavigationDestination extends StatelessWidget {
   Widget build(BuildContext context) {
     final highContrast = MediaQuery.highContrastOf(context);
     final scheme = Theme.of(context).colorScheme;
-    final color = highContrast
-        ? (selected ? scheme.onPrimary : scheme.onSurface)
-        : (selected
-            ? SsrvpnUiTokens.of(context).textPrimary
-            : SsrvpnUiTokens.of(context).textSecondary);
+    final pixel = SsrvpnTheme.of(context).variant == AppThemeVariant.pixel &&
+        !highContrast;
+    final color = pixel && selected
+        ? const Color(0xFFFFB952)
+        : highContrast
+            ? (selected ? scheme.onPrimary : scheme.onSurface)
+            : (selected
+                ? SsrvpnUiTokens.of(context).textPrimary
+                : SsrvpnUiTokens.of(context).textSecondary);
     final soft = SsrvpnTheme.of(context).isSoft && !highContrast;
     final destination = Semantics(
       button: true,
       selected: selected,
       label: label,
       child: Material(
-        color: soft
+        color: soft || pixel
             ? Colors.transparent
             : selected
                 ? (highContrast
@@ -324,6 +328,14 @@ class SsrvpnNavigationDestination extends StatelessWidget {
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
                   ),
                 )),
+                if (pixel)
+                  Container(
+                      height: 3,
+                      width: 34,
+                      margin: const EdgeInsets.only(top: 3),
+                      color: selected
+                          ? const Color(0xFFFFB952)
+                          : Colors.transparent),
               ],
             ),
           ),

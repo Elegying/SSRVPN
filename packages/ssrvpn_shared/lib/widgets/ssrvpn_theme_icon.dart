@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'ssrvpn_theme.dart';
+import '../models/app_settings.dart';
 
 /// Decorative theme artwork; surrounding controls retain their own semantics.
 /// Default uses artwork only for the subscription heading; high contrast uses glyphs.
@@ -30,7 +31,9 @@ class SsrvpnThemeIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = SsrvpnTheme.of(context);
     Widget glyph() => Icon(fallback, size: size, color: color);
-    if ((theme.isDefault && name != 'subscription-header') ||
+    if ((!theme.isIllustrated &&
+            const {'public-ip', 'system-proxy', 'tun'}.contains(name)) ||
+        (theme.isDefault && name != 'subscription-header') ||
         MediaQuery.highContrastOf(context)) {
       return glyph();
     }
@@ -39,7 +42,9 @@ class SsrvpnThemeIcon extends StatelessWidget {
         width: size,
         height: size,
         excludeFromSemantics: true,
-        filterQuality: FilterQuality.medium,
+        filterQuality: theme.variant == AppThemeVariant.pixel
+            ? FilterQuality.none
+            : FilterQuality.medium,
         errorBuilder: (_, __, ___) => glyph());
   }
 }
