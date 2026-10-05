@@ -40,7 +40,8 @@ class AppDiagnosticHistoryStore {
   final int maxReportLength;
   final int maxFileBytes;
 
-  Future<List<AppDiagnosticHistoryEntry>> load() async {
+  Future<List<AppDiagnosticHistoryEntry>> load(
+      {bool requireReadable = false}) async {
     final file = File(path);
     try {
       if (await FileSystemEntity.type(path, followLinks: false) !=
@@ -65,6 +66,9 @@ class AppDiagnosticHistoryStore {
           .sort((left, right) => right.generatedAt.compareTo(left.generatedAt));
       return List.unmodifiable(entries);
     } on FileSystemException {
+      // A transient read failure is not an empty history. Writers must retain
+      // the existing bytes; read-only display can still degrade gracefully.
+      if (requireReadable) rethrow;
       return const [];
     } on FormatException {
       return const [];
@@ -73,8 +77,11 @@ class AppDiagnosticHistoryStore {
     }
   }
 
-  Future<void> append(AppDiagnosticReport report) async {
-    final entries = (await load()).toList();
+  Future<void> append(
+    AppDiagnosticReport report, {
+    bool Function()? canPublish,
+  }) async {
+    final entries = (await load(requireReadable: true)).toList();
     entries.insert(
       0,
       AppDiagnosticHistoryEntry(
@@ -104,6 +111,7 @@ class AppDiagnosticHistoryStore {
     final temp = File(
       '$path.$pid.${DateTime.now().microsecondsSinceEpoch}.tmp',
     );
+    var published = false;
     try {
       await temp.writeAsString(encoded, flush: true);
       if (!Platform.isWindows) {
@@ -113,9 +121,14 @@ class AppDiagnosticHistoryStore {
           throw FileSystemException('Unable to protect diagnostic history');
         }
       }
-      await temp.rename(path);
+      // Recheck after every asynchronous preparation step. Keep validation and
+      // the atomic replacement in one event-loop turn, so a changed session
+      // cannot publish an obsolete snapshot or erase prior valid history.
+      if (canPublish != null && !canPublish()) return;
+      temp.renameSync(path);
+      published = true;
     } finally {
-      if (await temp.exists()) await temp.delete();
+      if (!published && await temp.exists()) await temp.delete();
     }
   }
 
