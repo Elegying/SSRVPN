@@ -23,9 +23,32 @@ build_spec.loader.exec_module(builder)
 probe_spec = importlib.util.spec_from_file_location('core_probe', ROOT / 'scripts/check-core-proxy-traffic.py')
 probe = importlib.util.module_from_spec(probe_spec)
 probe_spec.loader.exec_module(probe)
+egress_spec = importlib.util.spec_from_file_location('ipv4_egress', ROOT / 'scripts/check-core-ipv4-egress.py')
+egress = importlib.util.module_from_spec(egress_spec)
+egress_spec.loader.exec_module(egress)
 
 
 class CoreTrafficReadinessTests(unittest.TestCase):
+    def test_ipv4_probe_uses_the_tcp_and_udp_checked_port(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(egress.traffic, 'free_port', return_value=45678) as reserve, \
+                patch.object(egress.subprocess, 'run', side_effect=RuntimeError('stop before core validation')):
+            with self.assertRaisesRegex(RuntimeError, 'stop before core validation'):
+                egress.run(Path('core'), Path(directory))
+            reserve.assert_called_once_with()
+            config = json.loads((Path(directory) / 'config.json').read_text())
+            self.assertEqual(config['mixed-port'], 45678)
+
+    def test_ipv4_probe_port_exhaustion_never_launches_core(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(egress.traffic, 'free_port', side_effect=RuntimeError('no usable mixed port')), \
+                patch.object(egress.subprocess, 'run') as validate, \
+                patch.object(egress.subprocess, 'Popen') as launch:
+            with self.assertRaisesRegex(RuntimeError, 'no usable mixed port'):
+                egress.run(Path('core'), Path(directory))
+            validate.assert_not_called()
+            launch.assert_not_called()
+
     def test_live_version_requires_custom_identity(self):
         for value in ('v1.19.29-ssrvpn.1', '7031b756-ssrvpn.1'):
             with patch.object(probe, 'request', return_value=(200, json.dumps({'version': value}).encode())):
