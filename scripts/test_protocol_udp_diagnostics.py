@@ -1,4 +1,5 @@
 import importlib.util
+from contextlib import ExitStack
 from pathlib import Path
 import socket
 import socketserver
@@ -10,6 +11,37 @@ spec = importlib.util.spec_from_file_location(
     'protocols', Path(__file__).with_name('check-core-dual-stack-protocols.py'))
 protocols = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(protocols)
+import_spec = importlib.util.spec_from_file_location(
+    'imported_protocols', Path(__file__).with_name('check-imported-protocol-traffic.py'))
+imported = importlib.util.module_from_spec(import_spec)
+import_spec.loader.exec_module(imported)
+
+
+class HopPortReservationTests(unittest.TestCase):
+    def test_relay_cannot_take_inbound_port_before_core_handoff(self):
+        with ExitStack() as stack:
+            reservation, hop = imported.prepare_hop(stack)
+            self.assertEqual(reservation.getsockname()[1], hop.target)
+            self.assertNotIn(hop.target, [peer.getsockname()[1] for peer in hop.sockets])
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as competitor:
+                with self.assertRaises(OSError):
+                    competitor.bind(('127.0.0.1', hop.target))
+            reservation.close()
+            # The real inbound can now claim the port while the relay stays alive.
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as inbound:
+                inbound.bind(('127.0.0.1', hop.target))
+                self.assertTrue(hop.worker.is_alive())
+        self.assertFalse(hop.worker.is_alive())
+        self.assertTrue(all(peer.fileno() == -1 for peer in hop.sockets))
+
+    def test_parser_failure_releases_reservation_and_relay(self):
+        with self.assertRaisesRegex(ValueError, 'parse failure'):
+            with ExitStack() as stack:
+                reservation, hop = imported.prepare_hop(stack)
+                raise ValueError('parse failure')
+        self.assertEqual(reservation.fileno(), -1)
+        self.assertFalse(hop.worker.is_alive())
+        self.assertTrue(all(peer.fileno() == -1 for peer in hop.sockets))
 
 
 class UdpDiagnosticsTests(unittest.TestCase):

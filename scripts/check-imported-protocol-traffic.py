@@ -268,6 +268,16 @@ def udp_transfer(mixed, target):
                 assert reply[offset:] == b'4' + payload, reply
 
 
+def prepare_hop(stack):
+    # Keep the inbound port bound while allocating the relay's UDP sockets.
+    # A released TCP/UDP probe can otherwise be selected by our own relay.
+    reservation = stack.enter_context(socket.socket(socket.AF_INET, socket.SOCK_DGRAM))
+    reservation.bind(('127.0.0.1', 0))
+    hop = HopRelay(reservation.getsockname()[1])
+    stack.callback(hop.close)
+    return reservation, hop
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--core', type=Path)
@@ -322,6 +332,7 @@ def main():
                 server.update(listeners=[listener], rules=['MATCH,DIRECT'])
                 websocket = None
                 hop = None
+                reservation = None
                 if case.startswith('obfs-'):
                     mode = case.removeprefix('obfs-')
                     listener['simple-obfs'] = {'enable': True, 'mode': mode}
@@ -346,11 +357,11 @@ def main():
                     cover_host = args.restls_cover.rsplit(':', 1)[0]
                     link = ss_link(entry, f'restls;host={cover_host};password=plugin-fixture;version-hint=tls13')
                 else:
+                    reservation, hop = prepare_hop(run)
+                    entry = hop.target
                     listener.clear()
                     listener.update(name='fixture', type='hysteria2', listen='127.0.0.1', port=entry,
                         users={'fixture': PASSWORD}, certificate=cert.read_text(), **{'private-key': key.read_text()})
-                    hop = HopRelay(entry)
-                    run.callback(hop.close)
                     ports = ','.join(map(str, hop.ports))
                     link = f'hysteria2://{quote(PASSWORD, safe="")}@127.0.0.1:{entry}/?sni=proxy.fixture&pinSHA256={fingerprint}&mport={ports}&hop-interval=5#fixture'
                 proxy, = parse_links(str(dart), [link])
@@ -359,6 +370,8 @@ def main():
                     # Operator policy is added only to runtime output; the
                     # imported link and authentication remain unchanged.
                     proxy['ssrvpn-egress'] = 'ipv4'
+                if reservation:
+                    reservation.close()  # Hand the reserved inbound port to the core.
                 _, server_log = launch_server(run, server_core, folder / f'{case}-server', server, health)
                 client = client_config(proxy, cert, health)
                 process, client_log = protocols.launch(run, core, folder / f'{case}-client', client)
