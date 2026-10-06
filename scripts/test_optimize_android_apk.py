@@ -77,7 +77,8 @@ class OptimizeApkTest(unittest.TestCase):
                 if larger:
                     self.assertEqual(destination.read_bytes(), source.read_bytes())
         self.assertEqual(calls[0][1:5], ["-z", "-P", "16", "4"])
-        self.assertEqual(calls[-1][1:5], ["-c", "-P", "16", "4"])
+        if not (changed_payload or changed_signer):
+            self.assertEqual(calls[-1][1:5], ["-c", "-P", "16", "4"])
         self.assertEqual(list(self.root.glob(".apk-optimize-*")), [])
 
     def test_recompression_preserves_payload_and_alignment(self):

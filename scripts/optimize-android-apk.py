@@ -66,8 +66,6 @@ def optimize(source: Path, destination: Path, build_tools: Path,
                         "--key-pass", "env:SSRVPN_APK_KEY_PASSWORD",
                         "--v4-signing-enabled", "false", "--out", str(signed),
                         str(aligned)], check=True)
-        subprocess.run([str(aligner), "-c", "-P", "16", "4", str(signed)],
-                       check=True)
         if certificate(signer, signed) != original_certificate:
             raise ValueError("APK signer changed during optimization")
         if payload(signed) != original_payload:
@@ -76,6 +74,8 @@ def optimize(source: Path, destination: Path, build_tools: Path,
         if after >= before:
             shutil.copyfile(source, signed)
             after = before
+        subprocess.run([str(aligner), "-c", "-P", "16", "4", str(signed)],
+                       check=True)
         os.replace(signed, destination)
         print(f"APK lossless compression: {before} -> {after} bytes "
               f"(saved {before - after}); payload and signer verified")
