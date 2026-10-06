@@ -111,7 +111,10 @@ if ('$mode' -eq 'wait') {
         '-Command',
         windowsPowerShellUtf8Script(script)
       ],
-      timeout: const Duration(seconds: 12),
+      // This outer bound includes PowerShell/.NET cold startup on CI. The
+      // contract's real teardown deadline remains 1500ms inside the script;
+      // production process and teardown timeouts are not changed here.
+      timeout: const Duration(seconds: 25),
     );
   }
 
