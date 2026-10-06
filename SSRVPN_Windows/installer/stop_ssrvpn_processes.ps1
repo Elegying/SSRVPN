@@ -151,10 +151,7 @@ function Get-ProcessesAtPath {
         throw "Incomplete process identity returned for PID $processId."
       }
       if ($candidateSessionId -ne $currentSessionId) { continue }
-      if (-not $candidate.ExecutablePath) {
-        throw "Incomplete process identity returned for PID $processId."
-      }
-      if ($ExpectedPath -and
+      if ($candidate.ExecutablePath -and $ExpectedPath -and
           -not (Test-ExactPath -Actual ([string]$candidate.ExecutablePath) `
             -Expected $ExpectedPath)) { continue }
 
@@ -166,6 +163,9 @@ function Get-ProcessesAtPath {
         $live = Get-Process -Id $processId -ErrorAction Stop
         $live.Refresh()
         if ($live.HasExited) { continue }
+        if (-not $candidate.ExecutablePath) {
+          throw "Incomplete process identity returned for PID $processId."
+        }
         $livePath = $live.Path
         if (-not $livePath -or
             $live.ProcessName -ine $expectedProcessName -or

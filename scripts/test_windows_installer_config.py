@@ -1381,6 +1381,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "if (-not $candidate.ExecutablePath)"
         )
         self.assertLess(candidate_session_check, candidate_path_check)
+        self.assertLess(process_lookup.index("if ($live.HasExited)"), candidate_path_check)
         fail_closed_lookup = stopper.split(
             "function Get-ProcessesAtPathFailClosed", 1
         )[1].split("function Test-ExactPath", 1)[0]

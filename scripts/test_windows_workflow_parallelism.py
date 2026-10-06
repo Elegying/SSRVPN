@@ -50,6 +50,7 @@ class WindowsWorkflowParallelismTest(unittest.TestCase):
         self.assertNotIn("test_windows_policy.ps1", build)
         for independent_test in (
             "test_windows_powershell51_compatibility.ps1",
+            "test_windows_installer_process_enumeration.ps1",
             "test_windows_installer_runtime.ps1",
             "test_windows_program_files_transaction.ps1",
             "test_windows_package_payload_guard.ps1",
@@ -100,6 +101,7 @@ class WindowsWorkflowParallelismTest(unittest.TestCase):
 
         for child in (
             "test_windows_powershell51_compatibility.ps1",
+            "test_windows_installer_process_enumeration.ps1",
             "test_windows_installer_runtime.ps1",
             "test_windows_program_files_transaction.ps1",
             "test_windows_package_payload_guard.ps1",
