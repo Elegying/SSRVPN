@@ -2,6 +2,7 @@
 """Check explicit HY2 egress on loopback without a real node or system proxy."""
 import argparse
 import gzip
+import importlib.util
 import json
 from pathlib import Path
 import socket
@@ -11,15 +12,16 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location('traffic', ROOT / 'scripts/check-core-proxy-traffic.py')
+traffic = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(traffic)
 
 
 def run(core, folder):
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as node:
         node.bind(('127.0.0.1', 0))
         node.settimeout(0.3)
-        with socket.socket() as reserve:
-            reserve.bind(('127.0.0.1', 0))
-            port = reserve.getsockname()[1]
+        port = traffic.free_port()  # Mixed listeners need available TCP and UDP.
         proxy = {'name': 'fixture', 'type': 'hysteria2', 'server': '127.0.0.1',
                  'port': node.getsockname()[1], 'password': 'synthetic',
                  'ssrvpn-egress': 'ipv4'}
