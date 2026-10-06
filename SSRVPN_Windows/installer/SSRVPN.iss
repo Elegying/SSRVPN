@@ -14,6 +14,10 @@
   #error PayloadManifestPath is required
 #endif
 
+#ifndef CompressionFastBytes
+  #define CompressionFastBytes 273
+#endif
+
 [Setup]
 AppId={{299A3A12-B4A8-4120-9A62-CB274F328FE6}
 AppName=SSRVPN
@@ -52,6 +56,8 @@ UninstallDisplayName=SSRVPN
 UninstallLogMode=new
 UninstallFilesDir={code:GetUninstallMetadataDir}
 Compression=lzma2/ultra64
+; Spend more build time matching bytes; keep the same 64 MB decode dictionary.
+LZMANumFastBytes={#CompressionFastBytes}
 SolidCompression=yes
 SetupLogging=yes
 WizardStyle=modern

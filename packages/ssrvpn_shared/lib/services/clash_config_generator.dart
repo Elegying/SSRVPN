@@ -364,7 +364,9 @@ class ClashConfigGenerator {
     }
     // 按首次出现顺序去重：应用规则、用户规则、私网、
     // 自动代理/GFW、国内域名/IP，最后未知流量代理。
-    final orderedRules = <String>{};
+    final orderedRules = <String>{
+      'IN-USER,${AppConstants.subscriptionProxyRoutingUser},PROXY'
+    };
     final extraRules = extraRulesBeforeDirect
         .map((rule) => rule.trim())
         .where((rule) => rule.isNotEmpty)

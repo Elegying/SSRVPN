@@ -258,10 +258,16 @@ jobs:
           EOF
 
       - name: Build APK
+        env:
+          SSRVPN_APK_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          SSRVPN_APK_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           cd SSRVPN_Android
           flutter build apk --release --target-platform=android-arm64 --split-debug-info=build/symbols --dart-define-from-file=../config/ssrvpn-usage-defines.json
-          cp build/app/outputs/flutter-apk/app-release.apk SSRVPN.apk
+          BUILD_TOOLS="$(dirname "$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)")"
+          python3 ../scripts/optimize-android-apk.py build/app/outputs/flutter-apk/app-release.apk SSRVPN.apk \
+            --build-tools "$BUILD_TOOLS" --keystore "$RUNNER_TEMP/ssrvpn-release.jks" --alias "$ANDROID_KEY_ALIAS"
 
       - name: Generate checksum
         run: cd SSRVPN_Android && sha256sum SSRVPN.apk > SSRVPN.apk.sha256

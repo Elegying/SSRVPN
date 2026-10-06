@@ -136,6 +136,8 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
           const Duration(seconds: 30),
           onTimeout: () => throw TimeoutException('订阅服务初始化超时（30秒）'),
         );
+        _subscriptionService!.connectedProxyPort = () =>
+            _clashService!.isRunning ? _clashService!.runtimeProxyPort : null;
         _initRetryCount = 0;
         if (!mounted) return;
         setState(() => _appInitialized = true);
@@ -665,6 +667,7 @@ class _InitialSubscriptionDialogState
 Widget _buildSettingsPage(BuildContext context) {
   final service = context.watch<SettingsService>();
   return SsrvpnSettingsPage(
+    subscriptionService: context.watch<SubscriptionService>(),
     settings: service.settings,
     core: context.read<clash.ClashService>(),
     onAppearanceChanged: service.updateAppearance,

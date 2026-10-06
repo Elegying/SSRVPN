@@ -309,8 +309,9 @@ class SubscriptionScreenController {
   Future<SubscriptionEditResult> editSubscription(
     Subscription original,
     String nameInput,
-    String urlInput,
-  ) async {
+    String urlInput, {
+    bool? refreshViaProxy,
+  }) async {
     final name = nameInput.trim();
     final url = urlInput.trim();
     if (name.isEmpty) {
@@ -337,7 +338,10 @@ class SubscriptionScreenController {
         status: SubscriptionEditStatus.invalidUrl,
       );
     }
-    if (name == original.name && url == original.url) {
+    if (name == original.name &&
+        url == original.url &&
+        (refreshViaProxy == null ||
+            refreshViaProxy == original.refreshViaProxy)) {
       return const SubscriptionEditResult(
         status: SubscriptionEditStatus.unchanged,
       );
@@ -350,6 +354,7 @@ class SubscriptionScreenController {
       lastUpdate: url == original.url ? original.lastUpdate : null,
       enabled: original.enabled,
       autoUpdate: original.autoUpdate,
+      refreshViaProxy: refreshViaProxy ?? original.refreshViaProxy,
     );
     try {
       await subscriptionService.updateSubscription(updated);

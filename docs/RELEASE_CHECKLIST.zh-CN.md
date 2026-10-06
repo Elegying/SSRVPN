@@ -228,3 +228,9 @@ GeoIP 更新不是发布回退步骤。只有收到明确更新指令时才手�
 macOS DMG 使用 ULMO（LZMA），系统从 macOS 10.15 支持，低于本项目 macOS 13.0
 最低要求；Windows 使用 `lzma2/ultra64` 固实压缩，解压字典约 64 MB，仅增加安装阶段
 的内存需求，不增加应用运行内存。核心、GeoIP、许可与运行文件集合均继续通过原有校验。
+
+Android 正式 APK 在生成校验文件前使用 SDK `zipalign -z -P 16` 无损重压缩，随后以原
+keystore 重新签名；`scripts/optimize-android-apk.py` 必须验证签名证书相同、全部非签名条目
+的名称、解压内容和压缩方式一致，并验证对齐。若候选包更大，保留原始已签名 APK。
+Windows 使用同一负载清单分别测试 `LZMANumFastBytes=64` 和 `273`，选取较小安装包；
+仅增加构建时的压缩匹配搜索，解压字典保持 64 MB。

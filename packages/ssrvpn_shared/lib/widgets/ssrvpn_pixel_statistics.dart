@@ -82,6 +82,8 @@ class SsrvpnPixelStatistics extends StatelessWidget {
                               excludeSemantics: true,
                               child: SsrvpnUsageRing(
                                   account: account,
+                                  enabled: account != null ||
+                                      metrics[3].unit == '暂未更新',
                                   foregroundColor: _ink,
                                   progressColor: const Color(0xFF246347),
                                   child: Column(
@@ -90,27 +92,32 @@ class SsrvpnPixelStatistics extends StatelessWidget {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        _text('已用 ${metrics[3].number}', 16,
+                                        _text(
+                                            '${metrics[3].label} ${metrics[3].number}',
+                                            16,
                                             _ink),
                                         const SizedBox(height: 8),
-                                        SizedBox(
-                                            height: 10,
-                                            child: DecoratedBox(
-                                                decoration: BoxDecoration(
-                                                    color:
-                                                        const Color(0xFF183D2B),
-                                                    border: Border.all(
-                                                        color: _ink, width: 2)),
-                                                child: Align(
-                                                    alignment:
-                                                        Alignment.centerLeft,
-                                                    child: FractionallySizedBox(
-                                                        widthFactor: progress,
-                                                        child: const ColoredBox(
-                                                            color: Color(
-                                                                0xFF7BAD75),
-                                                            child: SizedBox
-                                                                .expand()))))),
+                                        if (account != null ||
+                                            metrics[3].unit == '暂未更新')
+                                          SizedBox(
+                                              height: 10,
+                                              child: DecoratedBox(
+                                                  decoration: BoxDecoration(
+                                                      color: const Color(
+                                                          0xFF183D2B),
+                                                      border: Border.all(
+                                                          color: _ink,
+                                                          width: 2)),
+                                                  child: Align(
+                                                      alignment:
+                                                          Alignment.centerLeft,
+                                                      child: FractionallySizedBox(
+                                                          widthFactor: progress,
+                                                          child: const ColoredBox(
+                                                              color: Color(
+                                                                  0xFF7BAD75),
+                                                              child: SizedBox
+                                                                  .expand()))))),
                                       ])))),
                       const SizedBox(height: 6),
                       Row(children: [
@@ -124,14 +131,19 @@ class SsrvpnPixelStatistics extends StatelessWidget {
                                   label: metrics[4].semantics,
                                   excludeSemantics: true,
                                   child: Row(children: [
-                                    SsrvpnThemeIcon('devices',
-                                        fallback: Icons.devices,
+                                    SsrvpnThemeIcon(
+                                        metrics[4].label == '到期时间'
+                                            ? 'logs'
+                                            : 'devices',
+                                        fallback: metrics[4].label == '到期时间'
+                                            ? Icons.event
+                                            : Icons.devices,
                                         size: 15,
                                         color: _ink),
                                     const SizedBox(width: 4),
                                     Expanded(
                                         child: _text(
-                                            '已连接设备 ${metrics[4].number}',
+                                            '${metrics[4].label} ${metrics[4].number}',
                                             12,
                                             _ink))
                                   ]))),

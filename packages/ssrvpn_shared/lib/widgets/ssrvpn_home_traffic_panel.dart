@@ -1,3 +1,5 @@
+import '../models/subscription_usage.dart';
+import 'ssrvpn_subscription_usage_metrics.dart';
 import 'ssrvpn_themed_statistics.dart';
 import 'ssrvpn_usage_ring.dart';
 import 'ssrvpn_liquid_glass.dart';
@@ -20,10 +22,12 @@ class SsrvpnHomeTrafficPanel extends StatefulWidget {
     required this.connected,
     required this.readSample,
     this.accountUsage,
+    this.subscriptionUsage,
     this.accountStatus,
   });
 
   final AccountUsage? accountUsage;
+  final SubscriptionUsage? subscriptionUsage;
   final String? accountStatus;
   final bool active;
   final bool connected;
@@ -189,9 +193,19 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
         ));
       }
     }
+    if (account == null &&
+        widget.accountStatus == null &&
+        widget.subscriptionUsage != null) {
+      metrics.addAll(subscriptionUsageMetrics(
+          widget.subscriptionUsage!, SsrvpnUiTokens.of(context).textPrimary));
+    }
+    final hint = widget.accountStatus ??
+        (widget.subscriptionUsage == null
+            ? ''
+            : subscriptionUsageUpdateLabel(widget.subscriptionUsage!));
     if (!SsrvpnTheme.of(context).isDefault) {
       return Tooltip(
-          message: widget.accountStatus ?? '',
+          message: hint,
           child: SsrvpnThemedStatistics(metrics: metrics, account: account));
     }
     final panel = LayoutBuilder(
@@ -233,8 +247,10 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
           for (var start = 0; start < metrics.length; start += columns) {
             if (start != 0) children.add(SizedBox(height: gap));
             final row = metrics.skip(start).take(columns).toList();
-            final accountRow =
-                columns == 3 && row.length == 2 && row.first.label == '已用流量';
+            final accountRow = columns == 3 &&
+                row.length == 2 &&
+                row.first.label == '已用流量' &&
+                widget.subscriptionUsage == null;
             final rowUnitWidth = (width - gap * (row.length - 1)) /
                 (columns == 5 ? 82 : row.length);
             children.add(
@@ -248,9 +264,14 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
                         : rowUnitWidth *
                             (columns == 5
                                 ? (row[index].label == '已用流量'
-                                    ? 38
-                                    : row[index].label == '已连接设备'
-                                        ? 14
+                                    ? (widget.subscriptionUsage == null
+                                        ? 38
+                                        : 28)
+                                    : (row[index].label == '已连接设备' ||
+                                            row[index].label == '到期时间')
+                                        ? (widget.subscriptionUsage == null
+                                            ? 14
+                                            : 24)
                                         : 10)
                                 : 1),
                     child: Semantics(
@@ -296,13 +317,20 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
                                             flex: (number * 100).round(),
                                             child: SsrvpnHomeText(
                                                 row[index].number,
-                                                fitReference: row[index]
-                                                            .label ==
-                                                        '已连接设备'
-                                                    ? '9999/9999'
-                                                    : row[index].label == '已用流量'
-                                                        ? '1023MB/1023MB'
-                                                        : '↑9999',
+                                                fitReference: widget
+                                                                .subscriptionUsage !=
+                                                            null &&
+                                                        index + start >= 3
+                                                    ? row[index].number
+                                                    : row[index].label ==
+                                                            '已连接设备'
+                                                        ? '9999/9999'
+                                                        : row[index].label ==
+                                                                    '已用流量' &&
+                                                                widget.subscriptionUsage ==
+                                                                    null
+                                                            ? '1023MB/1023MB'
+                                                            : '↑9999',
                                                 key: ValueKey(
                                                     'home-traffic-number-${row[index].label}'),
                                                 maxFontSize: number,
@@ -319,13 +347,20 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
                                             flex: (caption * 100).round(),
                                             child: SsrvpnHomeText(
                                                 row[index].unit,
-                                                fitReference: row[index]
-                                                            .label ==
-                                                        '已连接设备'
-                                                    ? '约值·实例'
-                                                    : row[index].label == '已用流量'
-                                                        ? '每月1日重置'
-                                                        : '999E',
+                                                fitReference: widget
+                                                                .subscriptionUsage !=
+                                                            null &&
+                                                        index + start >= 3
+                                                    ? row[index].unit
+                                                    : row[index].label ==
+                                                            '已连接设备'
+                                                        ? '约值·实例'
+                                                        : row[index].label ==
+                                                                    '已用流量' &&
+                                                                widget.subscriptionUsage ==
+                                                                    null
+                                                            ? '每月1日重置'
+                                                            : '999E',
                                                 key: ValueKey(
                                                     'home-traffic-unit-${row[index].label}'),
                                                 maxFontSize: caption,
@@ -347,11 +382,11 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
                   child: Column(
                       mainAxisSize: MainAxisSize.min, children: children)));
         });
-    return Tooltip(message: widget.accountStatus ?? '', child: panel);
+    return Tooltip(message: hint, child: panel);
   }
 
   Widget _withUsageRing(String label, AccountUsage? account, Widget child) =>
-      label == '已用流量'
+      label == '已用流量' && widget.subscriptionUsage == null
           ? SsrvpnUsageRing(account: account, compact: true, child: child)
           : child;
 

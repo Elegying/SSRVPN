@@ -28,6 +28,7 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
     _apiSecretFileName,
     'settings.json',
     'subscriptions.json',
+    'subscription_schedule.json',
     'subscription_cache.yaml',
     'node-latencies.json',
     'node-countries.json',
@@ -39,6 +40,7 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
     _apiSecretFileName,
     'settings.json',
     'subscriptions.json',
+    'subscription_schedule.json',
   };
   static final _instance = AsyncLazy<SettingsService>();
   late AppSettings _settings;

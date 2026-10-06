@@ -184,8 +184,7 @@ void main() {
     releaseSecureWrite.complete();
     await blockingWrite;
     await modeWrite;
-    expect((await connecting).message,
-        clashService.lastRuntimePortAdjustmentMessage);
+    expect((await connecting).message, isNull);
     expect(clashService.generatedSettings?.proxyMode, ProxyMode.global);
     expect(clashService.isRunning, isTrue);
     expect(clashService.startCalls, 1);
@@ -232,7 +231,8 @@ void main() {
 
     expect(clashService.generatedSettings?.proxyPort, isNot(occupied.port));
     expect(clashService.lastRuntimePortAdjustmentMessage, contains('端口被占用'));
-    expect(result.message, contains('端口被占用'));
+    expect(clashService.recentLogs, contains('端口被占用'));
+    expect(result.message, isNull);
   });
 
   test('connection regenerates config once after a start-time port race',
@@ -468,7 +468,7 @@ void main() {
           onTimeout: () => const AndroidConnectionOutcome(message: 'blocked'),
         );
 
-    expect(result.message, clashService.lastRuntimePortAdjustmentMessage);
+    expect(result.message, isNull);
     expect(clashService.isRunning, isTrue);
     expect(clashService.verificationStarted.isCompleted, isTrue);
     expect(clashService.observationIsCurrent?.call(), isTrue);

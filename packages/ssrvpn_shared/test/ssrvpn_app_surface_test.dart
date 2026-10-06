@@ -1326,7 +1326,7 @@ void main() {
       ),
       const Size(320, 568),
     );
-    expect(find.byTooltip(node.name), findsOneWidget);
+    expect(find.byTooltip(node.name), findsNothing);
 
     await expectNoLayoutFailure(
       'node selector landscape',
@@ -1416,7 +1416,7 @@ void main() {
     );
 
     expect(find.text(compactName), findsOneWidget);
-    expect(find.byTooltip(fullName), findsOneWidget);
+    expect(find.byTooltip(fullName), findsNothing);
     expect(
       tester
           .getSemantics(find.byKey(const Key('ssrvpn-current-node-card')))

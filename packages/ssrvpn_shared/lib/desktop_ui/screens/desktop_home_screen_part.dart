@@ -289,70 +289,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _showForceDirectSitesDialog() =>
       _showRoutingSitesDialog(forceDirect: true);
 
-  Future<void> _showRoutingSitesDialog({required bool forceDirect}) async {
-    final settings = context.read<SettingsService>().settings;
-    final savedSites = forceDirect
-        ? AppSettings.normalizeForceDirectSites(settings.forceDirectSites)
-        : AppSettings.normalizeForceProxySites(settings.forceProxySites);
-    final sites = await _DesktopForceProxySitesDialog.show(
-      context,
-      savedSites: savedSites,
-      forceDirect: forceDirect,
-    );
-    if (sites == null || !_canUpdateUi) return;
-    try {
-      await _applyRoutingSites(sites, forceDirect: forceDirect);
-    } catch (error) {
-      AppLogger.warning(
-        'RoutingSites',
-        '保存${forceDirect ? '强制直连' : '强制代理'}网站失败: $error',
-      );
-      if (!_canUpdateUi) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${forceDirect ? '强制直连' : '强制代理'}网站保存失败，请重试'),
-          duration: Duration(seconds: 3),
-        ),
-      );
-    }
-  }
-
-  Future<void> _applyRoutingSites(
-    List<String> sites, {
-    required bool forceDirect,
-  }) async {
-    final settingsService = context.read<SettingsService>();
-    final clashService = context.read<ClashService>();
-    if (forceDirect) {
-      await settingsService.updateForceDirectSites(sites);
-    } else {
-      await settingsService.updateForceProxySites(sites);
-    }
-    clashService.updateLiveSettings(settingsService.settings);
-
-    final shouldReload = _isConnected && !_isConnecting;
-    bool? reloadSucceeded;
-    if (shouldReload) {
-      reloadSucceeded = await _reloadConfig();
-    }
-    if (!_canUpdateUi) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      ssrvpnSnackBar(
-        content: Text(
-          reloadSucceeded != null
-              ? reloadSucceeded
-                  ? '${forceDirect ? '强制直连' : '强制代理'}网站已实时生效'
-                  : '${forceDirect ? '强制直连' : '强制代理'}网站已保存，当前连接重载失败，请重新连接'
-              : '${forceDirect ? '强制直连' : '强制代理'}网站已保存',
-        ),
-        backgroundColor:
-            reloadSucceeded == false ? SsrvpnTheme.of(context).warning : null,
-        duration: Duration(seconds: 2),
-      ),
-    );
-  }
-
   Future<void> _handleConnectionAction(_DesktopConnectionAction action) async {
     final clashService = context.read<ClashService>();
     final subService = context.read<SubscriptionService>();
@@ -513,8 +449,6 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             readStartFailureReason: () => clashService.lastStartError,
             onProgress: clashService.createConnectionProgressReporter(),
-            readRuntimeNotice: () =>
-                clashService.lastRuntimePortAdjustmentMessage,
             switchPreferredNode: (isConnectionContextCurrent) async {
               final switchStatusEpoch = _connectionStatusEpoch;
               var switched = true;
@@ -619,7 +553,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final notice = nodePersistenceFailed
             ? '已连接，但首选节点保存失败'
             : nodeWarning ?? connectionResult.runtimeNotice;
-        _showRuntimePortAdjustmentNotice(notice);
+        _showConnectionWarning(notice);
         _schedulePublicIpRefresh();
         _checkUpdateDelayed();
       } catch (e, stack) {
@@ -644,7 +578,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _showRuntimePortAdjustmentNotice(String? message) {
+  void _showConnectionWarning(String? message) {
     if (message == null || message.isEmpty || !_canUpdateUi) return;
     ScaffoldMessenger.of(context).showSnackBar(
       ssrvpnSnackBar(
@@ -670,6 +604,8 @@ class _HomeScreenState extends State<HomeScreen> {
             _nodes,
             _disconnectedPreferredNodeName ?? settings.lastSelectedNodeName,
           );
+    final subscriptionUsage =
+        context.watch<SubscriptionService>().usageForNode(displayNode);
     final selectedLatency =
         displayNode == null ? null : _latencyController.latencyFor(displayNode);
     final selectedCountryCode =
@@ -684,8 +620,10 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: Colors.transparent,
       body: SsrvpnHomeOverview(
         hasAccountStatistics:
-            AccountUsageProviders.configured.resolve(displayNode) != null,
+            AccountUsageProviders.configured.resolve(displayNode) != null ||
+                subscriptionUsage != null,
         bottomContent: SsrvpnHomeStatistics(
+          subscriptionUsage: subscriptionUsage,
           onDiagnostic: (s) => core.log(s, event: 'account_usage'),
           localProxyPort: () => core.isRunning && !core.settings.enableTun
               ? core.runtimeProxyPort

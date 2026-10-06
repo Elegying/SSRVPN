@@ -238,6 +238,8 @@ class HomeScreenState extends State<HomeScreen>
               rememberedNodeName: settings.lastSelectedNodeName,
             ),
           );
+    final subscriptionUsage =
+        context.watch<SubscriptionService>().usageForNode(displayNode);
     final selectedLatency =
         displayNode == null ? null : _latencyController.latencyFor(displayNode);
 
@@ -246,9 +248,11 @@ class HomeScreenState extends State<HomeScreen>
       backgroundColor: Colors.transparent,
       body: SsrvpnHomeOverview(
         hasAccountStatistics:
-            AccountUsageProviders.configured.resolve(displayNode) != null,
+            AccountUsageProviders.configured.resolve(displayNode) != null ||
+                subscriptionUsage != null,
         showModeControls: false,
         bottomContent: SsrvpnHomeStatistics(
+          subscriptionUsage: subscriptionUsage,
           onDiagnostic: (message) =>
               context.read<ClashService>().log(message, event: 'account_usage'),
           node: displayNode,

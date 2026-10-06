@@ -504,6 +504,7 @@ void main() {
       '.api-secret.dpapi': 'encrypted-secret',
       'settings.json': '{"proxyPort":8890}',
       'subscriptions.json': '["feed"]',
+      'subscription_schedule.json': '{"schedule":null,"lastAttempt":null}',
       'node-latencies.json': '{"version":1,"entries":{}}',
       'node-countries.json': '{"version":2,"countries":{}}',
     };
@@ -583,5 +584,32 @@ void main() {
 
     expect(await source.readAsString(), '["installed"]');
     expect(await destination.readAsString(), '["fallback"]');
+  });
+  test(
+      'schedule migration conflict preserves both copies and remains retryable',
+      () async {
+    final installed =
+        await Directory.systemTemp.createTemp('ssrvpn-schedule-source-');
+    final fallback =
+        await Directory.systemTemp.createTemp('ssrvpn-schedule-target-');
+    addTearDown(() => installed.delete(recursive: true));
+    addTearDown(() => fallback.delete(recursive: true));
+    final source = File('${installed.path}/subscription_schedule.json');
+    final target = File('${fallback.path}/subscription_schedule.json');
+    await source.writeAsString('{"schedule":null}');
+    await target.writeAsString('{"schedule":null,"lastResult":"saved"}');
+    await expectLater(
+        SettingsService.migrateInstalledDataForTesting(
+            installed.path, fallback.path),
+        throwsA(isA<StateError>()));
+    expect(await source.readAsString(), '{"schedule":null}');
+    expect(
+        await target.readAsString(), '{"schedule":null,"lastResult":"saved"}');
+    expect(await File('${fallback.path}/.portable-migration-v1').exists(),
+        isFalse);
+    await target.delete();
+    await SettingsService.migrateInstalledDataForTesting(
+        installed.path, fallback.path);
+    expect(await target.readAsString(), await source.readAsString());
   });
 }

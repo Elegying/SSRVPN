@@ -1193,6 +1193,7 @@ void main() {
     final fixture =
         (await tester.runAsync(() => _HomeFixture.create(withNodes: true)))!;
     addTearDown(fixture.dispose);
+    fixture.clash.runtimePortNotice = '端口被占用，已临时调整：代理 7890→7891';
 
     await tester.pumpWidget(fixture.build());
     await tester.pump();
@@ -1238,6 +1239,7 @@ void main() {
     await _pumpUntil(tester, () => fixture.clash.isRunning);
     expect(fixture.clash.isRunning, isTrue);
     expect(find.text('已连接'), findsWidgets);
+    expect(find.textContaining('端口被占用'), findsNothing);
     expect(fixture.clash.directConnectivityVerificationCalls, 0);
 
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));

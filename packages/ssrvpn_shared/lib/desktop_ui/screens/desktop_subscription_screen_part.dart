@@ -291,7 +291,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     setState(() => _isEditing = true);
     final result = await _subscriptionController(
       context.read<SubscriptionService>(),
-    ).editSubscription(subscription, draft.name, draft.url);
+    ).editSubscription(subscription, draft.name, draft.url,
+        refreshViaProxy: draft.refreshViaProxy);
     if (!mounted) return;
     setState(() => _isEditing = false);
 

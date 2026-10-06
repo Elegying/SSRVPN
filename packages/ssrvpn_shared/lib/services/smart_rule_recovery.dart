@@ -294,6 +294,9 @@ class SmartRuleRecovery {
       var insertion = rules.indexWhere(previous.contains);
       if (insertion < 0) {
         insertion = rules.indexOf(AppConstants.rejectIpv6Rule) + 1;
+        final subscriptionRoute = rules.indexOf(
+            'IN-USER,${AppConstants.subscriptionProxyRoutingUser},PROXY');
+        if (subscriptionRoute >= insertion) insertion = subscriptionRoute + 1;
       }
       rules.removeWhere(previous.contains);
       rules.insertAll(insertion.clamp(0, rules.length), next);

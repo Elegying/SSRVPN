@@ -191,6 +191,9 @@ class StartupOrchestrator {
       preferences: settings,
     );
 
+    subscription.connectedProxyPort =
+        () => core.isRunning ? core.runtimeProxyPort : null;
+
     if (flags.disableCoreAutostart) {
       await core.init(
         settings.settings,

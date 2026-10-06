@@ -1,3 +1,4 @@
+import '../models/subscription_usage.dart';
 import 'package:flutter/material.dart';
 import '../controllers/account_usage_controller.dart';
 import '../models/proxy_node.dart';
@@ -16,6 +17,7 @@ class SsrvpnHomeStatistics extends StatefulWidget {
       required this.revision,
       required this.readSample,
       this.controller,
+      this.subscriptionUsage,
       this.onDiagnostic,
       this.localProxyPort});
   final void Function(String)? onDiagnostic;
@@ -24,6 +26,7 @@ class SsrvpnHomeStatistics extends StatefulWidget {
   final Object? revision;
   final Future<VpnTrafficSample?> Function() readSample;
   final AccountUsageController? controller;
+  final SubscriptionUsage? subscriptionUsage;
   final int? Function()? localProxyPort;
   @override
   State<SsrvpnHomeStatistics> createState() => _StatisticsState();
@@ -78,6 +81,9 @@ class _StatisticsState extends State<SsrvpnHomeStatistics>
             active: widget.active,
             connected: widget.connected,
             readSample: widget.readSample,
+            subscriptionUsage: widget.node?.name.contains('私家车') == true
+                ? null
+                : widget.subscriptionUsage,
             accountUsage: _account.value,
             accountStatus: _account.statusMessage),
       );

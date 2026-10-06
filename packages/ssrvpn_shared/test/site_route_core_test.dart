@@ -80,15 +80,37 @@ rules:
       await process.exitCode;
     });
     var ready = false;
-    for (var i = 0; i < 100; i++) {
-      try {
-        final s = await Socket.connect('127.0.0.1', api);
-        s.destroy();
-        ready = true;
-        break;
-      } catch (_) {
+    final readinessClient = HttpClient()..findProxy = (_) => 'DIRECT';
+    final readinessDeadline = DateTime.now().add(const Duration(seconds: 5));
+    try {
+      while (DateTime.now().isBefore(readinessDeadline)) {
+        try {
+          // The API listener can open before the compatible provider is ready.
+          // Require the fixture node to be selectable before probing its route.
+          final request = await readinessClient
+              .getUrl(Uri.parse('http://127.0.0.1:$api/proxies/PROXY'))
+              .timeout(const Duration(seconds: 1));
+          request.headers.set('Authorization', 'Bearer fixture-secret');
+          final response =
+              await request.close().timeout(const Duration(seconds: 1));
+          final body = await response
+              .transform(utf8.decoder)
+              .join()
+              .timeout(const Duration(seconds: 1));
+          final group = jsonDecode(body);
+          if (response.statusCode == HttpStatus.ok &&
+              group is Map &&
+              group['now'] == 'fixture-node' &&
+              group['all'] is List &&
+              (group['all'] as List).contains('fixture-node')) {
+            ready = true;
+            break;
+          }
+        } catch (_) {}
         await Future<void>.delayed(const Duration(milliseconds: 50));
       }
+    } finally {
+      readinessClient.close(force: true);
     }
     expect(ready, isTrue, reason: log.join());
     final result = await SiteAccessDiagnostic().inspect(

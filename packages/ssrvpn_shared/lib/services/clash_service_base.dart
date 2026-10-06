@@ -209,7 +209,6 @@ abstract class ClashServiceBase
         interruptPendingStart();
       },
       readStartFailureReason: () => lastStartError,
-      readRuntimeNotice: () => lastRuntimePortAdjustmentMessage,
       switchPreferredNode: (isConnectionContextCurrent) async {
         final currentPreferredNode = _desktopRecoveryPreferredNodeName;
         return currentPreferredNode == null

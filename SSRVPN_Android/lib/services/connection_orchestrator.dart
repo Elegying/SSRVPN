@@ -152,7 +152,6 @@ class ConnectionOrchestrator {
     final preferredSettings = settingsService.settings;
 
     String? preparedConfigPath;
-    String? runtimePortNotice;
     try {
       var started = false;
       for (var attempt = 0; attempt < 2; attempt++) {
@@ -164,7 +163,6 @@ class ConnectionOrchestrator {
         if (!_isSubscriptionCurrent(subscriptionRevision)) {
           return const AndroidConnectionOutcome(message: '订阅已更新，请重新连接');
         }
-        runtimePortNotice = clashService.lastRuntimePortAdjustmentMessage;
 
         reportProgress('正在准备节点和分流规则…');
         final config = await clashService.generateClashConfigAsync(
@@ -291,7 +289,7 @@ class ConnectionOrchestrator {
       // External reachability is advisory and updates connectivityWarning later.
       clashService.scheduleUserConnectivityObservation();
       return AndroidConnectionOutcome(
-        message: snapshotWarning ?? runtimePortNotice,
+        message: snapshotWarning,
         preferredNodeSwitchSucceeded: preferredNodeSwitchSucceeded,
         runtimeNodeName: runtimeNodeName,
       );

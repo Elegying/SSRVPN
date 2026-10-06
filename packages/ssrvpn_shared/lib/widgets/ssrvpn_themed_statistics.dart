@@ -183,6 +183,8 @@ class SsrvpnThemedStatistics extends StatelessWidget {
                                   excludeSemantics: true,
                                   child: frame(
                                       SsrvpnUsageRing(
+                                          enabled: account != null ||
+                                              metrics[3].unit == '暂未更新',
                                           account: account,
                                           child: Column(
                                               mainAxisAlignment:
@@ -190,7 +192,7 @@ class SsrvpnThemedStatistics extends StatelessWidget {
                                               crossAxisAlignment:
                                                   CrossAxisAlignment.start,
                                               children: [
-                                                Text('已用流量',
+                                                Text(metrics[3].label,
                                                     style: TextStyle(
                                                         fontSize: 12,
                                                         fontWeight:
@@ -200,19 +202,18 @@ class SsrvpnThemedStatistics extends StatelessWidget {
                                                 const SizedBox(height: 5),
                                                 number(metrics[3], 19),
                                                 const SizedBox(height: 4),
-                                                Text(
-                                                    account == null
-                                                        ? '暂未更新'
-                                                        : '每月1日重置',
+                                                Text(metrics[3].unit,
                                                     style: TextStyle(
                                                         fontSize: 10,
                                                         color: theme
                                                             .textSecondary)),
                                               ])),
                                       card: cloud || sakura))),
-                          cloud || sakura
-                              ? SizedBox(width: theme.isSoft ? 12 : 7)
-                              : VerticalDivider(width: 14, color: theme.border),
+                          if (metrics.length > 4)
+                            cloud || sakura
+                                ? SizedBox(width: theme.isSoft ? 12 : 7)
+                                : VerticalDivider(
+                                    width: 14, color: theme.border),
                           if (metrics.length > 4)
                             Expanded(
                                 flex: 2,
@@ -227,15 +228,21 @@ class SsrvpnThemedStatistics extends StatelessWidget {
                                                 CrossAxisAlignment.start,
                                             children: [
                                               Row(children: [
-                                                SsrvpnThemeIcon('devices',
-                                                    fallback:
-                                                        Icons.devices_rounded,
+                                                SsrvpnThemeIcon(
+                                                    metrics[4].label == '到期时间'
+                                                        ? 'logs'
+                                                        : 'devices',
+                                                    fallback: metrics[4]
+                                                                .label ==
+                                                            '到期时间'
+                                                        ? Icons.event
+                                                        : Icons.devices_rounded,
                                                     color: theme.accent,
                                                     size: 22),
                                                 const SizedBox(width: 4),
                                                 Expanded(
                                                     child: SsrvpnHomeText(
-                                                        '已连接设备',
+                                                        metrics[4].label,
                                                         maxFontSize: 12,
                                                         style: TextStyle(
                                                             fontSize: 12,

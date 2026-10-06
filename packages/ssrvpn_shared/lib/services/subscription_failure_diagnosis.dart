@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:yaml/yaml.dart';
 
 import 'subscription_fetch_policy.dart';
+import 'subscription_proxy_fetcher.dart';
 import 'subscription_refresh_control.dart';
 
 /// Uses typed evidence at the refresh boundary, never prints a URL or response.
@@ -14,6 +15,10 @@ class SubscriptionFailureDiagnosis {
   final String summary;
 
   static SubscriptionFailureDiagnosis fromError(Object error) {
+    if (error is SubscriptionProxyUnavailable) {
+      return const SubscriptionFailureDiagnosis(
+          'SUB_PROXY_REQUIRED', '此订阅设置为通过节点更新，请先连接节点后重试。');
+    }
     if (error is SubscriptionRefreshDeadlineExceeded) {
       return const SubscriptionFailureDiagnosis(
           'SUB_DEADLINE', '本次订阅更新等待时间过长，已结束刷新，请稍后重试。');

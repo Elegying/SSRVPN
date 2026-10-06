@@ -11,8 +11,6 @@ class SsrvpnThemePicker extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = SsrvpnTheme.of(context);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text('主题', style: Theme.of(context).textTheme.titleSmall),
-      const SizedBox(height: 12),
       LayoutBuilder(builder: (context, constraints) {
         const columns = 4;
         final width = (constraints.maxWidth - (columns - 1) * 8) / columns;

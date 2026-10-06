@@ -2,6 +2,7 @@
 ///
 /// 包含所有平台共享的常量定义
 class AppConstants {
+  static const subscriptionProxyRoutingUser = 'ssrvpn-subscription';
   // ── 端口 ──
   static const int defaultProxyPort = 7890;
   static const int defaultSocksPort = 7891;
@@ -126,7 +127,7 @@ class AppConstants {
 
   // ── 版本信息 ──
   static const String appName = 'SSRVPN';
-  static const String appVersion = '5.0.36';
+  static const String appVersion = '5.0.37';
   static const String appUserAgent = '$appName/$appVersion';
   static const String appDescription = 'Cross-platform VPN client';
 

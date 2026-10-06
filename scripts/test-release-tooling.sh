@@ -8,6 +8,7 @@ python3 -m unittest \
   scripts/test_archive_windows_installer_baselines.py \
   scripts/test_android_gradle_supply_chain.py \
   scripts/test_android_release_keystore.py \
+  scripts/test_optimize_android_apk.py \
   scripts/test_android_core_source.py \
   scripts/test_core_traffic_source.py \
   scripts/test_protocol_udp_diagnostics.py \
