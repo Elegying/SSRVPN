@@ -1365,7 +1365,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("$live.SessionId -ne $currentSessionId", process_lookup)
         self.assertIn(
             "Test-ExactPath -Actual ([string]$candidate.ExecutablePath) `\n"
-            "            -Expected $ExpectedPath",
+            "              -Expected $ExpectedPath",
             process_lookup,
         )
         self.assertIn("$candidateSessionId -ne $currentSessionId) { continue }", process_lookup)
@@ -1381,6 +1381,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "if (-not $candidate.ExecutablePath)"
         )
         self.assertLess(candidate_session_check, candidate_path_check)
+        self.assertLess(process_lookup.index("if ($live.HasExited)"), candidate_path_check)
         fail_closed_lookup = stopper.split(
             "function Get-ProcessesAtPathFailClosed", 1
         )[1].split("function Test-ExactPath", 1)[0]
