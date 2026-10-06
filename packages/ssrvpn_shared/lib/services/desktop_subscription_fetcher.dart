@@ -301,6 +301,8 @@ class DesktopSubscriptionFetcher {
     return _NormalizedSubscriptionResponse(
       body: SubscriptionFetchPolicy.requireRecognizedBody(negotiated),
       headers: {
+        'subscription-userinfo':
+            negotiated.response.headers['subscription-userinfo'] ?? '',
         'profile-title': negotiated.response.headers['profile-title'] ?? '',
         'content-disposition':
             negotiated.response.headers['content-disposition'] ?? '',

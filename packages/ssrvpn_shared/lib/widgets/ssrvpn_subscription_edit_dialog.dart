@@ -9,10 +9,12 @@ import 'ssrvpn_app_surface.dart';
 final _openSubscriptionEditors = Expando<bool>('ssrvpn subscription editor');
 
 class SsrvpnSubscriptionEditDraft {
-  const SsrvpnSubscriptionEditDraft({required this.name, required this.url});
+  const SsrvpnSubscriptionEditDraft(
+      {required this.name, required this.url, this.refreshViaProxy = false});
 
   final String name;
   final String url;
+  final bool refreshViaProxy;
 }
 
 Future<SsrvpnSubscriptionEditDraft?> showSsrvpnSubscriptionEditDialog(
@@ -45,12 +47,14 @@ class _SubscriptionEditDialog extends StatefulWidget {
 
 class _SubscriptionEditDialogState extends State<_SubscriptionEditDialog> {
   final _formKey = GlobalKey<FormState>();
+  late bool _refreshViaProxy;
   late final TextEditingController _nameController;
   late final TextEditingController _urlController;
 
   @override
   void initState() {
     super.initState();
+    _refreshViaProxy = widget.subscription.refreshViaProxy;
     _nameController = TextEditingController(text: widget.subscription.name);
     _urlController = TextEditingController(text: widget.subscription.url);
   }
@@ -69,6 +73,7 @@ class _SubscriptionEditDialogState extends State<_SubscriptionEditDialog> {
       SsrvpnSubscriptionEditDraft(
         name: _nameController.text.trim(),
         url: _urlController.text.trim(),
+        refreshViaProxy: _refreshViaProxy,
       ),
     );
   }
@@ -159,6 +164,16 @@ class _SubscriptionEditDialogState extends State<_SubscriptionEditDialog> {
                                       : null,
                               onFieldSubmitted: (_) => _save(),
                             )),
+                        Material(
+                            type: MaterialType.transparency,
+                            child: SwitchListTile.adaptive(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('通过已连接的节点更新'),
+                                subtitle: const Text(
+                                    '用于手动和自动更新。开启后需先连接节点；关闭时沿用直连请求方式。单节点链接不受此设置影响。'),
+                                value: _refreshViaProxy,
+                                onChanged: (value) =>
+                                    setState(() => _refreshViaProxy = value))),
                       ],
                     ),
                   ),

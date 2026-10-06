@@ -109,50 +109,48 @@ class SsrvpnPublicIpCard extends StatelessWidget {
     final label = refreshing
         ? '正在获取公网 IPv4…'
         : error ?? (value == null ? '获取公网 IPv4' : '公网 IPv4  $value');
-    return Tooltip(
-        message: busy ? '连接切换中，请稍候' : '$label；点击重新查询',
-        child: Semantics(
-            label: label,
-            excludeSemantics: true,
-            onTap: refreshing || busy ? null : onRefresh,
-            button: true,
-            enabled: !busy && !refreshing,
-            liveRegion: true,
-            child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  key: const Key('home-public-ip'),
-                  borderRadius: BorderRadius.circular(16),
-                  onTap: refreshing || busy ? null : onRefresh,
-                  child: SsrvpnSurfaceCard(
-                      radius: 16,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 9),
-                      child: Row(children: [
-                        refreshing
-                            ? SizedBox.square(
-                                dimension: 17,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2, color: theme.primary))
-                            : SsrvpnThemeIcon('public-ip',
-                                fallback: Icons.public_rounded,
-                                size: 19,
-                                color: theme.primary),
-                        const SizedBox(width: 9),
-                        Expanded(
-                            child: SsrvpnHomeText(label,
-                                maxFontSize: 15,
-                                maxLines: 1,
-                                style: TextStyle(
-                                    color: error == null
-                                        ? theme.textPrimary
-                                        : theme.warning,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600))),
-                        const SizedBox(width: 4),
-                        Icon(Icons.refresh_rounded,
-                            size: 17, color: theme.textSecondary),
-                      ])),
-                ))));
+    return Semantics(
+        label: label,
+        excludeSemantics: true,
+        onTap: refreshing || busy ? null : onRefresh,
+        button: true,
+        enabled: !busy && !refreshing,
+        liveRegion: true,
+        child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              key: const Key('home-public-ip'),
+              borderRadius: BorderRadius.circular(16),
+              onTap: refreshing || busy ? null : onRefresh,
+              child: SsrvpnSurfaceCard(
+                  radius: 16,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                  child: Row(children: [
+                    refreshing
+                        ? SizedBox.square(
+                            dimension: 17,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: theme.primary))
+                        : SsrvpnThemeIcon('public-ip',
+                            fallback: Icons.public_rounded,
+                            size: 19,
+                            color: theme.primary),
+                    const SizedBox(width: 9),
+                    Expanded(
+                        child: SsrvpnHomeText(label,
+                            maxFontSize: 15,
+                            maxLines: 1,
+                            style: TextStyle(
+                                color: error == null
+                                    ? theme.textPrimary
+                                    : theme.warning,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600))),
+                    const SizedBox(width: 4),
+                    Icon(Icons.refresh_rounded,
+                        size: 17, color: theme.textSecondary),
+                  ])),
+            )));
   }
 }

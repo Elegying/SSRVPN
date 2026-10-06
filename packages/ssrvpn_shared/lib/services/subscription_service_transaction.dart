@@ -74,6 +74,8 @@ extension _SubscriptionTransaction on _SubscriptionPersistence {
           ..lastUpdate = saved.lastUpdate
           ..enabled = saved.enabled
           ..autoUpdate = saved.autoUpdate
+          ..usage = saved.usage
+          ..refreshViaProxy = saved.refreshViaProxy
           ..disabledNamesTrusted = saved.disabledNamesTrusted
           ..disabledSourceYaml = saved.disabledSourceYaml;
       }

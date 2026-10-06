@@ -212,22 +212,50 @@ if ($compilerVersion -lt $minimumCompilerVersion) {
 $installerScript = Join-Path $projectRoot 'installer\SSRVPN.iss'
 $payloadManifestPath = Join-Path ([System.IO.Path]::GetTempPath()) `
   "ssrvpn-expected-payload-$([Guid]::NewGuid().ToString('N')).sha256"
+$compressionRoot = Join-Path ([System.IO.Path]::GetTempPath()) `
+  "ssrvpn-compression-$([Guid]::NewGuid().ToString('N'))"
 try {
   New-TrustedPayloadManifest -PayloadRoot $SourceDir `
     -ManifestPath $payloadManifestPath
-  & $compiler `
-    "/DAppVersion=$Version" `
-    "/DSourceDir=$SourceDir" `
-    "/DOutputDir=$OutputDir" `
-    "/DProjectDir=$projectRoot" `
-    "/DPayloadManifestPath=$payloadManifestPath" `
-    $installerScript
-  if ($LASTEXITCODE -ne 0) {
-    throw "Inno Setup failed with exit code $LASTEXITCODE"
+  $smallest = $null
+  $baselineSize = 0
+  foreach ($fastBytes in @(64, 273)) {
+    $candidateDirectory = Join-Path $compressionRoot "$fastBytes"
+    New-Item -ItemType Directory -Path $candidateDirectory -Force | Out-Null
+    & $compiler `
+      "/DAppVersion=$Version" `
+      "/DSourceDir=$SourceDir" `
+      "/DOutputDir=$candidateDirectory" `
+      "/DProjectDir=$projectRoot" `
+      "/DCompressionFastBytes=$fastBytes" `
+      "/DPayloadManifestPath=$payloadManifestPath" `
+      $installerScript
+    if ($LASTEXITCODE -ne 0) {
+      throw "Inno Setup failed with exit code $LASTEXITCODE"
+    }
+    $candidate = Get-Item -LiteralPath (
+      Join-Path $candidateDirectory 'SSRVPN_Setup.exe'
+    )
+    if ($candidate.Length -le 1MB) {
+      throw "Installer compression candidate is unexpectedly small"
+    }
+    if ($fastBytes -eq 64) { $baselineSize = $candidate.Length }
+    if ($null -eq $smallest -or $candidate.Length -lt $smallest.Length) {
+      $smallest = $candidate
+    }
   }
+  Copy-Item -LiteralPath $smallest.FullName `
+    -Destination (Join-Path $OutputDir 'SSRVPN_Setup.exe') -Force
+  Write-Host (
+    "Installer lossless compression: $baselineSize -> $($smallest.Length) bytes " +
+    "(saved $($baselineSize - $smallest.Length)); same payload manifest"
+  )
 } finally {
   Remove-Item -LiteralPath $payloadManifestPath -Force `
     -ErrorAction SilentlyContinue
+  if (Test-Path -LiteralPath $compressionRoot) {
+    Remove-Item -LiteralPath $compressionRoot -Recurse -Force
+  }
 }
 
 $installerPath = Join-Path $OutputDir 'SSRVPN_Setup.exe'

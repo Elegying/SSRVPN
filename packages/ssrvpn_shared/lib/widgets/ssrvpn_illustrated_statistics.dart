@@ -86,6 +86,8 @@ class SsrvpnIllustratedStatistics extends StatelessWidget {
                                   label: metrics[3].semantics,
                                   excludeSemantics: true,
                                   child: SsrvpnUsageRing(
+                                      enabled: account != null ||
+                                          metrics[3].unit == '暂未更新',
                                       account: account,
                                       child: Column(
                                           mainAxisAlignment:
@@ -93,7 +95,7 @@ class SsrvpnIllustratedStatistics extends StatelessWidget {
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
-                                            text('已用流量', 12),
+                                            text(metrics[3].label, 12),
                                             const SizedBox(height: 3),
                                             text(metrics[3].number, 16,
                                                 bold: true),
@@ -114,12 +116,20 @@ class SsrvpnIllustratedStatistics extends StatelessWidget {
                                             MainAxisAlignment.center,
                                         children: [
                                           Row(children: [
-                                            SsrvpnThemeIcon('devices',
-                                                fallback: Icons.devices,
+                                            SsrvpnThemeIcon(
+                                                metrics[4].label == '到期时间'
+                                                    ? 'logs'
+                                                    : 'devices',
+                                                fallback:
+                                                    metrics[4].label == '到期时间'
+                                                        ? Icons.event
+                                                        : Icons.devices,
                                                 size: 20,
                                                 color: t.textPrimary),
                                             const SizedBox(width: 5),
-                                            Expanded(child: text('已连接设备', 12))
+                                            Expanded(
+                                                child:
+                                                    text(metrics[4].label, 12))
                                           ]),
                                           const SizedBox(height: 3),
                                           text(metrics[4].number, 20,

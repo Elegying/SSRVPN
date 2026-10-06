@@ -69,8 +69,6 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
             },
             readStartFailureReason: () => clashService.lastStartError,
             onProgress: clashService.createConnectionProgressReporter(),
-            readRuntimeNotice: () =>
-                clashService.lastRuntimePortAdjustmentMessage,
             switchPreferredNode: (isConnectionContextCurrent) async {
               final switchStatusEpoch = _connectionStatusEpoch;
               var switched = true;
@@ -154,7 +152,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
             runtimeNodeName: runtimeSelectedNode?.name,
           );
           final notice = nodeWarning ?? connectionResult.runtimeNotice;
-          _showRuntimePortAdjustmentNotice(notice);
+          _showConnectionWarning(notice);
           _schedulePublicIpRefresh();
         }
       }

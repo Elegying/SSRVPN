@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Exercise generated SSRVPN rules on loopback; no system proxy/TUN changes."""
-from contextlib import ExitStack
+from contextlib import ExitStack, closing
 import gzip
+import base64
+import http.client
 import importlib.util
 import json
 import os
@@ -101,7 +103,16 @@ def main():
                         assert status == 200 and body == b'proxy-traffic-regression' * 4096, (mode, domain, status, body[:200])
                         after = sample()
                         assert (after > before) == expected_proxy, (mode, domain, before, after)
-                    print(f'{mode}: manual overrides, GFW proxy and unknown fallback passed on real core')
+                    before = sample()
+                    with closing(http.client.HTTPConnection('127.0.0.1', mixed, timeout=10)) as connection:
+                        tag = base64.b64encode(b'ssrvpn-subscription:subscription').decode()
+                        connection.set_tunnel('127.0.0.1', target, headers={'Proxy-Authorization': f'Basic {tag}'})
+                        connection.request('GET', '/payload')
+                        response = connection.getresponse()
+                        assert response.status == 200
+                        assert response.read() == b'proxy-traffic-regression' * 4096
+                    assert sample() > before, 'subscription CONNECT must use PROXY ahead of private DIRECT'
+                    print(f'{mode}: manual overrides, subscription CONNECT, GFW proxy and unknown fallback passed on real core')
                 except BaseException:
                     log.flush()
                     log.seek(0)

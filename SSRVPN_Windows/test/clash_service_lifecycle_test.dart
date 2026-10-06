@@ -439,6 +439,38 @@ Future<void> main(List<String> args) async {
     expect(session.summary, contains('未获取'));
   });
 
+  for (final throws in [false, true]) {
+    test(
+        'unexpected-exit proxy cleanup preserves failures and allows retry: throws=$throws',
+        () async {
+      final proxy = _ControlledStopProxy()
+        ..lastError = 'fixture owned proxy recovery failed'
+        ..recoveryPending = true
+        ..clear = () async {
+          if (throws) throw StateError('fixture cleanup unavailable');
+          return false;
+        };
+      final service =
+          _InspectableLifecycleClashService(systemProxyService: proxy);
+      addTearDown(service.dispose);
+      expect(await service.clearExitedProxy(), isFalse);
+      expect(proxy.recoveryPending, isTrue);
+      expect(
+          service.recentLogs,
+          contains(throws
+              ? '核心异常退出后清理系统代理失败'
+              : 'fixture owned proxy recovery failed'));
+      proxy.clear = () async {
+        proxy.recoveryPending = false;
+        proxy.lastError = null;
+        return true;
+      };
+      expect(await service.clearExitedProxy(), isTrue);
+      expect(proxy.clearCalls, 2);
+      expect(proxy.recoveryPending, isFalse);
+    });
+  }
+
   test('idle proxy recovery repair is idempotently successful', () async {
     final service = _createTestService();
 
@@ -1003,6 +1035,8 @@ class _InspectableLifecycleClashService extends ClashService {
       validateConfig(environment);
 
   Future<void> probeCoreVersion() => logCoreVersion();
+
+  Future<bool> clearExitedProxy() => clearSystemProxyAfterUnexpectedExit();
 }
 
 class _HealthyReuseLifecycleClashService

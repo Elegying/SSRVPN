@@ -219,7 +219,8 @@ proxies:
       expect(rules, isNot(contains('IP-CIDR6,::/0,REJECT,no-resolve')));
       final forcedIpv6Index =
           rules.indexOf('IP-CIDR6,2001:db8::1/128,PROXY,no-resolve');
-      expect(forcedIpv6Index, 0);
+      expect(rules.first, 'IN-USER,ssrvpn-subscription,PROXY');
+      expect(forcedIpv6Index, 1);
       expect(
         rules.indexOf('IP-CIDR,192.168.0.0/16,DIRECT,no-resolve'),
         greaterThan(forcedIpv6Index),

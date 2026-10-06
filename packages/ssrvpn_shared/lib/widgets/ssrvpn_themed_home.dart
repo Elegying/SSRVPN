@@ -337,16 +337,14 @@ class _ThemedNodeCard extends StatelessWidget {
                             const SizedBox(height: 3),
                             Flexible(
                                 flex: 2,
-                                child: Tooltip(
-                                    message: name,
-                                    child: SsrvpnHomeText(
-                                        compactNodeDisplayName(name),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                            color: ink,
-                                            fontSize: 19,
-                                            fontWeight: FontWeight.w700)))),
+                                child: SsrvpnHomeText(
+                                    compactNodeDisplayName(name),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                        color: ink,
+                                        fontSize: 19,
+                                        fontWeight: FontWeight.w700))),
                             const SizedBox(height: 2),
                             Flexible(
                                 child: SsrvpnHomeText(

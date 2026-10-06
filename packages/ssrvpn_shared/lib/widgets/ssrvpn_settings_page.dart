@@ -1,3 +1,5 @@
+import '../services/subscription_service_base.dart';
+import 'ssrvpn_subscription_schedule_dialog.dart';
 import 'ssrvpn_theme_icon.dart';
 import 'ssrvpn_theme.dart';
 import 'ssrvpn_theme_picker.dart';
@@ -16,6 +18,7 @@ class SsrvpnSettingsPage extends StatefulWidget {
   const SsrvpnSettingsPage(
       {super.key,
       required this.settings,
+      this.subscriptionService,
       required this.core,
       required this.onAppearanceChanged,
       required this.onPortChanged,
@@ -25,6 +28,7 @@ class SsrvpnSettingsPage extends StatefulWidget {
   final Future<void> Function(List<String> sites, bool direct)?
       onRoutingSitesChanged;
   final AppSettings settings;
+  final SubscriptionServiceBase? subscriptionService;
   final ClashServiceBase core;
   final Future<void> Function({AppThemeVariant? themeVariant})
       onAppearanceChanged;
@@ -238,6 +242,9 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                         ])),
                 const SizedBox(height: 12),
                 _section('应用', [
+                  if (widget.subscriptionService != null)
+                    SubscriptionScheduleTile(
+                        service: widget.subscriptionService!),
                   ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: const SsrvpnThemeIcon('logs',

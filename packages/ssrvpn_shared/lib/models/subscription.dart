@@ -1,21 +1,36 @@
+import '../utils/subscription_usage_policy.dart';
+import 'subscription_usage.dart';
+
 class Subscription {
   Subscription({
     required this.id,
-    required this.name,
+    required String name,
     required this.url,
     this.lastUpdate,
     this.enabled = true,
     this.autoUpdate = true,
+    SubscriptionUsage? usage,
+    this.refreshViaProxy = false,
     this.disabledSourceYaml,
     this.disabledNamesTrusted = false,
-  });
+  })  : _name = name,
+        _usage = SubscriptionUsagePolicy.allows(url) ? usage : null;
 
   final String id;
-  String name;
+  String _name;
+  String get name =>
+      SubscriptionUsagePolicy.allows(url) ? _name : 'vip.ssrvpn.vip';
+  set name(String value) => _name = value;
   String url;
   DateTime? lastUpdate;
   bool enabled;
   bool autoUpdate;
+  bool refreshViaProxy;
+  SubscriptionUsage? _usage;
+  SubscriptionUsage? get usage =>
+      SubscriptionUsagePolicy.allows(url) ? _usage : null;
+  set usage(SubscriptionUsage? value) =>
+      _usage = SubscriptionUsagePolicy.allows(url) ? value : null;
 
   /// Offline source retained only while this subscription is disabled.
   String? disabledSourceYaml;
@@ -28,6 +43,10 @@ class Subscription {
         name: json['name']?.toString() ?? '',
         url: json['url']?.toString() ?? '',
         lastUpdate: _parseDate(json['lastUpdate']),
+        usage: SubscriptionUsagePolicy.allows(json['url']?.toString() ?? '')
+            ? SubscriptionUsage.fromJson(json['usage'])
+            : null,
+        refreshViaProxy: json['refreshViaProxy'] == true,
         disabledSourceYaml: json['disabledSourceYaml'] is String
             ? json['disabledSourceYaml'] as String
             : null,
@@ -44,6 +63,8 @@ class Subscription {
         'lastUpdate': lastUpdate?.toIso8601String(),
         'enabled': enabled,
         'autoUpdate': autoUpdate,
+        'refreshViaProxy': refreshViaProxy,
+        if (usage != null) 'usage': usage!.toJson(),
         if (disabledSourceYaml != null)
           'disabledSourceYaml': disabledSourceYaml,
         if (disabledSourceYaml != null && disabledNamesTrusted)

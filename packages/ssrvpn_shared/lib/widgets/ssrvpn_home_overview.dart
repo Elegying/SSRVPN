@@ -273,19 +273,16 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
                               ),
                               SizedBox(width: compact ? 7 : 9),
                               Expanded(
-                                child: Tooltip(
-                                  message: displayName,
-                                  child: SsrvpnHomeText(
-                                    visibleName,
-                                    maxFontSize: compact ? 18 : 20,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: SsrvpnUiTokens.of(context)
-                                          .textPrimary,
-                                      fontSize: compact ? 18 : 20,
-                                      fontWeight: FontWeight.w700,
-                                    ),
+                                child: SsrvpnHomeText(
+                                  visibleName,
+                                  maxFontSize: compact ? 18 : 20,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color:
+                                        SsrvpnUiTokens.of(context).textPrimary,
+                                    fontSize: compact ? 18 : 20,
+                                    fontWeight: FontWeight.w700,
                                   ),
                                 ),
                               ),

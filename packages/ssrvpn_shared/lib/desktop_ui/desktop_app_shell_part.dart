@@ -160,6 +160,7 @@ Widget _buildSettingsPage(BuildContext context) {
   final service = context.watch<SettingsService>();
   final core = context.read<clash.ClashService>();
   return SsrvpnSettingsPage(
+    subscriptionService: context.watch<SubscriptionService>(),
     settings: service.settings,
     core: core,
     onAppearanceChanged: service.updateAppearance,

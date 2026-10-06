@@ -1936,7 +1936,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             home_connect[home_recovery:],
         )
 
-    def test_windows_notifies_runtime_ports_and_recovers_one_core_exit(self) -> None:
+    def test_windows_logs_runtime_ports_and_recovers_one_core_exit(self) -> None:
         lifecycle = (
             ROOT
             / "SSRVPN_Windows"
@@ -1957,9 +1957,14 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
                 "String? _defaultNodeName()"
             )
         ]
-        # The shared Home stays concise. A runtime port adjustment must instead
-        # be disclosed by the runtime notice and the Windows tray status.
-        self.assertIn("lastRuntimePortAdjustmentMessage", tray_connect)
+        # Port adjustments are logged, never published as connection notices.
+        # The tray must still report the actual active endpoint.
+        self.assertNotIn("lastRuntimePortAdjustmentMessage", tray_connect)
+        runtime_support = (
+            ROOT / "packages/ssrvpn_shared/lib/services/clash_service_runtime_support.dart"
+        ).read_text(encoding="utf-8")
+        self.assertIn("setRuntimePortAdjustmentMessage(message);", runtime_support)
+        self.assertIn("log(message);", runtime_support)
         self.assertIn("_presentRuntimeNotice", tray_connect)
         self.assertIn("runtimeProxyPort", tray)
         self.assertIn("HTTP 代理：127.0.0.1:$port", tray)

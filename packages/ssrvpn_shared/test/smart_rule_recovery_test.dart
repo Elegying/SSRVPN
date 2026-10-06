@@ -293,7 +293,9 @@ proxies:
     final rules = (loadYaml(await File(configPath).readAsString())
         as Map)['rules'] as List;
     expect(rules, isNot(contains(AppConstants.rejectIpv6Rule)));
-    expect(rules.first, startsWith('PROCESS-NAME,'));
+    expect(rules.first,
+        'IN-USER,${AppConstants.subscriptionProxyRoutingUser},PROXY');
+    expect(rules[1], startsWith('PROCESS-NAME,'));
     expect(rules, contains('PROCESS-NAME,com.foreign.v1,PROXY'));
   });
 
@@ -310,7 +312,9 @@ proxies:
     final source = await recovery.rewriteConfig(jsonEncode(document), '1.0.0');
     final rules = (loadYaml(source) as Map)['rules'] as List;
     expect(rules, isNot(contains(AppConstants.rejectIpv6Rule)));
-    expect(rules.first, startsWith('PROCESS-NAME,'));
+    expect(rules.first,
+        'IN-USER,${AppConstants.subscriptionProxyRoutingUser},PROXY');
+    expect(rules[1], startsWith('PROCESS-NAME,'));
   });
 
   for (final dualStack in [false, true]) {

@@ -110,7 +110,6 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
             core.interruptPendingStart();
           },
           readStartFailureReason: () => core.lastStartError,
-          readRuntimeNotice: () => core.lastRuntimePortAdjustmentMessage,
           switchPreferredNode: preferredNodeName == null
               ? null
               : (isConnectionContextCurrent) => core.switchSelectedProxy(

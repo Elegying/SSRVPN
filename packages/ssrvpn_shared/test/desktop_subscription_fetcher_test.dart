@@ -165,6 +165,8 @@ void main() {
       userAgents.add(userAgent);
       if (userAgent.startsWith('v2rayN/')) {
         request.response
+          ..headers.set('Subscription-Userinfo',
+              'upload=0;download=0;total=100;expire=1793894400')
           ..statusCode = HttpStatus.ok
           ..write(_validYaml)
           ..close();
@@ -184,6 +186,8 @@ void main() {
 
       expect(result.body, contains('Valid Node'));
       expect(userAgents, SubscriptionFetchPolicy.userAgents.take(3));
+      expect(result.headers['subscription-userinfo'],
+          'upload=0;download=0;total=100;expire=1793894400');
     } finally {
       await subscription.cancel();
       await server.close(force: true);

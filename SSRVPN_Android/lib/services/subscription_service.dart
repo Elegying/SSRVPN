@@ -19,6 +19,9 @@ class SubscriptionService extends SubscriptionServiceBase {
   /// 比共享 [AppConstants.maxYamlBytes]（4 MB）更严：移动端内存与解析开销更敏感。
   /// 共享合并器允许到 20 MB，Android 主动收紧到 2 MB。
   static const int _maxYamlBytes = 2 * 1024 * 1024;
+  @override
+  int get maxSubscriptionResponseBytes => _maxYamlBytes;
+
   static const int _maxHeaderBytes = 64 * 1024;
   static const _tlsTimeout = Duration(seconds: 20);
   static const _defaultReadInactivityTimeout = Duration(seconds: 30);
