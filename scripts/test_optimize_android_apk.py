@@ -14,6 +14,13 @@ APK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(APK)
 
 
+def alignment_capable_tools(sdk):
+    # zipalign -P (16 KiB native-library alignment) requires build-tools 35+.
+    return sorted(path.parent for path in (sdk / "build-tools").glob("*/apksigner")
+                  if path.parent.name.split(".")[0].isdigit()
+                  and int(path.parent.name.split(".")[0]) >= 35)
+
+
 class OptimizeApkTest(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -77,6 +84,14 @@ class OptimizeApkTest(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 APK.certificate(Path("apksigner"), Path("app.apk"))
 
+    def test_sdk_matrix_covers_all_16k_capable_versions(self):
+        for version in ("34.0.0", "35.0.0", "35.0.1", "36.0.0", "36.1.0", "37.0.0"):
+            folder = self.root / "build-tools" / version
+            folder.mkdir(parents=True)
+            (folder / "apksigner").touch()
+        self.assertEqual([path.name for path in alignment_capable_tools(self.root)],
+                         ["35.0.0", "35.0.1", "36.0.0", "36.1.0", "37.0.0"])
+
     def exercise(self, changed_payload=False, changed_signer=False, larger=False):
         source = self.archive("source.apk", signature=b"s" * 4096)
         destination = self.root / "output.apk"
@@ -130,8 +145,8 @@ class OptimizeApkTest(unittest.TestCase):
 class SdkOptimizerTest(unittest.TestCase):
     def test_real_signed_apk_round_trip_with_installed_build_tools(self):
         sdk = Path(os.environ["ANDROID_HOME"])
-        tools = sorted(path.parent for path in (sdk / "build-tools").glob("*/apksigner"))
-        self.assertTrue(tools, "Android SDK build-tools are required")
+        tools = alignment_capable_tools(sdk)
+        self.assertTrue(tools, "Android SDK build-tools 35+ are required for 16 KiB alignment")
         with tempfile.TemporaryDirectory(prefix="ssrvpn-apk-sdk-") as directory:
             root = Path(directory)
             manifest = root / "AndroidManifest.xml"
@@ -152,6 +167,7 @@ class SdkOptimizerTest(unittest.TestCase):
                                          "SSRVPN_APK_KEY_PASSWORD": "fixture-password"}):
                 for build_tools in tools:
                     with self.subTest(build_tools=build_tools.name):
+                        print(f"Verifying APK optimizer with SDK build-tools {build_tools.name}", flush=True)
                         subprocess.run([str(build_tools / "apksigner"), "sign", "--ks", str(key),
                                         "--ks-pass", "env:SSRVPN_APK_STORE_PASSWORD", "--ks-key-alias", "fixture",
                                         "--v4-signing-enabled", "false", "--out", str(source), str(unsigned)], check=True)
