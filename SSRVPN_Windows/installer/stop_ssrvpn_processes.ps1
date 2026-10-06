@@ -151,6 +151,9 @@ function Get-ProcessesAtPath {
         throw "Incomplete process identity returned for PID $processId."
       }
       if ($candidateSessionId -ne $currentSessionId) { continue }
+      if ($candidate.ExecutablePath -and $ExpectedPath -and
+          -not (Test-ExactPath -Actual ([string]$candidate.ExecutablePath) `
+            -Expected $ExpectedPath)) { continue }
 
       # Re-open the PID and compare its live name, session and image path. This
       # prevents a stale CIM row, path swap or PID reuse from being trusted as
@@ -163,9 +166,6 @@ function Get-ProcessesAtPath {
         if (-not $candidate.ExecutablePath) {
           throw "Incomplete process identity returned for PID $processId."
         }
-        if ($ExpectedPath -and
-            -not (Test-ExactPath -Actual ([string]$candidate.ExecutablePath) `
-              -Expected $ExpectedPath)) { continue }
         $livePath = $live.Path
         if (-not $livePath -or
             $live.ProcessName -ine $expectedProcessName -or

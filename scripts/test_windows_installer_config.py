@@ -1365,7 +1365,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("$live.SessionId -ne $currentSessionId", process_lookup)
         self.assertIn(
             "Test-ExactPath -Actual ([string]$candidate.ExecutablePath) `\n"
-            "              -Expected $ExpectedPath",
+            "            -Expected $ExpectedPath",
             process_lookup,
         )
         self.assertIn("$candidateSessionId -ne $currentSessionId) { continue }", process_lookup)

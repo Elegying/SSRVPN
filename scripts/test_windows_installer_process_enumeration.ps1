@@ -50,6 +50,7 @@ $cases = @(
   @{ Name = 'live incomplete identity'; Mode = 'live'; Path = ''; Error = 'Incomplete process identity' },
   @{ Name = 'inaccessible PID'; Mode = 'denied'; Path = ''; Error = 'Fixture access denied' },
   @{ Name = 'reused PID with changed path'; Mode = 'live'; Path = 'C:\owned\mihomo.exe'; Error = 'Process identity changed' },
+  @{ Name = 'known unrelated install path'; Mode = 'denied'; Path = 'C:\other\mihomo.exe'; Filtered = $true; Error = 'Fixture access denied' },
   @{ Name = 'foreign session'; Mode = 'denied'; Path = ''; Session = 43; Error = '' },
   @{ Name = 'invalid PID'; Mode = 'gone'; Path = ''; InvalidPid = $true; Error = 'Invalid process identity' }
 )
@@ -68,15 +69,17 @@ foreach ($expectedPath in @('', 'C:\owned\mihomo.exe')) {
     try {
       $result = @(Get-ProcessesAtPath -Name 'mihomo.exe' -ExpectedPath $expectedPath)
     } catch { $caught = $_.Exception.Message }
-    if ($case.Error) {
-      if (-not $caught -or $caught -notlike "*$($case.Error)*") {
-        throw "$($case.Name): expected '$($case.Error)', got '$caught'"
+    $expectedError = if ($case.Filtered -and $expectedPath) { '' } else { $case.Error }
+    if ($expectedError) {
+      if (-not $caught -or $caught -notlike "*$expectedError*") {
+        throw "$($case.Name): expected '$expectedError', got '$caught'"
       }
     } elseif ($caught -or $result.Count -ne 0) {
       throw "$($case.Name): exited/foreign process was not ignored: $caught"
     }
-    if ($case.Session -eq 43 -and $script:liveQueries -ne 0) {
-      throw 'Foreign-session process was queried.'
+    if (($case.Session -eq 43 -or ($case.Filtered -and $expectedPath)) -and
+        $script:liveQueries -ne 0) {
+      throw 'An excluded process was queried.'
     }
     $count++
     Write-Host "PASS $($case.Name); install path filter='$expectedPath'"
