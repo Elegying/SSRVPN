@@ -438,6 +438,12 @@ jobs:
         shell: bash
         run: bash scripts/test-android-native.sh
 
+      - name: Exercise APK optimizer with installed SDK tools
+        if: needs.changes.outputs.platform_required == 'true' && matrix.directory == 'SSRVPN_Android'
+        env:
+          SSRVPN_TEST_APK_SDK: '1'
+        run: python3 -m unittest scripts.test_optimize_android_apk.SdkOptimizerTest
+
       - if: needs.changes.outputs.platform_required == 'true'
         run: bash scripts/check-coverage-thresholds.sh ${{ matrix.directory }}
 

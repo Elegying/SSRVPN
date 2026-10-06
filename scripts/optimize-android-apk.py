@@ -35,8 +35,16 @@ def payload(path: Path) -> dict:
 def certificate(signer: Path, apk: Path) -> list[str]:
     output = subprocess.check_output(
         [str(signer), "verify", "--print-certs", str(apk)], text=True)
-    digests = re.findall(r"^Signer #\d+ certificate SHA-256 digest: ([0-9a-f]+)$",
-                         output, re.MULTILINE)
+    digests = []
+    for line in output.splitlines():
+        if " certificate SHA-256 digest:" not in line or line.startswith("Source Stamp Signer"):
+            continue
+        # SDK 37 labels certificates by APK signature scheme, not signer index.
+        match = re.fullmatch(r"(?:Signer #\d+|V[123](?:\.[012])? Signer:) "
+                             r"certificate SHA-256 digest: ([0-9a-fA-F]{64})", line)
+        if not match:
+            raise ValueError("APK signing certificate output was not recognized")
+        digests.append(match[1].lower())
     if not digests:
         raise ValueError("APK signing certificate was not verified")
     return sorted(digests)
