@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
@@ -9,20 +8,53 @@ import 'package:ssrvpn_shared/widgets/ssrvpn_appearance.dart';
 // Normal package tests also cover intentionally unconfigured distributions.
 void main() {
   const verifyBuild = bool.fromEnvironment('SSRVPN_VERIFY_USAGE_BUILD');
+  test('every compiled binding resolves to its configured identity', () {
+    final providers =
+        jsonDecode(const String.fromEnvironment('SSRVPN_USAGE_PROVIDERS'))
+            as List<dynamic>;
+    expect(providers, isNotEmpty);
+    for (final provider in providers) {
+      for (final member in provider['nodes'] as List<dynamic>) {
+        final node = ProxyNode(
+            name: provider['nodeName'] as String? ?? '私家车 · 编译配置验证',
+            type: 'hysteria2',
+            server: member['server'] as String,
+            port: member['port'] as int,
+            extra: const {'password': 'synthetic-test-only'});
+        final identity = AccountUsageProviders.configured.resolve(node);
+        // Compare booleans so failed checks cannot print private settings.
+        expect(identity != null, isTrue);
+        expect(
+            identity!.endpoint ==
+                Uri.parse(provider['origin'] as String)
+                    .replace(path: '/api/v1/user/usage'),
+            isTrue);
+        expect(
+            AccountUsageProviders.configured
+                .resolve(node.copyWith(server: 'untrusted.invalid')),
+            isNull);
+        if (provider['nodeName'] != null) {
+          expect(
+              AccountUsageProviders.configured
+                  .resolve(node.copyWith(name: '私家车 · 其他')),
+              isNull);
+        }
+      }
+    }
+  }, skip: !verifyBuild);
   for (final theme in AppThemeVariant.values) {
     testWidgets('${theme.name} compiled providers drive private account cards',
         (tester) async {
       expect(const bool.hasEnvironment('SSRVPN_USAGE_PROVIDERS'), isTrue,
           reason:
               'Acceptance builds must include the account provider defines');
-      final config = jsonDecode(
-          File('../../config/ssrvpn-usage-defines.json').readAsStringSync());
-      final providers = jsonDecode(config['SSRVPN_USAGE_PROVIDERS'] as String)
-          as List<dynamic>;
+      final providers =
+          jsonDecode(const String.fromEnvironment('SSRVPN_USAGE_PROVIDERS'))
+              as List<dynamic>;
       expect(providers, isNotEmpty);
       final member = providers.first['nodes'].first;
       final node = ProxyNode(
-          name: '私家车 · 编译配置验证',
+          name: providers.first['nodeName'] as String? ?? '私家车 · 编译配置验证',
           type: 'hysteria2',
           server: member['server'] as String,
           port: member['port'] as int,

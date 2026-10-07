@@ -257,6 +257,17 @@ jobs:
           keyPassword=$ANDROID_KEY_PASSWORD
           EOF
 
+      - name: Prepare private build configuration
+        shell: bash
+        env:
+          SSRVPN_USAGE_PROVIDERS: ${{ secrets.SSRVPN_USAGE_PROVIDERS }}
+        run: python3 scripts/prepare-private-defines.py
+
+      - name: Verify compiled build configuration
+        shell: bash
+        working-directory: packages/ssrvpn_shared
+        run: flutter test test/account_usage_compiled_theme_test.dart --dart-define-from-file=../../config/ssrvpn-private-defines.json --dart-define=SSRVPN_VERIFY_USAGE_BUILD=true
+
       - name: Build APK
         env:
           SSRVPN_APK_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -264,7 +275,7 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           cd SSRVPN_Android
-          flutter build apk --release --target-platform=android-arm64 --split-debug-info=build/symbols --dart-define-from-file=../config/ssrvpn-usage-defines.json
+          flutter build apk --release --target-platform=android-arm64 --split-debug-info=build/symbols --dart-define-from-file=../config/ssrvpn-private-defines.json
           BUILD_TOOLS="$(dirname "$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)")"
           python3 ../scripts/optimize-android-apk.py build/app/outputs/flutter-apk/app-release.apk SSRVPN.apk \
             --build-tools "$BUILD_TOOLS" --keystore "$RUNNER_TEMP/ssrvpn-release.jks" --alias "$ANDROID_KEY_ALIAS"
@@ -412,8 +423,19 @@ jobs:
         timeout-minutes: 5
         run: python3 scripts/check-imported-protocol-traffic.py --restls
 
+      - name: Prepare private build configuration
+        shell: bash
+        env:
+          SSRVPN_USAGE_PROVIDERS: ${{ secrets.SSRVPN_USAGE_PROVIDERS }}
+        run: python3 scripts/prepare-private-defines.py
+
+      - name: Verify compiled build configuration
+        shell: bash
+        working-directory: packages/ssrvpn_shared
+        run: flutter test test/account_usage_compiled_theme_test.dart --dart-define-from-file=../../config/ssrvpn-private-defines.json --dart-define=SSRVPN_VERIFY_USAGE_BUILD=true
+
       - name: Build & Package DMG
-        run: cd SSRVPN_MacOS && bash tool/package_macos.sh --dart-define-from-file=../config/ssrvpn-usage-defines.json
+        run: cd SSRVPN_MacOS && bash tool/package_macos.sh --dart-define-from-file=../config/ssrvpn-private-defines.json
 
       - name: Verify drag-install DMG
         run: |
@@ -542,6 +564,17 @@ jobs:
         timeout-minutes: 5
         run: python3 scripts/check-imported-protocol-traffic.py --core SSRVPN_Windows/assets/mihomo.exe
 
+      - name: Prepare private build configuration
+        shell: bash
+        env:
+          SSRVPN_USAGE_PROVIDERS: ${{ secrets.SSRVPN_USAGE_PROVIDERS }}
+        run: python3 scripts/prepare-private-defines.py
+
+      - name: Verify compiled build configuration
+        shell: bash
+        working-directory: packages/ssrvpn_shared
+        run: flutter test test/account_usage_compiled_theme_test.dart --dart-define-from-file=../../config/ssrvpn-private-defines.json --dart-define=SSRVPN_VERIFY_USAGE_BUILD=true
+
       - name: Build Windows installer
         shell: powershell
         # Keep the complete installer acceptance budget aligned with CI.
@@ -550,7 +583,7 @@ jobs:
           cd SSRVPN_Windows
           # Windows PowerShell does not stop when a child process returns non-zero.
           # Keep every child exit check adjacent so later builds cannot mask a failure.
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\package_windows.ps1 -DartDefineFromFile ..\config\ssrvpn-usage-defines.json
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\package_windows.ps1 -DartDefineFromFile ..\config\ssrvpn-private-defines.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ..\scripts\test_windows_native_proxy_recovery.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

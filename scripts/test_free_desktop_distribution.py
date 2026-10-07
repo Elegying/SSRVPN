@@ -44,19 +44,22 @@ class FreeDesktopDistributionTest(unittest.TestCase):
     def test_official_release_injects_usage_config_on_all_platforms(self) -> None:
         release = (ROOT / ".github/workflows/release.yml").read_text()
         self.assertIn(
-            "--dart-define-from-file=../config/ssrvpn-usage-defines.json",
+            "--dart-define-from-file=../config/ssrvpn-private-defines.json",
             release,
         )
         self.assertIn(
             "bash tool/package_macos.sh "
-            "--dart-define-from-file=../config/ssrvpn-usage-defines.json",
+            "--dart-define-from-file=../config/ssrvpn-private-defines.json",
             release,
         )
         self.assertIn(
             "-File tool\\package_windows.ps1 "
-            "-DartDefineFromFile ..\\config\\ssrvpn-usage-defines.json",
+            "-DartDefineFromFile ..\\config\\ssrvpn-private-defines.json",
             release,
         )
+        self.assertEqual(release.count("name: Prepare private build configuration"), 3)
+        self.assertEqual(release.count("name: Verify compiled build configuration"), 3)
+        self.assertEqual(release.count("secrets.SSRVPN_USAGE_PROVIDERS"), 3)
         mac = (ROOT / "SSRVPN_MacOS/tool/package_macos.sh").read_text()
         windows = (ROOT / "SSRVPN_Windows/tool/package_windows.ps1").read_text()
         self.assertIn('--split-debug-info=build/symbols "$@"', mac)

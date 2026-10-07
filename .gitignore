@@ -71,3 +71,6 @@ rule-channel/snapshots/
 
 # Local preview packages, device captures and acceptance logs.
 /artifacts/
+
+/config/ssrvpn-private-defines.json
+/config/.defines-*

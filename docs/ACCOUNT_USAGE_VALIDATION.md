@@ -22,8 +22,8 @@ flutter test test/account_usage_test.dart test/account_usage_identity_test.dart 
 flutter test test/account_usage_layout_test.dart test/home_traffic_panel_test.dart
 # 三个平台分别已有平台测试，由 make verify 执行
 # Android / macOS 目录内的完整客户端构建
-flutter build apk --debug --dart-define-from-file=../config/ssrvpn-usage-defines.json
-flutter build macos --debug --dart-define-from-file=../config/ssrvpn-usage-defines.json
+flutter build apk --debug --dart-define-from-file=../config/ssrvpn-private-defines.json
+flutter build macos --debug --dart-define-from-file=../config/ssrvpn-private-defines.json
 # 独立原生宿主，按脚本输出步骤运行
 python3 scripts/prepare-usage-native-smoke.py
 ```
@@ -60,7 +60,7 @@ python3 scripts/prepare-usage-native-smoke.py
 
 ## 真实面板接入
 
-[配置文件](../config/ssrvpn-usage-defines.json) 与 [接口契约](CLIENT_USAGE_API_V1.md) 已就绪。真实地址为 `https://panel.ssrvpn.vip:19998/api/v1/user/usage`，可信节点为用户确认的域名/IP 与 19999/443 六个组合。
+[公开配置模板](../config/ssrvpn-usage-defines.json) 与 [接口契约](CLIENT_USAGE_API_V1.md) 已就绪。正式接入配置仅保存在私有构建设置中，验收时使用维护者确认的绑定。
 
 初次无凭据 HTTPS GET 得到 404。2026-09-06 维护者部署接口并提供授权测试账号后补验：真实接口返回 200；沿用原有订阅解析器、可信归属解析器与生产模型/查询客户端，三轮均接受响应。两轮刷新间隔 15 秒，服务时间与观察时间递增，扣除请求耗时后的有效期约 20–26 秒；普通节点和第三方改名节点仍被归属解析拒绝。
 
