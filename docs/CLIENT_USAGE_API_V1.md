@@ -67,20 +67,20 @@ Cache-Control: no-cache, no-store
 
 提供方/节点 id 允许字母、数字、`_`、`.`、`-`，最长 64；最多 32 个提供方、每个最多 1024 个绑定。origin 不允许用户名、查询参数、fragment 或额外路径。当前适配 Hysteria2（解析结果 `hysteria2` 或 `hy2`）；其他协议安全隐藏。认证密钥直接来自现有解析结果 `extra.password`，不 trim、不轮换、不要求重新导入；无法作为合法 Bearer 头发送的值安全隐藏。
 
-当前维护者确认的非敏感接入配置在 [config/ssrvpn-usage-defines.json](../config/ssrvpn-usage-defines.json)：origin 为 `https://panel.ssrvpn.vip:19998`；`vpn.ssrvpn.vip`、`155.103.116.201`、`154.9.234.210` 各自的 UDP 19999/443，共六项明确归属。443 不是查询服务 HTTPS 反代，不能省略查询 origin 的 19998。
+[公开构建默认配置](../config/ssrvpn-usage-defines.json) 不含运营接入地址。正式构建由受保护的仓库设置生成本机忽略文件 `config/ssrvpn-private-defines.json`，不得提交或记录其内容。
 
 从各平台目录构建时注入同一文件：
 
 ```bash
 # SSRVPN_Android
-flutter build apk --debug --dart-define-from-file=../config/ssrvpn-usage-defines.json
+flutter build apk --debug --dart-define-from-file=../config/ssrvpn-private-defines.json
 # SSRVPN_MacOS
-flutter build macos --debug --dart-define-from-file=../config/ssrvpn-usage-defines.json
+flutter build macos --debug --dart-define-from-file=../config/ssrvpn-private-defines.json
 # Windows 主机的 SSRVPN_Windows
-flutter build windows --debug --dart-define-from-file=../config/ssrvpn-usage-defines.json
+flutter build windows --debug --dart-define-from-file=../config/ssrvpn-private-defines.json
 ```
 
-官方 Release workflow 三端显式注入上述已确认配置；桌面打包脚本接受可选配置文件参数。普通通用构建不加此参数，保留默认关闭。配置文件没有账号密码，也不会修改订阅、代理配置或触发发布。
+官方 Release workflow 三端显式注入私有配置并验证编译绑定；桌面打包脚本接受可选配置文件参数。普通通用构建不加此参数，保留默认关闭。配置文件没有账号密码，也不会修改订阅、代理配置或触发发布。
 
 ## 展示、身份和生命周期
 

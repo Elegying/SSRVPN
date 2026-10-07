@@ -24,6 +24,15 @@ class AccountUsageProviders {
         if (entry is! Map<String, dynamic>) throw const FormatException();
         final id = _identifier(entry['id']);
         if (!providers.add(id)) throw const FormatException();
+        final name = entry['nodeName'];
+        if (name != null &&
+            (name is! String ||
+                name.isEmpty ||
+                name.length > 256 ||
+                name.trim() != name ||
+                !name.contains('私家车'))) {
+          throw const FormatException();
+        }
         final origin = Uri.parse(entry['origin'] as String);
         if (origin.scheme != 'https' ||
             origin.host.isEmpty ||
@@ -53,8 +62,13 @@ class AccountUsageProviders {
               !ownership.add('$server:$port:hysteria2')) {
             throw const FormatException();
           }
-          members.add(_Membership(id, memberId,
-              origin.replace(path: '/api/v1/user/usage'), server, port));
+          members.add(_Membership(
+              id,
+              memberId,
+              origin.replace(path: '/api/v1/user/usage'),
+              server,
+              port,
+              name as String?));
         }
       }
       return AccountUsageProviders._(List.unmodifiable(members));
@@ -83,8 +97,11 @@ class AccountUsageProviders {
     } catch (_) {
       return null;
     }
+    final named = _members.any((member) => member.nodeName == node.name);
     for (final member in _members) {
-      if (member.server == server && member.port == node.port) {
+      if ((named ? member.nodeName == node.name : member.nodeName == null) &&
+          member.server == server &&
+          member.port == node.port) {
         return UsageIdentity._(member, password, node.name);
       }
     }
@@ -110,9 +127,10 @@ class AccountUsageProviders {
 }
 
 class _Membership {
-  const _Membership(
-      this.provider, this.id, this.endpoint, this.server, this.port);
+  const _Membership(this.provider, this.id, this.endpoint, this.server,
+      this.port, this.nodeName);
   final String provider, id, server;
+  final String? nodeName;
   final Uri endpoint;
   final int port;
 }

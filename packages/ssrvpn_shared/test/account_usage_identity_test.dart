@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
@@ -30,16 +29,23 @@ void main() {
   test(
       'confirmed six bindings accept unchanged legacy URI credentials only at exact endpoints',
       () {
-    final defines = jsonDecode(
-            File('../../config/ssrvpn-usage-defines.json').readAsStringSync())
-        as Map<String, dynamic>;
-    final providers = AccountUsageProviders.fromJson(
-        defines['SSRVPN_USAGE_PROVIDERS'] as String);
-    for (final server in [
-      'vpn.ssrvpn.vip',
-      '155.103.116.201',
-      '154.9.234.210'
-    ]) {
+    final providers = AccountUsageProviders.fromJson(jsonEncode([
+      {
+        'id': 'legacy',
+        'origin': 'https://legacy.example.test:19998',
+        'nodes': [
+          for (final server in ['a.example.test', '192.0.2.1', '192.0.2.2'])
+            for (final port in [443, 19999])
+              {
+                'id': 'n-${server.replaceAll('.', '-')}-$port',
+                'server': server,
+                'port': port,
+                'protocol': 'hysteria2'
+              }
+        ]
+      }
+    ]));
+    for (final server in ['a.example.test', '192.0.2.1', '192.0.2.2']) {
       for (final port in [443, 19999]) {
         final uri =
             'hysteria2://synthetic%3Alegacy@$server:$port?insecure=1#%E7%A7%81%E5%AE%B6%E8%BD%A6';
@@ -49,7 +55,7 @@ void main() {
         final identity = providers.resolve(node);
         expect(identity, isNotNull);
         expect(identity!.endpoint.toString(),
-            'https://panel.ssrvpn.vip:19998/api/v1/user/usage');
+            'https://legacy.example.test:19998/api/v1/user/usage');
         expect(identity.authorization, 'Bearer synthetic:legacy');
         expect(
             providers
