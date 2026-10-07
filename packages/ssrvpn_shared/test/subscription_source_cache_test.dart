@@ -446,20 +446,18 @@ void main() {
     expect(service.allNodes.map((node) => node.name), ['New A', 'Old B']);
   });
 
-  test(
-      'local import is immediate even when an old remote source never responds',
+  test('local import never fetches an unrelated source during slow persistence',
       () async {
     final remote = await addFeed('A', 'a', _yaml('Old A', 'a'));
     await service.refreshAllSubscriptions();
-    service.responses[remote.url] = Completer<String?>().future;
+    service.responses[remote.url] = StateError('Unexpected unrelated fetch');
+    service.saveDelay = const Duration(milliseconds: 1100);
     final calls = service.fetchCalls;
     final controller =
         SubscriptionScreenController(subscriptionService: _port(service));
-    final result = await controller
-        .addSubscription(
-          'socks5://127.0.0.1:18080#Local rescue',
-        )
-        .timeout(const Duration(seconds: 1));
+    final result = await controller.addSubscription(
+      'socks5://127.0.0.1:18080#Local rescue',
+    );
     expect(result.isSuccess, isTrue);
     expect(service.fetchCalls, calls);
     expect(
@@ -662,14 +660,12 @@ proxies:
       () async {
     final old = await addFeed('A', 'a', _yaml('A', 'a'));
     await service.refreshAllSubscriptions();
-    service.responses[old.url] = Completer<String?>().future;
+    service.responses[old.url] = StateError('Unexpected unrelated fetch');
     const newUrl = 'https://new.invalid/sub';
     service.responses[newUrl] = _yaml('New', 'new');
     service.requestedUrls.clear();
     final controller = SubscriptionScreenController.fromService(service);
-    final imported = await controller
-        .addSubscription(newUrl)
-        .timeout(const Duration(seconds: 1));
+    final imported = await controller.addSubscription(newUrl);
     expect(imported.isSuccess, isTrue);
     expect(service.requestedUrls, [newUrl]);
     expect(service.allNodes.map((node) => node.name), ['A', 'New']);
@@ -736,6 +732,7 @@ class _DiskService extends SubscriptionServiceBase {
   int fetchCalls = 0;
   final requestedUrls = <String>[];
   bool failMetadata = false;
+  Duration saveDelay = Duration.zero;
   Completer<void>? fetchStarted;
   @override
   Future<String?> fetchSubscription(
@@ -755,6 +752,7 @@ class _DiskService extends SubscriptionServiceBase {
 
   @override
   Future<void> saveToDisk() async {
+    if (saveDelay != Duration.zero) await Future<void>.delayed(saveDelay);
     if (failMetadata) throw const FileSystemException('metadata commit failed');
     await super.saveToDisk();
   }

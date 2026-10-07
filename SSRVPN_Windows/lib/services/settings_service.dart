@@ -139,7 +139,9 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
     if (fallbackDir != null &&
         await WindowsSettingsMigration.isCommitted(fallbackDir)) {
       await _verifyWritableDirectory(fallbackDir);
-      _storageNotice = '继续使用已迁移的数据目录：$fallbackDir';
+      final imageNotice =
+          await _migrateWithImageNotice(installedDir, fallbackDir);
+      _storageNotice = '继续使用已迁移的数据目录：$fallbackDir$imageNotice';
       return fallbackDir;
     }
     try {
@@ -151,9 +153,20 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
       }
 
       await _verifyWritableDirectory(fallbackDir);
-      await _migrateInstalledData(installedDir, fallbackDir);
-      _storageNotice = '程序目录不可写，数据已改存到 $fallbackDir（原因: $e）';
+      final imageNotice =
+          await _migrateWithImageNotice(installedDir, fallbackDir);
+      _storageNotice = '程序目录不可写，数据已改存到 $fallbackDir（原因: $e）$imageNotice';
       return fallbackDir;
+    }
+  }
+
+  Future<String> _migrateWithImageNotice(
+      String source, String destination) async {
+    try {
+      await _migrateInstalledData(source, destination);
+      return '';
+    } on WindowsBackgroundMigrationPending {
+      return '；背景迁移未完成，原图片已保留，重启后重试';
     }
   }
 
@@ -184,7 +197,11 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
     final migrationMarker = File(
       '$fallbackDir${Platform.pathSeparator}$_installedMigrationMarkerName',
     );
-    if (await WindowsSettingsMigration.isCommitted(fallbackDir)) return;
+    if (await WindowsSettingsMigration.isCommitted(fallbackDir)) {
+      await WindowsSettingsMigration.repairBackground(
+          installedDir, fallbackDir);
+      return;
+    }
     final sourceFiles = await WindowsSettingsMigration.readableSourceFiles(
         installedDir,
         {..._criticalInstalledDataFiles, SubscriptionUndoRecord.fileName});
@@ -291,6 +308,8 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
       } catch (_) {}
       Error.throwWithStackTrace(error, stackTrace);
     }
+    // Metadata remains authoritative if optional background repair needs retry.
+    await WindowsSettingsMigration.repairBackground(installedDir, fallbackDir);
   }
 
   static Future<void> _copyInstalledFile(File source, File target,

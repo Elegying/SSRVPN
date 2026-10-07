@@ -17,9 +17,14 @@ int main() {
   const std::string header = "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\n";
   const auto fixed = header + "Content-Length: 3\r\n\r\nabc";
   const auto chunks = header + "Transfer-Encoding: chunked\r\n\r\n1\r\na\r\n2\r\nbc\r\n0\r\n\r\n";
-  for (const auto& reply : {fixed, chunks}) {
-    for (size_t i = 0; i < reply.size(); ++i)
+  const auto trailers = header + "Transfer-Encoding: chunked\r\n\r\n3;ext=yes\r\nabc\r\n0\r\nX-Info: done\r\n\r\n";
+  for (const auto& reply : {fixed, chunks, trailers}) {
+    for (size_t i = 0; i < reply.size(); ++i) {
       assert(ParseDnsHttpResponse(reply.substr(0, i), body) == 0);
+      // A timeout can occur after any fragment. Partial chunk data must never
+      // become a DNS answer merely because its wire payload is already valid.
+      assert(body.empty());
+    }
     assert(ParseDnsHttpResponse(reply, body) == 1);
     assert(std::string(body.begin(), body.end()) == "abc");
   }
@@ -30,7 +35,9 @@ int main() {
        header + "Transfer-Encoding: chunked\r\n\r\nFFFFFFFFFFFFFFFF\r\n",
        header + "Content-Length: 3\r\nContent-Encoding: gzip\r\n\r\nabc",
        std::string("HTTP/1.1 302 Found\r\nContent-Length: 0\r\n\r\n"),
-       fixed + "unexpected"})
+       fixed + "unexpected", chunks + "unexpected", trailers + "unexpected"}) {
     assert(ParseDnsHttpResponse(reply, body) == -1);
+    assert(body.empty());
+  }
   std::cout << "DNS HTTP framing: fragmented, chunked, bounded and fail-closed passed.\n";
 }

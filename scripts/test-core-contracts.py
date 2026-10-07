@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import urllib.error
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -22,6 +23,8 @@ def load(name, filename):
 
 source = load('traffic_source', 'core-traffic-source.py')
 builder = load('core_builder', 'build-core-asset.py')
+events = load('core_contract_events', 'core-contract-events.py')
+verify_events = events.verify_events
 
 
 def contracts():
@@ -37,23 +40,17 @@ def contracts():
     return expected
 
 
-def verify_events(path, expected):
-    passed = set()
-    for line in path.read_text().splitlines():
-        event = json.loads(line)
-        if event.get('Action') == 'pass' and 'Test' in event:
-            passed.add((event['Package'], event['Test']))
-    missing = sorted(expected - passed)
-    if missing:
-        raise ValueError(f'Core contracts missing, skipped or failed: {missing}')
-    return len(expected)
-
-
 def run(platform, report_dir):
     record = json.loads((source.BUNDLE / 'sources.json').read_text())[platform]
     expected = contracts()
     report_dir.mkdir(parents=True, exist_ok=True)
-    report = dict(platform=platform, source=record, extension_sha256=source.digest(), status='failed')
+    report = dict(platform=platform, source=record, extension_sha256=source.digest(),
+                  status='failed', phase='toolchain', failure_kind='setup')
+    log = report_dir / f'{platform}.jsonl'
+    stderr_log = report_dir / f'{platform}.stderr.log'
+    # A focused rerun must never classify an earlier run's events as current.
+    log.write_text('')
+    stderr_log.write_text('')
     try:
         go = builder.find_go(record['go'])
         environment = dict(os.environ, GOROOT=str(Path(go).parent.parent),
@@ -63,10 +60,12 @@ def run(platform, report_dir):
             raise ValueError('Pinned Go version mismatch')
         with tempfile.TemporaryDirectory(prefix=f'ssrvpn-contracts-{platform}-') as folder:
             checkout = Path(folder) / 'core'
+            report['phase'] = 'source-checkout'
             subprocess.run(['git', 'clone', '--quiet', '--filter=blob:none', '--no-checkout',
                             record['repository'], str(checkout)], check=True, timeout=300)
             subprocess.run(['git', 'checkout', '--quiet', record['commit']],
                            cwd=checkout, check=True, timeout=180)
+            report.update(phase='source-verification', failure_kind='integrity')
             source.apply(platform, checkout)  # Checks both commit and tree before patching.
             tags = 'with_gvisor,cmfa' if platform == 'android' else 'with_gvisor'
             names = sorted({name for _, name in expected})
@@ -76,25 +75,43 @@ def run(platform, report_dir):
                        '-tags=' + tags,
                        '-ldflags=-X github.com/metacubex/mihomo/constant.Version=' + record['version'] + '-ssrvpn.1',
                        '-run', '^(' + '|'.join(names) + ')$'] + packages
-            log = report_dir / f'{platform}.jsonl'
-            with log.open('w') as output:
+            report.update(phase='test-execution', failure_kind='execution')
+            with log.open('w') as output, stderr_log.open('w') as errors:
                 subprocess.run(command, cwd=checkout, env=environment, stdout=output,
-                               check=True, timeout=1200)
+                               stderr=errors, check=True, timeout=1200)
+            report.update(phase='contract-verification', failure_kind='contract-incomplete')
             report['passed_contracts'] = verify_events(log, expected)
             report['status'] = 'passed'
+            report['failure_kind'] = None
             print(f"{platform}: {report['passed_contracts']} core contracts passed", flush=True)
-    except Exception as error:
+    except (Exception, SystemExit) as error:
         report['error'] = str(error)
-        raise
+        report['error_type'] = type(error).__name__
+        if report['phase'] == 'toolchain' and isinstance(error, ValueError):
+            report['failure_kind'] = 'integrity'
+        elif report['phase'] == 'toolchain' and isinstance(error, SystemExit):
+            report['failure_kind'] = 'environment'
+        elif isinstance(error, (urllib.error.URLError, OSError)):
+            report['failure_kind'] = 'environment'
+        elif report['phase'] in ('toolchain', 'source-checkout') and isinstance(error, subprocess.TimeoutExpired):
+            report['failure_kind'] = 'environment'
+        if report['phase'] in ('test-execution', 'contract-verification'):
+            try:
+                report['failed_tests'] = events.failed_tests(events.read_events(log))
+                if report['failed_tests']:
+                    report['failure_kind'] = 'contract-failure'
+            except (ValueError, KeyError) as event_error:
+                report['event_error'] = str(event_error)
+        raise RuntimeError(f"{report['phase']} [{report['failure_kind']}]: {error}") from error
     finally:
         (report_dir / f'{platform}.json').write_text(json.dumps(report, indent=2) + '\n')
 
 
-if __name__ == '__main__':
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('platform', choices=['android', 'macos', 'windows', 'all'])
     parser.add_argument('--report-dir', type=Path, required=True)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     failures = []
     for target in (['macos', 'windows', 'android'] if args.platform == 'all' else [args.platform]):
         try:
@@ -104,3 +121,7 @@ if __name__ == '__main__':
             failures.append(target)
     if failures:
         raise SystemExit('Failed core platforms: ' + ', '.join(failures))
+
+
+if __name__ == '__main__':
+    main()

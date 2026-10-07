@@ -73,6 +73,46 @@ void main() {
     expect(await store.load(), isEmpty);
   });
 
+  test('keeps the end of a report beyond the single log entry limit', () async {
+    final store = AppDiagnosticHistoryStore(historyFile.path);
+    final report = AppDiagnosticReport(
+      generatedAt: DateTime.utc(2026, 10, 5),
+      checks: [
+        for (var index = 0; index < 24; index++)
+          AppDiagnosticCheck(
+            id: 'check-$index',
+            title: '检查 $index',
+            status: AppDiagnosticStatus.passed,
+            summary: '检查结果 ${'x' * 200}',
+          ),
+        const AppDiagnosticCheck(
+          id: 'last',
+          title: '末尾检查',
+          status: AppDiagnosticStatus.warning,
+          summary: 'end-of-report token=history-secret',
+        ),
+      ],
+      recentLogs: '',
+    );
+    final exported = report.toText();
+    expect(exported.length, greaterThan(4096));
+    expect(exported.length, lessThan(8192));
+    await store.append(report);
+
+    final loaded = (await store.load()).single.reportText;
+    expect(loaded, contains('end-of-report'));
+    expect(loaded, isNot(contains('history-secret')));
+    expect(loaded, isNot(contains('log entry truncated')));
+
+    // Appending another report also rewrites the older entries from load().
+    await store.append(AppDiagnosticReport(
+      generatedAt: DateTime.utc(2026, 10, 6),
+      checks: const [],
+      recentLogs: '',
+    ));
+    expect((await store.load()).last.reportText, contains('end-of-report'));
+  });
+
   test('redacts a structurally valid report again when loading local history',
       () async {
     final store = AppDiagnosticHistoryStore(historyFile.path);
@@ -84,7 +124,10 @@ void main() {
             'generatedAt': DateTime.utc(2026, 7, 27).toIso8601String(),
             'failureCount': 0,
             'warningCount': 0,
-            'reportText': 'token=manually-injected-secret',
+            'reportText': '${'正常检查\n' * 850}'
+                'token="manually-injected-secret\n'
+                '[2026-10-05] [INFO] [runtime] hidden-secret-tail"\n'
+                'history-end-marker',
           },
         ],
       }),
@@ -94,6 +137,8 @@ void main() {
 
     expect(entries, hasLength(1));
     expect(entries.single.reportText, isNot(contains('manually-injected')));
+    expect(entries.single.reportText, isNot(contains('hidden-secret-tail')));
+    expect(entries.single.reportText, contains('history-end-marker'));
   });
 
   test('read failure cannot replace prior history and a later append retries',

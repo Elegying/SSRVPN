@@ -10,6 +10,23 @@ Future<int> freePort() async {
   return port;
 }
 
+Future<bool> forwardingReady(int mixedPort, int healthPort) async {
+  final client = HttpClient()..findProxy = (_) => 'PROXY 127.0.0.1:$mixedPort';
+  try {
+    final request = await client
+        .getUrl(Uri.parse('http://127.0.0.1:$healthPort/ready'))
+        .timeout(const Duration(seconds: 1));
+    final response = await request.close().timeout(const Duration(seconds: 1));
+    final body = await response
+        .transform(utf8.decoder)
+        .join()
+        .timeout(const Duration(seconds: 1));
+    return response.statusCode == HttpStatus.ok && body == 'fixture-ready';
+  } finally {
+    client.close(force: true);
+  }
+}
+
 void main() {
   test(
       'bundled core reports the actual proxy and reject rule for diagnostic GET',
@@ -20,6 +37,14 @@ void main() {
     await core.writeAsBytes(gzip.decode(
         await File('../../SSRVPN_MacOS/assets/AtlasCore.gz').readAsBytes()));
     await Process.run('chmod', ['700', core.path]);
+    // A separate DIRECT fixture checks OnRunning, independently of the proxy
+    // and reject paths asserted below. API/provider readiness happens earlier.
+    final health = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => health.close(force: true));
+    health.listen((request) {
+      request.response.write('fixture-ready');
+      request.response.close();
+    });
     final upstream = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final peers = <Socket>[];
     addTearDown(() async {
@@ -85,8 +110,8 @@ rules:
     try {
       while (DateTime.now().isBefore(readinessDeadline)) {
         try {
-          // The API listener can open before the compatible provider is ready.
-          // Require the fixture node to be selectable before probing its route.
+          // The API and provider can be ready while the tunnel still rejects
+          // traffic. Check a separate local DIRECT path before the assertions.
           final request = await readinessClient
               .getUrl(Uri.parse('http://127.0.0.1:$api/proxies/PROXY'))
               .timeout(const Duration(seconds: 1));
@@ -102,7 +127,8 @@ rules:
               group is Map &&
               group['now'] == 'fixture-node' &&
               group['all'] is List &&
-              (group['all'] as List).contains('fixture-node')) {
+              (group['all'] as List).contains('fixture-node') &&
+              await forwardingReady(mixed, health.port)) {
             ready = true;
             break;
           }

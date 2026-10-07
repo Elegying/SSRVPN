@@ -40,7 +40,7 @@ abstract final class SmartRuleSnapshotRetention {
       }
     }
 
-    void readConfig(String path) {
+    void readConfig(String path, {bool requiredConfig = false}) {
       if (!configs.add(path)) return;
       budget();
       if (!path.startsWith('$root${Platform.pathSeparator}') ||
@@ -55,7 +55,12 @@ abstract final class SmartRuleSnapshotRetention {
         throw const FormatException('规则快照配置超过扫描预算');
       }
       final document = BoundedYaml.load(file.readAsStringSync());
-      if (document is! Map) throw const FormatException('规则快照配置无效');
+      if (document is! Map) {
+        if (requiredConfig) throw const FormatException('规则快照配置无效');
+        // The same directory also holds subscriptions.json (a list). A valid
+        // non-map document cannot be a core config or own provider references.
+        return;
+      }
       final ruleProviders = document['rule-providers'];
       if (ruleProviders == null) return;
       if (ruleProviders is! Map) {
@@ -96,14 +101,16 @@ abstract final class SmartRuleSnapshotRetention {
 
     // Finish the entire reference scan before mutating any bundle. Read or
     // resource failures must not turn an incomplete keep set into deletion.
-    scan(Directory(root));
+    // Validate explicit native references first so a discovered non-config
+    // cannot be cached as already inspected and bypass this stricter check.
     for (final path in protectedConfigPaths) {
       if (FileSystemEntity.typeSync(path, followLinks: false) !=
           FileSystemEntityType.file) {
         throw const FormatException('原生规则快照引用不是普通文件');
       }
-      readConfig(File(path).resolveSymbolicLinksSync());
+      readConfig(File(path).resolveSymbolicLinksSync(), requiredConfig: true);
     }
+    scan(Directory(root));
     final versions = <String, Directory>{};
     for (final entity in Directory(bundles).listSync(followLinks: false)) {
       budget();

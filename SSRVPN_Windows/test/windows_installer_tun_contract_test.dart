@@ -43,6 +43,7 @@ void main() {
     List<Map<String, Object>> routes = const [],
     List<Object> clearProbes = const [],
     bool capturedBeforeStop = false,
+    int timeoutMilliseconds = 1500,
   }) {
     final helper =
         File('installer/tun_ownership.ps1').absolute.path.replaceAll("'", "''");
@@ -90,7 +91,7 @@ if ('$mode' -eq 'wait') {
     if (\$value -is [string]) { throw 'Injected network probe failure' }
     return \$value
   }
-  \$removed = Wait-SsrvpnTunTeardown -OwnedInterfaces \$ownership -TimeoutMilliseconds 1500
+  \$removed = Wait-SsrvpnTunTeardown -OwnedInterfaces \$ownership -TimeoutMilliseconds $timeoutMilliseconds
   @{ removed = \$removed; probes = \$script:probeCount } | ConvertTo-Json -Compress
 } elseif ('$mode' -eq 'removed') {
   if (\$ownership.Count -eq 0) { 'true' } else {
@@ -112,7 +113,7 @@ if ('$mode' -eq 'wait') {
         windowsPowerShellUtf8Script(script)
       ],
       // This outer bound includes PowerShell/.NET cold startup on CI. The
-      // contract's real teardown deadline remains 1500ms inside the script;
+      // inner deadline is exercised by the packaged helper independently;
       // production process and teardown timeouts are not changed here.
       timeout: const Duration(seconds: 25),
     );
@@ -320,6 +321,10 @@ if ('$mode' -eq 'wait') {
         final result = await probe(
             markerText: marker(),
             mode: 'wait',
+            // Sequence semantics need the production 8-second budget, not the
+            // shortened timeout fixture below. A paused CI worker may otherwise
+            // expire after two probes, before the four-value sequence completes.
+            timeoutMilliseconds: 8000,
             clearProbes: [true, interruption, true, true]);
         successful(result);
         expect(jsonDecode(result.stdout as String),
