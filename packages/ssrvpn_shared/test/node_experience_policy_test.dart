@@ -95,6 +95,31 @@ void main() {
       expect(store.contains(node('A')), isTrue);
       store.dispose();
     });
+    test('a read failure cannot replace another route instance pins', () async {
+      final first = NodePinStore(dir.path), second = NodePinStore(dir.path);
+      await first.toggle(node('A'));
+      await second.load();
+      await first.toggle(node('B'));
+      final file = File('${dir.path}/${NodePinStore.fileName}');
+      final saved = await file.readAsString();
+      expect((await Process.run('chmod', ['000', file.path])).exitCode, 0);
+      try {
+        await expectLater(
+            file.readAsString(), throwsA(isA<FileSystemException>()));
+        await expectLater(
+            second.toggle(node('C')), throwsA(isA<FileSystemException>()));
+        expect(second.contains(node('C')), isFalse);
+      } finally {
+        await Process.run('chmod', ['600', file.path]);
+      }
+      expect(await file.readAsString(), saved);
+      await second.toggle(node('C'));
+      expect(second.contains(node('A')), isTrue);
+      expect(second.contains(node('B')), isTrue);
+      expect(second.contains(node('C')), isTrue);
+      first.dispose();
+      second.dispose();
+    }, skip: Platform.isWindows ? 'Uses POSIX read permissions' : false);
     test('non-file write refusal preserves existing data and current order',
         () async {
       final invalid =

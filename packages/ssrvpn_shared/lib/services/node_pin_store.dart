@@ -27,7 +27,7 @@ class NodePinStore extends ChangeNotifier {
   bool contains(ProxyNode node) =>
       _keys.contains(NodeLatencyCache.endpointKey(node));
   Future<void> load() => _loading ??= _load();
-  Future<void> _load() async {
+  Future<void> _load({bool requireReadable = false}) async {
     try {
       final file = File('$directory/$fileName');
       if (await FileSystemEntity.type(file.path, followLinks: false) !=
@@ -51,6 +51,10 @@ class NodePinStore extends ChangeNotifier {
       }
       _keys = pins.cast<String>().toSet();
       if (!_disposed) notifyListeners();
+    } on FileSystemException {
+      // A read failure is not evidence of corrupt/empty preferences. A writer
+      // must not replace newer disk state with this route's stale memory copy.
+      if (requireReadable) rethrow;
     } catch (_) {
       /* Optional preferences cannot block connection. */
     }
@@ -58,7 +62,7 @@ class NodePinStore extends ChangeNotifier {
 
   Future<void> toggle(ProxyNode node) => _writes.add(() async {
         await load();
-        await _load();
+        await _load(requireReadable: true);
         final key = NodeLatencyCache.endpointKey(node);
         final next = Set<String>.of(_keys);
         if (!next.remove(key)) {

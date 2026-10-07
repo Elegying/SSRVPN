@@ -78,6 +78,18 @@ from replacing execution. A missing, skipped or failing contract fails the job.
 CI preserves per-platform JSON identity/results and Go JSONL events as the
 `core-contracts` artifact, including failures.
 
+Failure reports include `phase`, `failure_kind`, `error_type` and the original
+error. Toolchain/network prerequisites are classified separately from pinned
+source/version rejection. Go `.jsonl` events and `.stderr.log` preserve assertion,
+compiler and runner failures. Each selected platform clears its previous logs;
+helper `SystemExit` failures still produce a report, allow the other platforms to
+run, and fail the overall job. Missing, skipped or failing events cannot pass.
+
+Subscription isolation tests check actual fetches and persisted state, including
+1.1 seconds of injected storage delay. They await the transaction under the normal
+test deadline so teardown cannot race an unfinished disk write; dedicated
+performance checks remain unchanged.
+
 To reproduce locally without changing bundled binaries or generating a release:
 
 ```bash
