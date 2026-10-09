@@ -68,6 +68,8 @@ void main() {
       expect(request.uri.toString(), '/api/v1/user/usage');
       expect(request.headers.value(HttpHeaders.authorizationHeader),
           'Bearer synthetic-a');
+      expect(request.headers.value('X-SSRVPN-Node-Host'), 'a.example.test');
+      expect(request.headers.value('X-SSRVPN-Node-Port'), '443');
       request.response.headers.contentType = ContentType.json;
       request.response.write(jsonEncode(usageJson()));
       await request.response.close();
@@ -131,6 +133,55 @@ void main() {
         throwsA(isA<UsageQueryFailure>().having(
             (e) => e.kind, 'safe cause', UsageFailureKind.certificate)));
     expect(observed, isEmpty);
+  });
+  test(
+      'optional node headers cannot break legacy statistics for other host spellings',
+      () async {
+    for (final host in ['é.example.test', 'a' * 64 + '.example.test']) {
+      final providers = AccountUsageProviders.fromJson(jsonEncode([
+        {
+          'id': 'test',
+          'origin': 'https://localhost:${server.port}',
+          'nodes': [
+            {'id': 'a', 'server': host, 'port': 443, 'protocol': 'hysteria2'}
+          ]
+        }
+      ]));
+      final legacy = providers.resolve(usageNode(server: host))!;
+      respond = (request) async {
+        expect(request.headers.value('X-SSRVPN-Node-Host'), isNull);
+        expect(request.headers.value('X-SSRVPN-Node-Port'), isNull);
+        request.response.write(jsonEncode(usageJson()));
+        await request.response.close();
+      };
+      expect((await client().fetch(legacy)).usedBytes, 0);
+    }
+  });
+  test(
+      'only explicit structured service codes provide specific recovery advice',
+      () async {
+    for (final entry in {
+      'DEVICE_LIMIT_REACHED': UsageFailureKind.deviceLimit,
+      'ACCOUNT_EXPIRED': UsageFailureKind.rejected,
+      'NODE_MAINTENANCE': UsageFailureKind.nodeMaintenance,
+      'INVALID_CREDENTIALS': UsageFailureKind.rejected,
+      'UDP_TIMEOUT': UsageFailureKind.rejected
+    }.entries) {
+      respond = (r) async {
+        r.response.statusCode = 403;
+        r.response.write(jsonEncode({
+          'apiVersion': 1,
+          'error': {'code': entry.key, 'message': 'secret-sensitive-message'}
+        }));
+        await r.response.close();
+      };
+      await expectLater(
+          client().fetch(identity),
+          throwsA(isA<UsageQueryFailure>()
+              .having((e) => e.kind, 'kind', entry.value)
+              .having((e) => e.userMessage, 'redacted',
+                  isNot(contains('secret-sensitive')))));
+    }
   });
   test('redirect never forwards a credential to another origin', () async {
     final target = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -205,6 +256,33 @@ void main() {
     await expectLater(
         client().fetch(identity), throwsA(isA<UsageQueryFailure>()));
   });
+  for (final bodyFailure in ['declared size', 'streamed size', 'timeout']) {
+    test('retry-after survives $bodyFailure after response headers', () async {
+      final releaseBody = Completer<void>();
+      respond = (request) async {
+        final response = request.response;
+        response.statusCode = 429;
+        response.headers.set('retry-after', '61');
+        if (bodyFailure == 'declared size') {
+          response.contentLength = 32769;
+        }
+        response.write(bodyFailure == 'timeout' ? 'partial' : 'x' * 32769);
+        if (bodyFailure == 'timeout') {
+          await response.flush();
+          await releaseBody.future;
+        }
+        await response.close();
+      };
+      try {
+        await expectLater(
+            client().fetch(identity),
+            throwsA(isA<UsageQueryFailure>().having((error) => error.retryAfter,
+                'server retry budget', const Duration(seconds: 61))));
+      } finally {
+        releaseBody.complete();
+      }
+    });
+  }
   test(
       'deadline covers slow response body and closes the request before recovery',
       () async {

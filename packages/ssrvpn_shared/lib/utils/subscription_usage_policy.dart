@@ -3,7 +3,11 @@
 class SubscriptionUsagePolicy {
   const SubscriptionUsagePolicy._();
   static bool allows(String url) {
-    final host = Uri.tryParse(url.trim())
+    final value = url.trim();
+    // Only the authority determines this policy. Normalizing a multi-megabyte
+    // UTF-8 query or fragment adds substantial work without changing the host.
+    final suffix = value.indexOf(RegExp(r'[?#]'));
+    final host = Uri.tryParse(suffix < 0 ? value : value.substring(0, suffix))
         ?.host
         .toLowerCase()
         .replaceFirst(RegExp(r'\.$'), '');

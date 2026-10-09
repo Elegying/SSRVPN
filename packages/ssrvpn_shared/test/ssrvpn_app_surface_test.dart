@@ -265,7 +265,7 @@ void main() {
       ),
     );
 
-    expect(find.text('已连接（有提醒）'), findsOneWidget);
+    expect(find.text('连接进程已启动'), findsOneWidget);
     expect(find.text('端口被占用，已临时调整：API 9090→9091'), findsOneWidget);
     expect(find.text('连接异常'), findsNothing);
     expect(find.byIcon(Icons.sync_rounded), findsOneWidget);

@@ -168,6 +168,61 @@ void main() {
     expect(service.usageForNode(service.allNodes.single.copyWith(name: '私家车')),
         isNull);
   });
+  test('metadata attribution ignores query and fragment content', () {
+    final usage =
+        SubscriptionUsage(upload: 1, download: 2, updatedAt: DateTime(2026));
+    for (final input in [
+      (
+        url: 'https://VIP.SSRVPN.VIP.:443/sub?data=é#other.invalid',
+        allowed: false
+      ),
+      (
+        url: 'https://user:pass@vip.ssrvpn.vip/sub#https://other.invalid',
+        allowed: false
+      ),
+      (url: '//vip.ssrvpn.vip/sub?data=é', allowed: false),
+      (url: 'https://vip.ssrvpn.vip.example/sub?data=é', allowed: true),
+      (url: 'https://vip.ssrvpn.vip@other.invalid/sub?data=é', allowed: true),
+      (url: 'https://other.invalid/sub?host=vip.ssrvpn.vip', allowed: true),
+      (url: 'https://other.invalid/sub#https://vip.ssrvpn.vip', allowed: true),
+      (url: 'https://[2001:db8::1]/sub?host=vip.ssrvpn.vip', allowed: true),
+    ]) {
+      final sub = Subscription(
+          id: 'query', name: 'Custom', url: input.url, usage: usage);
+      expect(sub.usage != null, input.allowed, reason: input.url);
+      expect(sub.toJson().containsKey('usage'), input.allowed);
+    }
+  });
+
+  test('metadata policy follows URL edits without sharing cached decisions',
+      () {
+    final usage =
+        SubscriptionUsage(upload: 1, download: 2, updatedAt: DateTime(2026));
+    final sub =
+        Subscription(id: 'mutable', name: 'Custom', url: _url, usage: usage);
+    final other =
+        Subscription(id: 'other', name: 'Other', url: _url, usage: usage);
+    expect(sub.name, 'Custom');
+    expect(sub.usage, same(usage));
+    expect(sub.toJson().containsKey('usage'), isTrue);
+    sub.url = 'https://VIP.SSRVPN.VIP./sub?fixture=1';
+    expect(sub.name, 'vip.ssrvpn.vip');
+    expect(sub.usage, isNull);
+    expect(sub.toJson().containsKey('usage'), isFalse);
+    expect(other.name, 'Other');
+    expect(other.usage, same(usage));
+    sub.name = 'Edited';
+    sub.usage = usage;
+    sub.url = 'https://vip.ssrvpn.vip.example/sub';
+    expect(sub.name, 'Edited');
+    expect(sub.usage, isNull);
+    sub.usage = usage;
+    expect(sub.toJson()['usage'], usage.toJson());
+    sub.url = 'https://vip.ssrvpn.vip/sub';
+    expect(sub.toJson().containsKey('usage'), isFalse);
+    expect(Subscription.fromJson(sub.toJson()).usage, isNull);
+  });
+
   test('vip provider never parses, persists or displays subscription usage',
       () async {
     service.headers = {

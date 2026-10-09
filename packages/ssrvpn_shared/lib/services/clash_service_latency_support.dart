@@ -63,6 +63,7 @@ mixin _ClashLatencySupport {
         final latency = PrivateNodeLatencyPolicy.displayLatencyForNode(
           batch[j].name,
           results[j],
+          server: batch[j].server,
           random: random,
         );
         onResult(batch[j].name, latency);

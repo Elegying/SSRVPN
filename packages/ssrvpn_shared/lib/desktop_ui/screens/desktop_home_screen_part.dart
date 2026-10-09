@@ -645,6 +645,7 @@ class _HomeScreenState extends State<HomeScreen> {
         selectedLatency: selectedLatency,
         selectedCountryCode: selectedCountryCode,
         errorMessage: _errorMessage,
+        networkVerification: core.networkVerification,
         connectionNotice: _connectivityWarning,
         publicIpv4: _publicIpInfo?.displayText,
         isRefreshingPublicIp: _isRefreshingPublicIp,

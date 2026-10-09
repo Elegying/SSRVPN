@@ -210,6 +210,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     final latency = PrivateNodeLatencyPolicy.displayLatencyForNode(
       nodeName,
       measuredLatency,
+      server: server,
       random: math.Random(),
     );
     final isCurrent = _canUpdateUi &&

@@ -266,7 +266,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(fixture.clash.isRunning, isTrue);
     expect(fixture.clash.startCalls, starts);
-    expect(find.text('已连接'), findsWidgets);
+    expect(find.text('正在验证网络'), findsWidgets);
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('ssrvpn-node-select-新加坡新节点')));
@@ -292,7 +292,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(fixture.clash.isRunning, isTrue);
     expect(fixture.clash.stopCalls, 0);
-    expect(find.text('已连接'), findsWidgets);
+    expect(find.text('正在验证网络'), findsWidgets);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
@@ -461,7 +461,7 @@ void main() {
     await tester.pumpWidget(fixture.build());
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
-    expect(find.text('已连接'), findsWidgets);
+    expect(find.text('正在验证网络'), findsWidgets);
     final configBefore = ClashConfigGenerator.generateConfig(
         fixture.subscription.rawYaml!, fixture.settings.settings);
     final revision = fixture.subscription.revision;
@@ -484,7 +484,7 @@ void main() {
     expect(fixture.clash.isRunning, isTrue);
     expect(fixture.subscription.allNodes.map((node) => node.group).toSet(),
         {'After'});
-    expect(find.text('已连接'), findsWidgets);
+    expect(find.text('正在验证网络'), findsWidgets);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
   });
@@ -733,7 +733,7 @@ void main() {
     await tester.pump();
     await _pumpUntil(tester, () => fixture.clash.isRunning);
     expect(fixture.clash.isRunning, isTrue);
-    expect(find.text('已连接'), findsWidgets);
+    expect(find.text('正在验证网络'), findsWidgets);
     expect(find.textContaining('端口被占用'), findsNothing);
     expect(fixture.clash.directConnectivityVerificationCalls, 0);
 
@@ -809,7 +809,7 @@ void main() {
     await tester.pumpWidget(fixture.build());
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
-    expect(find.text('已连接'), findsWidgets);
+    expect(find.text('正在验证网络'), findsWidgets);
 
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
@@ -851,7 +851,7 @@ void main() {
     expect(fixture.clash.lastSwitchAttempt, '东京节点');
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     await tester.pump(const Duration(milliseconds: 150));
-    await _pumpUntil(tester, () => find.text('已连接').evaluate().isNotEmpty);
+    await _pumpUntil(tester, () => find.text('正在验证网络').evaluate().isNotEmpty);
     await _pumpUntil(
       tester,
       () => find.text('已连接，但首选节点保存失败').evaluate().isNotEmpty,
@@ -859,7 +859,7 @@ void main() {
 
     expect(fixture.clash.isRunning, isTrue);
     expect(fixture.settings.settings.lastSelectedNodeName, isNull);
-    expect(find.text('已连接'), findsWidgets);
+    expect(find.text('正在验证网络'), findsWidgets);
     expect(find.textContaining('连接失败'), findsNothing);
     expect(
       find.descendant(
@@ -926,7 +926,7 @@ void main() {
       await _pumpUntil(tester, () => fixture.clash.isRunning);
       await _pumpUntil(
         tester,
-        () => find.text('已连接').evaluate().isNotEmpty,
+        () => find.text('正在验证网络').evaluate().isNotEmpty,
       );
 
       final previousPreference = fixture.settings.settings.lastSelectedNodeName;

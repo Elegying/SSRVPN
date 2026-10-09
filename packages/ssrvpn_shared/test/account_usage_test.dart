@@ -77,7 +77,7 @@ void main() {
     fail = false;
     await tester.pump(const Duration(seconds: 30));
     expect(controller.value, isNotNull);
-    expect(controller.statusMessage, isNull);
+    expect(controller.statusMessage, contains('统计已更新'));
     expect(logs.last, '账号统计已恢复');
     controller.update(node: null, revision: revision, active: false);
     expect(controller.statusMessage, isNull);
@@ -391,7 +391,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
     expect(cards(), 5);
     expect(controller.value, isNull);
-    expect(find.text('暂未更新'), findsNWidgets(2));
+    expect(find.text('上次数据·暂未更新'), findsNWidgets(2));
     expect(find.text('暂不可用'), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });

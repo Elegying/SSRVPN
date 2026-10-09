@@ -33,7 +33,14 @@ void main() {
             AccountUsageProviders.configured
                 .resolve(node.copyWith(server: 'untrusted.invalid')),
             isNull);
-        if (provider['nodeName'] != null) {
+        if (PrivateNodeLatencyPolicy.isManagedHost(node.server)) {
+          expect(
+              AccountUsageProviders.configured
+                      .resolve(node.copyWith(name: '自定义名称'))
+                      ?.key ==
+                  identity.key,
+              isTrue);
+        } else if (provider['nodeName'] != null) {
           expect(
               AccountUsageProviders.configured
                   .resolve(node.copyWith(name: '私家车 · 其他')),
@@ -103,8 +110,11 @@ void main() {
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(host(node.copyWith(name: '普通节点')));
       await tester.pump();
-      expect(find.textContaining('已用'), findsNothing);
-      expect(find.textContaining('已连接设备'), findsNothing);
+      final expectedCards = PrivateNodeLatencyPolicy.isManagedHost(node.server)
+          ? findsOneWidget
+          : findsNothing;
+      expect(find.textContaining('已用'), expectedCards);
+      expect(find.textContaining('已连接设备'), expectedCards);
       expect(queries, 1);
       await tester.pumpWidget(const SizedBox());
     }, skip: !verifyBuild);

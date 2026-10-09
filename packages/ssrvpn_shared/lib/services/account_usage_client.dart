@@ -10,7 +10,9 @@ enum UsageFailureKind {
   certificate,
   rejected,
   invalidResponse,
-  unavailable
+  unavailable,
+  deviceLimit,
+  nodeMaintenance
 }
 
 class UsageQueryFailure implements Exception {
@@ -19,6 +21,10 @@ class UsageQueryFailure implements Exception {
   const UsageQueryFailure.reason(this.kind, {this.retryAfter});
   final UsageFailureKind kind;
   String get userMessage => switch (kind) {
+        UsageFailureKind.deviceLimit =>
+          '设备数达到上限，请断开其他设备后重试 [DEVICE_LIMIT_REACHED]',
+        UsageFailureKind.nodeMaintenance =>
+          '节点维护中，请稍后重试或手动选择其他节点 [NODE_MAINTENANCE]',
         UsageFailureKind.timeout => '统计服务响应较慢，将自动重试',
         UsageFailureKind.network => '暂时连不上统计服务，将自动重试',
         UsageFailureKind.certificate => '无法确认统计服务身份，请稍后重试',
@@ -42,6 +48,7 @@ class AccountUsageClient {
   Future<AccountUsage> fetch(UsageIdentity identity) async {
     final client = (createClient?.call() ?? HttpClient())
       ..connectionTimeout = timeout;
+    Duration? serverRetryAfter;
     try {
       final port = localProxyPort?.call();
       if (port != null && (port < 1 || port > 65535)) {
@@ -49,37 +56,49 @@ class AccountUsageClient {
       }
       client.findProxy =
           (_) => port == null ? 'DIRECT' : 'PROXY 127.0.0.1:$port';
-      return await _read(client, identity).timeout(timeout);
-    } on UsageQueryFailure {
-      rethrow;
+      return await _read(client, identity, (value) => serverRetryAfter = value)
+          .timeout(timeout);
+    } on UsageQueryFailure catch (error) {
+      throw UsageQueryFailure.reason(error.kind,
+          retryAfter: error.retryAfter ?? serverRetryAfter);
     } on TimeoutException {
-      throw const UsageQueryFailure.reason(UsageFailureKind.timeout);
+      throw UsageQueryFailure.reason(UsageFailureKind.timeout,
+          retryAfter: serverRetryAfter);
     } on TlsException {
-      throw const UsageQueryFailure.reason(UsageFailureKind.certificate);
+      throw UsageQueryFailure.reason(UsageFailureKind.certificate,
+          retryAfter: serverRetryAfter);
     } on SocketException {
-      throw const UsageQueryFailure.reason(UsageFailureKind.network);
+      throw UsageQueryFailure.reason(UsageFailureKind.network,
+          retryAfter: serverRetryAfter);
     } on FormatException {
-      throw const UsageQueryFailure.reason(UsageFailureKind.invalidResponse);
+      throw UsageQueryFailure.reason(UsageFailureKind.invalidResponse,
+          retryAfter: serverRetryAfter);
     } catch (_) {
-      throw const UsageQueryFailure();
+      throw UsageQueryFailure(serverRetryAfter);
     } finally {
       // A timed-out response/body cannot leave an overlapping request alive.
       client.close(force: true);
     }
   }
 
-  Future<AccountUsage> _read(HttpClient client, UsageIdentity identity) async {
+  Future<AccountUsage> _read(HttpClient client, UsageIdentity identity,
+      void Function(Duration?) rememberRetryAfter) async {
     final request = await client.getUrl(identity.endpoint);
     request.followRedirects = false;
     request.headers
         .set(HttpHeaders.authorizationHeader, identity.authorization);
     request.headers.set(HttpHeaders.acceptHeader, 'application/json');
     request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache, no-store');
-    final response = await request.close();
-    if (response.statusCode != 200) {
-      throw UsageQueryFailure.reason(UsageFailureKind.rejected,
-          retryAfter: _retryAfter(response));
+    final host = _maintenanceHost(identity.nodeHost);
+    if (host != null) {
+      request.headers.set('X-SSRVPN-Node-Host', host);
+      request.headers.set('X-SSRVPN-Node-Port', identity.nodePort.toString());
     }
+    final response = await request.close();
+    final retryAfter = _retryAfter(response);
+    // The total request deadline can expire while reading a response body.
+    // Keep the trusted server's retry budget even when that body is unusable.
+    rememberRetryAfter(retryAfter);
     // Do not consume a cache replay or unbounded response. TLS validation stays default.
     final age = response.headers.value('age');
     if (age != null && (int.tryParse(age) ?? 1) != 0) {
@@ -91,7 +110,28 @@ class AccountUsageClient {
       bytes.addAll(chunk);
       if (bytes.length > 32768) throw const UsageQueryFailure();
     }
-    return AccountUsage.parse(jsonDecode(utf8.decode(bytes)));
+    Object? body;
+    try {
+      body = jsonDecode(utf8.decode(bytes));
+    } catch (_) {
+      if (response.statusCode == 200) rethrow;
+    }
+    if (body is Map<String, dynamic> &&
+        body['apiVersion'] is int &&
+        body['apiVersion'] == 1 &&
+        body['error'] is Map<String, dynamic>) {
+      final kind = switch ((body['error'] as Map<String, dynamic>)['code']) {
+        'DEVICE_LIMIT_REACHED' => UsageFailureKind.deviceLimit,
+        'NODE_MAINTENANCE' => UsageFailureKind.nodeMaintenance,
+        _ => UsageFailureKind.rejected,
+      };
+      throw UsageQueryFailure.reason(kind, retryAfter: retryAfter);
+    }
+    if (response.statusCode != 200) {
+      throw UsageQueryFailure.reason(UsageFailureKind.rejected,
+          retryAfter: retryAfter);
+    }
+    return AccountUsage.parse(body);
   }
 
   Duration? _retryAfter(HttpClientResponse response) {
@@ -109,5 +149,20 @@ class AccountUsageClient {
     } catch (_) {
       return null;
     }
+  }
+
+  // Optional evidence must not break legacy statistics for a host spelling the
+  // status extension cannot interpret. No DNS resolution or origin expansion.
+  String? _maintenanceHost(String value) {
+    final host = value.startsWith('[') && value.endsWith(']')
+        ? value.substring(1, value.length - 1)
+        : value;
+    if (host.length > 253) return null;
+    if (InternetAddress.tryParse(host) != null) return host;
+    return RegExp(r'^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?'
+                r'(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$')
+            .hasMatch(host)
+        ? host
+        : null;
   }
 }

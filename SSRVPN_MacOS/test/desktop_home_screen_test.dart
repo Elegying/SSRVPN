@@ -254,7 +254,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(fixture.clash.isRunning, isTrue);
     expect(fixture.clash.transitionEvents, isNot(contains('stop')));
-    expect(find.text('已连接'), findsWidgets);
+    expect(find.text('正在验证网络'), findsWidgets);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
@@ -555,7 +555,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(fixture.clash.isRunning, isTrue);
     expect(fixture.clash.startCalls, starts);
-    expect(find.text('已连接'), findsWidgets);
+    expect(find.text('正在验证网络'), findsWidgets);
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('ssrvpn-node-select-新加坡新节点')));
@@ -825,7 +825,7 @@ void main() {
       });
       expect(subscription.allNodes.first.server, '127.0.0.1');
       await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
-      await _pumpUntil(tester, () => find.text('已连接').evaluate().isNotEmpty);
+      await _pumpUntil(tester, () => find.text('正在验证网络').evaluate().isNotEmpty);
       expect(clash.writtenConfig, contains('127.0.0.1'));
       expect(clash.isRunning, isTrue);
       await tester.runAsync(() async {
@@ -839,11 +839,11 @@ void main() {
             tester,
             () =>
                 clash.startCalls == 2 &&
-                find.text('已连接').evaluate().isNotEmpty);
+                find.text('正在验证网络').evaluate().isNotEmpty);
       }
       final expectedServer = failCommit ? '127.0.0.1' : 'uncommitted.invalid';
       expect(subscription.allNodes.first.server, expectedServer);
-      expect(find.text('已连接'), findsWidgets);
+      expect(find.text('正在验证网络'), findsWidgets);
       expect(clash.writtenConfig, contains(expectedServer));
       expect(clash.isRunning, isTrue);
       if (failCommit) expect(clash.transitionEvents, isNot(contains('stop')));
@@ -869,7 +869,7 @@ void main() {
     await tester.pumpWidget(fixture.build());
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
-    expect(find.text('已连接'), findsWidgets);
+    expect(find.text('正在验证网络'), findsWidgets);
     final configBefore = ClashConfigGenerator.generateConfig(
         fixture.subscription.rawYaml!, fixture.settings.settings);
     final revision = fixture.subscription.revision;
@@ -892,7 +892,7 @@ void main() {
     expect(fixture.clash.isRunning, isTrue);
     expect(fixture.subscription.allNodes.map((node) => node.group).toSet(),
         {'After'});
-    expect(find.text('已连接'), findsWidgets);
+    expect(find.text('正在验证网络'), findsWidgets);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
   });
@@ -1136,7 +1136,7 @@ void main() {
     await tester.pumpWidget(fixture.build());
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
-    expect(find.text('已连接'), findsWidgets);
+    expect(find.text('正在验证网络'), findsWidgets);
 
     fixture.clash.publishRunning(false);
     await tester.pump();
@@ -1238,7 +1238,7 @@ void main() {
     await tester.pump();
     await _pumpUntil(tester, () => fixture.clash.isRunning);
     expect(fixture.clash.isRunning, isTrue);
-    expect(find.text('已连接'), findsWidgets);
+    expect(find.text('正在验证网络'), findsWidgets);
     expect(find.textContaining('端口被占用'), findsNothing);
     expect(fixture.clash.directConnectivityVerificationCalls, 0);
 
@@ -1356,7 +1356,7 @@ void main() {
     expect(fixture.settings.settings.lastSelectedNodeName, isNull);
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     await tester.pump(const Duration(milliseconds: 150));
-    await _pumpUntil(tester, () => find.text('已连接').evaluate().isNotEmpty);
+    await _pumpUntil(tester, () => find.text('正在验证网络').evaluate().isNotEmpty);
     await _pumpUntil(
       tester,
       () => find.text('已连接，但首选节点保存失败').evaluate().isNotEmpty,
@@ -1364,7 +1364,7 @@ void main() {
 
     expect(fixture.clash.isRunning, isTrue);
     expect(fixture.settings.settings.lastSelectedNodeName, isNull);
-    expect(find.text('已连接'), findsWidgets);
+    expect(find.text('正在验证网络'), findsWidgets);
     expect(find.textContaining('连接失败'), findsNothing);
     expect(
       find.descendant(
@@ -1463,7 +1463,7 @@ void main() {
             () => reload
                 ? fixture.clash.stalledStartEntered.isCompleted
                 : fixture.clash.startCalls == 2 &&
-                    find.text('已连接').evaluate().isNotEmpty);
+                    find.text('正在验证网络').evaluate().isNotEmpty);
         final currentIntent = fixture.clash.captureAutomaticRestartIntent();
         expect(currentIntent, isNotNull);
         if (manualRouting) {
@@ -1484,7 +1484,7 @@ void main() {
             isTrue);
         expect(
             fixture.clash.transitionEvents, isNot(contains('start-cancelled')));
-        expect(find.text(reload ? '正在连接' : '已连接'), findsWidgets);
+        expect(find.text(reload ? '正在连接' : '正在验证网络'), findsWidgets);
         if (manualRouting) {
           expect(settings.settings.forceProxySites, contains('example.com'));
           expect(find.textContaining('当前连接重载失败'), findsNothing);
@@ -1666,7 +1666,7 @@ void main() {
 
     expect(fixture.clash.isRunning, isTrue);
     expect(fixture.clash.connectionDesired, isTrue);
-    expect(find.text('已连接'), findsWidgets);
+    expect(find.text('正在验证网络'), findsWidgets);
     expect(fixture.clash.directConnectivityVerificationCalls, 0);
   });
 
@@ -1701,7 +1701,7 @@ void main() {
 
     expect(fixture.clash.isRunning, isTrue);
     expect(fixture.clash.connectionDesired, isTrue);
-    expect(find.text('已连接'), findsWidgets);
+    expect(find.text('正在验证网络'), findsWidgets);
     expect(fixture.clash.directConnectivityVerificationCalls, 0);
   });
 
@@ -1720,7 +1720,7 @@ void main() {
       await _pumpUntil(tester, () => fixture.clash.isRunning);
       await _pumpUntil(
         tester,
-        () => find.text('已连接').evaluate().isNotEmpty,
+        () => find.text('正在验证网络').evaluate().isNotEmpty,
       );
 
       final previousPreference = fixture.settings.settings.lastSelectedNodeName;
@@ -1889,7 +1889,7 @@ void main() {
     await tester.pumpWidget(fixture.build());
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
-    expect(find.text('已连接'), findsWidgets);
+    expect(find.text('正在验证网络'), findsWidgets);
 
     await tester.tap(find.byKey(const Key('home-tun-mode')));
     await tester.pump();
@@ -1912,7 +1912,7 @@ void main() {
     expect(fixture.clash.isRunning, isTrue);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('已连接'), findsWidgets);
+    expect(find.text('正在验证网络'), findsWidgets);
     expect(
       fixture.clash.transitionEvents,
       containsAllInOrder(['interrupt', 'stop', 'start']),

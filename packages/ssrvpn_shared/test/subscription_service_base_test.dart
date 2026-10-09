@@ -16,6 +16,7 @@ void main() {
     for (final link in [
       'http://user:fixture@127.0.0.1:80',
       'https://user:fixture@[2001:db8::1]:443',
+      'https://user:fixture@127.0.0.1:443#label?query-in-fragment',
     ]) {
       expect(service.isSingleNodeLink(link), isTrue);
     }
@@ -28,6 +29,8 @@ void main() {
       'https://feed.invalid:443/?token=fixture',
       'http://feed.invalid:80/subscription',
       'https://user:fixture@feed.invalid:443/subscription',
+      'HTTPS://user:fixture@feed.invalid:443?query=é#label',
+      'http://feed.invalid:80?query=é',
     ]) {
       expect(service.isSingleNodeLink(link), isFalse);
     }

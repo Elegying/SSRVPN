@@ -157,7 +157,7 @@ void main() {
         (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
     addTearDown(fixture.dispose);
     await tester.pumpWidget(fixture.build());
-    await _waitForWidget(tester, find.text('已连接'));
+    await _waitForWidget(tester, find.text('正在验证网络'));
     await tester.runAsync(() => fixture.subscription
         .setRawYaml(_nodeYaml.replaceFirst('新加坡节点', '新加坡新节点')));
     await tester.pump();
@@ -177,7 +177,7 @@ void main() {
         (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
     addTearDown(fixture.dispose);
     await tester.pumpWidget(fixture.build());
-    await _waitForWidget(tester, find.text('已连接'));
+    await _waitForWidget(tester, find.text('正在验证网络'));
     await tester.runAsync(() => fixture.subscription.setRawYaml(
         "${_nodeYaml.replaceFirst('    type: ss', '    ssrvpn-subscription: 第二来源\n    ssrvpn-subscription-ids: [first, second]\n    type: ss')}"
         '  - {name: 新增节点, type: socks5, server: 127.0.0.3, port: 1080}\n'));
@@ -678,7 +678,7 @@ void main() {
     addTearDown(fixture.dispose);
 
     await tester.pumpWidget(fixture.build());
-    await _waitForWidget(tester, find.text('已连接'));
+    await _waitForWidget(tester, find.text('正在验证网络'));
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
 
@@ -737,7 +737,7 @@ void main() {
     addTearDown(fixture.dispose);
 
     await tester.pumpWidget(fixture.build());
-    await _waitForWidget(tester, find.text('已连接'));
+    await _waitForWidget(tester, find.text('正在验证网络'));
     await tester.runAsync(() => Directory(fixture.settingsPath).create());
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
@@ -769,7 +769,7 @@ void main() {
     addTearDown(fixture.dispose);
 
     await tester.pumpWidget(fixture.build());
-    await _waitForWidget(tester, find.text('已连接'));
+    await _waitForWidget(tester, find.text('正在验证网络'));
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
     await tester.tap(
@@ -793,7 +793,7 @@ void main() {
     addTearDown(fixture.dispose);
 
     await tester.pumpWidget(fixture.build());
-    await _waitForWidget(tester, find.text('已连接'));
+    await _waitForWidget(tester, find.text('正在验证网络'));
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
     await tester.tap(
@@ -818,7 +818,7 @@ void main() {
     addTearDown(fixture.dispose);
 
     await tester.pumpWidget(fixture.build());
-    await _waitForWidget(tester, find.text('已连接'));
+    await _waitForWidget(tester, find.text('正在验证网络'));
     expect(clash.connectionDesired, isFalse);
 
     clash.publishRecoveryGap();
@@ -900,15 +900,18 @@ void main() {
     addTearDown(fixture.dispose);
 
     await tester.pumpWidget(fixture.build());
-    await _waitForWidget(tester, find.text('已连接'));
+    await _waitForWidget(tester, find.text('正在验证网络'));
 
     clash.publishNotice('无可用网络，VPN 正在等待恢复');
-    await _waitForWidget(tester, find.text('已连接（有提醒）'));
+    await _waitForWidget(tester, find.text('无可用网络，VPN 正在等待恢复'));
+    expect(find.text('正在验证网络'), findsOneWidget);
     expect(find.text('无可用网络，VPN 正在等待恢复'), findsOneWidget);
     expect(clash.isRunning, isTrue);
 
     clash.publishNotice(null);
-    await _waitForWidget(tester, find.text('已连接'));
+    await _waitForAsyncCondition(
+        tester, () => find.text('无可用网络，VPN 正在等待恢复').evaluate().isEmpty);
+    expect(find.text('正在验证网络'), findsOneWidget);
     expect(find.text('无可用网络，VPN 正在等待恢复'), findsNothing);
   });
 
@@ -950,7 +953,7 @@ void main() {
     addTearDown(fixture.dispose);
     await tester.runAsync(() => fixture.subscription.setRawYaml('proxies: []'));
     await tester.pumpWidget(fixture.build());
-    await _waitForWidget(tester, find.text('已连接'));
+    await _waitForWidget(tester, find.text('正在验证网络'));
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
     await tester.tap(find.bySemanticsLabel('全局'));
@@ -974,7 +977,7 @@ void main() {
         (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
     addTearDown(fixture.dispose);
     await tester.pumpWidget(fixture.build());
-    await _waitForWidget(tester, find.text('已连接'));
+    await _waitForWidget(tester, find.text('正在验证网络'));
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
     await tester.tap(find.bySemanticsLabel('全局'));
@@ -1001,7 +1004,7 @@ void main() {
     addTearDown(fixture.dispose);
 
     await tester.pumpWidget(fixture.build());
-    await _waitForWidget(tester, find.text('已连接'));
+    await _waitForWidget(tester, find.text('正在验证网络'));
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
     await tester.tap(find.bySemanticsLabel('全局'));
@@ -1035,7 +1038,7 @@ void main() {
     addTearDown(fixture.dispose);
 
     await tester.pumpWidget(fixture.build());
-    await _waitForWidget(tester, find.text('已连接'));
+    await _waitForWidget(tester, find.text('正在验证网络'));
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
     await tester.tap(find.bySemanticsLabel('全局'));
@@ -1106,7 +1109,7 @@ void main() {
         (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
     addTearDown(fixture.dispose);
     await tester.pumpWidget(fixture.build());
-    await _waitForWidget(tester, find.text('已连接'));
+    await _waitForWidget(tester, find.text('正在验证网络'));
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('强制代理网站'));

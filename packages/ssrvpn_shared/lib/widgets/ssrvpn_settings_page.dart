@@ -24,7 +24,9 @@ class SsrvpnSettingsPage extends StatefulWidget {
       required this.onPortChanged,
       required this.checkForUpdate,
       required this.onUpdateFound,
+      this.applicationSettings = const [],
       this.onRoutingSitesChanged});
+  final List<Widget> applicationSettings;
   final Future<void> Function(List<String> sites, bool direct)?
       onRoutingSitesChanged;
   final AppSettings settings;
@@ -242,6 +244,7 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                         ])),
                 const SizedBox(height: 12),
                 _section('应用', [
+                  ...widget.applicationSettings,
                   if (widget.subscriptionService != null)
                     SubscriptionScheduleTile(
                         service: widget.subscriptionService!),

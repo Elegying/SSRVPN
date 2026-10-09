@@ -49,6 +49,10 @@ mixin _ClashDataPlaneSupport {
   int? _coalescedDataPlaneObservationEpoch;
   String? _dataPlaneConnectivityWarning;
   DateTime? _dataPlaneResultAt;
+  int? _dataPlaneRequestMilliseconds;
+  String? _dataPlaneRequestCode;
+  int? get dataPlaneRequestMilliseconds => _dataPlaneRequestMilliseconds;
+  String? get dataPlaneRequestCode => _dataPlaneRequestCode;
   String? _connectivityOwnershipWarning;
   Timer? _networkChangeWatchTimer;
   String? _networkFingerprint;
@@ -141,10 +145,8 @@ mixin _ClashDataPlaneSupport {
       return;
     }
     _dataPlaneResultAt = DateTime.now();
-    if (_dataPlaneConnectivityWarning == value) return;
-    final previous = connectivityWarning;
     _dataPlaneConnectivityWarning = value;
-    if (connectivityWarning != previous) notifyStatusChanged();
+    notifyStatusChanged();
   }
 
   @protected
@@ -160,6 +162,8 @@ mixin _ClashDataPlaneSupport {
   void clearConnectivityWarningSilently() {
     _dataPlaneConnectivityWarning = null;
     _dataPlaneResultAt = null;
+    _dataPlaneRequestMilliseconds = null;
+    _dataPlaneRequestCode = null;
   }
 
   @protected
@@ -274,6 +278,10 @@ mixin _ClashDataPlaneSupport {
           level: RuntimeLogLevel.warning,
           event: 'data_plane_probe',
         );
+        if (_canPublishHealthCheckResult) {
+          _dataPlaneRequestMilliseconds = null;
+          _dataPlaneRequestCode = safeRuntimeErrorCode(error);
+        }
         setConnectivityWarning('数据通道检查未能完成，请稍后重试或切换节点');
       }),
     );
@@ -362,9 +370,8 @@ mixin _ClashDataPlaneSupport {
       // publishes its stale conclusion. Without the notify, the cleared warning
       // stays on screen: this path has no caller to do it, unlike
       // `onDataPlaneRouteChanged` whose caller notifies right after.
-      final hadWarning = _dataPlaneConnectivityWarning != null;
       _invalidateDataPlaneObservationAndReprobe();
-      if (hadWarning) notifyStatusChanged();
+      notifyStatusChanged();
     } finally {
       if (_activeNetworkCheckEpoch == watchEpoch) {
         _activeNetworkCheckEpoch = null;
@@ -401,21 +408,36 @@ mixin _ClashDataPlaneSupport {
         ? AppConstants.tunConnectivityTestUrls
         : AppConstants.systemProxyConnectivityTestUrls;
     final endpoints = endpointValues.map(Uri.parse).toList(growable: false);
-    int? lastStatusCode;
+    int? lastStatusCode, requestMilliseconds;
+    String? requestCode;
+    void publish(String? warning) {
+      if (!isRunning ||
+          !_canPublishHealthCheckResult ||
+          !isDataPlaneObservationCurrent) {
+        return;
+      }
+      _dataPlaneRequestMilliseconds = requestMilliseconds;
+      _dataPlaneRequestCode = requestCode;
+      setConnectivityWarning(warning);
+    }
+
     // 是否至少有一次拿到了 HTTP 响应。这决定失败的性质：完全无响应说明通道可疑，
     // 有响应只说明端点不配合。两者此前被同一句话描述，属于语义错误。
     var sawAnyResponse = false;
     try {
       for (var attempt = 1; attempt <= attempts; attempt++) {
         if (shouldContinue?.call() == false) return null;
+        final requestClock = Stopwatch()..start();
         try {
           // Rotate independent endpoints across retries so one blocked or
           // rate-limited service cannot define the entire data-plane state.
           final endpoint = endpoints[(attempt - 1) % endpoints.length];
           final statusCode = await sendStatus(endpoint);
           if (shouldContinue?.call() == false) return null;
+          requestMilliseconds = requestClock.elapsedMilliseconds;
+          requestCode = 'HTTP_$statusCode';
           if (statusCode == 204 || statusCode == 200) {
-            if (isRunning) setConnectivityWarning(null);
+            publish(null);
             return null;
           }
           sawAnyResponse = true;
@@ -424,16 +446,20 @@ mixin _ClashDataPlaneSupport {
             '外部网络验证 $attempt/$attempts 未通过：HTTP $statusCode；'
             '轮次=${(attempt - 1) ~/ endpoints.length + 1}；'
             '站点=${endpoints[(attempt - 1) % endpoints.length].host}；'
+            '耗时=${requestClock.elapsedMilliseconds}ms；'
             '路径=${settings.enableTun ? 'TUN' : '本地代理'}，保留当前连接',
             event: 'data_plane_probe',
           );
         } catch (error) {
           if (shouldContinue?.call() == false) return null;
+          requestMilliseconds = requestClock.elapsedMilliseconds;
+          requestCode = safeRuntimeErrorCode(error);
           log(
             '外部网络验证 $attempt/$attempts 未通过：'
             'cause=${safeRuntimeErrorCode(error)}；'
             '轮次=${(attempt - 1) ~/ endpoints.length + 1}；'
             '站点=${endpoints[(attempt - 1) % endpoints.length].host}；'
+            '耗时=${requestClock.elapsedMilliseconds}ms；'
             '路径=${settings.enableTun ? 'TUN' : '本地代理'}，保留当前连接',
             event: 'data_plane_probe',
           );
@@ -454,7 +480,7 @@ mixin _ClashDataPlaneSupport {
       } else {
         warning = '外部网络验证未通过（连接无响应），仅供参考';
       }
-      if (isRunning) setConnectivityWarning(warning);
+      publish(warning);
       return warning;
     } finally {
       client?.close();
