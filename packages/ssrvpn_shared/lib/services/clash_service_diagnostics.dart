@@ -27,10 +27,10 @@ String buildDataPlaneDiagnosticSummary({
 }) {
   const base = '外部探测未通过，实际访问情况尚未确认';
   if (observedAt == null) return base;
-  final seconds = now.difference(observedAt).inSeconds;
+  final age = now.difference(observedAt);
   // 时钟回拨、或跨会话残留的旧时间戳，都不足以支撑「刚刚观察过」的措辞。
-  if (seconds < 0 || seconds > 3600) return base;
-  return '$base（最近一次观察 $seconds 秒前）';
+  if (age.isNegative || age > const Duration(hours: 1)) return base;
+  return '$base（最近一次观察 ${age.inSeconds} 秒前）';
 }
 
 /// Read-only diagnostics and narrowly scoped, platform-owned repair hooks.
@@ -57,6 +57,7 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
   int get runtimeApiPort;
   String _apiUrl(String path);
   String? get lastStartError;
+  String? get _connectionProgress;
   String? get lastHealthCheckError;
   String? get lastRuntimePortAdjustmentMessage;
   String? get connectivityWarning;
@@ -65,6 +66,8 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
   /// 最近一次数据面观察完成的时间；null 表示平台没有可用的时间戳。
   DateTime? get dataPlaneObservationAt;
   DateTime? get dataPlaneResultAt;
+  int? get dataPlaneRequestMilliseconds;
+  String? get dataPlaneRequestCode;
   String get recentLogs => _logBuffer;
   String get configPath;
   @protected
@@ -196,7 +199,18 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
   Future<AppDiagnosticReport> _runDiagnostics({
     DateTime Function()? clock,
   }) async {
-    final checks = <AppDiagnosticCheck>[];
+    final checks = <AppDiagnosticCheck>[
+      AppDiagnosticCheck(
+          id: 'connection_phase',
+          title: '连接阶段',
+          status: AppDiagnosticStatus.passed,
+          summary: _connectionProgress ??
+              (isRunning
+                  ? '连接进程已启动；外网状态见下方独立验证'
+                  : connectionDesired
+                      ? '正在启动连接'
+                      : '连接已停止')),
+    ];
 
     final coreAvailable =
         await _runDiagnosticCheck('core', diagnosticCoreAvailable) ?? false;
@@ -369,8 +383,9 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
       final observedAt = dataPlaneResult?.observedAt;
       final age = observedAt == null
           ? null
-          : (clock ?? DateTime.now)().difference(observedAt).inSeconds;
-      final verified = age != null && age >= 0 && age <= 3600;
+          : (clock ?? DateTime.now)().difference(observedAt);
+      final verified =
+          age != null && !age.isNegative && age <= const Duration(hours: 1);
       checks.add(
         AppDiagnosticCheck(
           id: 'data_plane',
@@ -379,12 +394,30 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
               ? AppDiagnosticStatus.passed
               : AppDiagnosticStatus.warning,
           summary: verified
-              ? '最近一次外部网络验证通过（$age 秒前）；不代表所有网站均可访问'
+              ? '最近一次外部网络验证通过（${age.inSeconds} 秒前）；不代表所有网站均可访问'
               : observedAt == null
                   ? '外部网络验证尚未完成，实际访问情况尚未确认；请稍后重新检查'
                   : '外部网络验证结果已过期，实际访问情况尚未确认；请稍后重新检查',
         ),
       );
+    }
+
+    if (isRunning) {
+      checks.add(AppDiagnosticCheck(
+        id: 'network_request',
+        title: '真实请求耗时与节点状态',
+        status: dataPlaneRequestMilliseconds == null
+            ? AppDiagnosticStatus.skipped
+            : dataPlaneConnectivityWarning != null
+                ? AppDiagnosticStatus.warning
+                : AppDiagnosticStatus.passed,
+        summary: dataPlaneRequestMilliseconds == null
+            ? '尚无本次连接的请求记录，节点可用性未确认'
+            : '最近实际请求耗时 $dataPlaneRequestMilliseconds ms；'
+                '结果编号 ${dataPlaneRequestCode ?? 'UNKNOWN'}；'
+                '${dataPlaneConnectivityWarning == null ? '请结合上方验证时间判断节点状态' : '节点或外部网络暂未验证通过'}。'
+                '请求失败不能单独证明 UDP 受限。',
+      ));
     }
 
     // IPv6 target failures remain in the core logs. They do not establish

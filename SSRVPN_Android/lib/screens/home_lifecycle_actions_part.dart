@@ -212,9 +212,7 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
       runtimeTransitioning: nativeTransitioning,
     );
     if (!shouldHandleConnection) {
-      if (_connectionNotice != connectionNotice) {
-        _updateHomeState(() => _connectionNotice = connectionNotice);
-      }
+      _updateHomeState(() => _connectionNotice = connectionNotice);
       return;
     }
     final runtimeSelectedNodeName = running && !_isConnecting

@@ -1,3 +1,4 @@
+import '../utils/private_node_latency_policy.dart';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import '../models/proxy_node.dart';
@@ -80,7 +81,7 @@ class AccountUsageProviders {
 
   UsageIdentity? resolve(ProxyNode? node) {
     if (node == null ||
-        !node.name.contains('私家车') ||
+        !PrivateNodeLatencyPolicy.appliesTo(node) ||
         !const {'hysteria2', 'hy2'}.contains(node.type.toLowerCase())) {
       return null;
     }
@@ -97,12 +98,16 @@ class AccountUsageProviders {
     } catch (_) {
       return null;
     }
+    final managed = PrivateNodeLatencyPolicy.isManagedHost(server);
     final named = _members.any((member) => member.nodeName == node.name);
     for (final member in _members) {
-      if ((named ? member.nodeName == node.name : member.nodeName == null) &&
+      if ((managed ||
+              (named
+                  ? member.nodeName == node.name
+                  : member.nodeName == null)) &&
           member.server == server &&
           member.port == node.port) {
-        return UsageIdentity._(member, password, node.name);
+        return UsageIdentity._(member, password);
       }
     }
     return null;
@@ -122,7 +127,7 @@ class AccountUsageProviders {
         value.contains(RegExp(r'[/@?#\s]'))) {
       throw const FormatException();
     }
-    return Uri(host: value).host.toLowerCase();
+    return Uri(host: value).host.toLowerCase().replaceFirst(RegExp(r'\.$'), '');
   }
 }
 
@@ -136,8 +141,16 @@ class _Membership {
 }
 
 class UsageIdentity {
-  UsageIdentity._(_Membership member, this._credential, String fullName)
+  UsageIdentity._(_Membership member, this._credential)
       : endpoint = member.endpoint,
+        nodeHost = member.server,
+        nodePort = member.port,
+        retryKey = sha256
+            .convert(utf8.encode(jsonEncode([
+              member.endpoint.toString(),
+              _credential,
+            ])))
+            .toString(),
         key = sha256
             .convert(utf8.encode(jsonEncode([
               member.provider,
@@ -146,10 +159,14 @@ class UsageIdentity {
               member.server,
               member.port,
               _credential,
-              fullName,
             ])))
             .toString();
   final Uri endpoint;
+  final String nodeHost;
+  final int nodePort;
+  // Server throttling applies to the account, including its other node bindings.
+  // Display snapshots keep using the stricter, node-specific key below.
+  final String retryKey;
   final String key;
   final String _credential;
   // Deliberately absent from toString/JSON/logging APIs.

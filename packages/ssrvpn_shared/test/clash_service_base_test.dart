@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:ssrvpn_shared/models/network_verification.dart';
 import 'package:cryptography/cryptography.dart' as signatures;
 import 'dart:convert';
 import 'dart:io';
@@ -21,6 +22,51 @@ import 'package:ssrvpn_shared/services/smart_rule_bundle.dart';
 import 'package:ssrvpn_shared/utils/runtime_config_name_policy.dart';
 
 void main() {
+  test(
+      'network verification publishes completed evidence separately from process state',
+      () async {
+    final service = _DiagnosticClashService()
+      ..requestConnectionIntent(true)
+      ..setRunning(true);
+    addTearDown(service.dispose);
+    expect(service.networkVerification.state, NetworkVerificationState.pending);
+    var notifications = 0;
+    service.addStatusListener(() => notifications++);
+    await service.verifyUserConnectivity(
+        maxAttempts: 1, request: (_) async => http.Response('', 204));
+    expect(
+        service.networkVerification.state, NetworkVerificationState.verified);
+    expect(service.networkVerification.checkedAt, isNotNull);
+    expect(service.networkVerification.requestMilliseconds, isNonNegative);
+    expect(service.networkVerification.errorCode, 'HTTP_204');
+    expect(notifications, greaterThan(0));
+    final oldAt = service.networkVerification.checkedAt;
+    final pending = Completer<http.Response>();
+    var attempts = 0;
+    final observation = service.verifyUserConnectivity(
+        maxAttempts: 2,
+        retryDelay: Duration.zero,
+        request: (_) async =>
+            ++attempts == 1 ? http.Response('', 503) : pending.future);
+    await Future<void>.delayed(Duration.zero);
+    expect(service.networkVerification.checkedAt, oldAt);
+    expect(service.networkVerification.errorCode, 'HTTP_204');
+    pending.completeError(TimeoutException('secret'));
+    await observation;
+    expect(
+        service.networkVerification.state, NetworkVerificationState.unverified);
+    expect(service.networkVerification.errorCode, 'NETWORK_TIMEOUT');
+    expect(service.isRunning, isTrue);
+    expect(service.connectionDesired, isTrue);
+    final report = await service.runDiagnostics();
+    expect(report.checks.any((c) => c.id == 'connection_phase'), isTrue);
+    expect(report.checks.singleWhere((c) => c.id == 'network_request').summary,
+        contains('ms'));
+    service.requestConnectionIntent(false);
+    service.setRunning(false);
+    expect(service.networkVerification.checkedAt, isNull);
+  });
+
   test('preparing connection blocks fresh public IP queries until intent ends',
       () async {
     var requests = 0;
@@ -3781,6 +3827,39 @@ proxies:
             AppDiagnosticStatus.warning);
       }
     });
+
+    for (final boundary in [
+      (name: 'future', age: const Duration(milliseconds: -1), current: false),
+      (
+        name: 'expired',
+        age: const Duration(hours: 1, milliseconds: 1),
+        current: false
+      ),
+      (name: 'just completed', age: Duration.zero, current: true),
+      (name: 'maximum age', age: const Duration(hours: 1), current: true),
+    ]) {
+      test('diagnostic freshness keeps sub-second ${boundary.name} boundaries',
+          () async {
+        final service = _DiagnosticClashService()
+          ..requestConnectionIntent(true)
+          ..setRunning(true)
+          ..publishConnectivityWarning(null);
+        addTearDown(service.dispose);
+        final observedAt = service.networkVerification.checkedAt!;
+        final now = observedAt.add(boundary.age);
+        final report = await service.runDiagnostics(clock: () => now);
+        expect(
+            report.checks.singleWhere((c) => c.id == 'data_plane').status,
+            boundary.current
+                ? AppDiagnosticStatus.passed
+                : AppDiagnosticStatus.warning);
+        final summary =
+            buildDataPlaneDiagnosticSummary(observedAt: observedAt, now: now);
+        expect(summary.contains('秒前'), boundary.current);
+        expect(service.isRunning, isTrue);
+        expect(service.connectionDesired, isTrue);
+      });
+    }
 
     test(
       'reports a healthy data plane instead of omitting the check',

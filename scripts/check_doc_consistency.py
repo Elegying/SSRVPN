@@ -238,6 +238,24 @@ def required_claims(relative_name: str, markdown: str) -> list[str]:
     return []
 
 
+def public_copy_boundary(relative_name: str, markdown: str) -> list[str]:
+    """Keep operator policy in agent guidance and code, including fenced text."""
+    path = Path(relative_name)
+    if path.name == 'AGENTS.md' or relative_name.startswith(('.workbuddy-ai/', '.codex/')):
+        return []
+    if re.search(r'私家车|(?:[A-Za-z0-9-]+\.)*ssrvpn\.vip|private_node_latency_policy', markdown,
+                 re.IGNORECASE):
+        return ['public document contains internal operator policy details']
+    if relative_name == 'CHANGELOG.md':
+        unpublished = re.search(r'^## \[Unreleased\][^\n]*\n(.*?)(?=^## |\Z)',
+                                markdown, re.MULTILINE | re.DOTALL)
+        if unpublished and any(line.strip() not in ('', '优化稳定性，提升连接体验。',
+                                                    '- 优化稳定性，提升连接体验。')
+                               for line in unpublished.group(1).splitlines()):
+            return ['unreleased notes must use the approved public summary']
+    return []
+
+
 def desktop_ui_count_claim(markdown: str, actual_count: int) -> list[str]:
     match = re.search(
         r"的[ \t]+(?P<count>\d+)[ \t]+个[ \t]+"
@@ -324,6 +342,8 @@ def validate(root: Path, docs: list[str], *, links_only: bool = False) -> list[s
             continue
 
         markdown = document.read_text(encoding="utf-8")
+        errors.extend(f"{relative_name}: {finding}"
+                      for finding in public_copy_boundary(relative_name, markdown))
         for target in extract_link_targets(markdown):
             if _is_external(target):
                 continue

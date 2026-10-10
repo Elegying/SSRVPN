@@ -142,10 +142,9 @@ extension _HomeStatus on _HomeOverviewState {
   String get _statusText {
     if (widget.isConnecting) return widget.isConnected ? '正在断开' : '正在连接';
     if (widget.errorMessage != null) return '连接异常';
-    if (widget.isConnected && widget.connectionNotice != null) {
-      return '已连接（有提醒）';
+    if (widget.isConnected) {
+      return widget.networkVerification?.label ?? '连接进程已启动';
     }
-    if (widget.isConnected) return '已连接';
     return '未连接';
   }
 
@@ -155,7 +154,12 @@ extension _HomeStatus on _HomeOverviewState {
     if (widget.isConnected && widget.connectionNotice != null) {
       return SsrvpnUiTokens.of(context).warning;
     }
-    if (widget.isConnected) return SsrvpnUiTokens.of(context).success;
+    if (widget.isConnected) {
+      return widget.networkVerification?.state ==
+              NetworkVerificationState.verified
+          ? SsrvpnUiTokens.of(context).success
+          : SsrvpnUiTokens.of(context).warning;
+    }
     return SsrvpnUiTokens.of(context).textSecondary;
   }
 }

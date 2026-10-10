@@ -28,7 +28,8 @@ Future<void> verifyHomeProbeNoticePolicy(
   publishOwnershipWarning('系统代理所有权暂时无法确认');
   await render();
   expect(overview().connectionNotice, '系统代理所有权暂时无法确认');
-  expect(find.text('已连接（有提醒）'), findsOneWidget);
+  expect(find.text(overview().networkVerification!.label), findsOneWidget);
+  expect(find.text('系统代理所有权暂时无法确认'), findsOneWidget);
   publishExternalWarning(null);
   await render();
   expect(overview().connectionNotice, '系统代理所有权暂时无法确认');

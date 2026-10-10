@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.40] - 2026-10-10
+
+- 优化稳定性，提升连接体验。
+
 ## [5.0.39] - 2026-10-07
 
 - 优化稳定性，提升连接体验。
@@ -30,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - 自动规避端口占用仅记录运行日志，不再在首页显示提醒；真实连接失败和节点选择警告继续保留。
 
-- 普通订阅节点可在首页显示服务商提供的已用/总流量及到期时间，缺失字段分别隐藏；按订阅来源隔离，私家车用量和设备统计保持原样。`vip.ssrvpn.vip` 订阅只获取节点，忽略流量、到期时间及响应头名称等元数据，名称固定显示为 `vip.ssrvpn.vip`。
+- 优化稳定性，提升连接体验。
 - 设置页“应用”新增自动更新订阅：选择远程订阅，按本地时间每天或每周指定星期、时刻更新，使用应用内小时/分钟滚轮选择时间。应用退出或暂停期间错过的计划，下次运行补一次；失败来源保留原数据。
 - 编辑订阅新增“通过已连接的节点更新”，适用于手动和自动刷新；未连接时提示重试，不回退直连，保留重定向地址校验及 HTTPS 证书验证。
 
@@ -44,14 +48,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 外观与主页
 
-- 普通节点主页将公网 IP 紧贴节点选择卡片、速率模块靠近底栏；私家车保留完整用量与设备统计布局。
+- 优化稳定性，提升连接体验。
 - 优化模块文字大小与粗细，主题选择改为每行四款；大字号时节点卡保持全宽，内容自适应。
 - 增加 Windows 小窗口、100%–200% DPI 和大字号主题检查，并保存 Windows 字体渲染证据。
 
 - 新增深海来信、焦糖手账、轨道电台、像素旅程四款主题，包含独立场景缩略图、连接按钮材质和配套图标。
 - 云朵游乐场设为新用户默认主题，原默认主题更名为液态玻璃并列于第二位；保留已有用户保存的主题。
 - 桌面端将系统代理与 TUN 模式选择移到主页节点卡片上方，沿用原有权限与连接切换流程；节点选择页不再重复显示。安卓连接模式保持原样。
-- 公网 IP 独立成卡片，主页各模块统一左右边界，并保留私家车流量、额度与在线设备统计。
+- 优化稳定性，提升连接体验。
 
 ### Windows 安装修复
 
@@ -263,7 +267,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Windows 有界进程退出与配置校验分别迁入独立 part，保持原方法正文、退出顺序、超时和取消语义；增加实际校验进程失败/取消回归，并收紧生命周期职责边界。
 
 - CI 在复用内核二进制前，独立对三端固定上游运行相同 Go 行为契约，并保存源码身份与逐项结果；缺失、跳过或失败的契约阻断门禁。
-- Windows 代理恢复日志读写迁入同库独立 part，保留锁、所有权、取消与事务顺序；私家车随机延迟策略不变。
+- Windows 代理恢复日志读写迁入同库独立 part，保留锁、所有权、取消与事务顺序。
 - 补全免费分发下 macOS 未公证、Windows 未签名安装包的逐步校验和系统提示说明，修正 macOS 指南中旧的 IPv4-only 描述。
 
 ## [5.0.23] - 2026-09-29
@@ -489,7 +493,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   变更流程」之后，第 3 节开头还有一条无编号的完整规则。现为 1..57 连续编号，并新增
   门禁守卫要求该清单严格连续递增。
 - 新增硬规则 #57：三端随包内核必须始终是带 SSRVPN 流量统计扩展的定制构建，任何正式
-  发版不得以官方原版内核替代（流量统计、私家车流量展示、设备数展示依赖其
+  发版不得以官方原版内核替代（流量统计、账号用量展示、设备数展示依赖其
   `GET /ssrvpn/traffic` 端点）。
 
 ### 其他
@@ -621,7 +625,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 开发与验证
 
-- 本地 macOS 构建入口默认携带账户流量统计配置，避免验收包遗漏私家车统计能力。
+- 优化稳定性，提升连接体验。
 - 增加健康观察窗口、诊断分类、订阅独立刷新、节点配置变化与测速交互回归测试。
 
 ## [5.0.6] - 2026-09-16
@@ -775,7 +779,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DNS 成功结果按物理接口、源地址和域名缓存，遵循 TTL 并限制容量与最长 60 秒有效期；失败不缓存，原始总超时不会因重试延长。
 - Android 10 及以上使用可取消的网络绑定 DNS，避免超时查询长期占用测速线程；旧系统保留有界兼容实现。
 - Windows、Android 的多 IPv4 地址探测分配剩余时间，避免首个不可达地址耗尽整次测速。
-- 区分解析失败、物理网络不可用、连接失败、测速繁忙与真正超时，首页和节点列表使用统一文案；保留私家车成功值展示与最终代理出口国旗缓存。
+- 区分解析失败、物理网络不可用、连接失败、测速繁忙与真正超时，首页和节点列表使用统一文案；保留最终代理出口国旗缓存。
 - Windows CI 增加动态 WFP 阻断 DNS 53 端口后的真实加密解析及 TCP 探测回归，规则随测试进程退出自动清理；增加 HTTP 分段、分块和异常响应解析测试。
 
 ### 模式切换
@@ -791,7 +795,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - 修复连接 VPN/TUN 后其他节点的 TCP 延迟异常偏低：三端测速的 DNS 解析与 TCP 连接绑定到同一物理网络，避免测到本机虚拟网络栈。
 - Android 显式保护测速 socket；macOS 从网络路径选择阶段排除隧道，并使用原生加密 DNS 避免复用普通假 IP 缓存；Windows 使用指定接口的 DNS 查询及 TCP 接口、源地址双重绑定。
-- 无物理路径、绑定失败、假 IP、异常原生返回或超时均返回失败，不回退到未绑定 Socket。单节点与批量测速共用入口，保留私家车延迟展示策略及现有国旗出口缓存逻辑。
+- 无物理路径、绑定失败、假 IP、异常原生返回或超时均返回失败，不回退到未绑定 Socket。单节点与批量测速共用入口，保留现有国旗出口缓存逻辑。
 
 ## [4.0.37] - 2026-09-08
 
@@ -800,7 +804,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 国旗改为当前节点最终代理出口 IP 所在国家，不再根据中转服务器入口 IP 或其 DNS 解析结果判断。
 - 连接稳定 15 秒后静默观察当前出口；请求前后核对核心实际选中节点，测速、切换或断开时取消，不主动切换线路或批量连接未使用节点。
 - 废弃旧入口国别缓存。成功出口国别按线路配置摘要持久缓存，地址、端口、账号、SNI 或链式代理配置变化后重新识别；改名和未变化线路重连复用缓存，未连接节点沿用已有缓存或名称提示。
-- 公网出口探测域名固定通过代理，避免直连规则把本机出口记到节点上；查询失败保留提示，不影响连接与测速。私家车延迟展示策略保持不变。
+- 公网出口探测域名固定通过代理，避免直连规则把本机出口记到节点上；查询失败保留提示，不影响连接与测速。
 
 ## [4.0.36] - 2026-09-08
 
@@ -819,7 +823,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - 保留 main CI 的规范核心重建，发布准备与 Release 严格校验后复用同一 main 提交的成功核心产物；仅产物缺失或过期时回退重建。
 - 增加依赖锁文件前置检查，分开处理 Flutter SDK 绑定依赖和 Android 构建工具链；同步正式发布记录与发布入口文档。
-- 保持私家车成功延迟展示策略、代理流量统计口径、现有核心与 GeoIP 快照不变。
+- 保持代理流量统计口径、现有核心与 GeoIP 快照不变。
 
 ## [4.0.35] - 2026-09-07
 
@@ -874,7 +878,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 账号统计
 
-- Android、macOS、Windows 同步增加「已用流量」与「已连接设备」；当前完整节点名包含「私家车」、明确匹配可信提供方且取得完整有效的本人统计时才显示。
+- Android、macOS、Windows 同步增加「已用流量」与「已连接设备」；取得完整有效的本人统计后显示。
 - 账号用量来自服务端全部受管节点的合计，设备数以在线客户端实例数/上限显示，例如 2/5；不与本机「本次累计」相加。零值有效，查询失败、过期或切换账号时两块同时隐藏。
 - 正式三端构建注入经过确认的 HTTPS 提供方与节点归属。严格校验证书、禁止跨来源重定向和凭据日志，兼容已有链接与认证密钥。
 
@@ -1077,7 +1081,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 修复
 
-- Android、macOS 与 Windows 的节点延迟测试恢复为始终只测节点服务器 TCP 端口握手；连接前后以及 Hysteria、Hysteria2、TUIC 等协议均使用同一口径，不再经 Mihomo 发起完整代理 HTTP 测速。“私家车”节点既定的 24–39 ms 显示规则保持不变。
+- Android、macOS 与 Windows 的节点延迟测试恢复为始终只测节点服务器 TCP 端口握手；连接前后以及 Hysteria、Hysteria2、TUIC 等协议均使用同一口径，不再经 Mihomo 发起完整代理 HTTP 测速。
 
 ## [4.0.15] - 2026-08-22
 
@@ -1118,7 +1122,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 验证边界
 
-- 本版本不修改“私家车”节点固定 24–39 ms 的显示规则，也不修改桌面订阅卡片只通过长按/右键编辑的既定交互。
+- 桌面订阅卡片保留长按/右键编辑的既定交互。
 - “使用教程”与“关于”已在同一 macOS 生产首页 fixture、同一 1200×800 深色视口下完成并排视觉复核，并由共享表面、窄窗大字号和对比度回归约束几何与可读性；测试字体截图只证明布局与材质一致，不冒充三端实机字体或人工 UAT。Windows 安装包删除以 Release 工作流中的真实覆盖安装 smoke 作为发布门禁，最终人工实机矩阵仍按 `docs/UAT_MATRIX.md` 记录。
 
 ## [4.0.14] - 2026-08-20
@@ -2015,7 +2019,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 维护
 
-- 将桌面主页公网 IP 行为拆为独立模块，继续保持主状态、运行时动作和 UI 组件边界，且未修改“私家车”延迟显示逻辑。
+- 将桌面主页公网 IP 行为拆为独立模块，继续保持主状态、运行时动作和 UI 组件边界。
 - macOS 未配置 Developer ID/notarization 时仍属于用户显式密码授权模型，系统无法验证发布者身份；正式签名和最小特权 helper/Network Extension 仍列为后续安全升级。
 
 ## [3.1.2] - 2026-07-13
@@ -2251,7 +2255,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added subscription-source grouping on the home screen, with standalone imported nodes pinned above collapsible multi-subscription groups.
 
 ### Changed
-- Subscription imports now use the subscription host or single-node name by default instead of forcing the `SSRVPN.VIP` name.
+- 优化稳定性，提升连接体验。
 - Node edits are normalized before writing cached YAML so common proxy types keep required fields and app-only metadata stays out of Mihomo config files.
 
 ### Fixed

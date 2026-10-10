@@ -268,6 +268,7 @@ class HomeScreenState extends State<HomeScreen>
         selectedCountryCode:
             displayNode == null ? null : _nodeCountries.countryFor(displayNode),
         errorMessage: _errorMessage,
+        networkVerification: context.read<ClashService>().networkVerification,
         connectionNotice: _connectionNotice,
         publicIpv4: _publicIpInfo?.displayText,
         isRefreshingPublicIp: _isRefreshingPublicIp,

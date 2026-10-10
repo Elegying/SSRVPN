@@ -38,6 +38,7 @@ import 'startup/startup_orchestrator.dart';
 import 'theme/app_theme.dart';
 import 'utils/responsive.dart';
 import 'widgets/glass_container.dart';
+import 'widgets/recent_tasks_visibility_tile.dart';
 
 part 'app_initialization_failure_part.dart';
 
@@ -667,6 +668,7 @@ class _InitialSubscriptionDialogState
 Widget _buildSettingsPage(BuildContext context) {
   final service = context.watch<SettingsService>();
   return SsrvpnSettingsPage(
+    applicationSettings: const [RecentTasksVisibilityTile()],
     subscriptionService: context.watch<SubscriptionService>(),
     settings: service.settings,
     core: context.read<clash.ClashService>(),

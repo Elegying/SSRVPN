@@ -1,3 +1,4 @@
+import '../models/network_verification.dart';
 import 'ssrvpn_home_network_controls.dart';
 import 'ssrvpn_pixel_surface.dart';
 import 'ssrvpn_cloud_art.dart';
@@ -36,6 +37,7 @@ class SsrvpnHomeOverview extends StatefulWidget {
     required this.onRefreshPublicIp,
     this.errorMessage,
     this.connectionNotice,
+    this.networkVerification,
     this.connectionProgress,
     this.isAutoRecovering = false,
     this.publicIpv4,
@@ -55,6 +57,7 @@ class SsrvpnHomeOverview extends StatefulWidget {
   final String? selectedCountryCode;
   final String? errorMessage;
   final String? connectionNotice;
+  final NetworkVerification? networkVerification;
   final String? connectionProgress;
 
   /// Keeps the progress line visible while a recovery rebuilds the connection,
@@ -82,22 +85,34 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
   String? get _connectionProgress =>
       widget.isConnecting || widget.isAutoRecovering
           ? widget.connectionProgress
-          : null;
+          : widget.isConnected
+              ? widget.networkVerification?.detail ?? '连接进程已启动'
+              : '检查连接状态';
 
   Widget _buildConnectionProgress() => Semantics(
         liveRegion: true,
-        child: SsrvpnHomeText(
-          _connectionProgress ?? '',
-          key: Key('connection-progress'),
-          maxFontSize: 14,
-          lineHeight: 1.4,
-          textAlign: TextAlign.center,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
+        child: TextButton(
+          onPressed: widget.isConnecting || widget.isAutoRecovering
+              ? null
+              : widget.onShowLogs,
+          child: SsrvpnHomeText(
+            widget.isConnecting || widget.isAutoRecovering
+                ? (_connectionProgress ?? '')
+                : '${_connectionProgress ?? ""} · 一键诊断',
+            key: Key(widget.isConnecting || widget.isAutoRecovering
+                ? 'connection-progress'
+                : 'network-verification-details'),
+            maxFontSize: 14,
+            lineHeight: 1.4,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
               color: SsrvpnUiTokens.of(context).textSecondary,
               fontSize: 12,
-              height: 1.4),
+              height: 1.4,
+            ),
+          ),
         ),
       );
 

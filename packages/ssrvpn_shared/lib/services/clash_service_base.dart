@@ -10,6 +10,7 @@ import 'package:http/io_client.dart';
 
 import '../constants/app_constants.dart';
 import '../models/app_diagnostics.dart';
+import '../models/network_verification.dart';
 import '../models/app_settings.dart';
 import '../models/proxy_node.dart';
 import '../models/proxy_group.dart';
@@ -34,6 +35,7 @@ import 'smart_rule_signature.dart';
 import 'smart_rule_recovery.dart';
 
 part 'clash_service_connection_progress.dart';
+part 'clash_service_network_verification.dart';
 part 'clash_service_config_support.dart';
 part 'clash_service_diagnostics.dart';
 part 'clash_service_runtime_support.dart';
@@ -92,6 +94,7 @@ abstract class ClashServiceBase
   void Function(RuntimeNotice notice)? onRuntimeNotice;
   final Set<void Function()> _statusListeners = {};
 
+  @override
   String? _connectionProgress;
   ConnectionPhaseTrace? _connectionPhaseTrace;
   ConnectionPhaseTrace? _recoveryPhaseTrace;

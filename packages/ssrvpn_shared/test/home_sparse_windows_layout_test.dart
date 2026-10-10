@@ -122,7 +122,7 @@ void main() {
             if (SsrvpnTheme(variant).isIllustrated &&
                 variant != AppThemeVariant.pixel) {
               final power = rect('ssrvpn-power-button');
-              final label = tester.getRect(find.text('已连接'));
+              final label = tester.getRect(find.text('连接进程已启动'));
               expect(label.height, lessThanOrEqualTo(power.height * .12 + .1));
               expect(label.width, lessThanOrEqualTo(power.width * .52 + .1));
               expect(label.bottom, lessThan(power.bottom));

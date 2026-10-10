@@ -34,7 +34,7 @@ void main() {
         await tester.pumpAndSettle();
         final pill = find.byKey(const Key('home-connection-status'));
         final text = find.descendant(
-            of: pill, matching: find.text(connected ? '已连接' : '未连接'));
+            of: pill, matching: find.text(connected ? '连接进程已启动' : '未连接'));
         final pillRect = tester.getRect(pill);
         final textRect = tester.getRect(text);
         expect(textRect.center.dy, closeTo(pillRect.center.dy, .01));

@@ -1,7 +1,7 @@
 # Android 双栈与 Telegram 增量实机验收（2026-09-18）
 
 状态：本轮可执行项目已完成，存在明确未覆盖项；未提交、未推送、未发布。
-结束状态：手机保留 SSRVPN 预览连接“私家车-2026”，智能模式，首页“已连接”。
+结束状态：手机保留 SSRVPN 预览连接“验收节点”，智能模式，首页“已连接”。
 
 ## 候选、设备与网络身份
 
@@ -16,7 +16,7 @@
 - APK 内 libgojni SHA256：988e564ad09dcc9f32825b7cd5dd294eb8b6ba6286d889d8356c0a559bc2d7ac。
 - 公共扩展摘要：aa95f21795c80ad6ed000118037ce36bca985b804e3d3889c854257b880d0522。
 - 安装前正式版核心 SHA256：ddde9898eea54d4be000810aed80c532a62441cac5989054ff42897cdd26c020。
-- 用户自行向预览版导入指定节点并允许 VPN；精确核对显示名“私家车-2026”，只有一个候选节点。
+- 用户自行向预览版导入指定节点并允许 VPN；精确核对显示名“验收节点”，只有一个候选节点。
 - Telegram 官方包 org.telegram.messenger 12.10.3，UID 10333；预览 VPN 所有者 UID 10302。
   Telegram 的 UID 位于 Android 实际 VPN 受管范围，不以 shell UID 代替应用流量。
 
@@ -54,7 +54,7 @@
 ## Telegram 的实际证据
 
 1. 通过正式包启动 Telegram，实际核心记录带 org.telegram.messenger，匹配
-   ProcessName(org.telegram.messenger)，使用 PROXY[私家车-2026]。
+   ProcessName(org.telegram.messenger)，使用 PROXY[验收节点]。
 2. 打开 Telegram 官方公开频道，只浏览、不加入、不发消息。页面出现实际公开消息块，
    不再显示 Connecting/Updating/等待网络。
 3. 继续浏览时，系统 netstats 中 Telegram UID、VPN 网络、tag=0 的累计接收增加

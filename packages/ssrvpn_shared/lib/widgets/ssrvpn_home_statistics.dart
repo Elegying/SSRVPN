@@ -1,3 +1,4 @@
+import '../utils/private_node_latency_policy.dart';
 import '../models/subscription_usage.dart';
 import 'package:flutter/material.dart';
 import '../controllers/account_usage_controller.dart';
@@ -6,6 +7,7 @@ import '../services/account_usage_client.dart';
 import '../models/vpn_traffic_sample.dart';
 import '../utils/statistics_visibility.dart';
 import 'ssrvpn_home_traffic_panel.dart';
+import 'ssrvpn_subscription_expiry_notice.dart';
 
 /// Account state owns no part of the local sampler's connection lifecycle.
 class SsrvpnHomeStatistics extends StatefulWidget {
@@ -77,14 +79,32 @@ class _StatisticsState extends State<SsrvpnHomeStatistics>
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
         animation: _account,
-        builder: (context, _) => SsrvpnHomeTrafficPanel(
-            active: widget.active,
-            connected: widget.connected,
-            readSample: widget.readSample,
-            subscriptionUsage: widget.node?.name.contains('私家车') == true
-                ? null
-                : widget.subscriptionUsage,
-            accountUsage: _account.value,
-            accountStatus: _account.statusMessage),
+        builder: (context, _) =>
+            Column(mainAxisSize: MainAxisSize.min, children: [
+          Flexible(
+              child: SsrvpnHomeTrafficPanel(
+                  active: widget.active,
+                  connected: widget.connected,
+                  readSample: widget.readSample,
+                  subscriptionUsage:
+                      PrivateNodeLatencyPolicy.appliesTo(widget.node)
+                          ? null
+                          : widget.subscriptionUsage,
+                  accountUsage: _account.displayValue,
+                  accountStale: _account.isStale,
+                  accountStatus: _account.statusMessage)),
+          if (!PrivateNodeLatencyPolicy.appliesTo(widget.node))
+            SsrvpnSubscriptionExpiryNotice(
+                usage: widget.subscriptionUsage, active: widget.active),
+          if (_account.isStale ||
+              (_account.statusMessage?.contains('[') ?? false))
+            Tooltip(
+                message: _account.statusMessage ?? '',
+                child: Text(_account.statusMessage ?? '',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.labelSmall)),
+        ]),
       );
 }

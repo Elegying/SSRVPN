@@ -67,6 +67,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
       nextWarning: connectivityWarning,
       cancelledWhileConnecting: cancelledWhileConnecting,
     )) {
+      setState(() {});
       return;
     }
     final statusEpoch = ++_connectionStatusEpoch;

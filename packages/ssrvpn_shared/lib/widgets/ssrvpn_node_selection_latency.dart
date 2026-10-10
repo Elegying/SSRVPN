@@ -1,13 +1,14 @@
 part of 'ssrvpn_node_selection_page.dart';
 
 extension _NodeSelectionLatency on _SsrvpnNodeSelectionPageState {
-  Future<void> _testNodes(List<ProxyNode> nodes) async {
+  Future<bool> _testNodes(List<ProxyNode> nodes) async {
     if (_testingAction ||
         _actionBusy ||
         widget.isConnectingOf() ||
         nodes.isEmpty) {
-      return;
+      return false;
     }
+    var completed = false;
     _updateSelectionState(() {
       _testingAction = true;
       _stopRequested = false;
@@ -18,6 +19,7 @@ extension _NodeSelectionLatency on _SsrvpnNodeSelectionPageState {
       } else {
         await widget.onTestAll();
       }
+      completed = !_stopRequested && !_closeRequested;
     } finally {
       if (mounted) {
         _updateSelectionState(() {
@@ -27,6 +29,7 @@ extension _NodeSelectionLatency on _SsrvpnNodeSelectionPageState {
         });
       }
     }
+    return completed;
   }
 
   void _stopTests() {

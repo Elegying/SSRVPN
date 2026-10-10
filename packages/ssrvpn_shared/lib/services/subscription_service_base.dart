@@ -1,3 +1,4 @@
+import '../utils/private_node_latency_policy.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -76,7 +77,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
   }
 
   SubscriptionUsage? usageForNode(ProxyNode? node) {
-    if (node == null || node.name.contains('私家车')) return null;
+    if (node == null || PrivateNodeLatencyPolicy.appliesTo(node)) return null;
     final owners = node.extra[SubscriptionParser.proxySourceIdsKey];
     if (owners is! List || owners.length != 1 || owners.single is! String) {
       return null;
@@ -721,6 +722,12 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
 
   bool isSingleNodeLink(String input) {
     final value = input.trim();
+    // HTTP queries always identify subscriptions here. Avoid normalizing a
+    // potentially large UTF-8 query just to classify it on each metadata pass.
+    if (RegExp(r'^https?://', caseSensitive: false).hasMatch(value)) {
+      final query = value.indexOf('?'), fragment = value.indexOf('#');
+      if (query >= 0 && (fragment < 0 || query < fragment)) return false;
+    }
     final uri = Uri.tryParse(value);
     final scheme = uri?.scheme.toLowerCase();
     if (scheme == 'http' || scheme == 'https') {

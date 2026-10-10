@@ -56,9 +56,11 @@ class MainActivity : FlutterActivity() {
     private var pendingVpnServiceIntent: Intent? = null
     @Volatile
     private var vpnPermissionRequestPending = false
+    private val recentTasksVisibility by lazy { AndroidRecentTasksVisibility(this) }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        recentTasksVisibility.register(flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.ssrvpn/display")
             .setMethodCallHandler { call, result ->
                 if (call.method == "refreshRate") {
@@ -751,6 +753,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onResume() {
         super.onResume()
+        recentTasksVisibility.restore()
         displayRefreshRate.start()
         AndroidRuntimeGuard.run("MainActivity", "Pending update install failed") {
             continuePendingUpdateInstallIfAllowed()
@@ -759,6 +762,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        recentTasksVisibility.restore()
         var autoConnect = false
         if (!AndroidRuntimeGuard.run("MainActivity", "Unable to consume tile auto-connect") {
                 autoConnect = enqueueTrustedAutoConnect(intent)
@@ -775,6 +779,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        recentTasksVisibility.dispose()
         vpnPermissionRequestPending = false
         startTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
         startTimeoutRunnable = null

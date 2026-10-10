@@ -17,6 +17,7 @@ import 'ssrvpn_app_surface.dart';
 import 'ssrvpn_global_mode_dialog.dart';
 
 part 'ssrvpn_node_selection_extras.dart';
+part 'ssrvpn_node_recommendation.dart';
 part 'ssrvpn_node_selection_controls.dart';
 part 'ssrvpn_node_selection_latency.dart';
 part 'ssrvpn_node_selection_keyboard.dart';
@@ -101,6 +102,7 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
   NodePinStore? _pins;
   bool _pinBusy = false, _searchOpen = false;
   bool _actionBusy = false;
+  int _actionEpoch = 0;
   bool _closeRequested = false;
   void _updateSelectionState(VoidCallback action) => setState(action);
 
@@ -167,6 +169,7 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
 
   Future<void> _runAction(Future<void> Function() action) async {
     if (_actionBusy || widget.isConnectingOf()) return;
+    _actionEpoch++;
     setState(() => _actionBusy = true);
     try {
       await action();
@@ -225,6 +228,7 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
             onShowForceDirectSites: widget.onShowForceDirectSites,
           ),
         ],
+        _recommendButton(testingBusy, filteredNodes),
         SizedBox(height: 14),
         _SubscriptionFilter(
           groups: groups,

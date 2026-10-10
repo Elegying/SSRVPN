@@ -51,9 +51,9 @@ void main() {
             () => precacheImage((element.widget as Image).image, element));
       }
       await tester.pumpAndSettle();
-      expect(find.text('已连接（有提醒）'), findsOneWidget);
+      expect(find.text('连接进程已启动'), findsOneWidget);
       expect(tester.takeException(), isNull);
-      final status = tester.getRect(find.text('已连接（有提醒）'));
+      final status = tester.getRect(find.text('连接进程已启动'));
       expect(status.left, greaterThanOrEqualTo(0));
       expect(status.right, lessThanOrEqualTo(320));
       Future<List<int>> pixels() async {

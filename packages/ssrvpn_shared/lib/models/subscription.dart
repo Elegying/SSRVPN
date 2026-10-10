@@ -14,12 +14,13 @@ class Subscription {
     this.disabledSourceYaml,
     this.disabledNamesTrusted = false,
   })  : _name = name,
-        _usage = SubscriptionUsagePolicy.allows(url) ? usage : null;
+        _usage = usage {
+    if (!_allowsUsage) _usage = null;
+  }
 
   final String id;
   String _name;
-  String get name =>
-      SubscriptionUsagePolicy.allows(url) ? _name : 'vip.ssrvpn.vip';
+  String get name => _allowsUsage ? _name : 'vip.ssrvpn.vip';
   set name(String value) => _name = value;
   String url;
   DateTime? lastUpdate;
@@ -27,10 +28,18 @@ class Subscription {
   bool autoUpdate;
   bool refreshViaProxy;
   SubscriptionUsage? _usage;
-  SubscriptionUsage? get usage =>
-      SubscriptionUsagePolicy.allows(url) ? _usage : null;
-  set usage(SubscriptionUsage? value) =>
-      _usage = SubscriptionUsagePolicy.allows(url) ? value : null;
+  SubscriptionUsage? get usage => _allowsUsage ? _usage : null;
+  set usage(SubscriptionUsage? value) => _usage = _allowsUsage ? value : null;
+
+  // Repeated UI/serialization reads must not normalize a large URL each time.
+  // The cache belongs to this object and follows its mutable source URL.
+  ({String url, bool allowed})? _usagePolicy;
+  bool get _allowsUsage {
+    if (_usagePolicy?.url != url) {
+      _usagePolicy = (url: url, allowed: SubscriptionUsagePolicy.allows(url));
+    }
+    return _usagePolicy!.allowed;
+  }
 
   /// Offline source retained only while this subscription is disabled.
   String? disabledSourceYaml;

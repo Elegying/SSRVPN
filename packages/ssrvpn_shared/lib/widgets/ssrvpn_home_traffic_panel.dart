@@ -24,11 +24,13 @@ class SsrvpnHomeTrafficPanel extends StatefulWidget {
     this.accountUsage,
     this.subscriptionUsage,
     this.accountStatus,
+    this.accountStale = false,
   });
 
   final AccountUsage? accountUsage;
   final SubscriptionUsage? subscriptionUsage;
   final String? accountStatus;
+  final bool accountStale;
   final bool active;
   final bool connected;
   final Future<VpnTrafficSample?> Function() readSample;
@@ -167,19 +169,22 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
       metrics.add((
         label: '已用流量',
         number: usage.amount,
-        unit: '每月1日重置',
+        unit: widget.accountStale ? '上次数据·暂未更新' : '每月1日重置',
         color: SsrvpnUiTokens.of(context).textPrimary,
-        semantics: '${usage.semantics}。每月1日重置'
+        semantics:
+            '${widget.accountStale ? '上次数据，暂未更新。' : ''}${usage.semantics}。每月1日重置'
       ));
       metrics.add((
         label: '已连接设备',
         number: '$count/$limit',
-        unit: account.onlineDevices >= 10000 || account.deviceLimit >= 10000
-            ? '约值·实例'
-            : '客户端实例',
+        unit: widget.accountStale
+            ? '上次数据·暂未更新'
+            : account.onlineDevices >= 10000 || account.deviceLimit >= 10000
+                ? '约值·实例'
+                : '客户端实例',
         color: SsrvpnUiTokens.of(context).textPrimary,
         semantics:
-            '已连接设备：$count，上限 $limit。在线客户端实例 ${account.onlineDevices} 个，上限 ${account.deviceLimit} 个，非物理设备去重数'
+            '${widget.accountStale ? '上次数据，暂未更新。' : ''}已连接设备：$count，上限 $limit。在线客户端实例 ${account.onlineDevices} 个，上限 ${account.deviceLimit} 个，非物理设备去重数'
       ));
     }
     if (account == null && widget.accountStatus != null) {

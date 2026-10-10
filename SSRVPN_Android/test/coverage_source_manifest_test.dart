@@ -13,6 +13,7 @@ import 'package:ssrvpn_android/screens/subscription_screen.dart';
 import 'package:ssrvpn_android/services/clash_service.dart';
 import 'package:ssrvpn_android/services/connection_orchestrator.dart';
 import 'package:ssrvpn_android/services/http_client_adapter.dart';
+import 'package:ssrvpn_android/services/recent_tasks_service.dart';
 import 'package:ssrvpn_android/services/settings_service.dart';
 import 'package:ssrvpn_android/services/subscription_service.dart';
 import 'package:ssrvpn_android/services/update_service.dart';
@@ -25,6 +26,7 @@ import 'package:ssrvpn_android/theme/app_theme.dart';
 import 'package:ssrvpn_android/utils/responsive.dart';
 import 'package:ssrvpn_android/widgets/force_proxy_sites_dialog.dart';
 import 'package:ssrvpn_android/widgets/glass_container.dart';
+import 'package:ssrvpn_android/widgets/recent_tasks_visibility_tile.dart';
 import 'package:ssrvpn_android/widgets/subscription_network_error_dialog.dart';
 
 void main() {

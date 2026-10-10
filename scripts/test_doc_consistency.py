@@ -14,6 +14,27 @@ RULES = '# Hard rules\n\n' + ''.join(f'{n}. Rule {n}\n' for n in range(1, 58)) +
 
 
 class HardRuleDocumentationTests(unittest.TestCase):
+    def test_unreleased_notes_keep_the_approved_summary_without_rewriting_history(self):
+        approved = '## [Unreleased]\n\n- 优化稳定性，提升连接体验。\n'
+        self.assertEqual(self.check({'CHANGELOG.md': approved + '\n## [1.0.0]\n历史功能说明。'}), [])
+        self.assertTrue(self.check({'CHANGELOG.md': approved + '\n- 新的内部实现细节。'}))
+
+    def test_public_boundary_includes_changelog_fences_and_links_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ('CHANGELOG.md', 'README.md', 'docs/guide.md'):
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('```text\n私家车\n```\n', encoding='utf-8')
+                for links_only in (False, True):
+                    errors = validate(root, [name], links_only=links_only)
+                    self.assertTrue(any('operator policy' in error for error in errors))
+            for name in ('AGENTS.md', '.workbuddy-ai/skills/example/SKILL.md'):
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('私家车维护规则', encoding='utf-8')
+                self.assertEqual(validate(root, [name]), [])
+
     def check(self, documents):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

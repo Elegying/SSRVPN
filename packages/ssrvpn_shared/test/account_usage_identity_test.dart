@@ -104,8 +104,7 @@ void main() {
     'authentication',
     'rate limited'
   ]) {
-    testWidgets(
-        '$name clears stale numbers but keeps placeholders, then recovers',
+    testWidgets('$name preserves marked historical numbers, then recovers',
         (tester) async {
       final origin = tester.binding.clock.now();
       var next = Completer<AccountUsage>();
@@ -156,7 +155,7 @@ void main() {
       expect(controller.value, isNull);
       expect(find.text('已用流量'), findsOneWidget);
       expect(find.text('已连接设备'), findsOneWidget);
-      expect(find.text('暂未更新'), findsNWidgets(2));
+      expect(find.text('上次数据·暂未更新'), findsNWidgets(2));
       next = Completer<AccountUsage>();
       await tester.pump(const Duration(seconds: 15));
       next.complete(
@@ -167,7 +166,7 @@ void main() {
     });
   }
   testWidgets(
-      'same-name accounts/providers, late results and subscription revision stay isolated',
+      'same-name providers and late requests stay isolated across list revisions',
       (tester) async {
     final providers = AccountUsageProviders.fromJson(jsonEncode([
       for (final id in ['a', 'b'])
@@ -185,8 +184,10 @@ void main() {
         }
     ]));
     final pending = <Completer<AccountUsage>>[], keys = <String>[];
+    final start = tester.binding.clock.now();
     final controller = AccountUsageController(
         providers: providers,
+        elapsed: () => tester.binding.clock.now().difference(start),
         fetch: (identity) {
           keys.add(identity.key);
           final result = Completer<AccountUsage>();
@@ -216,9 +217,12 @@ void main() {
     expect(controller.value?.usedBytes, 8888);
     await tester.pumpWidget(host(controller, b, revision: Object()));
     expect(cardCount(), 5);
-    expect(controller.value, isNull);
-    await tester.pump(const Duration(milliseconds: 1));
+    expect(controller.value?.usedBytes, 8888);
+    expect(pending, hasLength(2));
+    await tester.pump(const Duration(seconds: 10));
     expect(pending, hasLength(3));
+    await tester.pumpWidget(host(controller, b, revision: Object()));
+    expect(controller.displayValue?.usedBytes, 8888);
     await tester.pumpWidget(host(controller, null));
     pending.last.complete(AccountUsage.parse(usageJson(time: 1001)));
     await tester.pump(const Duration(milliseconds: 1));
@@ -256,7 +260,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
     expect(cardCount(), 5);
     expect(controller.value, isNull);
-    expect(find.text('暂未更新'), findsNWidgets(2));
+    expect(find.text('上次数据·暂未更新'), findsNWidgets(2));
     await tester.pump(const Duration(seconds: 30));
     pending.last.complete(AccountUsage.parse(usageJson(time: 1030)));
     await tester.pump(const Duration(milliseconds: 1));

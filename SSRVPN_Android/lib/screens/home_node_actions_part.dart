@@ -30,6 +30,7 @@ extension _AndroidHomeNodeActions on HomeScreenState {
     final latency = PrivateNodeLatencyPolicy.displayLatencyForNode(
       nodeName,
       measuredLatency,
+      server: server,
       random: math.Random(),
     );
     if (!mounted || _disposed || generation != _singleLatencyGeneration) {
