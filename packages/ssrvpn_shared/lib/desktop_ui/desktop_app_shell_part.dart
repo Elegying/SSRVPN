@@ -111,7 +111,7 @@ class _DesktopAppShell extends StatelessWidget {
         child: SsrvpnAppBackdrop(
           readable: currentIndex != 0,
           child: SsrvpnHomeShell(
-            notices: statusBanners,
+            notices: currentIndex == 0 ? const [] : statusBanners,
             extendBehindNavigation: currentIndex != 0,
             body: _PageStack(currentIndex: currentIndex),
             navigation: SsrvpnBottomNavigation(
@@ -122,7 +122,13 @@ class _DesktopAppShell extends StatelessWidget {
                   ? null
                   : () =>
                       unawaited(_openAvailableUpdate(context, availableUpdate)),
-              onTap: onIndexChanged,
+              onTap: (index) {
+                if (index == 0) {
+                  ScaffoldMessenger.of(context).clearSnackBars();
+                  ScaffoldMessenger.of(context).removeCurrentSnackBar();
+                }
+                onIndexChanged(index);
+              },
             ),
           ),
         ),

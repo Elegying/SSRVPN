@@ -1,16 +1,6 @@
 part of 'ssrvpn_home_overview.dart';
 
-enum _ThemedPart {
-  header,
-  status,
-  power,
-  hint,
-  node,
-  ip,
-  modes,
-  details,
-  statistics
-}
+enum _ThemedPart { header, status, power, node, ip, modes, statistics }
 
 extension _ThemedHome on _HomeOverviewState {
   Widget _themedHome() {
@@ -110,11 +100,6 @@ extension _ThemedHome on _HomeOverviewState {
                                                 onTap: widget
                                                     .onToggleConnection))),
                                 LayoutId(
-                                    id: _ThemedPart.hint,
-                                    child: _connectionProgress != null
-                                        ? _buildConnectionProgress()
-                                        : const SizedBox.shrink()),
-                                LayoutId(
                                     id: _ThemedPart.node,
                                     child: SizedBox(
                                         width: contentWidth,
@@ -130,15 +115,6 @@ extension _ThemedHome on _HomeOverviewState {
                                   LayoutId(
                                       id: _ThemedPart.modes,
                                       child: _modeControls()),
-                                if (widget.errorMessage != null ||
-                                    widget.connectionNotice != null)
-                                  LayoutId(
-                                      id: _ThemedPart.details,
-                                      child: _ConnectionDetails(
-                                          errorMessage: widget.errorMessage,
-                                          connectionNotice:
-                                              widget.connectionNotice,
-                                          onShowLogs: widget.onShowLogs)),
                                 if (widget.bottomContent != null)
                                   LayoutId(
                                       id: _ThemedPart.statistics,
@@ -177,33 +153,22 @@ class _ThemedHomeLayout extends MultiChildLayoutDelegate {
     final baseGap = (size.height * .016).clamp(12.0, 16.0);
     final available =
         (size.height - nodeTop - node.height + 8).clamp(0.0, size.height);
-    final details = hasChild(_ThemedPart.details)
-        ? measure(_ThemedPart.details, available * .25)
-        : Size.zero;
-    final slots = 2 +
-        (hasChild(_ThemedPart.statistics) ? 1 : 0) +
-        (hasChild(_ThemedPart.details) ? 1 : 0);
+    final slots = 2 + (hasChild(_ThemedPart.statistics) ? 1 : 0);
     final stats = hasChild(_ThemedPart.statistics)
         ? layoutChild(
             _ThemedPart.statistics,
             BoxConstraints(
                 maxWidth: contentWidth,
-                maxHeight:
-                    (available - ip.height - details.height - slots * baseGap)
-                        .clamp(0.0, size.height)))
+                maxHeight: (available - ip.height - slots * baseGap)
+                    .clamp(0.0, size.height)))
         : Size.zero;
-    final adaptiveGap =
-        ((available - ip.height - details.height - stats.height) / slots)
-            .clamp(0.0, size.height);
+    final adaptiveGap = ((available - ip.height - stats.height) / slots)
+        .clamp(0.0, size.height);
     final gap =
         hasAccountStatistics ? adaptiveGap : baseGap.clamp(0.0, adaptiveGap);
     var lower = nodeTop + node.height + gap;
     place(_ThemedPart.ip, ip, lower);
     lower += ip.height + gap;
-    if (hasChild(_ThemedPart.details)) {
-      place(_ThemedPart.details, details, lower);
-      lower += details.height + gap;
-    }
     if (hasChild(_ThemedPart.statistics)) {
       place(
           _ThemedPart.statistics,
@@ -219,11 +184,10 @@ class _ThemedHomeLayout extends MultiChildLayoutDelegate {
           BoxConstraints.tightFor(width: contentWidth, height: 48));
       place(_ThemedPart.modes, modes, nodeTop - modeSpace);
     }
-    final hint = measure(_ThemedPart.hint, 42);
     final status = measure(_ThemedPart.status, 48);
     final header = cloud ? Size.zero : measure(_ThemedPart.header, 48);
     final powerHeight =
-        (nodeTop - modeSpace - hint.height - status.height - header.height - 22)
+        (nodeTop - modeSpace - status.height - header.height - 22)
             .clamp(0.0, size.height);
     final power = cloud
         ? layoutChild(_ThemedPart.power,
@@ -244,7 +208,6 @@ class _ThemedHomeLayout extends MultiChildLayoutDelegate {
       place(_ThemedPart.status, status, top);
       top += status.height + 4;
     }
-    place(_ThemedPart.hint, hint, top);
   }
 
   @override

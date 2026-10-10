@@ -15,10 +15,14 @@ class SsrvpnClipboardImport extends StatefulWidget {
   const SsrvpnClipboardImport({
     super.key,
     required this.child,
+    this.shouldShowNotice,
+    this.onDiagnostic,
     required this.onImport,
     required this.alreadyImported,
   });
   final Widget child;
+  final bool Function()? shouldShowNotice;
+  final ValueChanged<String>? onDiagnostic;
   final Future<String> Function(String) onImport;
   final bool Function(String) alreadyImported;
   @override
@@ -146,6 +150,8 @@ class _SsrvpnClipboardImportState extends State<SsrvpnClipboardImport>
           }
         }
         if (mounted) {
+          widget.onDiagnostic?.call(message);
+          if (widget.shouldShowNotice?.call() == false) return;
           final messenger = ScaffoldMessenger.of(context);
           // Remove only this flow's visible notice, not another feature's feedback.
           if (_noticeKey?.currentContext != null) {
@@ -193,11 +199,17 @@ class SsrvpnServiceClipboardImport extends StatelessWidget {
     super.key,
     required this.service,
     required this.child,
+    this.shouldShowNotice,
+    this.onDiagnostic,
   });
   final SubscriptionServiceBase service;
   final Widget child;
+  final bool Function()? shouldShowNotice;
+  final ValueChanged<String>? onDiagnostic;
   @override
   Widget build(BuildContext context) => SsrvpnClipboardImport(
+        shouldShowNotice: shouldShowNotice,
+        onDiagnostic: onDiagnostic,
         alreadyImported: (value) =>
             service.subscriptions.any((sub) => sub.url == value),
         onImport: (value) async {

@@ -8,7 +8,6 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart'
     show
-        ssrvpnSnackBar,
         SsrvpnLiquidAlertDialog,
         SsrvpnModalGlassPanel,
         AppConstants,
@@ -316,7 +315,12 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
           );
         },
         home: CrashReportPrompt(
+          enabled: false,
           child: SsrvpnServiceClipboardImport(
+              shouldShowNotice: () => _currentIndex != 0,
+              onDiagnostic: (message) => context
+                  .read<clash.ClashService>()
+                  .log(message, event: 'clipboard_import'),
               service: _subscriptionService!,
               child: _InitialSubscriptionPrompt(child: _buildMainScreen())),
         ),
@@ -340,6 +344,10 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
                 controller: _pageController,
                 onPageChanged: (i) {
                   if (i == _currentIndex) return;
+                  if (i == 0) {
+                    ScaffoldMessenger.of(context).clearSnackBars();
+                    ScaffoldMessenger.of(context).removeCurrentSnackBar();
+                  }
                   setState(() => _currentIndex = i);
                   if (i == 0) _homeKey.currentState?.refreshNodes();
                 },
@@ -379,6 +387,10 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
                         : () => unawaited(_openAvailableUpdate(context)),
                     onTap: (i) {
                       if (i == 0) _homeKey.currentState?.refreshNodes();
+                      if (i == 0) {
+                        ScaffoldMessenger.of(context).clearSnackBars();
+                        ScaffoldMessenger.of(context).removeCurrentSnackBar();
+                      }
                       setState(() => _currentIndex = i);
                       if (MediaQuery.disableAnimationsOf(context)) {
                         _pageController.jumpToPage(i);
@@ -480,30 +492,19 @@ class _InitialSubscriptionPromptState
       final result = await SubscriptionScreenController.fromService(subService)
           .addSubscription(value, retryExisting: true);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        ssrvpnSnackBar(
-          margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
-          content: Text(
+      context.read<clash.ClashService>().log(
             result.isSuccess
                 ? result.warning ?? '节点已更新，共 ${result.nodeCount} 个节点'
                 : result.displayError.isNotEmpty
                     ? result.displayError
                     : '未获取到可用节点，请检查链接后重试',
-          ),
-          backgroundColor:
-              result.isSuccess ? AppTheme.successColor : AppTheme.warningColor,
-        ),
-      );
+            event: 'subscription_import',
+          );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        ssrvpnSnackBar(
-          margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
-          content: const Text('订阅更新失败，请检查网络后重试'),
-          backgroundColor: AppTheme.errorColor,
-          duration: const Duration(seconds: 4),
-        ),
-      );
+      context
+          .read<clash.ClashService>()
+          .log('订阅更新失败，请检查网络后重试', event: 'subscription_import');
     }
   }
 

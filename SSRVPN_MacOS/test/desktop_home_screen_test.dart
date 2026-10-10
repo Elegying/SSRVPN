@@ -77,15 +77,15 @@ void main() {
           startupFlags: StartupFlags.parse(const ['--safe-mode'])));
       await tester.pumpAndSettle();
       await verifyHomeProbeNoticePolicy(tester,
-          failureTitle: '操作未完成',
+          readLogs: () => fixture.clash.recentLogs,
           publishExternalWarning: fixture.clash.publishConnectivityWarning,
           publishOwnershipWarning: fixture.clash.publishOwnershipWarning,
           publishStopped: () {
-        fixture.clash.requestConnectionIntent(false);
-        fixture.clash.publishRunning(false);
-        fixture.clash.onRuntimeNotice
-            ?.call(const RuntimeNotice.error('连接服务已停止，请点击连接重试'));
-      });
+            fixture.clash.requestConnectionIntent(false);
+            fixture.clash.publishRunning(false);
+            fixture.clash.onRuntimeNotice
+                ?.call(const RuntimeNotice.error('连接服务已停止，请点击连接重试'));
+          });
       expect(fixture.clash.startCalls, 0);
       expect(fixture.clash.transitionEvents, isNot(contains('stop')));
       await tester.pumpWidget(const SizedBox.shrink());
@@ -148,11 +148,13 @@ void main() {
       const RuntimeNotice.error('新的连接失败，请重试'),
     );
     await tester.pump();
-    expect(find.textContaining('新的连接失败，请重试'), findsWidgets);
+    expect(find.textContaining('新的连接失败，请重试'), findsNothing);
+    expect(fixture.clash.recentLogs, contains('新的连接失败，请重试'));
     releaseWrite.complete();
     await tester.pumpAndSettle();
     expect(fixture.clash.connectionDesired, isFalse);
-    expect(find.textContaining('新的连接失败，请重试'), findsWidgets);
+    expect(find.textContaining('新的连接失败，请重试'), findsNothing);
+    expect(fixture.clash.recentLogs, contains('新的连接失败，请重试'));
     expect(find.textContaining('已连接，本次使用临时运行端口'), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
@@ -315,6 +317,8 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(
           find.text('${direct ? '强制直连' : '强制代理'}网站保存失败，请重试'), findsOneWidget);
+      expect(fixture.clash.recentLogs,
+          contains('${direct ? '强制直连' : '强制代理'}网站保存失败，请重试'));
       expect(fixture.settings.settings.forceDirectSites, oldDirect);
       expect(fixture.settings.settings.forceProxySites, oldProxy);
       expect(fixture.clash.isRunning, isTrue);
@@ -918,7 +922,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(fixture.subscription.allNodes.single.name, 'Rescue');
     expect(find.byType(Dialog), findsNothing);
-    expect(find.textContaining('节点已更新，获取到 1 个节点'), findsOneWidget);
+    expect(find.textContaining('节点已更新，获取到 1 个节点'), findsNothing);
+    expect(fixture.clash.recentLogs, contains('节点已更新，获取到 1 个节点'));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
@@ -1064,7 +1069,7 @@ void main() {
   });
 
   testWidgets(
-      'desktop status banners preserve full instructions and navigation in a compact maximum-text window',
+      'desktop home logs runtime notices and preserves compact navigation',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(380, 560));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -1101,27 +1106,12 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(
-      find.byKey(const Key('desktop-startup-banner-region')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const Key('ssrvpn-bottom-navigation')).hitTestable(),
-      findsOneWidget,
-    );
+        find.byKey(const Key('desktop-startup-banner-region')), findsNothing);
+    expect(find.text(runtimeNotice.message), findsNothing);
+    expect(fixture.clash.recentLogs, contains(runtimeNotice.message));
+    expect(find.byKey(const Key('ssrvpn-bottom-navigation')).hitTestable(),
+        findsOneWidget);
     expect(find.byType(Scrollable), findsNothing);
-    final bannerTextFinder = find.descendant(
-      of: find.byKey(const Key('desktop-startup-banner-region')),
-      matching: find.byType(Text),
-    );
-    final bannerTexts = tester.widgetList<Text>(bannerTextFinder).toList();
-    expect(bannerTexts, isNotEmpty);
-    expect(
-      bannerTexts.where(
-        (text) =>
-            text.maxLines != null || text.overflow == TextOverflow.ellipsis,
-      ),
-      isEmpty,
-    );
   });
 
   testWidgets(
@@ -1359,7 +1349,7 @@ void main() {
     await _pumpUntil(tester, () => find.text('正在验证网络').evaluate().isNotEmpty);
     await _pumpUntil(
       tester,
-      () => find.text('已连接，但首选节点保存失败').evaluate().isNotEmpty,
+      () => fixture.clash.recentLogs.contains('已连接，但首选节点保存失败'),
     );
 
     expect(fixture.clash.isRunning, isTrue);
@@ -1466,13 +1456,6 @@ void main() {
                     find.text('正在验证网络').evaluate().isNotEmpty);
         final currentIntent = fixture.clash.captureAutomaticRestartIntent();
         expect(currentIntent, isNotNull);
-        if (manualRouting) {
-          // Clear the earlier cancellation notice so the next result is visible.
-          ScaffoldMessenger.of(tester.element(find.byType(HomeScreen)))
-              .removeCurrentSnackBar();
-          await tester.pump();
-        }
-
         releaseWrite.complete();
         await tester.pump();
         await _pumpUntil(
@@ -1488,7 +1471,8 @@ void main() {
         if (manualRouting) {
           expect(settings.settings.forceProxySites, contains('example.com'));
           expect(find.textContaining('当前连接重载失败'), findsNothing);
-          expect(find.text('强制代理网站已保存'), findsOneWidget);
+          expect(find.text('强制代理网站已保存'), findsNothing);
+          expect(fixture.clash.recentLogs, contains('强制代理网站已保存'));
         }
 
         await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
@@ -1658,10 +1642,8 @@ void main() {
     await _pumpUntil(tester, () => fixture.clash.isRunning);
     await _pumpUntil(
       tester,
-      () => find
-          .text('未能切换到首选节点“东京节点”，当前连接仍保留，正在使用“新加坡节点”。')
-          .evaluate()
-          .isNotEmpty,
+      () => fixture.clash.recentLogs
+          .contains('未能切换到首选节点“东京节点”，当前连接仍保留，正在使用“新加坡节点”。'),
     );
 
     expect(fixture.clash.isRunning, isTrue);
@@ -1693,10 +1675,8 @@ void main() {
     await _pumpUntil(tester, () => fixture.clash.startCalls == 1);
     await _pumpUntil(
       tester,
-      () => find
-          .text('未能切换到首选节点“新加坡节点”，当前连接仍保留，正在使用“新加坡节点”。')
-          .evaluate()
-          .isNotEmpty,
+      () => fixture.clash.recentLogs
+          .contains('未能切换到首选节点“新加坡节点”，当前连接仍保留，正在使用“新加坡节点”。'),
     );
 
     expect(fixture.clash.isRunning, isTrue);
@@ -1859,7 +1839,8 @@ void main() {
 
     expect(fixture.clash.startCalls, 0);
     expect(fixture.clash.isRunning, isFalse);
-    expect(find.textContaining('订阅已发生变化'), findsOneWidget);
+    expect(find.textContaining('订阅已发生变化'), findsNothing);
+    expect(fixture.clash.recentLogs, contains('订阅已发生变化'));
   });
 
   testWidgets('switching a connected session to TUN restarts transactionally',
@@ -2028,7 +2009,8 @@ void main() {
 
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('更新网络设置失败，请重试'), findsOneWidget);
+    expect(find.text('更新网络设置失败，请重试'), findsNothing);
+    expect(fixture.clash.recentLogs, contains('更新网络设置失败，请重试'));
     expect(find.text('网络设置已更新，正在重新连接'), findsNothing);
   });
 
@@ -2062,7 +2044,7 @@ void main() {
     expect(fixture.clash.connectionDesired, isTrue);
   });
 
-  testWidgets('a failed subscription reload displays a connection error',
+  testWidgets('a failed subscription reload records a connection error',
       (tester) async {
     final fixture = (await tester.runAsync(
       () => _HomeFixture.create(withNodes: true, running: true),
@@ -2078,11 +2060,12 @@ void main() {
         .setRawYaml(_nodeYaml.replaceFirst('port: 8388', 'port: 8390')));
     await tester.pump();
     final message = AppFailure.fromMessage('CORE_START_CONFIG').userMessage;
-    await _pumpUntil(tester, () => find.text(message).evaluate().isNotEmpty);
+    await _pumpUntil(tester, () => fixture.clash.recentLogs.contains(message));
     expect(fixture.clash.isRunning, isFalse);
     expect(fixture.clash.connectionDesired, isFalse);
     expect(fixture.clash.startCalls, 1);
-    expect(find.text(message), findsOneWidget);
+    expect(find.text(message), findsNothing);
+    expect(fixture.clash.recentLogs, contains(message));
   });
 
   testWidgets('a superseded queued reload leaves the newer connection running',
@@ -2186,16 +2169,14 @@ void main() {
 
     expect(fixture.clash.stalledStartEntered.isCompleted, isTrue);
     expect(fixture.clash.transitionEvents, ['start-enter']);
-    expect(find.text('正在启动连接服务…'), findsOneWidget);
+    expect(find.text('正在启动连接服务…'), findsNothing);
+    expect(fixture.clash.recentLogs, contains('正在启动连接服务…'));
     final reportProgress = fixture.clash.createConnectionProgressReporter();
     reportProgress('正在请求系统授权，请留意授权弹窗…');
     await tester.pump();
-    expect(find.text('正在请求系统授权，请留意授权弹窗…'), findsOneWidget);
-    final progressRect =
-        tester.getRect(find.byKey(const Key('connection-progress')));
-    final buttonRect =
-        tester.getRect(find.byKey(const Key('ssrvpn-power-button')));
-    expect(progressRect.top, greaterThanOrEqualTo(buttonRect.bottom));
+    expect(find.text('正在请求系统授权，请留意授权弹窗…'), findsNothing);
+    expect(fixture.clash.recentLogs, contains('正在请求系统授权，请留意授权弹窗…'));
+    expect(find.byKey(const Key('connection-progress')), findsNothing);
 
     await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
     await tester.pump();

@@ -1,16 +1,6 @@
 part of 'ssrvpn_home_overview.dart';
 
-enum _HomePart {
-  header,
-  status,
-  power,
-  progress,
-  node,
-  ip,
-  modes,
-  details,
-  statistics
-}
+enum _HomePart { header, status, power, node, ip, modes, statistics }
 
 /// The card itself anchors the vertical layout; account cards never move it.
 class _CenteredHomeLayout extends MultiChildLayoutDelegate {
@@ -47,30 +37,20 @@ class _CenteredHomeLayout extends MultiChildLayoutDelegate {
         _HomePart.ip, BoxConstraints.tightFor(width: size.width, height: 42));
     final available =
         (size.height - nodeTop - node.height + 12).clamp(0.0, size.height);
-    final details = hasChild(_HomePart.details)
-        ? measure(_HomePart.details, height: available * .25)
-        : Size.zero;
-    final slots = 2 +
-        (hasChild(_HomePart.statistics) ? 1 : 0) +
-        (hasChild(_HomePart.details) ? 1 : 0);
+    final slots = 2 + (hasChild(_HomePart.statistics) ? 1 : 0);
     final baseGap = (size.height * .016).clamp(12.0, 16.0);
     final statistics = hasChild(_HomePart.statistics)
         ? measure(_HomePart.statistics,
-            height: (available - ip.height - details.height - slots * baseGap)
+            height: (available - ip.height - slots * baseGap)
                 .clamp(0.0, size.height))
         : Size.zero;
-    final adaptiveGap =
-        ((available - ip.height - details.height - statistics.height) / slots)
-            .clamp(0.0, size.height);
+    final adaptiveGap = ((available - ip.height - statistics.height) / slots)
+        .clamp(0.0, size.height);
     final gap =
         hasAccountStatistics ? adaptiveGap : baseGap.clamp(0.0, adaptiveGap);
     var lower = nodeTop + node.height + gap;
     place(_HomePart.ip, ip, lower);
     lower += ip.height + gap;
-    if (hasChild(_HomePart.details)) {
-      place(_HomePart.details, details, lower);
-      lower += details.height + gap;
-    }
     if (hasChild(_HomePart.statistics)) {
       place(
           _HomePart.statistics,
@@ -88,16 +68,7 @@ class _CenteredHomeLayout extends MultiChildLayoutDelegate {
     }
     final header = measure(_HomePart.header, height: 48);
     final status = measure(_HomePart.status);
-    final progress = hasChild(_HomePart.progress)
-        ? measure(_HomePart.progress, height: 60)
-        : Size.zero;
-    final progressSpace = progress.height == 0 ? 0 : progress.height + 8;
-    final diameter = (nodeTop -
-            modeSpace -
-            header.height -
-            status.height -
-            progressSpace -
-            34)
+    final diameter = (nodeTop - modeSpace - header.height - status.height - 34)
         .clamp(48.0, powerSize);
     final power = layoutChild(
         _HomePart.power, BoxConstraints.tight(Size.square(diameter)));
@@ -106,18 +77,12 @@ class _CenteredHomeLayout extends MultiChildLayoutDelegate {
             header.height -
             status.height -
             power.height -
-            progressSpace -
             34) /
         3;
     place(_HomePart.header, header, 0);
     final statusTop = header.height + 12 + spare;
     place(_HomePart.status, status, statusTop);
     place(_HomePart.power, power, statusTop + status.height + 10 + spare);
-
-    if (hasChild(_HomePart.progress)) {
-      place(_HomePart.progress, progress,
-          statusTop + status.height + 10 + spare + power.height + 8);
-    }
   }
 
   @override
@@ -136,8 +101,6 @@ extension _CenteredHomeContent on _HomeOverviewState {
     required bool compact,
     required Widget status,
     required Widget node,
-    required Widget details,
-    required bool detailsVisible,
   }) =>
       CustomMultiChildLayout(
           delegate: _CenteredHomeLayout(
@@ -165,14 +128,10 @@ extension _CenteredHomeContent on _HomeOverviewState {
                         isConnecting: widget.isConnecting,
                         hasConnectionError: widget.errorMessage != null,
                         onTap: widget.onToggleConnection))),
-            if (_connectionProgress != null)
-              LayoutId(
-                  id: _HomePart.progress, child: _buildConnectionProgress()),
             LayoutId(id: _HomePart.node, child: node),
             LayoutId(id: _HomePart.ip, child: _publicIpCard()),
             if (widget.showModeControls)
               LayoutId(id: _HomePart.modes, child: _modeControls()),
-            if (detailsVisible) LayoutId(id: _HomePart.details, child: details),
             if (widget.bottomContent != null)
               LayoutId(
                   id: _HomePart.statistics,

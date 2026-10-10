@@ -54,6 +54,16 @@ class HomeScreenState extends State<HomeScreen>
     _syncNodeCountries();
   }
 
+  void _showHomeSnackBar(SnackBar notice, {String? message}) {
+    if (!(mounted && !_disposed)) return;
+    final content = notice.content;
+    final text = message ?? (content is Text ? content.data : null);
+    if (text != null) context.read<ClashService>().log(text, event: 'home');
+    // Feedback belongs to the open action page, never a returned home page.
+    if (!widget.active || ModalRoute.of(context)?.isCurrent != false) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(notice);
+  }
+
   List<ProxyNode> _nodes = [];
   bool _isConnected = false;
   bool _isConnecting = false;
@@ -247,6 +257,8 @@ class HomeScreenState extends State<HomeScreen>
       resizeToAvoidBottomInset: false,
       backgroundColor: Colors.transparent,
       body: SsrvpnHomeOverview(
+        onDiagnostic: (message) =>
+            context.read<ClashService>().log(message, event: 'home'),
         hasAccountStatistics:
             AccountUsageProviders.configured.resolve(displayNode) != null ||
                 subscriptionUsage != null,
@@ -337,7 +349,11 @@ class HomeScreenState extends State<HomeScreen>
         ),
       ),
     );
-    if (mounted && !_disposed) _updateHomeState(() {});
+    if (mounted && !_disposed) {
+      ScaffoldMessenger.maybeOf(context)?.clearSnackBars();
+      ScaffoldMessenger.maybeOf(context)?.removeCurrentSnackBar();
+      _updateHomeState(() {});
+    }
   }
 }
 

@@ -210,6 +210,8 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
     RuntimeNotice notice, {
     bool tracksPendingRecovery = false,
   }) async {
+    _clashService?.log(notice.message, event: 'runtime_notice');
+    StartupLogger.info(notice.message);
     _runtimeNoticeAutoClearTimer?.cancel();
     _runtimeNoticeAutoClearTimer = null;
     if (mounted) {

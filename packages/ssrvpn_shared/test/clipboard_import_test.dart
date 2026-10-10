@@ -1,9 +1,45 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_clipboard_import.dart';
 
 void main() {
+  testWidgets('late clipboard result logs without a toast after returning home',
+      (tester) async {
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async => call.method == 'Clipboard.getData'
+            ? {'text': 'trojan://synthetic@node.example.com:443#Test'}
+            : null);
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+    var onHome = false;
+    final logs = <String>[];
+    final pending = Completer<String>();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SsrvpnClipboardImport(
+                alreadyImported: (_) => false,
+                shouldShowNotice: () => !onHome,
+                onDiagnostic: logs.add,
+                onImport: (_) => pending.future,
+                child: const Text('主页')))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('导入'));
+    await tester.pumpAndSettle();
+    onHome = true;
+    pending.complete('导入失败，请重试');
+    await tester.pumpAndSettle();
+    expect(logs, ['导入失败，请重试']);
+    expect(find.byType(SnackBar), findsNothing);
+    await tester.pump(const Duration(seconds: 6));
+    await tester.pumpAndSettle();
+    expect(find.text('发现剪贴板节点'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets(
       'background dismissal does not permanently suppress an unanswered node',
       (tester) async {

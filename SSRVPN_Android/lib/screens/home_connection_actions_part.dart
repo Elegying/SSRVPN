@@ -377,7 +377,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
         HomeNodeController.runnableNodesFrom(
           context.read<SubscriptionService>().allNodes,
         ).isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      _showHomeSnackBar(
         SnackBar(content: Text('订阅中没有可用节点，未更改代理模式，已保留当前连接')),
       );
       return;
@@ -390,7 +390,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
     } catch (error) {
       AppLogger.warning('ProxyMode', '保存代理模式失败: $error');
       if (!mounted || _disposed) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      _showHomeSnackBar(
         SnackBar(
           margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
           content: Text('代理模式保存失败，请重试'),
@@ -432,7 +432,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
         '保存${forceDirect ? '强制直连' : '强制代理'}网站失败: $error',
       );
       if (!mounted || _disposed) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      _showHomeSnackBar(
         SnackBar(
           margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
           content: Text('${forceDirect ? '强制直连' : '强制代理'}网站保存失败，请重试'),
@@ -473,21 +473,21 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
     }
     if (!mounted || _disposed) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
+    final message = shouldReload
+        ? reloadSucceeded
+            ? '${forceDirect ? '强制直连' : '强制代理'}网站已实时生效'
+            : '${forceDirect ? '强制直连' : '强制代理'}网站已保存，当前连接重载失败，请重新连接'
+        : '${forceDirect ? '强制直连' : '强制代理'}网站已保存';
+    _showHomeSnackBar(
       ssrvpnSnackBar(
         margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
-        content: Text(
-          shouldReload
-              ? reloadSucceeded
-                  ? '${forceDirect ? '强制直连' : '强制代理'}网站已实时生效'
-                  : '${forceDirect ? '强制直连' : '强制代理'}网站已保存，当前连接重载失败，请重新连接'
-              : '${forceDirect ? '强制直连' : '强制代理'}网站已保存',
-        ),
+        content: Text(message),
         backgroundColor: shouldReload && !reloadSucceeded
             ? SsrvpnTheme.of(context).warning
             : null,
         duration: Duration(seconds: 4),
       ),
+      message: message,
     );
   }
 }

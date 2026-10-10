@@ -7,6 +7,7 @@ import '../services/account_usage_client.dart';
 import '../models/vpn_traffic_sample.dart';
 import '../utils/statistics_visibility.dart';
 import 'ssrvpn_home_traffic_panel.dart';
+import 'ssrvpn_home_text.dart';
 import 'ssrvpn_subscription_expiry_notice.dart';
 
 /// Account state owns no part of the local sampler's connection lifecycle.
@@ -82,6 +83,7 @@ class _StatisticsState extends State<SsrvpnHomeStatistics>
         builder: (context, _) =>
             Column(mainAxisSize: MainAxisSize.min, children: [
           Flexible(
+              flex: 3,
               child: SsrvpnHomeTrafficPanel(
                   active: widget.active,
                   connected: widget.connected,
@@ -92,19 +94,28 @@ class _StatisticsState extends State<SsrvpnHomeStatistics>
                           : widget.subscriptionUsage,
                   accountUsage: _account.displayValue,
                   accountStale: _account.isStale,
-                  accountStatus: _account.statusMessage)),
+                  accountStatus: _account.statusMessage == null
+                      ? null
+                      : _account.isStale
+                          ? '上次数据·暂未更新'
+                          : _account.value == null
+                              ? '暂未更新'
+                              : '统计已更新')),
           if (!PrivateNodeLatencyPolicy.appliesTo(widget.node))
             SsrvpnSubscriptionExpiryNotice(
-                usage: widget.subscriptionUsage, active: widget.active),
-          if (_account.isStale ||
-              (_account.statusMessage?.contains('[') ?? false))
-            Tooltip(
-                message: _account.statusMessage ?? '',
-                child: Text(_account.statusMessage ?? '',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.labelSmall)),
+                usage: widget.subscriptionUsage,
+                active: widget.active,
+                onDiagnostic: widget.onDiagnostic),
+          if (_account.deviceLimitNotice case final message?)
+            Flexible(
+                child: Semantics(
+                    liveRegion: true,
+                    child: SsrvpnHomeText(message,
+                        key: const Key('device-limit-notice'),
+                        maxLines: 2,
+                        maxFontSize: 14,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.labelSmall))),
         ]),
       );
 }

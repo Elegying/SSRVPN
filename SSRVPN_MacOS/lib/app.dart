@@ -295,7 +295,11 @@ class _SSRVpnAppState extends State<SSRVpnApp>
           );
         },
         home: CrashReportPrompt(
+          enabled: false,
           child: SsrvpnServiceClipboardImport(
+              shouldShowNotice: () => _currentIndex != 0,
+              onDiagnostic: (message) =>
+                  _clashService?.log(message, event: 'clipboard_import'),
               service: _subscriptionService!,
               child: _DesktopAppShell(
                 safeMode: widget.startupFlags.safeMode,

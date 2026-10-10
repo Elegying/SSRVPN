@@ -232,6 +232,8 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
       );
 
   Future<void> _presentRuntimeNotice(RuntimeNotice notice) async {
+    _clashService?.log(notice.message, event: 'runtime_notice');
+    StartupLogger.info(notice.message);
     _runtimeNoticeAutoClearTimer?.cancel();
     _runtimeNoticeAutoClearTimer = null;
     if (mounted) {
@@ -482,7 +484,11 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
     }
 
     final desktopShell = CrashReportPrompt(
+      enabled: false,
       child: SsrvpnServiceClipboardImport(
+          shouldShowNotice: () => _currentIndex != 0,
+          onDiagnostic: (message) =>
+              _clashService?.log(message, event: 'clipboard_import'),
           service: _subscriptionService!,
           child: _DesktopAppShell(
             safeMode: widget.startupFlags.safeMode,

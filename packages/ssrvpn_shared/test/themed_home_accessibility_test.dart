@@ -12,7 +12,7 @@ void main() {
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
-        var diagnostics = 0;
+        final logs = <String>[];
         var refresh = 0;
         await tester.pumpWidget(MaterialApp(
           builder: (context, child) => MediaQuery(
@@ -37,7 +37,8 @@ void main() {
                 onOpenNodes: () {},
                 onShowAbout: () {},
                 onShowTutorial: () {},
-                onShowLogs: () => diagnostics++,
+                onShowLogs: () {},
+                onDiagnostic: logs.add,
                 onRefreshPublicIp: () => refresh++,
                 bottomContent: SsrvpnHomeTrafficPanel(
                     active: false,
@@ -49,8 +50,9 @@ void main() {
         ));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
-        await tester.tap(find.text('查看诊断与解决建议'));
-        expect(diagnostics, 1);
+        expect(find.text('查看诊断与解决建议'), findsNothing);
+        expect(find.text('连接失败，请检查网络和节点后重试'), findsNothing);
+        expect(logs, ['连接失败，请检查网络和节点后重试']);
         await tester.tap(find.text('公网 IP 获取失败'));
         expect(refresh, 1);
         final card =

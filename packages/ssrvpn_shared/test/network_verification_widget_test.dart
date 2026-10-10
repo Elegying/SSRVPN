@@ -31,9 +31,11 @@ void main() {
       await tester.binding.setSurfaceSize(size);
       addTearDown(() => tester.binding.setSurfaceSize(null));
       var calls = 0;
+      final logs = <String>[];
       final start = tester.binding.clock.now();
       final controller = AccountUsageController(
           providers: usageProviders(),
+          onDiagnostic: logs.add,
           elapsed: () => tester.binding.clock.now().difference(start),
           wallNow: tester.binding.clock.now,
           fetch: (_) async {
@@ -72,7 +74,11 @@ void main() {
       await tester.pump(const Duration(seconds: 11));
       await tester.pump();
       expect(controller.isStale, isTrue);
-      expect(find.textContaining('上次数据，暂未更新'), findsOneWidget);
+      expect(find.textContaining('上次数据，暂未更新'), findsNothing);
+      expect(logs.single, contains('上次数据，暂未更新'));
+      expect(logs.single, contains(' · '));
+      expect(controller.displayValue?.usedBytes, 12);
+      expect(controller.displayValue?.onlineDevices, 2);
       expect(find.text('已用流量'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
@@ -90,6 +96,7 @@ void main() {
           (tester) async {
         await tester.binding.setSurfaceSize(size);
         addTearDown(() => tester.binding.setSurfaceSize(null));
+        final logs = <String>[];
         var diagnostics = 0;
         final boundary = GlobalKey();
         final network = NetworkVerification(
@@ -119,6 +126,7 @@ void main() {
                   selectedCountryCode: 'UN',
                   networkVerification: network,
                   connectionNotice: '系统代理所有权暂时无法确认',
+                  onDiagnostic: logs.add,
                   onToggleConnection: () {},
                   onOpenNodes: () {},
                   onShowAbout: () {},
@@ -135,7 +143,8 @@ void main() {
         expect(find.textContaining('最近验证'), findsNothing);
         expect(find.textContaining('2026-10-09'), findsNothing);
         expect(find.textContaining('247 ms'), findsNothing);
-        expect(find.text('系统代理所有权暂时无法确认'), findsOneWidget);
+        expect(find.text('系统代理所有权暂时无法确认'), findsNothing);
+        expect(logs, ['系统代理所有权暂时无法确认']);
         expect(find.textContaining('一键诊断'), findsNothing);
         expect(find.byKey(const Key('network-verification-details')),
             findsNothing);

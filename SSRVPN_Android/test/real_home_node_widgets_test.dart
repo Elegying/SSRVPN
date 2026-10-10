@@ -106,15 +106,16 @@ void main() {
       await _waitForWidget(tester, find.byType(SsrvpnHomeOverview));
       await tester.pumpAndSettle();
       await verifyHomeProbeNoticePolicy(tester,
+          readLogs: () => clash.recentLogs,
           publishExternalWarning: clash.publishConnectivityWarning,
           publishOwnershipWarning: clash.publishOwnershipWarning,
           publishStopped: () {
-        clash.requestConnectionIntent(false);
-        clash.setRunning(false);
-        clash.notifyStatusChanged();
-        clash
-            .publishRuntimeNotice(const RuntimeNotice.error('连接服务已停止，请点击连接重试'));
-      });
+            clash.requestConnectionIntent(false);
+            clash.setRunning(false);
+            clash.notifyStatusChanged();
+            clash.publishRuntimeNotice(
+                const RuntimeNotice.error('连接服务已停止，请点击连接重试'));
+          });
       await tester.pumpWidget(const SizedBox.shrink());
     });
   }
@@ -644,7 +645,9 @@ void main() {
       find.byKey(const Key('ssrvpn-power-button')),
     );
     await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
-    await _waitForWidget(tester, find.text('未能切换节点，当前连接仍保留'));
+    await _waitForAsyncCondition(
+        tester, () => clash.recentLogs.contains('未能切换节点，当前连接仍保留'));
+    expect(find.text('未能切换节点，当前连接仍保留'), findsNothing);
     await _waitForAsyncCondition(
       tester,
       () => fixture.settings.settings.lastSelectedNodeName == '东京节点',
@@ -712,7 +715,9 @@ void main() {
       find.byKey(const Key('ssrvpn-power-button')),
     );
     await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
-    await _waitForWidget(tester, find.text('已连接，但首选节点保存失败'));
+    await _waitForAsyncCondition(
+        tester, () => clash.recentLogs.contains('已连接，但首选节点保存失败'));
+    expect(find.text('已连接，但首选节点保存失败'), findsNothing);
 
     expect(clash.isRunning, isTrue);
     expect(clash.connectionDesired, isTrue);
@@ -854,13 +859,15 @@ void main() {
       const RuntimeNotice.progress('连接服务正在自动恢复…'),
     );
     await tester.pump();
-    expect(find.text('连接服务正在自动恢复…'), findsOneWidget);
+    expect(find.text('连接服务正在自动恢复…'), findsNothing);
+    expect(originalClash.recentLogs, contains('连接服务正在自动恢复…'));
 
     originalClash.publishRuntimeNotice(
       const RuntimeNotice.warning('当前网络尚未恢复，VPN 会继续等待'),
     );
     await tester.pump();
-    expect(find.text('当前网络尚未恢复，VPN 会继续等待'), findsOneWidget);
+    expect(find.text('当前网络尚未恢复，VPN 会继续等待'), findsNothing);
+    expect(originalClash.recentLogs, contains('当前网络尚未恢复，VPN 会继续等待'));
     expect(find.text('连接服务正在自动恢复…'), findsNothing);
 
     originalClash.publishRuntimeNotice(
@@ -868,7 +875,8 @@ void main() {
     );
     await tester.pump();
     expect(find.text('连接异常'), findsOneWidget);
-    expect(find.text('连接服务已停止，请点击连接重试'), findsOneWidget);
+    expect(find.text('连接服务已停止，请点击连接重试'), findsNothing);
+    expect(originalClash.recentLogs, contains('连接服务已停止，请点击连接重试'));
     expect(find.text('当前网络尚未恢复，VPN 会继续等待'), findsNothing);
 
     await tester.pumpWidget(fixture.build(clashOverride: replacementClash));
@@ -884,7 +892,9 @@ void main() {
     );
     await tester.pump();
     expect(find.text('旧服务实例不得更新页面'), findsNothing);
-    expect(find.text('新服务实例已接管'), findsOneWidget);
+    expect(replacementClash.recentLogs, isNot(contains('旧服务实例不得更新页面')));
+    expect(find.text('新服务实例已接管'), findsNothing);
+    expect(replacementClash.recentLogs, contains('新服务实例已接管'));
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
@@ -903,9 +913,10 @@ void main() {
     await _waitForWidget(tester, find.text('正在验证网络'));
 
     clash.publishNotice('无可用网络，VPN 正在等待恢复');
-    await _waitForWidget(tester, find.text('无可用网络，VPN 正在等待恢复'));
+    await _waitForAsyncCondition(
+        tester, () => clash.recentLogs.contains('无可用网络，VPN 正在等待恢复'));
     expect(find.text('正在验证网络'), findsOneWidget);
-    expect(find.text('无可用网络，VPN 正在等待恢复'), findsOneWidget);
+    expect(find.text('无可用网络，VPN 正在等待恢复'), findsNothing);
     expect(clash.isRunning, isTrue);
 
     clash.publishNotice(null);
@@ -1118,6 +1129,7 @@ void main() {
     await tester.tap(find.text('确定'));
     await tester.pumpAndSettle();
     await _waitForWidget(tester, find.text('强制代理网站已保存，当前连接重载失败，请重新连接'));
+    expect(clash.recentLogs, contains('强制代理网站已保存，当前连接重载失败，请重新连接'));
     expect(clash.isRunning, isTrue);
     expect(find.text('强制代理网站已实时生效'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());

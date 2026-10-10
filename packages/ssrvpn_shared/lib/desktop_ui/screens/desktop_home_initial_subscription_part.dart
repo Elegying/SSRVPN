@@ -69,7 +69,6 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                   final settingsService =
                       builderContext.read<SettingsService>();
                   final navigator = Navigator.of(dialogContext);
-                  final messenger = ScaffoldMessenger.of(builderContext);
                   final validationError = _validateSubscriptionInput(
                     input,
                     subService,
@@ -109,13 +108,10 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                     });
 
                     if (navigator.canPop()) navigator.pop();
-                    messenger.showSnackBar(
-                      ssrvpnSnackBar(
-                        behavior: SnackBarBehavior.floating,
-                        content: Text('节点已更新，获取到 ${nodes.length} 个节点'),
-                        backgroundColor: SsrvpnTheme.of(context).success,
-                      ),
-                    );
+                    context.read<ClashService>().log(
+                          '节点已更新，获取到 ${nodes.length} 个节点',
+                          event: 'home',
+                        );
                   } catch (e) {
                     if (!mounted || _disposed) return;
                     setDialogState(() {
@@ -266,7 +262,7 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
     } catch (error) {
       AppLogger.warning('SubscriptionDialog', '打开初始订阅窗口失败: $error');
       if (mounted && !_disposed) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        _showHomeSnackBar(
           SnackBar(content: Text('无法打开订阅窗口，请稍后重试')),
         );
       }

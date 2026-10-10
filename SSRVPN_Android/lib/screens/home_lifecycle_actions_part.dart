@@ -286,7 +286,7 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
   Future<void> _checkForUpdateManually() async {
     if (!mounted || _disposed) return;
     if (_updateCheckInProgress || UpdateService.isUpdateUiBusy) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      _showHomeSnackBar(
         const SnackBar(content: Text('更新操作正在进行，请稍候')),
       );
       return;
@@ -299,7 +299,7 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
       final update = await UpdateService.checkForUpdate(currentVersion);
       if (!mounted || _disposed) return;
       if (update == null) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        _showHomeSnackBar(
           const SnackBar(content: Text('当前已是最新版本')),
         );
         return;
@@ -312,7 +312,7 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
     } catch (error) {
       AppLogger.warning('Update', '手动检查更新异常: $error');
       if (mounted && !_disposed) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        _showHomeSnackBar(
           SnackBar(content: Text(UpdateChecker.checkFailureMessage(error))),
         );
       }

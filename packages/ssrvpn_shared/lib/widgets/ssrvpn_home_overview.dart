@@ -35,6 +35,7 @@ class SsrvpnHomeOverview extends StatefulWidget {
     required this.onShowTutorial,
     required this.onShowLogs,
     required this.onRefreshPublicIp,
+    this.onDiagnostic,
     this.errorMessage,
     this.connectionNotice,
     this.networkVerification,
@@ -50,6 +51,7 @@ class SsrvpnHomeOverview extends StatefulWidget {
     this.onEnableTunChanged,
   });
 
+  final ValueChanged<String>? onDiagnostic;
   final bool isConnected;
   final bool isConnecting;
   final ProxyNode? selectedNode;
@@ -60,8 +62,7 @@ class SsrvpnHomeOverview extends StatefulWidget {
   final NetworkVerification? networkVerification;
   final String? connectionProgress;
 
-  /// Keeps the progress line visible while a recovery rebuilds the connection,
-  /// even though the app is technically still connected.
+  /// Keeps connection controls busy while recovery rebuilds the connection.
   final bool isAutoRecovering;
   final String? publicIpv4;
   final String? publicIpError;
@@ -82,31 +83,35 @@ class SsrvpnHomeOverview extends StatefulWidget {
 }
 
 class _HomeOverviewState extends State<SsrvpnHomeOverview> {
-  String? get _connectionProgress =>
-      widget.isConnecting || widget.isAutoRecovering
-          ? widget.connectionProgress
-          : null;
+  @override
+  void initState() {
+    super.initState();
+    _logChanges(null);
+  }
 
-  Widget _buildConnectionProgress() => Semantics(
-        liveRegion: true,
-        child: TextButton(
-          onPressed: null,
-          child: SsrvpnHomeText(
-            _connectionProgress ?? '',
-            key: const Key('connection-progress'),
-            maxFontSize: 14,
-            lineHeight: 1.4,
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: SsrvpnUiTokens.of(context).textSecondary,
-              fontSize: 12,
-              height: 1.4,
-            ),
-          ),
-        ),
-      );
+  @override
+  void didUpdateWidget(SsrvpnHomeOverview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _logChanges(oldWidget);
+  }
+
+  void _logChanges(SsrvpnHomeOverview? previous) {
+    final messages = <String>{};
+    void changed(String? current, String? old) {
+      if (current != null && current.isNotEmpty && current != old) {
+        messages.add(current);
+      }
+    }
+
+    changed(widget.errorMessage, previous?.errorMessage);
+    changed(widget.connectionNotice, previous?.connectionNotice);
+    if (widget.isConnecting || widget.isAutoRecovering) {
+      changed(widget.connectionProgress, previous?.connectionProgress);
+    }
+    for (final message in messages) {
+      widget.onDiagnostic?.call(message);
+    }
+  }
 
   // Preserve both samplers when responsive rows reparent the statistics subtree.
   final _statisticsKey = GlobalKey();
@@ -138,14 +143,8 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
         final compact = constraints.maxWidth < SsrvpnUiTokens.compactBreakpoint;
         const padding = 18.0;
         final powerSize = compact ? 154.0 : 170.0;
-        final detailsVisible =
-            widget.errorMessage != null || widget.connectionNotice != null;
         final status =
             _ConnectionStatusPill(label: _statusText, color: _statusColor);
-        final details = _ConnectionDetails(
-            errorMessage: widget.errorMessage,
-            connectionNotice: widget.connectionNotice,
-            onShowLogs: widget.onShowLogs);
         Widget node() => ConstrainedBox(
             constraints:
                 BoxConstraints(maxWidth: SsrvpnUiTokens.currentNodeMaxWidth),
@@ -167,9 +166,7 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
                         powerSize: powerSize,
                         compact: compact,
                         status: status,
-                        node: node(),
-                        details: details,
-                        detailsVisible: detailsVisible))));
+                        node: node()))));
       }),
     );
   }
@@ -321,64 +318,5 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class _ConnectionDetails extends StatelessWidget {
-  const _ConnectionDetails({
-    required this.errorMessage,
-    required this.connectionNotice,
-    required this.onShowLogs,
-  });
-
-  final String? errorMessage;
-  final String? connectionNotice;
-  final VoidCallback onShowLogs;
-
-  @override
-  Widget build(BuildContext context) {
-    if (errorMessage != null) {
-      return TextButton.icon(
-        onPressed: onShowLogs,
-        icon: Icon(Icons.error_outline_rounded, size: 18),
-        label: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Flexible(
-                flex: 3,
-                child: SsrvpnHomeText(errorMessage!,
-                    maxLines: null, maxFontSize: 14)),
-            SizedBox(height: 4),
-            Flexible(
-                child: SsrvpnHomeText(
-              '查看诊断与解决建议',
-              maxLines: null,
-              maxFontSize: 12,
-              style: TextStyle(
-                color: SsrvpnUiTokens.of(context).textSecondary,
-                decoration: TextDecoration.underline,
-              ),
-            )),
-          ],
-        ),
-        style: TextButton.styleFrom(
-            foregroundColor: SsrvpnUiTokens.of(context).error),
-      );
-    }
-    if (connectionNotice != null) {
-      return TextButton.icon(
-        onPressed: onShowLogs,
-        icon: Icon(Icons.sync_rounded, size: 18),
-        label: SsrvpnHomeText(
-          connectionNotice!,
-          maxLines: null,
-          maxFontSize: 14,
-        ),
-        style: TextButton.styleFrom(
-            foregroundColor: SsrvpnUiTokens.of(context).warning),
-      );
-    }
-    return const SizedBox.shrink();
   }
 }

@@ -79,7 +79,7 @@ extension _AndroidHomeNodeActions on HomeScreenState {
         );
         if (!remembered) throw StateError('首选节点保存失败');
         if (!mounted || _disposed) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        _showHomeSnackBar(
           SnackBar(
             margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
             content: Text('已选择: ${node.name}，连接时生效'),
@@ -96,7 +96,7 @@ extension _AndroidHomeNodeActions on HomeScreenState {
             currentNode: _selectedNode,
           );
         });
-        ScaffoldMessenger.of(context).showSnackBar(
+        _showHomeSnackBar(
           const SnackBar(
             margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
             content: Text('保存首选节点失败，请重试'),
@@ -129,7 +129,7 @@ extension _AndroidHomeNodeActions on HomeScreenState {
       await operation;
     } catch (_) {
       if (!mounted || _disposed) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      _showHomeSnackBar(
         const SnackBar(
           margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
           content: Text('节点切换失败，请稍后重试'),
@@ -217,7 +217,7 @@ extension _AndroidHomeNodeActions on HomeScreenState {
       }
     }
     if (mounted && !_disposed && isCurrent()) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      _showHomeSnackBar(
         SnackBar(
           margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
           content: Text(
