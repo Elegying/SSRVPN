@@ -8,7 +8,7 @@ Future<void> verifyHomeProbeNoticePolicy(
   required void Function(String?) publishExternalWarning,
   required void Function(String?) publishOwnershipWarning,
   required VoidCallback publishStopped,
-  String failureTitle = '连接异常',
+  required String Function() readLogs,
 }) async {
   SsrvpnHomeOverview overview() =>
       tester.widget<SsrvpnHomeOverview>(find.byType(SsrvpnHomeOverview));
@@ -29,7 +29,8 @@ Future<void> verifyHomeProbeNoticePolicy(
   await render();
   expect(overview().connectionNotice, '系统代理所有权暂时无法确认');
   expect(find.text(overview().networkVerification!.label), findsOneWidget);
-  expect(find.text('系统代理所有权暂时无法确认'), findsOneWidget);
+  expect(find.text('系统代理所有权暂时无法确认'), findsNothing);
+  expect(readLogs(), contains('系统代理所有权暂时无法确认'));
   publishExternalWarning(null);
   await render();
   expect(overview().connectionNotice, '系统代理所有权暂时无法确认');
@@ -42,6 +43,8 @@ Future<void> verifyHomeProbeNoticePolicy(
   await render();
   expect(overview().isConnected, isFalse);
   expect(overview().isConnecting, isFalse);
-  expect(find.textContaining(failureTitle), findsOneWidget);
-  expect(find.textContaining('连接服务已停止'), findsWidgets);
+  expect(find.textContaining('操作未完成'), findsNothing);
+  expect(find.textContaining('连接服务已停止'), findsNothing);
+  expect(readLogs(), contains('连接服务已停止'));
+  expect(find.text('安全模式已启用'), findsNothing);
 }

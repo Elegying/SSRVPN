@@ -244,7 +244,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
       if (!saved && _disconnectedPreferredNodeName == node.name) {
         setState(() => _disconnectedPreferredNodeName = null);
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      _showHomeSnackBar(
         SnackBar(
           content: Text(
             saved ? '已选择: ${node.name}，连接时生效' : '保存首选节点失败，请重试',
@@ -275,7 +275,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
         core.isConnectionIntentCurrent(generation, connected: true);
 
     if (!owns()) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      _showHomeSnackBar(
         SnackBar(
           content: Text('切换失败: ${node.name}'),
           duration: const Duration(seconds: 1),
@@ -298,7 +298,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
       _schedulePublicIpRefresh();
     }
     if (!owns()) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    _showHomeSnackBar(
       SnackBar(
         content: Text(
           !ok

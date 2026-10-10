@@ -6,6 +6,59 @@ import 'package:ssrvpn_shared/models/proxy_node.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_node_selection_page.dart';
 
 void main() {
+  for (final width in [320.0, 390.0, 660.0]) {
+    for (final scale in [1.0, 2.0, 3.2]) {
+      testWidgets(
+          'recommendation stays right of test selection at $width x $scale',
+          (tester) async {
+        tester.view.physicalSize = Size(width, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        var selected = 0;
+        await tester.pumpWidget(MaterialApp(
+            builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: TextScaler.linear(scale)),
+                child: child!),
+            home: SsrvpnNodeSelectionPage(
+              nodesOf: () => [],
+              selectedNodeNameOf: () => null,
+              proxyModeOf: () => ProxyMode.rule,
+              testingNodeNameOf: () => null,
+              isBatchTestingOf: () => false,
+              isConnectingOf: () => false,
+              countryCodeOf: (_) => 'UN',
+              latencyOf: (_) => null,
+              onClose: () {},
+              onRefresh: () async {},
+              onTestAll: () async {},
+              onTestLatency: (_) async {},
+              onProxyModeChanged: (_) async {},
+              onSelectNode: (_) async {
+                selected++;
+              },
+              onTestNodes: (_) async {},
+            )));
+        final select = find.widgetWithText(TextButton, '选择测速节点');
+        final recommend = find.widgetWithText(TextButton, '一键推荐');
+        await tester.ensureVisible(select);
+        final left = tester.getRect(select), right = tester.getRect(recommend);
+        expect(left.right, lessThanOrEqualTo(right.left));
+        expect(left.center.dy, closeTo(right.center.dy, 1));
+        expect(left.height, greaterThanOrEqualTo(48));
+        expect(find.textContaining('测速范围'), findsNothing);
+        expect(find.textContaining('测速仅检测连接延迟'), findsNothing);
+        await tester.tap(select);
+        await tester.pump();
+        expect(find.text('退出多选'), findsOneWidget);
+        expect(find.text('已选 0 个节点'), findsOneWidget);
+        expect(selected, 0);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
   for (final outcome in [
     'success',
     'failure',

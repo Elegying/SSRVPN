@@ -266,7 +266,7 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
     } catch (error) {
       AppLogger.warning('SubscriptionDialog', '打开初始订阅窗口失败: $error');
       if (mounted && !_disposed) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        _showHomeSnackBar(
           SnackBar(content: Text('无法打开订阅窗口，请稍后重试')),
         );
       }

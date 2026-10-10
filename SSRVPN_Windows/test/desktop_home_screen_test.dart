@@ -64,15 +64,15 @@ void main() {
           startupFlags: StartupFlags.parse(const ['--safe-mode'])));
       await tester.pumpAndSettle();
       await verifyHomeProbeNoticePolicy(tester,
-          failureTitle: '操作未完成',
+          readLogs: () => fixture.clash.recentLogs,
           publishExternalWarning: fixture.clash.publishConnectivityWarning,
           publishOwnershipWarning: fixture.clash.publishOwnershipWarning,
           publishStopped: () {
-        fixture.clash.requestConnectionIntent(false);
-        fixture.clash.publishRunning(false);
-        fixture.clash.onRuntimeNotice
-            ?.call(const RuntimeNotice.error('连接服务已停止，请点击连接重试'));
-      });
+            fixture.clash.requestConnectionIntent(false);
+            fixture.clash.publishRunning(false);
+            fixture.clash.onRuntimeNotice
+                ?.call(const RuntimeNotice.error('连接服务已停止，请点击连接重试'));
+          });
       expect(fixture.clash.startCalls, 0);
       expect(fixture.clash.stopCalls, 0);
       await tester.pumpWidget(const SizedBox.shrink());
@@ -135,11 +135,13 @@ void main() {
       const RuntimeNotice.error('新的连接失败，请重试'),
     );
     await tester.pump();
-    expect(find.textContaining('新的连接失败，请重试'), findsWidgets);
+    expect(find.textContaining('新的连接失败，请重试'), findsNothing);
+    expect(fixture.clash.recentLogs, contains('新的连接失败，请重试'));
     releaseWrite.complete();
     await tester.pumpAndSettle();
     expect(fixture.clash.connectionDesired, isFalse);
-    expect(find.textContaining('新的连接失败，请重试'), findsWidgets);
+    expect(find.textContaining('新的连接失败，请重试'), findsNothing);
+    expect(fixture.clash.recentLogs, contains('新的连接失败，请重试'));
     expect(find.textContaining('已连接，本次使用临时运行端口'), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
@@ -854,7 +856,7 @@ void main() {
     await _pumpUntil(tester, () => find.text('正在验证网络').evaluate().isNotEmpty);
     await _pumpUntil(
       tester,
-      () => find.text('已连接，但首选节点保存失败').evaluate().isNotEmpty,
+      () => fixture.clash.recentLogs.contains('已连接，但首选节点保存失败'),
     );
 
     expect(fixture.clash.isRunning, isTrue);
@@ -1076,7 +1078,8 @@ void main() {
 
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('更新网络设置失败，请重试'), findsOneWidget);
+    expect(find.text('更新网络设置失败，请重试'), findsNothing);
+    expect(fixture.clash.recentLogs, contains('更新网络设置失败，请重试'));
     expect(find.text('网络设置已更新，正在重新连接'), findsNothing);
   });
 

@@ -228,7 +228,6 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
             onShowForceDirectSites: widget.onShowForceDirectSites,
           ),
         ],
-        _recommendButton(testingBusy, filteredNodes),
         SizedBox(height: 14),
         _SubscriptionFilter(
           groups: groups,
@@ -243,25 +242,28 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
             setState(() => _sortByLatency = !_sortByLatency);
           },
         ),
-        if (widget.onTestNodes != null) ...[
-          Wrap(
-            spacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              TextButton(
+        Row(children: [
+          if (widget.onTestNodes != null)
+            Expanded(
+              child: TextButton(
                 onPressed: testingBusy
                     ? null
                     : () => setState(() {
                           _selectingTests = !_selectingTests;
                           _testSelection.clear();
                         }),
-                child: Text(_selectingTests ? '退出多选' : '选择测速节点'),
+                child: Text(_selectingTests ? '退出多选' : '选择测速节点',
+                    textAlign: TextAlign.center),
               ),
-              Text(
-                _selectingTests
-                    ? '已选 ${nodesToTest.length} 个节点'
-                    : '测速范围：当前分组 ${nodesToTest.length} 个节点',
-              ),
+            ),
+          Expanded(child: _recommendButton(testingBusy, filteredNodes)),
+        ]),
+        if (_selectingTests || batchRunning)
+          Wrap(
+            spacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              if (_selectingTests) Text('已选 ${nodesToTest.length} 个节点'),
               if (batchRunning && widget.onCancelTest != null)
                 TextButton.icon(
                   onPressed: _stopRequested ? null : _stopTests,
@@ -270,8 +272,6 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
                 ),
             ],
           ),
-          Text('测速仅检测连接延迟，不代表下载速度或长期稳定性。'),
-        ],
         SizedBox(height: 12),
       ],
     );

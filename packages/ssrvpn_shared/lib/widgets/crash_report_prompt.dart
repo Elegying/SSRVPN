@@ -16,6 +16,7 @@ class CrashReportPrompt extends StatefulWidget {
   const CrashReportPrompt({
     super.key,
     required this.child,
+    this.enabled = true,
     this.supportHint = '可到 GitHub Issues 提交问题并附上文本报告，不要公开 .dmp 或订阅链接。',
     this.supportUrl =
         'https://github.com/Elegying/SSRVPN/issues/new?template=bug_report.yml',
@@ -26,6 +27,7 @@ class CrashReportPrompt extends StatefulWidget {
   });
 
   final Widget child;
+  final bool enabled;
   final String supportHint;
   final String? supportUrl;
   final Future<List<File>> Function()? pendingReportsLoader;
@@ -43,7 +45,7 @@ class _CrashReportPromptState extends State<CrashReportPrompt> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_checked) return;
+    if (_checked || !widget.enabled) return;
     _checked = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;

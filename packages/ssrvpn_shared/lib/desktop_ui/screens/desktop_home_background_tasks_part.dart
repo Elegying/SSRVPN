@@ -190,7 +190,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
   Future<void> _checkForUpdateManually() async {
     if (!_canUpdateUi) return;
     if (_updateCheckInProgress) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      _showHomeSnackBar(
         const SnackBar(content: Text('正在检查更新，请稍候')),
       );
       return;
@@ -201,7 +201,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
       final update = await _fetchAvailableUpdate();
       if (!_canUpdateUi) return;
       if (update == null) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        _showHomeSnackBar(
           const SnackBar(content: Text('当前已是最新版本')),
         );
         return;
@@ -214,7 +214,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
     } catch (error) {
       AppLogger.warning('Update', '手动检查更新异常: $error');
       if (_canUpdateUi) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        _showHomeSnackBar(
           SnackBar(content: Text(UpdateChecker.checkFailureMessage(error))),
         );
       }

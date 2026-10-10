@@ -8,9 +8,14 @@ import '../utils/statistics_visibility.dart';
 /// Advisory only: provider metadata never blocks a connection or renews itself.
 class SsrvpnSubscriptionExpiryNotice extends StatefulWidget {
   const SsrvpnSubscriptionExpiryNotice(
-      {super.key, required this.usage, required this.active, this.now});
+      {super.key,
+      required this.usage,
+      required this.active,
+      this.now,
+      this.onDiagnostic});
   final SubscriptionUsage? usage;
   final bool active;
+  final ValueChanged<String>? onDiagnostic;
   final DateTime Function()? now;
 
   @override
@@ -20,6 +25,7 @@ class SsrvpnSubscriptionExpiryNotice extends StatefulWidget {
 class _ExpiryNoticeState extends State<SsrvpnSubscriptionExpiryNotice>
     with WidgetsBindingObserver {
   Timer? _timer;
+  (int?, DateTime)? _reported;
   DateTime get _now => (widget.now ?? DateTime.now)();
 
   @override
@@ -37,22 +43,34 @@ class _ExpiryNoticeState extends State<SsrvpnSubscriptionExpiryNotice>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    setState(_schedule);
+    _schedule();
   }
 
   void _schedule() {
     _timer?.cancel();
-    final expiry = widget.usage?.expire;
+    final usage = widget.usage;
+    final identity = usage == null ? null : (usage.expire, usage.updatedAt);
+    if (_reported != identity) _reported = null;
+    final expiry = usage?.expire;
     if (!widget.active ||
         !statisticsViewIsVisible(WidgetsBinding.instance.lifecycleState) ||
         expiry == null ||
-        expiry <= 0) {
+        expiry <= 0 ||
+        usage!.updatedAt.isAfter(_now)) {
       return;
     }
     final remaining = expiry * 1000 - _now.millisecondsSinceEpoch;
-    if (remaining <= 0) return;
+    if (remaining <= 0) {
+      if (_reported != identity) {
+        _reported = identity;
+        final updated = usage.updatedAt.toLocal().toIso8601String();
+        widget.onDiagnostic?.call('订阅记录显示账号已到期，请更新订阅或联系服务提供方 '
+            '[ACCOUNT_EXPIRED]；订阅信息更新于 $updated');
+      }
+      return;
+    }
     _timer = Timer(Duration(milliseconds: remaining.clamp(1, 86400000)), () {
-      if (mounted) setState(_schedule);
+      if (mounted) _schedule();
     });
   }
 
@@ -64,25 +82,5 @@ class _ExpiryNoticeState extends State<SsrvpnSubscriptionExpiryNotice>
   }
 
   @override
-  Widget build(BuildContext context) {
-    final usage = widget.usage, now = _now;
-    final expiry = usage?.expire;
-    if (usage == null ||
-        expiry == null ||
-        expiry <= 0 ||
-        usage.updatedAt.isAfter(now) ||
-        now.millisecondsSinceEpoch < expiry * 1000) {
-      return const SizedBox.shrink();
-    }
-    const message = '订阅记录显示账号已到期，请更新订阅或联系服务提供方 [ACCOUNT_EXPIRED]';
-    final updated =
-        usage.updatedAt.toLocal().toIso8601String().split('.').first;
-    return Tooltip(
-        message: '$message\n订阅信息更新于 ${updated.replaceFirst('T', ' ')}',
-        child: Text(message,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.labelSmall));
-  }
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }

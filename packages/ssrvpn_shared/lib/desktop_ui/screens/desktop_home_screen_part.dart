@@ -13,6 +13,17 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   bool _initialSubscriptionDialogInFlight = false;
   int _lastEmptySubscriptionPromptRevision = -1;
+  void _showHomeSnackBar(SnackBar notice) {
+    if (!(_canUpdateUi)) return;
+    final content = notice.content;
+    if (content is Text && content.data != null) {
+      context.read<ClashService>().log(content.data!, event: 'home');
+    }
+    // Feedback belongs to the open action page, never a returned home page.
+    if (!widget.active || ModalRoute.of(context)?.isCurrent != false) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(notice);
+  }
+
   List<ProxyNode> _nodes = [];
   bool _isConnected = false;
   bool _isConnecting = false;
@@ -217,7 +228,7 @@ class _HomeScreenState extends State<HomeScreen> {
           context.read<SubscriptionService>().allNodes,
         ).isEmpty) {
       setState(() => _errorMessage = '订阅中没有可用节点，未更改网络设置，已保留当前连接');
-      ScaffoldMessenger.of(context).showSnackBar(
+      _showHomeSnackBar(
         SnackBar(content: Text('订阅中没有可用节点，未更改网络设置，已保留当前连接')),
       );
       return;
@@ -276,9 +287,7 @@ class _HomeScreenState extends State<HomeScreen> {
           reconnectGeneration,
           connected: false,
         )) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('网络设置已更新，正在重新连接')));
+      _showHomeSnackBar(SnackBar(content: Text('网络设置已更新，正在重新连接')));
       await _handleConnectionAction(_DesktopConnectionAction.connect);
     }
   }
@@ -325,9 +334,7 @@ class _HomeScreenState extends State<HomeScreen> {
         isRunning: clashService.isRunning,
       );
       if (notice != null && _canUpdateUi) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(notice)));
+        _showHomeSnackBar(SnackBar(content: Text(notice)));
       }
       return;
     }
@@ -580,7 +587,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _showConnectionWarning(String? message) {
     if (message == null || message.isEmpty || !_canUpdateUi) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    _showHomeSnackBar(
       ssrvpnSnackBar(
         content: Text(message),
         backgroundColor: SsrvpnTheme.of(context).warning,
@@ -619,6 +626,7 @@ class _HomeScreenState extends State<HomeScreen> {
       resizeToAvoidBottomInset: false,
       backgroundColor: Colors.transparent,
       body: SsrvpnHomeOverview(
+        onDiagnostic: (message) => core.log(message, event: 'home'),
         hasAccountStatistics:
             AccountUsageProviders.configured.resolve(displayNode) != null ||
                 subscriptionUsage != null,
@@ -725,7 +733,11 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
-    if (_canUpdateUi) setState(() {});
+    if (_canUpdateUi) {
+      ScaffoldMessenger.maybeOf(context)?.clearSnackBars();
+      ScaffoldMessenger.maybeOf(context)?.removeCurrentSnackBar();
+      setState(() {});
+    }
   }
 }
 

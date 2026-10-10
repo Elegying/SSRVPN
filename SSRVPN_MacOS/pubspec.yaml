@@ -1,7 +1,7 @@
 name: ssrvpn_macos
 description: SSRVPN - 安全稳定的VPN客户端
 publish_to: 'none'
-version: 5.0.88+5088
+version: 6.0.0+6000
 resolution: workspace
 
 environment:

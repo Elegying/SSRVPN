@@ -45,6 +45,20 @@ class AccountUsageController extends ChangeNotifier {
 
   AccountUsage? get value => _now() < _expires ? _value : null;
 
+  /// Only fresh counts or an explicit current response may assert a limit.
+  String? get deviceLimitNotice {
+    if (_identity == null) return null;
+    final current = value;
+    if (_failure?.kind == UsageFailureKind.deviceLimit ||
+        (_failure == null &&
+            current != null &&
+            current.deviceLimit > 0 &&
+            current.onlineDevices >= current.deviceLimit)) {
+      return '设备数达到上限，请断开其他设备后重试';
+    }
+    return null;
+  }
+
   String? get statusMessage {
     if (_identity == null) return null;
     final previous = _history[_identity!.key];
@@ -200,11 +214,11 @@ class AccountUsageController extends ChangeNotifier {
         _retryAt = retryAt;
       }
       if (epoch != _epoch) return;
-      if (_failure?.kind != failure.kind) {
-        _diagnostic(failure.userMessage);
-      }
+      final changed = _failure?.kind != failure.kind;
       _failure = failure;
+      final message = statusMessage ?? failure.userMessage;
       _clear();
+      if (changed && !_disposed && epoch == _epoch) _diagnostic(message);
     } finally {
       _busy = false;
       if (!_disposed && _active && _identity != null) {
