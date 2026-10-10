@@ -10,6 +10,7 @@ export 'models/subscription.dart';
 export 'models/app_settings.dart';
 export 'models/public_ip_info.dart';
 export 'models/app_diagnostics.dart';
+export 'models/network_verification.dart';
 
 // 服务
 export 'controllers/home_node_controller.dart';

@@ -85,23 +85,15 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
   String? get _connectionProgress =>
       widget.isConnecting || widget.isAutoRecovering
           ? widget.connectionProgress
-          : widget.isConnected
-              ? widget.networkVerification?.detail ?? '连接进程已启动'
-              : '检查连接状态';
+          : null;
 
   Widget _buildConnectionProgress() => Semantics(
         liveRegion: true,
         child: TextButton(
-          onPressed: widget.isConnecting || widget.isAutoRecovering
-              ? null
-              : widget.onShowLogs,
+          onPressed: null,
           child: SsrvpnHomeText(
-            widget.isConnecting || widget.isAutoRecovering
-                ? (_connectionProgress ?? '')
-                : '${_connectionProgress ?? ""} · 一键诊断',
-            key: Key(widget.isConnecting || widget.isAutoRecovering
-                ? 'connection-progress'
-                : 'network-verification-details'),
+            _connectionProgress ?? '',
+            key: const Key('connection-progress'),
             maxFontSize: 14,
             lineHeight: 1.4,
             textAlign: TextAlign.center,

@@ -29,8 +29,8 @@ mixin _ClashHealthSupport {
   void setLastHealthCheckError(String? value);
 
   // Android defers control-plane monitoring to its native service, so the
-  // periodic control-plane monitor never runs there. This independent
-  // low-frequency timer keeps the data plane observed on that platform too.
+  // periodic control-plane monitor never runs there. This independent timer
+  // retries unverified paths; successful paths no longer issue external probes.
   Timer? _dataPlaneWatchTimer;
 
   @protected
@@ -55,8 +55,8 @@ mixin _ClashHealthSupport {
 
   /// Low-frequency data-plane observation used only where the periodic
   /// control-plane monitor is disabled (Android, where the native service owns
-  /// it). Long enough to stay free, short enough that a node which stopped
-  /// forwarding is reported within about a minute instead of never.
+  /// it). The shared scheduler stops external requests once the current path
+  /// succeeds, until the connection, route or physical network changes.
   @protected
   Duration get dataPlaneWatchInterval => const Duration(seconds: 60);
 
@@ -401,12 +401,9 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
     _ruleProviderRefreshTimer = null;
   }
 
-  /// Android hands control-plane monitoring to its native service, so the
-  /// periodic monitor above never runs there. That left the data plane
-  /// unobserved for the whole session: a node that stopped forwarding while the
-  /// local control plane stayed healthy produced no warning at all, while the
-  /// desktop platforms report it within about 30 seconds. Watch the data plane
-  /// on an independent timer so every platform eventually notices.
+  /// Android hands control-plane monitoring to its native service. Retry
+  /// unverified paths independently; the shared scheduler skips successful
+  /// paths and rearms after a connection, route or physical-network change.
   ///
   /// This only raises the advisory warning. It deliberately never restarts the
   /// core, matching the existing contract that data-plane failures are advisory.

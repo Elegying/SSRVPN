@@ -429,8 +429,10 @@ extension AndroidNativeBridge on ClashService {
     final sessionChanged =
         _nativeSessionGeneration != state.sessionGeneration ||
             _runningConfigPath != state.protectedConfigPath;
-    final underlyingNetworkWasDegraded = _underlyingNetworkAvailable == false ||
-        _underlyingNetworkValidated == false;
+    final underlyingNetworkWasUnavailable =
+        _underlyingNetworkAvailable == false;
+    final underlyingNetworkWasDegraded =
+        underlyingNetworkWasUnavailable || _underlyingNetworkValidated == false;
     final underlyingNetworkRecovered = state.running &&
         underlyingNetworkWasDegraded &&
         state.underlyingNetworkAvailable == true &&
@@ -523,7 +525,11 @@ extension AndroidNativeBridge on ClashService {
             underlyingNetworkChanged)) {
       notifyStatusChanged();
     }
-    if (underlyingNetworkRecovered) {
+    // A system validation-site flap is not evidence that a working VPN path
+    // changed. Retry unknown/failed paths, or an actual lost network returning.
+    if (underlyingNetworkRecovered &&
+        (underlyingNetworkWasUnavailable ||
+            networkVerification.state != NetworkVerificationState.verified)) {
       scheduleUserConnectivityObservation(rerunIfActive: true);
     }
   }
