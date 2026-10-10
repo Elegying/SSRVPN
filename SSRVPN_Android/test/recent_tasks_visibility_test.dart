@@ -5,8 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_android/services/recent_tasks_service.dart';
 import 'package:ssrvpn_android/widgets/recent_tasks_visibility_tile.dart';
-import 'package:ssrvpn_shared/services/clash_service_base.dart';
-import 'package:ssrvpn_shared/models/app_settings.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart'
+    show AppSettings, ClashServiceBase;
 import 'package:ssrvpn_shared/widgets/ssrvpn_settings_page.dart';
 
 class _Core extends Fake implements ClashServiceBase {
