@@ -3,11 +3,9 @@ package com.ssrvpn.android
 import android.Manifest
 import android.app.Activity
 import android.content.ActivityNotFoundException
-import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.net.VpnService
@@ -26,14 +24,12 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : FlutterActivity() {
-    private val CHANNEL = "com.ssrvpn/native"
     private val VPN_REQUEST_CODE = 100
     private val NOTIFICATION_PERMISSION_REQUEST_CODE = 101
     private val NOTIFICATION_PERMISSION_PREFS = "ssrvpn_notification"
     private val NOTIFICATION_PERMISSION_REQUESTED = "notification_permission_requested"
     private val UPDATE_PREFS = "ssrvpn_update"
     private val PENDING_UPDATE_APK_PATH = "pending_update_apk_path"
-    private var autoConnectPending = false
     // 记录本 Activity 注册的回调，便于 onDestroy 时精确清理，避免泄漏 Activity
     @Volatile
     private var myResultCallback:
@@ -47,8 +43,6 @@ class MainActivity : FlutterActivity() {
     @Volatile
     private var myStartTiming: NativeVpnStartTiming? = null
     private var methodChannel: MethodChannel? = null
-    // 监听 VPN 状态广播（磁贴断开/连接），实时推送给 Flutter 更新 UI
-    private var vpnStateReceiver: BroadcastReceiver? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile
     private var startTimeoutRunnable: Runnable? = null
@@ -58,17 +52,21 @@ class MainActivity : FlutterActivity() {
     private var vpnPermissionRequestPending = false
     private val recentTasksVisibility by lazy { AndroidRecentTasksVisibility(this) }
 
+    override fun provideFlutterEngine(context: Context): FlutterEngine =
+        SsrvpnFlutterRuntime.acquire(context)
+
+    // External launch intents cannot select or destroy the process-owned engine.
+    override fun getCachedEngineId(): String? = null
+    override fun getCachedEngineGroupId(): String? = null
+    override fun shouldDestroyEngineWithHost() = false
+    override fun shouldRestoreAndSaveState() = false
+
+    override fun popSystemNavigator(): Boolean = isTaskRoot && moveTaskToBack(true)
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         recentTasksVisibility.register(flutterEngine.dartExecutor.binaryMessenger)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.ssrvpn/display")
-            .setMethodCallHandler { call, result ->
-                if (call.method == "refreshRate") {
-                    result.success(window.decorView.display?.refreshRate?.toDouble() ?: 60.0)
-                } else if (call.method == "lowPerformance") {
-                    result.success(displayRefreshRate.lowPerformance)
-                } else result.notImplemented()
-            }
+        registerDisplayChannel(flutterEngine)
 
         // 冷启动时（磁贴拉起）onNewIntent 不会触发。只接受本进程磁贴签发的
         // 一次性请求，并在读取后立即从 Intent 中移除，避免重建时重放。
@@ -76,56 +74,34 @@ class MainActivity : FlutterActivity() {
             enqueueTrustedAutoConnect(intent)
         }
 
-        val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
-        methodChannel = channel
-        registerVpnStateReceiver()
-        channel.setMethodCallHandler(::handleNativeMethodCall)
-        PhysicalTcpLatencyProbe.register(this, flutterEngine.dartExecutor.binaryMessenger) { action ->
-            runOnActiveUiThread("Unable to deliver physical latency", action)
+        methodChannel = SsrvpnFlutterRuntime.attach(this)
+        if (flutterEngine.dartExecutor.isExecutingDart && SsrvpnFlutterRuntime.hasPendingAutoConnect) {
+            methodChannel?.invokeMethod("autoConnect", null)
         }
     }
 
-    private fun runOnActiveUiThread(message: String, action: () -> Unit) {
+    private var displayChannel: MethodChannel? = null
+
+    private fun registerDisplayChannel(flutterEngine: FlutterEngine) {
+        displayChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.ssrvpn/display")
+        displayChannel?.setMethodCallHandler { call, result ->
+            if (call.method == "refreshRate") {
+                result.success(window.decorView.display?.refreshRate?.toDouble() ?: 60.0)
+            } else if (call.method == "lowPerformance") {
+                result.success(displayRefreshRate.lowPerformance)
+            } else result.notImplemented()
+        }
+    }
+
+    private fun runOnEngineThread(message: String, action: () -> Unit) {
         AndroidRuntimeGuard.run("MainActivity", "Unable to schedule UI callback") {
             runOnUiThread {
-                if (isFinishing || isDestroyed) return@runOnUiThread
                 AndroidRuntimeGuard.run("MainActivity", message, operation = action)
             }
         }
     }
 
-    private fun registerVpnStateReceiver() {
-        if (vpnStateReceiver != null) return
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent?.action == VpnTileService.ACTION_VPN_STATE_CHANGED) {
-                    val connected = intent.getBooleanExtra(
-                        VpnTileService.EXTRA_CONNECTED,
-                        false
-                    )
-                    Log.d("MainActivity", "VPN state broadcast: connected=$connected")
-                    runOnActiveUiThread("Unable to deliver VPN state") {
-                        methodChannel?.invokeMethod("vpnStateChanged", connected)
-                    }
-                }
-            }
-        }
-        val filter = IntentFilter(VpnTileService.ACTION_VPN_STATE_CHANGED)
-        val registered = AndroidRuntimeGuard.run(
-            "MainActivity",
-            "Unable to register VPN state receiver"
-        ) {
-            ContextCompat.registerReceiver(
-                this,
-                receiver,
-                filter,
-                ContextCompat.RECEIVER_NOT_EXPORTED
-            )
-        }
-        if (registered) vpnStateReceiver = receiver
-    }
-
-    private fun handleNativeMethodCall(call: MethodCall, result: MethodChannel.Result) {
+    internal fun handleNativeMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "getNativeLibraryDir" -> result.success(applicationInfo.nativeLibraryDir)
             "getAppDataDir" -> result.success(applicationInfo.dataDir)
@@ -138,7 +114,7 @@ class MainActivity : FlutterActivity() {
                 } catch (_: Exception) {
                     null
                 }
-                runOnActiveUiThread("Unable to deliver native diagnostics") {
+                runOnEngineThread("Unable to deliver native diagnostics") {
                     if (snapshot == null) {
                         result.error(
                             "NATIVE_DIAGNOSTICS_FAILED",
@@ -154,9 +130,7 @@ class MainActivity : FlutterActivity() {
                 start()
             }
             "consumePendingAutoConnect" -> {
-                val pending = autoConnectPending
-                autoConnectPending = false
-                result.success(pending)
+                result.success(SsrvpnFlutterRuntime.consumeAutoConnect())
             }
             "syncSettings" -> handleSyncSettings(call, result)
             "getConnectionSnapshotGeneration" -> handleSnapshotGeneration(result)
@@ -188,7 +162,7 @@ class MainActivity : FlutterActivity() {
         )
         sourceIntent?.removeExtra(AutoConnectRequestRegistry.EXTRA_REQUEST_ID)
         if (!AutoConnectRequestRegistry.consume(this, requestId)) return false
-        autoConnectPending = true
+        SsrvpnFlutterRuntime.enqueueAutoConnect()
         return true
     }
 
@@ -348,7 +322,7 @@ class MainActivity : FlutterActivity() {
                     "VPN start timeout cleanup failed: cause=$category"
                 )
             }
-            runOnActiveUiThread("Unable to deliver VPN start timeout") {
+            runOnEngineThread("Unable to deliver VPN start timeout") {
                 result.error(
                     "CORE_TIMEOUT",
                     "VPN 启动超时，请重新连接；若持续失败请打开诊断与运行日志",
@@ -380,9 +354,11 @@ class MainActivity : FlutterActivity() {
             myStartPayloadId = null
             myResultCallback = null
             myStartRequestId = null
-            runOnActiveUiThread("Unable to deliver VPN start result") {
+            runOnEngineThread("Unable to deliver VPN start result") {
                 if (success) {
-                    requestNotificationPermissionOnce()
+                    if (!isFinishing && !isDestroyed && SsrvpnFlutterRuntime.isHost(this)) {
+                        requestNotificationPermissionOnce()
+                    }
                     result.success(capturedState?.plus(diagnosticDetails))
                 } else {
                     val errorCode = if (message == "用户拒绝了 VPN 权限") {
@@ -468,7 +444,7 @@ class MainActivity : FlutterActivity() {
                     preserveForegroundUi = true,
                     recordManualStop = recordManualStop
                 ) { stoppedCleanly ->
-                    runOnActiveUiThread("Unable to deliver VPN stop result") {
+                    runOnEngineThread("Unable to deliver VPN stop result") {
                         if (stoppedCleanly) {
                             result.success(true)
                         } else {
@@ -754,6 +730,7 @@ class MainActivity : FlutterActivity() {
     override fun onResume() {
         super.onResume()
         recentTasksVisibility.restore()
+        SsrvpnFlutterRuntime.syncState()
         displayRefreshRate.start()
         AndroidRuntimeGuard.run("MainActivity", "Pending update install failed") {
             continuePendingUpdateInstallIfAllowed()
@@ -772,30 +749,29 @@ class MainActivity : FlutterActivity() {
             Log.d("MainActivity", "Auto connect from tile!")
             // 这里只唤醒 Flutter；同一个 pending 位由 Dart 原子消费，避免
             // MethodChannel 回调与页面初始化各触发一次连接切换。
-            runOnActiveUiThread("Unable to deliver tile auto-connect") {
+            runOnEngineThread("Unable to deliver tile auto-connect") {
                 methodChannel?.invokeMethod("autoConnect", null)
             }
         }
     }
 
-    override fun onDestroy() {
-        recentTasksVisibility.dispose()
-        vpnPermissionRequestPending = false
-        startTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
-        startTimeoutRunnable = null
-        pendingVpnServiceIntent = null
-        NativeVpnSessionCoordinator.releasePendingStart(myStartClaimId)
-        myStartClaimId = null
-        NativeStartPayloadRegistry.discard(myStartPayloadId)
-        myStartPayloadId = null
-        // 只清理本 Activity 注册的回调，避免静态引用泄漏 Activity；
-        // 不影响磁贴等其他来源设置的回调
-        VpnStartResultRegistry.clear(myStartRequestId)
-        myStartRequestId = null
-        myResultCallback = null
-        vpnStateReceiver?.let { try { unregisterReceiver(it) } catch (_: Exception) {} }
-        vpnStateReceiver = null
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        // A retained Dart caller must receive a result if its permission window
+        // disappears. Already connected sessions are unaffected.
+        if (vpnPermissionRequestPending || pendingVpnServiceIntent != null) {
+            cancelPendingActivityStart("界面已重建，请重试连接")
+        }
+        displayRefreshRate.stop()
+        if (SsrvpnFlutterRuntime.detach(this)) {
+            recentTasksVisibility.dispose()
+            displayChannel?.setMethodCallHandler(null)
+        }
+        displayChannel = null
         methodChannel = null
-        super.onDestroy()
+        super.cleanUpFlutterEngine(flutterEngine)
     }
+
+    // Service-start replies already in flight still belong to the retained
+    // engine. Their existing timeout/atomic completion releases the old host;
+    // destroying a window must neither drop the reply nor cancel the VPN.
 }

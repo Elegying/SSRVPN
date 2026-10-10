@@ -14,7 +14,7 @@ class NetworkVerification {
 
   String get label => switch (state) {
         NetworkVerificationState.pending => '正在验证网络',
-        NetworkVerificationState.verified => '外网已验证可用',
+        NetworkVerificationState.verified => '已连接',
         NetworkVerificationState.unverified => '网络暂未验证通过',
       };
   String get detail {

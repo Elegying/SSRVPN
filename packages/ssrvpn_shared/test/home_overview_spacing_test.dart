@@ -131,21 +131,12 @@ void main() {
               expect(node.center.dy, closeTo(size.height / 2, .1));
               expect(node.center.dx, closeTo(size.width / 2, .1));
             }
-            final verificationButton = find.ancestor(
-                of: find.byKey(const Key('network-verification-details')),
-                matching: find.byType(TextButton));
-            final verification = tester.getRect(verificationButton);
-            expect(verification.top, greaterThanOrEqualTo(power.bottom));
-            expect(verification.bottom,
-                lessThanOrEqualTo(rect('home-system-proxy').top));
-            final verificationSpace = verification.height + 8 * canvasScale;
+            expect(find.byKey(const Key('network-verification-details')),
+                findsNothing);
             spareGaps.addAll([
               status.top - header.bottom - 12 * canvasScale,
               power.top - status.bottom - 10 * canvasScale,
-              rect('home-system-proxy').top -
-                  power.bottom -
-                  verificationSpace -
-                  12 * canvasScale,
+              rect('home-system-proxy').top - power.bottom - 12 * canvasScale,
               firstCard.top - ip.bottom - 12 * canvasScale,
             ]);
             // Share upper spare height without moving the centered card.

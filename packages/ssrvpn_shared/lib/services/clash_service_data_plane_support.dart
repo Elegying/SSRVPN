@@ -51,6 +51,8 @@ mixin _ClashDataPlaneSupport {
   DateTime? _dataPlaneResultAt;
   int? _dataPlaneRequestMilliseconds;
   String? _dataPlaneRequestCode;
+  bool get _dataPlaneVerified =>
+      _dataPlaneResultAt != null && _dataPlaneConnectivityWarning == null;
   int? get dataPlaneRequestMilliseconds => _dataPlaneRequestMilliseconds;
   String? get dataPlaneRequestCode => _dataPlaneRequestCode;
   String? _connectivityOwnershipWarning;
@@ -114,12 +116,9 @@ mixin _ClashDataPlaneSupport {
   @protected
   String? get dataPlaneConnectivityWarning => _dataPlaneConnectivityWarning;
 
-  /// 最近一次数据面观察完成的时间；null 表示本次会话尚未完成过观察。
-  ///
-  /// 诊断页读的是缓存告警，而不是重新探测——完整探测最坏约 41 秒，塞不进
-  /// `diagnosticCheckTimeout`（10 秒）的预算。既然无法在诊断时刷新，
-  /// 就必须把观察时间一并说出来，否则用户无法判断「暂未通过」是当前状态
-  /// 还是几十秒前的旧状态。平台没有独立时间戳时保持 null。
+  /// Last observation time for cached diagnostics. Successful sessions stop
+  /// background probes, so diagnostics must retain the original result's age.
+  /// Platforms without an independent timestamp keep null.
   @protected
   DateTime? get dataPlaneObservationAt => null;
 
@@ -222,7 +221,7 @@ mixin _ClashDataPlaneSupport {
     Duration delay = Duration.zero,
   }) {
     final observationEpoch = _dataPlaneObservationEpoch;
-    if (!isRunning) return;
+    if (!isRunning || (!rerunIfActive && _dataPlaneVerified)) return;
     // Confirming the preferred node changes the route epoch during startup.
     // Keep the startup deadline across that change and periodic health ticks.
     final requestedStart = _dataPlaneObservationClock.elapsed + delay;
@@ -253,7 +252,7 @@ mixin _ClashDataPlaneSupport {
       }
       if (_coalescedDataPlaneObservationEpoch == observationEpoch) {
         _coalescedDataPlaneObservationEpoch = null;
-        scheduleDataPlaneObservation();
+        scheduleDataPlaneObservation(rerunIfActive: true);
       }
     }
 
@@ -418,6 +417,10 @@ mixin _ClashDataPlaneSupport {
       }
       _dataPlaneRequestMilliseconds = requestMilliseconds;
       _dataPlaneRequestCode = requestCode;
+      log(
+          '外部网络验证${warning == null ? '通过' : '未通过'}；'
+          '耗时=${requestMilliseconds ?? '-'}ms；结果=${requestCode ?? 'UNKNOWN'}',
+          event: 'data_plane_probe');
       setConnectivityWarning(warning);
     }
 

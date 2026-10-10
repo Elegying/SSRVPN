@@ -86,7 +86,7 @@ void main() {
   ]) {
     for (final state in NetworkVerificationState.values) {
       testWidgets(
-          'home ${size.width} ${state.name} exposes verification and diagnosis',
+          'home ${size.width} ${state.name} keeps verification details offscreen',
           (tester) async {
         await tester.binding.setSurfaceSize(size);
         addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -128,11 +128,18 @@ void main() {
                 )))));
         await tester.pump(const Duration(milliseconds: 300));
         expect(find.text(network.label), findsOneWidget);
+        if (state == NetworkVerificationState.verified) {
+          expect(find.text('已连接'), findsOneWidget);
+        }
+        expect(find.textContaining('外网已验证可用'), findsNothing);
+        expect(find.textContaining('最近验证'), findsNothing);
+        expect(find.textContaining('2026-10-09'), findsNothing);
+        expect(find.textContaining('247 ms'), findsNothing);
         expect(find.text('系统代理所有权暂时无法确认'), findsOneWidget);
-        expect(find.textContaining('一键诊断'), findsOneWidget);
-        await tester.tap(find.textContaining('一键诊断'));
-        await tester.pump();
-        expect(diagnostics, 1);
+        expect(find.textContaining('一键诊断'), findsNothing);
+        expect(find.byKey(const Key('network-verification-details')),
+            findsNothing);
+        expect(diagnostics, 0);
         expect(tester.takeException(), isNull);
         final directory = Platform.environment['SSRVPN_RELIABILITY_OUTPUT'];
         if (directory != null && size.width == 390) {

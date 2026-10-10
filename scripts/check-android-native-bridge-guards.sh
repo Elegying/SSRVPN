@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVICE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/SsrvpnVpnService.kt"
+UI_RUNTIME="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/SsrvpnFlutterRuntime.kt"
 MAIN_ACTIVITY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/MainActivity.kt"
 DISCONNECT_RECOVERY_ACTIVITY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/DisconnectRecoveryActivity.kt"
 DISCONNECT_RECOVERY_COORDINATOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/DisconnectRecoveryCoordinator.kt"
@@ -801,7 +802,7 @@ require_activity_text '"expectedSessionGeneration"'
 require_activity_text '"Active native VPN session requires a generation"'
 require_activity_text '"getConnectionSnapshotGeneration"'
 require_activity_text '"clearConnectionSnapshot"'
-require_activity_text "private fun handleNativeMethodCall("
+require_activity_text "internal fun handleNativeMethodCall("
 require_activity_text "NativeVpnSessionCoordinator.commitIdleSnapshot(this, snapshot)"
 require_activity_text "NativeVpnSessionCoordinator.clearIdleSnapshot("
 require_activity_text '"flutter.proxyPort"'
@@ -813,10 +814,17 @@ require_activity_text "continuePendingUpdateInstallIfAllowed"
 require_activity_text "override fun onResume()"
 require_activity_text "FileProvider.getUriForFile"
 require_text "ContextCompat.registerReceiver"
-require_activity_text "ContextCompat.registerReceiver"
+if ! grep -Fq 'ContextCompat.registerReceiver' "$UI_RUNTIME"; then
+  echo "Retained UI state receiver is missing" >&2
+  exit 1
+fi
 require_tile_text "ContextCompat.registerReceiver"
 require_text "ContextCompat.RECEIVER_NOT_EXPORTED"
-require_activity_text "ContextCompat.RECEIVER_NOT_EXPORTED"
+# The retained UI runtime owns the receiver beyond Activity destruction.
+if ! grep -Fq 'ContextCompat.RECEIVER_NOT_EXPORTED' "$UI_RUNTIME"; then
+  echo "Retained UI state receiver must remain non-exported" >&2
+  exit 1
+fi
 require_tile_text "ContextCompat.RECEIVER_NOT_EXPORTED"
 if grep -Fq '"AUTO_CONNECT"' "$MAIN_ACTIVITY" "$TILE_SERVICE"; then
   echo "Android exported activity must not trust the legacy AUTO_CONNECT boolean" >&2
@@ -1417,8 +1425,8 @@ for start_marker, end_marker in service_boundaries:
             f"Android main-thread crash boundary is unguarded: {start_marker}"
         )
 
-if activity.count("runOnUiThread {") != 1 or "runOnActiveUiThread(" not in activity:
-    raise SystemExit("MainActivity async replies bypass the active-Activity crash boundary")
+if activity.count("runOnUiThread {") != 1 or "runOnEngineThread(" not in activity:
+    raise SystemExit("MainActivity async replies bypass the retained-engine crash boundary")
 for source, needle in (
     (tile, "Unable to prepare VPN permission from tile"),
     (tile, "Unable to open SSRVPN from tile"),
