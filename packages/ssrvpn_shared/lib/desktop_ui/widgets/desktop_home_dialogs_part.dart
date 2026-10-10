@@ -159,7 +159,7 @@ extension _DesktopHomeRoutingDialogs on _HomeScreenState {
         '保存${forceDirect ? '强制直连' : '强制代理'}网站失败: $error',
       );
       if (!_canUpdateUi) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      _showHomeSnackBar(
         SnackBar(
           content: Text('${forceDirect ? '强制直连' : '强制代理'}网站保存失败，请重试'),
           duration: Duration(seconds: 3),
@@ -188,19 +188,19 @@ extension _DesktopHomeRoutingDialogs on _HomeScreenState {
     }
     if (!_canUpdateUi) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
+    final message = reloadSucceeded != null
+        ? reloadSucceeded
+            ? '${forceDirect ? '强制直连' : '强制代理'}网站已实时生效'
+            : '${forceDirect ? '强制直连' : '强制代理'}网站已保存，当前连接重载失败，请重新连接'
+        : '${forceDirect ? '强制直连' : '强制代理'}网站已保存';
+    _showHomeSnackBar(
       ssrvpnSnackBar(
-        content: Text(
-          reloadSucceeded != null
-              ? reloadSucceeded
-                  ? '${forceDirect ? '强制直连' : '强制代理'}网站已实时生效'
-                  : '${forceDirect ? '强制直连' : '强制代理'}网站已保存，当前连接重载失败，请重新连接'
-              : '${forceDirect ? '强制直连' : '强制代理'}网站已保存',
-        ),
+        content: Text(message),
         backgroundColor:
             reloadSucceeded == false ? SsrvpnTheme.of(context).warning : null,
         duration: Duration(seconds: 2),
       ),
+      message: message,
     );
   }
 }

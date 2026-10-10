@@ -13,12 +13,11 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   bool _initialSubscriptionDialogInFlight = false;
   int _lastEmptySubscriptionPromptRevision = -1;
-  void _showHomeSnackBar(SnackBar notice) {
+  void _showHomeSnackBar(SnackBar notice, {String? message}) {
     if (!(_canUpdateUi)) return;
     final content = notice.content;
-    if (content is Text && content.data != null) {
-      context.read<ClashService>().log(content.data!, event: 'home');
-    }
+    final text = message ?? (content is Text ? content.data : null);
+    if (text != null) context.read<ClashService>().log(text, event: 'home');
     // Feedback belongs to the open action page, never a returned home page.
     if (!widget.active || ModalRoute.of(context)?.isCurrent != false) return;
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(notice);
@@ -593,6 +592,7 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: SsrvpnTheme.of(context).warning,
         duration: Duration(seconds: 5),
       ),
+      message: message,
     );
   }
 

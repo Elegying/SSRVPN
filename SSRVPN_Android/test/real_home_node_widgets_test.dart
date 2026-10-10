@@ -1129,6 +1129,7 @@ void main() {
     await tester.tap(find.text('确定'));
     await tester.pumpAndSettle();
     await _waitForWidget(tester, find.text('强制代理网站已保存，当前连接重载失败，请重新连接'));
+    expect(clash.recentLogs, contains('强制代理网站已保存，当前连接重载失败，请重新连接'));
     expect(clash.isRunning, isTrue);
     expect(find.text('强制代理网站已实时生效'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());

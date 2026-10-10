@@ -205,6 +205,8 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(
           find.text('${direct ? '强制直连' : '强制代理'}网站保存失败，请重试'), findsOneWidget);
+      expect(fixture.clash.recentLogs,
+          contains('${direct ? '强制直连' : '强制代理'}网站保存失败，请重试'));
       expect(fixture.settings.settings.forceDirectSites, oldDirect);
       expect(fixture.settings.settings.forceProxySites, oldProxy);
       expect(fixture.clash.isRunning, isTrue);
@@ -512,7 +514,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(fixture.subscription.allNodes.single.name, 'Rescue');
     expect(find.byType(Dialog), findsNothing);
-    expect(find.textContaining('节点已更新，获取到 1 个节点'), findsOneWidget);
+    expect(find.textContaining('节点已更新，获取到 1 个节点'), findsNothing);
+    expect(fixture.clash.recentLogs, contains('节点已更新，获取到 1 个节点'));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
@@ -676,6 +679,7 @@ void main() {
         () => Future<void>.delayed(const Duration(milliseconds: 100)));
     await tester.pumpAndSettle();
     expect(find.text('强制代理网站已保存，当前连接重载失败，请重新连接'), findsOneWidget);
+    expect(fixture.clash.recentLogs, contains('强制代理网站已保存，当前连接重载失败，请重新连接'));
     expect(fixture.clash.isRunning, isTrue);
     expect(find.text('强制代理网站已实时生效'), findsNothing);
   });

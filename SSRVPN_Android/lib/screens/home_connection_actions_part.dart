@@ -473,21 +473,21 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
     }
     if (!mounted || _disposed) return;
 
+    final message = shouldReload
+        ? reloadSucceeded
+            ? '${forceDirect ? '强制直连' : '强制代理'}网站已实时生效'
+            : '${forceDirect ? '强制直连' : '强制代理'}网站已保存，当前连接重载失败，请重新连接'
+        : '${forceDirect ? '强制直连' : '强制代理'}网站已保存';
     _showHomeSnackBar(
       ssrvpnSnackBar(
         margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
-        content: Text(
-          shouldReload
-              ? reloadSucceeded
-                  ? '${forceDirect ? '强制直连' : '强制代理'}网站已实时生效'
-                  : '${forceDirect ? '强制直连' : '强制代理'}网站已保存，当前连接重载失败，请重新连接'
-              : '${forceDirect ? '强制直连' : '强制代理'}网站已保存',
-        ),
+        content: Text(message),
         backgroundColor: shouldReload && !reloadSucceeded
             ? SsrvpnTheme.of(context).warning
             : null,
         duration: Duration(seconds: 4),
       ),
+      message: message,
     );
   }
 }

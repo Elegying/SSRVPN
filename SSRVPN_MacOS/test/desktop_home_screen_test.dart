@@ -317,6 +317,8 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(
           find.text('${direct ? '强制直连' : '强制代理'}网站保存失败，请重试'), findsOneWidget);
+      expect(fixture.clash.recentLogs,
+          contains('${direct ? '强制直连' : '强制代理'}网站保存失败，请重试'));
       expect(fixture.settings.settings.forceDirectSites, oldDirect);
       expect(fixture.settings.settings.forceProxySites, oldProxy);
       expect(fixture.clash.isRunning, isTrue);
@@ -920,7 +922,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(fixture.subscription.allNodes.single.name, 'Rescue');
     expect(find.byType(Dialog), findsNothing);
-    expect(find.textContaining('节点已更新，获取到 1 个节点'), findsOneWidget);
+    expect(find.textContaining('节点已更新，获取到 1 个节点'), findsNothing);
+    expect(fixture.clash.recentLogs, contains('节点已更新，获取到 1 个节点'));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
@@ -1453,13 +1456,6 @@ void main() {
                     find.text('正在验证网络').evaluate().isNotEmpty);
         final currentIntent = fixture.clash.captureAutomaticRestartIntent();
         expect(currentIntent, isNotNull);
-        if (manualRouting) {
-          // Clear the earlier cancellation notice so the next result is visible.
-          ScaffoldMessenger.of(tester.element(find.byType(HomeScreen)))
-              .removeCurrentSnackBar();
-          await tester.pump();
-        }
-
         releaseWrite.complete();
         await tester.pump();
         await _pumpUntil(
@@ -1475,7 +1471,8 @@ void main() {
         if (manualRouting) {
           expect(settings.settings.forceProxySites, contains('example.com'));
           expect(find.textContaining('当前连接重载失败'), findsNothing);
-          expect(find.text('强制代理网站已保存'), findsOneWidget);
+          expect(find.text('强制代理网站已保存'), findsNothing);
+          expect(fixture.clash.recentLogs, contains('强制代理网站已保存'));
         }
 
         await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
