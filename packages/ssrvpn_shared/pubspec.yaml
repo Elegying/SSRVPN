@@ -10,7 +10,7 @@ environment:
 dependencies:
   camera_platform_interface: ^2.14.0
   camera_windows: ^0.3.0
-  image: ^4.8.0
+  image: ^4.12.0
   mobile_scanner: ^7.4.2
   zxing2: ^0.2.4
   characters: ^1.4.0
