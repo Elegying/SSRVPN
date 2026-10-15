@@ -2,9 +2,45 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_windows/src/services/windows_core_identity_failure.dart';
+import 'package:ssrvpn_windows/src/services/windows_core_pid_record.dart';
 import 'package:ssrvpn_windows/src/services/windows_core_process_query.dart';
 
 void main() {
+  test('native termination respects identity and spaces without PowerShell',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp("SSRVPN 用户's folder ");
+    addTearDown(() => directory.delete(recursive: true));
+    final path = '${directory.path}${Platform.pathSeparator}test child.exe';
+    await File('${Platform.environment['SystemRoot']}\\System32\\ping.exe')
+        .copy(path);
+    final process = await Process.start(path, ['-t', '127.0.0.1']);
+    process.stdout.drain<void>();
+    process.stderr.drain<void>();
+    addTearDown(() async {
+      process.kill();
+      await process.exitCode;
+    });
+    final identity = queryWindowsCoreIdentity(process.pid, path);
+    expect(
+        await terminateVerifiedWindowsCore(
+            identity, r'C:\Other\test child.exe'),
+        WindowsCoreTermination.wrongInstallation);
+    final stale = WindowsCorePidRecord(
+        pid: identity.pid,
+        creationTimeUtcFileTime:
+            (BigInt.parse(identity.creationTimeUtcFileTime) + BigInt.one)
+                .toString(),
+        canonicalExecutablePath: identity.canonicalExecutablePath);
+    expect(await terminateVerifiedWindowsCore(stale, path),
+        WindowsCoreTermination.liveIdentityMismatch);
+    expect(queryWindowsCoreIdentity(process.pid, path), identity);
+    expect(await terminateVerifiedWindowsCore(identity, path),
+        WindowsCoreTermination.terminatedOrGone);
+    await process.exitCode.timeout(const Duration(seconds: 2));
+    expect(await terminateVerifiedWindowsCore(identity, path),
+        WindowsCoreTermination.terminatedOrGone);
+  }, skip: !Platform.isWindows);
   const trusted = r'C:\SSRVPN\mihomo.exe';
   WindowsCoreProcessSnapshot snapshot({
     int processPid = 42,

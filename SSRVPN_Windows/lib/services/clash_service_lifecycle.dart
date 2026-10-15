@@ -271,6 +271,13 @@ mixin _WindowsCoreLifecycle on ClashServiceBase, _WindowsCoreValidation {
     log('检测到上次异常退出留下的系统代理状态，正在重试恢复...');
     final recovered = await _proxyService.retryPendingRecovery();
     if (recovered) {
+      try {
+        if (_coreProcess == null) await _terminateOrphanedCores();
+      } catch (error) {
+        setLastStartError('系统代理已恢复，但遗留核心清理失败: $error');
+        log('❌ $lastStartError');
+        return false;
+      }
       setLastStartError(null);
       log('✅ 旧系统代理状态已恢复，本次连接继续');
       return true;
@@ -428,6 +435,11 @@ mixin _WindowsCoreLifecycle on ClashServiceBase, _WindowsCoreValidation {
   /// Cleans up cores left behind if the previous app process was terminated.
   Future<void> _terminateOrphanedCores() async {
     if (!Platform.isWindows || _corePath.isEmpty) return;
+    // Recovery must release the endpoint before its orphaned listener exits.
+    if (_proxyService.recoveryPending &&
+        !_proxyService.endpointSafeWithPendingRecovery) {
+      return;
+    }
     final pidFile = File('$configDir${Platform.pathSeparator}mihomo.pid');
     final pidFileType = await FileSystemEntity.type(
       pidFile.path,
@@ -468,173 +480,13 @@ mixin _WindowsCoreLifecycle on ClashServiceBase, _WindowsCoreValidation {
   Future<_VerifiedCoreTermination> _terminateVerifiedCore(
     WindowsCorePidRecord record,
   ) async {
-    final encodedExpectedPath = base64Encode(
-      utf8.encode(record.canonicalExecutablePath),
-    );
-    final encodedTrustedPath = base64Encode(utf8.encode(_corePath));
-    final script = '''
-\$expectedPath = [Text.Encoding]::UTF8.GetString(
-  [Convert]::FromBase64String('$encodedExpectedPath'))
-\$trustedPath = [Text.Encoding]::UTF8.GetString(
-  [Convert]::FromBase64String('$encodedTrustedPath'))
-Add-Type -TypeDefinition @'
-using System;
-using System.ComponentModel;
-using System.IO;
-using System.Runtime.InteropServices;
-using System.Text;
-
-public static class SsrvpnVerifiedProcessTerminator {
-  private const uint ProcessTerminate = 0x0001;
-  private const uint ProcessQueryLimitedInformation = 0x1000;
-  private const uint Synchronize = 0x00100000;
-  private const uint StillActive = 259;
-  private const uint WaitObject0 = 0;
-  private const uint WaitTimeout = 258;
-
-  [StructLayout(LayoutKind.Sequential)]
-  private struct FileTimeParts {
-    public uint LowDateTime;
-    public uint HighDateTime;
-  }
-
-  [DllImport("kernel32.dll", SetLastError = true)]
-  private static extern IntPtr OpenProcess(
-      uint desiredAccess, bool inheritHandle, uint processId);
-  [DllImport("kernel32.dll", SetLastError = true)]
-  private static extern uint GetProcessId(IntPtr process);
-  [DllImport("kernel32.dll", SetLastError = true)]
-  [return: MarshalAs(UnmanagedType.Bool)]
-  private static extern bool ProcessIdToSessionId(
-      uint processId, out uint sessionId);
-  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-  [return: MarshalAs(UnmanagedType.Bool)]
-  private static extern bool QueryFullProcessImageNameW(
-      IntPtr process, uint flags, StringBuilder imageName, ref uint size);
-  [DllImport("kernel32.dll", SetLastError = true)]
-  [return: MarshalAs(UnmanagedType.Bool)]
-  private static extern bool GetProcessTimes(
-      IntPtr process,
-      out FileTimeParts creationTime,
-      out FileTimeParts exitTime,
-      out FileTimeParts kernelTime,
-      out FileTimeParts userTime);
-  [DllImport("kernel32.dll", SetLastError = true)]
-  [return: MarshalAs(UnmanagedType.Bool)]
-  private static extern bool GetExitCodeProcess(
-      IntPtr process, out uint exitCode);
-  [DllImport("kernel32.dll", SetLastError = true)]
-  [return: MarshalAs(UnmanagedType.Bool)]
-  private static extern bool TerminateProcess(IntPtr process, uint exitCode);
-  [DllImport("kernel32.dll", SetLastError = true)]
-  private static extern uint WaitForSingleObject(
-      IntPtr handle, uint milliseconds);
-  [DllImport("kernel32.dll")]
-  [return: MarshalAs(UnmanagedType.Bool)]
-  private static extern bool CloseHandle(IntPtr handle);
-
-  // 0 = terminated, 1 = already gone, 2 = live identity mismatch,
-  // 3 = durable record does not belong to this installation.
-  public static int Terminate(
-      uint expectedProcessId,
-      string expectedPath,
-      string trustedPath,
-      uint expectedSessionId,
-      ulong expectedCreationTimeUtcFileTime) {
-    string canonicalExpectedPath = Path.GetFullPath(expectedPath);
-    string canonicalTrustedPath = Path.GetFullPath(trustedPath);
-    if (!canonicalExpectedPath.Equals(
-        canonicalTrustedPath, StringComparison.OrdinalIgnoreCase)) {
-      return 3;
-    }
-    IntPtr process = OpenProcess(
-        ProcessQueryLimitedInformation | ProcessTerminate | Synchronize,
-        false,
-        expectedProcessId);
-    if (process == IntPtr.Zero) {
-      int error = Marshal.GetLastWin32Error();
-      if (error == 87) return 1;
-      throw new Win32Exception(error);
-    }
-    try {
-      uint exitCode;
-      if (!GetExitCodeProcess(process, out exitCode)) {
-        throw new Win32Exception(Marshal.GetLastWin32Error());
-      }
-      if (exitCode != StillActive) {
-        return 1;
-      }
-      uint liveProcessId = GetProcessId(process);
-      if (liveProcessId == 0) {
-        throw new Win32Exception(Marshal.GetLastWin32Error());
-      }
-      uint liveSessionId;
-      if (!ProcessIdToSessionId(liveProcessId, out liveSessionId)) {
-        throw new Win32Exception(Marshal.GetLastWin32Error());
-      }
-      var imageName = new StringBuilder(32768);
-      uint imageNameSize = (uint)imageName.Capacity;
-      if (!QueryFullProcessImageNameW(
-          process, 0, imageName, ref imageNameSize)) {
-        throw new Win32Exception(Marshal.GetLastWin32Error());
-      }
-      FileTimeParts creationTime;
-      FileTimeParts exitTime;
-      FileTimeParts kernelTime;
-      FileTimeParts userTime;
-      if (!GetProcessTimes(
-          process,
-          out creationTime,
-          out exitTime,
-          out kernelTime,
-          out userTime)) {
-        throw new Win32Exception(Marshal.GetLastWin32Error());
-      }
-      ulong liveCreationTimeUtcFileTime =
-          ((ulong)creationTime.HighDateTime << 32) | creationTime.LowDateTime;
-      if (liveProcessId != expectedProcessId ||
-          liveSessionId != expectedSessionId ||
-          !Path.GetFullPath(imageName.ToString()).Equals(
-              canonicalExpectedPath,
-              StringComparison.OrdinalIgnoreCase) ||
-          liveCreationTimeUtcFileTime != expectedCreationTimeUtcFileTime) {
-        return 2;
-      }
-      if (!TerminateProcess(process, 1)) {
-        throw new Win32Exception(Marshal.GetLastWin32Error());
-      }
-      uint waitResult = WaitForSingleObject(process, 8000);
-      if (waitResult == WaitObject0) return 0;
-      if (waitResult == WaitTimeout) {
-        throw new TimeoutException("Timed out waiting for process termination.");
-      }
-      throw new Win32Exception(Marshal.GetLastWin32Error());
-    } finally {
-      CloseHandle(process);
-    }
-  }
-}
-'@
-\$result = [SsrvpnVerifiedProcessTerminator]::Terminate(
-  [uint32]${record.pid},
-  \$expectedPath,
-  \$trustedPath,
-  [uint32][Diagnostics.Process]::GetCurrentProcess().SessionId,
-  [uint64]${record.creationTimeUtcFileTime})
-if (\$result -eq 0 -or \$result -eq 1) { exit 0 }
-if (\$result -eq 2) { exit 3 }
-if (\$result -eq 3) { exit 5 }
-exit 4
-''';
-    final result = await _runPowerShell(
-      script,
-      timeout: const Duration(seconds: 15),
-    );
-    return switch (result.exitCode) {
-      0 => _VerifiedCoreTermination.terminatedOrGone,
-      3 => _VerifiedCoreTermination.liveIdentityMismatch,
-      5 => _VerifiedCoreTermination.wrongInstallation,
-      _ => throw StateError('PowerShell 返回 ${result.exitCode}'),
+    return switch (await terminateVerifiedWindowsCore(record, _corePath)) {
+      WindowsCoreTermination.terminatedOrGone =>
+        _VerifiedCoreTermination.terminatedOrGone,
+      WindowsCoreTermination.liveIdentityMismatch =>
+        _VerifiedCoreTermination.liveIdentityMismatch,
+      WindowsCoreTermination.wrongInstallation =>
+        _VerifiedCoreTermination.wrongInstallation,
     };
   }
 
@@ -1190,7 +1042,12 @@ exit 4
       );
       pidRecordCleaned = pidFileType == FileSystemEntityType.notFound;
       if (!pidRecordCleaned) {
-        log('存在无法归属的核心进程身份记录，已保留');
+        try {
+          await _terminateOrphanedCores();
+          pidRecordCleaned = !await pidFile.exists();
+        } catch (error) {
+          log('无法安全清理核心进程身份记录，已保留: $error');
+        }
       }
     }
     if (!pidRecordCleaned) {

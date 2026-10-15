@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.0.1] - 2026-10-15
+
+- 修复 Windows 在部分环境下断开后系统代理未恢复、客户端退出受阻的问题。
+- 改进 Windows 遗留核心清理，支持包含空格、中文等字符的安装路径。
+- 修复 Windows 10 主界面两侧和底部出现黑边的问题。
+- 节点排序偏好自动保存，重启客户端后继续使用上次选择的排序方式。
+
 ## [6.0.0] - 2026-10-10
 
 - 优化稳定性，提升连接体验。

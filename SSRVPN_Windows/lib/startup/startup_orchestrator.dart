@@ -110,6 +110,9 @@ class StartupOrchestrator {
         TitleBarStyle.hidden,
         windowButtonVisibility: false,
       );
+      // Hidden title bars still reserve an 8 px native frame on Windows 10.
+      // Our fixed-size custom frame must cover the entire client surface.
+      await windowManager.setAsFrameless();
       await windowManager.setPreventClose(true);
       await windowManager.setResizable(false);
       await windowManager.setMaximizable(false);

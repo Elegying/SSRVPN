@@ -97,7 +97,8 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
   late String? _selectedNodeName;
   late ProxyMode _proxyMode;
   String _subscription = _allSubscriptions;
-  bool _sortByLatency = false;
+  bool _transientSortByLatency = false;
+  bool get _sortByLatency => _pins?.sortByLatency ?? _transientSortByLatency;
   String _searchQuery = '';
   NodePinStore? _pins;
   bool _pinBusy = false, _searchOpen = false;
@@ -238,9 +239,7 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
           onChanged: (value) {
             setState(() => _subscription = value);
           },
-          onSortPressed: () {
-            setState(() => _sortByLatency = !_sortByLatency);
-          },
+          onSortPressed: _toggleSort,
         ),
         Row(children: [
           if (widget.onTestNodes != null)

@@ -72,6 +72,7 @@ class WindowsRunOnceProxyRecoveryTest(unittest.TestCase):
         service = (
             ROOT / "SSRVPN_Windows" / "lib" / "services" / "system_proxy_service.dart"
         ).read_text(encoding="utf-8")
+        service += (ROOT / "SSRVPN_Windows/lib/services/system_proxy_native_recovery.dart").read_text(encoding="utf-8")
         native_match = re.search(
             r'kGuardianMutexName\[\]\s*=\s*L"([^"]+)";', launcher, re.DOTALL
         )

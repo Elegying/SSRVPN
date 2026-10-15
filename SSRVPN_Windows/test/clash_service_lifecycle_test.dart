@@ -38,7 +38,7 @@ void main() {
 
     setUpAll(() async {
       fixture =
-          await Directory.systemTemp.createTemp('ssrvpn_validator_fixture_');
+          await Directory.systemTemp.createTemp("ssrvpn 测试 user's folder ");
       // Windows temporary paths may contain '/', while production identity
       // capture requires the canonical native path returned by Windows.
       fixture = Directory(await fixture.resolveSymbolicLinks());
@@ -874,6 +874,28 @@ Future<void> main(List<String> args) async {
     await expectLater(service.stop(), throwsStateError);
     expect(await record.readAsString(), 'unknown owner');
   });
+
+  test(
+      'pending proxy recovery defers orphan cleanup and reports cleanup failure',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('ssrvpn-pending-orphan-');
+    final proxy = _ControlledStopProxy()..recoveryPending = true;
+    final service = ClashService(systemProxyService: proxy);
+    addTearDown(() async {
+      await service.flushLogs();
+      service.dispose();
+      await directory.delete(recursive: true);
+    });
+    final record = File('${directory.path}${Platform.pathSeparator}mihomo.pid');
+    await record.writeAsString('unverified old record');
+    await service.init(AppSettings(), dataDir: directory.path);
+    expect(await record.readAsString(), 'unverified old record');
+    expect(service.hasPendingSystemProxyRecovery, isTrue);
+    expect(await service.recoverPendingSystemProxy(), isFalse);
+    expect(service.lastStartError, contains('遗留核心清理失败'));
+    expect(await record.readAsString(), 'unverified old record');
+  }, skip: !Platform.isWindows);
 
   test('config validation reports a real non-zero validator result', () async {
     final temp = await Directory.systemTemp.createTemp(

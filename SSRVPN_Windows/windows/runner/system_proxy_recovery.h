@@ -6,7 +6,7 @@
 // exits unexpectedly.
 class WindowsProxyTransactionLock final {
  public:
-  WindowsProxyTransactionLock() noexcept;
+  explicit WindowsProxyTransactionLock(bool wait = true) noexcept;
   ~WindowsProxyTransactionLock();
 
   WindowsProxyTransactionLock(const WindowsProxyTransactionLock&) = delete;
@@ -33,6 +33,11 @@ bool IsOwnedWindowsProxySafeToStop(
 
 // Performs restore-or-confirm-safe while holding one transaction lock.
 bool RestoreOrConfirmOwnedWindowsProxySafeToStop() noexcept;
+
+// App recovery holds its own cross-process lock. -1 requires legacy Dart
+// recovery, 0 must retry, 1 is complete, 2 has a safe endpoint but pending files.
+// Bit 2 records external proxy changes, preserving automatic-recovery policy.
+int RecoverWindowsProxyForApplication() noexcept;
 
 // Re-registers the recovery-only child command after Windows consumes its
 // RunOnce value. Used only while an owned endpoint is still unsafe.

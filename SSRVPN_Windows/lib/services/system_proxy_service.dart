@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_windows/src/services/system_proxy_ownership.dart';
@@ -9,6 +10,7 @@ import 'package:ssrvpn_windows/src/services/windows_powershell.dart';
 
 part 'system_proxy_models.dart';
 part 'system_proxy_recovery_journal.dart';
+part 'system_proxy_native_recovery.dart';
 
 typedef SystemProxyScriptRunner = Future<ProcessResult> Function(String script);
 
@@ -33,11 +35,13 @@ class SystemProxyService {
     SystemProxyScriptRunner? scriptRunner,
     String? localAppData,
     String? recoveryExecutable,
+    Future<int> Function()? nativeRecovery,
     Duration pendingCommandExitTimeout = const Duration(seconds: 20),
   })  : _isWindows = isWindows ?? Platform.isWindows,
         _scriptRunner = scriptRunner,
         _localAppDataOverride = localAppData,
         _recoveryExecutableOverride = recoveryExecutable,
+        _nativeRecovery = nativeRecovery,
         _pendingCommandExitTimeout = pendingCommandExitTimeout;
 
   factory SystemProxyService.forTesting({
@@ -45,6 +49,7 @@ class SystemProxyService {
     required SystemProxyScriptRunner scriptRunner,
     String localAppData = '',
     String? recoveryExecutable,
+    Future<int> Function()? nativeRecovery,
     Duration pendingCommandExitTimeout = const Duration(seconds: 20),
   }) =>
       SystemProxyService._(
@@ -52,6 +57,7 @@ class SystemProxyService {
         scriptRunner: scriptRunner,
         localAppData: localAppData,
         recoveryExecutable: recoveryExecutable,
+        nativeRecovery: nativeRecovery,
         pendingCommandExitTimeout: pendingCommandExitTimeout,
       );
 
@@ -60,6 +66,7 @@ class SystemProxyService {
   final String? _localAppDataOverride;
   final String? _recoveryExecutableOverride;
   final Duration _pendingCommandExitTimeout;
+  final Future<int> Function()? _nativeRecovery;
 
   bool _proxyEnabled = false;
   bool _ownsProxy = false;
@@ -111,6 +118,8 @@ class SystemProxyService {
     _transactionLockPath =
         '$runtimeDir${Platform.pathSeparator}system_proxy_transaction.lock';
     final backupFile = File(_statePath!);
+
+    if (await _tryNativeRecovery() != null) return;
 
     try {
       await _withProxyTransactionLock(() async {
@@ -218,6 +227,8 @@ class SystemProxyService {
 
   Future<bool> _retryPendingRecoveryInternal() async {
     if (!await _awaitPendingCancelledProxyCommandExit()) return false;
+    final nativeResult = await _tryNativeRecovery();
+    if (nativeResult != null) return nativeResult;
     final dataDir = _dataDir;
     final statePath = _statePath;
     if (dataDir == null || statePath == null) {
@@ -492,6 +503,8 @@ ${_notifyWinInetScript()}
       }
     }
 
+    final nativeResult = await _tryNativeRecovery();
+    if (nativeResult != null) return nativeResult;
     try {
       return await _withProxyTransactionLock(() async {
         if (!await _awaitPendingCancelledProxyCommandExit()) return false;
@@ -714,32 +727,8 @@ ${_notifyWinInetScript()}
 
   bool _isValidHost(String host) => RegExp(r'^[A-Za-z0-9.-]+$').hasMatch(host);
 
-  Future<bool> isLauncherGuardianReady({Future<void>? cancellation}) async {
-    try {
-      final result = await _runPowerShell('''
-\$guardian = [System.Threading.Mutex]::OpenExisting('$_launcherGuardianMutexName')
-try {
-  \$acquired = \$false
-  try {
-    \$acquired = \$guardian.WaitOne(0)
-  } catch [System.Threading.AbandonedMutexException] {
-    \$acquired = \$true
-  }
-  if (\$acquired) {
-    \$guardian.ReleaseMutex()
-    throw 'Guardian mutex is not owned.'
-  }
-} finally {
-  \$guardian.Dispose()
-}
-''', cancellation: cancellation);
-      return result.exitCode == 0;
-    } on ProcessTerminationNotConfirmedException {
-      rethrow;
-    } catch (_) {
-      return false;
-    }
-  }
+  Future<bool> isLauncherGuardianReady({Future<void>? cancellation}) =>
+      _isLauncherGuardianReady(cancellation: cancellation);
 
   Future<bool> _rollbackFailedAcquisition(String setError) async {
     _recoveryPending = true;

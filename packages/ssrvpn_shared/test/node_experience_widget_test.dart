@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/gestures.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_theme.dart';
 import 'package:flutter/material.dart';
@@ -32,6 +33,14 @@ class _DelayedPins extends _MemoryPins {
   }
 }
 
+class _PersistentPreferences extends NodePinStore {
+  _PersistentPreferences(super.directory);
+  Future<void>? lastSave;
+  @override
+  Future<void> setSortByLatency(bool value) =>
+      lastSave = super.setSortByLatency(value);
+}
+
 void main() {
   final nodes = [
     ProxyNode(
@@ -49,7 +58,7 @@ void main() {
   ];
   Widget page(
           {String? directory,
-          _MemoryPins? pins,
+          NodePinStore? pins,
           TargetPlatform platform = TargetPlatform.android,
           AppThemeVariant variant = AppThemeVariant.defaultTheme,
           double scale = 1}) =>
@@ -71,7 +80,7 @@ void main() {
             isBatchTestingOf: () => false,
             isConnectingOf: () => false,
             countryCodeOf: (_) => 'UN',
-            latencyOf: (_) => null,
+            latencyOf: (node) => node.name.startsWith('香港') ? 120 : 40,
             onClose: () {},
             onRefresh: () async {},
             onTestAll: () async {},
@@ -81,6 +90,53 @@ void main() {
             onSecondaryTapDown: (_, __) {},
             onLongPressNode: (_) {},
           )));
+  testWidgets('sort toggle persists across fresh page and store instances',
+      (tester) async {
+    final dir = (await tester.runAsync(
+        () => Directory.systemTemp.createTemp('node-sort-restart-')))!;
+    addTearDown(() => dir.delete(recursive: true));
+    final first = _PersistentPreferences(dir.path);
+    await tester.runAsync(first.load);
+    await tester.pumpWidget(page(directory: dir.path, pins: first));
+    await tester.runAsync(() async {
+      await first.load();
+    });
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester.tap(find.byTooltip('按延迟从低到高排序'));
+      await first.lastSave;
+    });
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('恢复默认节点顺序'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    final restarted = _PersistentPreferences(dir.path);
+    await tester.runAsync(restarted.load);
+    await tester.pumpWidget(page(directory: dir.path, pins: restarted));
+    await tester.runAsync(() async {
+      await restarted.load();
+    });
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('恢复默认节点顺序'), findsOneWidget);
+    expect(
+        tester
+            .getTopLeft(
+                find.byKey(const ValueKey('ssrvpn-node-card-日本 Premium')))
+            .dy,
+        lessThan(tester
+            .getTopLeft(
+                find.byKey(const ValueKey('ssrvpn-node-card-香港 Premium')))
+            .dy));
+    await tester.runAsync(() async {
+      await tester.tap(find.byTooltip('恢复默认节点顺序'));
+      await restarted.lastSave;
+    });
+    await tester.pumpWidget(const SizedBox());
+    final next = _PersistentPreferences(dir.path);
+    await tester.runAsync(next.load);
+    await tester.pumpWidget(page(directory: dir.path, pins: next));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('按延迟从低到高排序'), findsOneWidget);
+  });
   testWidgets(
       'Soft Android swipe clip contains the card shadows and pin action works',
       (tester) async {

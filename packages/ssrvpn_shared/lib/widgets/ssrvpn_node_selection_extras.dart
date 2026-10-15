@@ -41,6 +41,27 @@ extension _NodeSelectionExtras on _SsrvpnNodeSelectionPageState {
         ...nodes.where((node) => _pins?.contains(node) ?? false),
         ...nodes.where((node) => !(_pins?.contains(node) ?? false)),
       ];
+  Future<void> _toggleSort() async {
+    if (_pinBusy) return;
+    final store = _pins;
+    if (store == null) {
+      _updateSelectionState(() => _transientSortByLatency = !_sortByLatency);
+      return;
+    }
+    _updateSelectionState(() => _pinBusy = true);
+    try {
+      await store.setSortByLatency(!store.sortByLatency);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('排序保存失败，原顺序已保留，请重试')),
+        );
+      }
+    } finally {
+      if (mounted) _updateSelectionState(() => _pinBusy = false);
+    }
+  }
+
   Future<void> _togglePin(ProxyNode node) async {
     if (_pinBusy || _pins == null) return;
     _updateSelectionState(() => _pinBusy = true);

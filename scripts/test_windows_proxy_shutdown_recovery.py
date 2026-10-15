@@ -1655,84 +1655,31 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("windowsPowerShellUtf8Script(script)", lifecycle)
 
     def test_orphan_cleanup_terminates_the_same_verified_handle(self) -> None:
-        lifecycle = (
-            ROOT
-            / "SSRVPN_Windows"
-            / "lib"
-            / "services"
-            / "clash_service_lifecycle.dart"
-        ).read_text(encoding="utf-8")
-        orphan_cleanup = lifecycle[
-            lifecycle.index("Future<void> _terminateOrphanedCores()") :
-            lifecycle.index("Future<ProcessResult> _runPowerShell(")
-        ]
-
-        self.assertIn("SsrvpnVerifiedProcessTerminator", orphan_cleanup)
-        self.assertIn(
-            "ProcessQueryLimitedInformation | ProcessTerminate | Synchronize",
-            orphan_cleanup,
-        )
-        self.assertNotIn("Get-CimInstance", orphan_cleanup)
-        self.assertNotIn("Stop-Process -Id", orphan_cleanup)
-        self.assertNotIn("taskkill", orphan_cleanup.lower())
-        termination = orphan_cleanup.split("public static int Terminate(", 1)[1]
-        for api in (
-            "OpenProcess(",
-            "GetProcessId(process)",
-            "ProcessIdToSessionId(liveProcessId",
-            "QueryFullProcessImageNameW(",
-            "GetProcessTimes(",
-            "TerminateProcess(process, 1)",
-            "WaitForSingleObject(process, 8000)",
-        ):
+        lifecycle = windows_clash_lifecycle_source()
+        source = (ROOT / 'SSRVPN_Windows/lib/src/services/windows_core_process_query.dart').read_text(encoding='utf-8')
+        termination = source[source.index('Future<WindowsCoreTermination> terminateVerifiedWindowsCore'):]
+        self.assertIn('await terminateVerifiedWindowsCore(record, _corePath)', lifecycle)
+        self.assertNotIn('SsrvpnVerifiedProcessTerminator', lifecycle)
+        self.assertNotIn('Stop-Process', termination)
+        self.assertNotIn('taskkill', termination.lower())
+        self.assertEqual(1, termination.count('OpenProcess('))
+        for api in ('PROCESS_QUERY_LIMITED_INFORMATION', 'PROCESS_TERMINATE',
+                    'PROCESS_SYNCHRONIZE', 'WaitForSingleObject(handle, 0)',
+                    '_snapshotFromHandle(handle, trustedPath)', 'CloseHandle(handle)'):
             self.assertIn(api, termination)
-        self.assertIn("ulong expectedCreationTimeUtcFileTime", termination)
-        self.assertIn("liveCreationTimeUtcFileTime", termination)
-        self.assertIn(
-            "liveCreationTimeUtcFileTime != expectedCreationTimeUtcFileTime",
-            termination,
-        )
-        self.assertEqual(1, termination.count("OpenProcess("))
-        self.assertLess(
-            termination.index("OpenProcess("),
-            termination.index("GetProcessId(process)"),
-        )
-        self.assertLess(
-            termination.index("GetProcessId(process)"),
-            termination.index("QueryFullProcessImageNameW("),
-        )
-        self.assertLess(
-            termination.index("QueryFullProcessImageNameW("),
-            termination.index("GetProcessTimes("),
-        )
-        self.assertLess(
-            termination.index("GetProcessTimes("),
-            termination.index(
-                "liveCreationTimeUtcFileTime != expectedCreationTimeUtcFileTime"
-            ),
-        )
-        self.assertLess(
-            termination.index(
-                "liveCreationTimeUtcFileTime != expectedCreationTimeUtcFileTime"
-            ),
-            termination.index("TerminateProcess(process, 1)"),
-        )
-        self.assertLess(
-            termination.index("TerminateProcess(process, 1)"),
-            termination.index("WaitForSingleObject(process, 8000)"),
-        )
-        self.assertLess(
-            termination.index("WaitForSingleObject(process, 8000)"),
-            termination.index("CloseHandle(process)"),
-        )
-        self.assertIn("WaitTimeout", termination)
-        self.assertIn("TimeoutException", termination)
-        powershell_call = orphan_cleanup[
-            orphan_cleanup.rindex("final result = await _runPowerShell("):
-        ]
-        powershell_call = powershell_call[: powershell_call.index("return switch")]
-        self.assertIn("timeout: const Duration(seconds: 15)", powershell_call)
-        self.assertNotIn("timeout: const Duration(seconds: 8)", powershell_call)
+        identity = termination.index('snapshot.creationTime.toString() != record.creationTimeUtcFileTime')
+        kill = termination.index('TerminateProcess(handle, 1)')
+        self.assertLess(termination.index('OpenProcess('), identity)
+        self.assertLess(identity, kill)
+        self.assertLess(kill, termination.index('deadline.elapsed'))
+        self.assertLess(termination.index('deadline.elapsed'), termination.index('CloseHandle(handle)'))
+        self.assertIn('snapshot.sessionId != snapshot.currentSessionId', termination)
+        self.assertIn('Duration(seconds: 8)', termination)
+        self.assertIn('TimeoutException', termination)
+        snapshot = source[source.index('WindowsCoreProcessSnapshot _snapshotFromHandle'):source.index('enum WindowsCoreTermination')]
+        for api in ('GetProcessId(handle)', 'ProcessIdToSessionId(',
+                    'QueryFullProcessImageName(', 'GetProcessTimes(handle', '_compareOrdinal('):
+            self.assertIn(api, snapshot)
 
     def test_windows_process_logs_tolerate_malformed_utf8(self) -> None:
         lifecycle = (

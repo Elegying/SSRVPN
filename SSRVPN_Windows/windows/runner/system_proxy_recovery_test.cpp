@@ -1,6 +1,7 @@
 #include <windows.h>
 
 #include <cwchar>
+#include <filesystem>
 #include <iostream>
 #include <string>
 
@@ -198,9 +199,93 @@ bool TestMalformedJournalDisablesOwnedEndpoint() {
   return endpoint_disabled && !KeyIsMissing(kBackupPath);
 }
 
+class RecoveryFiles final {
+ public:
+  RecoveryFiles() {
+    wchar_t temporary[MAX_PATH] = {}, previous[32768] = {};
+    GetTempPathW(MAX_PATH, temporary);
+    GetEnvironmentVariableW(L"LOCALAPPDATA", previous, 32768);
+    previous_ = previous;
+    root_ = std::filesystem::path(temporary) /
+        (L"SSRVPN 用户's folder " + std::to_wstring(GetCurrentProcessId()));
+    runtime_ = root_ / L"SSRVPN" / L"runtime";
+    std::filesystem::create_directories(runtime_);
+    SetEnvironmentVariableW(L"LOCALAPPDATA", root_.c_str());
+    snapshot = runtime_ / L"system_proxy_backup.json";
+    HANDLE file = CreateFileW(snapshot.c_str(), GENERIC_WRITE, 0, nullptr,
+                              CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) throw std::runtime_error("snapshot fixture failed");
+    CloseHandle(file);
+  }
+  ~RecoveryFiles() {
+    SetEnvironmentVariableW(L"LOCALAPPDATA", previous_.empty() ? nullptr : previous_.c_str());
+    std::error_code error;
+    std::filesystem::remove_all(root_, error);
+  }
+  std::filesystem::path snapshot;
+ private:
+  std::filesystem::path root_, runtime_;
+  std::wstring previous_;
+};
+
+bool TestApplicationRecovery(int scenario) {
+  RegistrySandbox sandbox;
+  RecoveryFiles files;
+  if (!sandbox.Initialize() || !SeedOwnedSettings()) return false;
+  // No native journal: do not discard the only remaining legacy JSON backup.
+  if (scenario == 0) {
+    return RecoverWindowsProxyForApplication() == -1 &&
+           std::filesystem::exists(files.snapshot);
+  }
+  if (!SeedJournal(false) || !SeedRunOnce()) return false;
+  if (scenario == 1) {
+    WindowsProxyTransactionLock held;
+    const auto before = GetTickCount64();
+    return held.acquired() && RecoverWindowsProxyForApplication() == 0 &&
+           GetTickCount64() - before < 1000 &&
+           std::filesystem::exists(files.snapshot);
+  }
+  if (scenario == 2) {
+    SetFileAttributesW(files.snapshot.c_str(), FILE_ATTRIBUTE_READONLY);
+    const int pending = RecoverWindowsProxyForApplication();
+    const bool preserved = std::filesystem::exists(files.snapshot);
+    SetFileAttributesW(files.snapshot.c_str(), FILE_ATTRIBUTE_NORMAL);
+    return pending == 2 && preserved &&
+           RecoverWindowsProxyForApplication() == 1 &&
+           !std::filesystem::exists(files.snapshot);
+  }
+  if (scenario == 3 || scenario == 4) {
+    HKEY settings = nullptr;
+    if (!CreateKey(kInternetSettingsPath, &settings)) return false;
+    const bool written = scenario == 3
+        ? SetString(settings, L"ProxyServer", L"external.example:8080")
+        : SetString(settings, L"AutoConfigURL", L"https://external.example/proxy.pac");
+    RegCloseKey(settings);
+    if (!written || RecoverWindowsProxyForApplication() != 5) return false;
+    if (!CreateKey(kInternetSettingsPath, &settings)) return false;
+    wchar_t buffer[256] = {}; DWORD bytes = sizeof(buffer), type = 0;
+    const bool retained = RegQueryValueExW(settings,
+        scenario == 3 ? L"ProxyServer" : L"AutoConfigURL", nullptr, &type,
+        reinterpret_cast<BYTE*>(buffer), &bytes) == ERROR_SUCCESS &&
+        std::wstring(buffer) == (scenario == 3 ? L"external.example:8080"
+            : L"https://external.example/proxy.pac");
+    RegCloseKey(settings);
+    return retained && !std::filesystem::exists(files.snapshot);
+  }
+  return RecoverWindowsProxyForApplication() == 1 &&
+         !std::filesystem::exists(files.snapshot) && KeyIsMissing(kBackupPath) &&
+         NamedValueIsMissing(kRunOncePath, kRecoveryRunOnceName);
+}
+
 }  // namespace
 
 int wmain() {
+  for (int scenario = 0; scenario < 6; ++scenario) {
+    if (!TestApplicationRecovery(scenario)) {
+      std::wcerr << L"application recovery scenario failed: " << scenario << L"\n";
+      return 1;
+    }
+  }
   if (!TestValidJournalRestoresOriginalState()) {
     std::wcerr << L"valid journal recovery test failed\n";
     return 1;

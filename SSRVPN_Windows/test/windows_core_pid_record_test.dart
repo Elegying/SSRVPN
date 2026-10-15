@@ -97,43 +97,27 @@ void main() {
     }
   });
 
-  test('verified OpenProcess failure treats access denied as an error', () {
-    final lifecycleSource = File(
-      'lib/services/clash_service_lifecycle.dart',
-    ).readAsStringSync();
-    final failureStart = lifecycleSource.indexOf(
-      'if (process == IntPtr.Zero) {',
-    );
-    final failureEnd = lifecycleSource.indexOf(
-      '    try {',
-      failureStart,
-    );
-
-    expect(failureStart, greaterThanOrEqualTo(0));
-    expect(failureEnd, greaterThan(failureStart));
-    final openProcessFailure = lifecycleSource.substring(
-      failureStart,
-      failureEnd,
-    );
-    expect(openProcessFailure, contains('Marshal.GetLastWin32Error()'));
-    expect(openProcessFailure, contains('if (error == 87) return 1;'));
-    expect(openProcessFailure, contains('throw new Win32Exception(error);'));
-    expect(openProcessFailure, isNot(contains('if (error == 5) return 1;')));
+  test('verified OpenProcess failure treats only a missing PID as gone', () {
+    final source = File('lib/src/services/windows_core_process_query.dart')
+        .readAsStringSync();
+    final termination = source.substring(source.indexOf(
+        'Future<WindowsCoreTermination> terminateVerifiedWindowsCore'));
+    final failure = termination.substring(
+        termination.indexOf('if (handle.isNull)'),
+        termination.indexOf('  try {'));
+    expect(failure, contains('opened.error == ERROR_INVALID_PARAMETER'));
+    expect(failure, contains('throw StateError'));
+    expect(failure, isNot(contains('ERROR_ACCESS_DENIED')));
   });
 
-  test('verified termination fails closed when exit-code query fails', () {
-    final lifecycleSource = File(
-      'lib/services/clash_service_lifecycle.dart',
-    ).readAsStringSync();
-
-    expect(
-      lifecycleSource,
-      contains('if (!GetExitCodeProcess(process, out exitCode)) {'),
-    );
-    expect(
-      lifecycleSource,
-      contains('throw new Win32Exception(Marshal.GetLastWin32Error());'),
-    );
+  test('termination verifies handle liveness and fails closed on wait failure',
+      () {
+    final source = File('lib/src/services/windows_core_process_query.dart')
+        .readAsStringSync();
+    expect(source, contains('wait.value != WAIT_TIMEOUT'));
+    expect(source, contains("throw StateError('Process wait failed:"));
+    expect(source, contains('WaitForSingleObject(handle, 0)'));
+    expect(source, isNot(contains('GetExitCodeProcess')));
   });
 
   test(

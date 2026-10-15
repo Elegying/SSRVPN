@@ -2708,8 +2708,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertLess(capture, persist)
         self.assertLess(persist, current)
         self.assertLess(current, publish)
-        self.assertIn("creationTimeUtcFileTime", lifecycle)
-        self.assertIn("GetProcessTimes(", lifecycle)
+        self.assertIn("creationTimeUtcFileTime", native)
+        self.assertIn("GetProcessTimes(", native)
         self.assertIn(
             "required WindowsCorePidRecord expectedRecord", lifecycle
         )

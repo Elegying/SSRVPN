@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 
@@ -79,7 +80,21 @@ WindowsCoreProcessSnapshot _queryNativeProcess(
   if (handle.isNull) throw StateError('OpenProcess failed: ${opened.error}');
   Object? primaryError;
   try {
-    return using((arena) {
+    return _snapshotFromHandle(handle, trustedPath);
+  } catch (error) {
+    primaryError = error;
+    rethrow;
+  } finally {
+    final closed = CloseHandle(handle);
+    if (!closed.value && primaryError == null) {
+      throw StateError('CloseHandle failed: ${closed.error}');
+    }
+  }
+}
+
+WindowsCoreProcessSnapshot _snapshotFromHandle(
+        HANDLE handle, String trustedPath) =>
+    using((arena) {
       void ensureAlive() {
         final wait = WaitForSingleObject(handle, 0);
         if (wait.value != WAIT_TIMEOUT) {
@@ -136,13 +151,84 @@ WindowsCoreProcessSnapshot _queryNativeProcess(
         executablePath: executable,
       );
     });
-  } catch (error) {
-    primaryError = error;
+
+enum WindowsCoreTermination {
+  terminatedOrGone,
+  liveIdentityMismatch,
+  wrongInstallation
+}
+
+/// Keeps the queried handle open through termination, preventing PID reuse
+/// races. No shell, runtime C# compilation, or command-line path quoting.
+Future<WindowsCoreTermination> terminateVerifiedWindowsCore(
+    WindowsCorePidRecord record, String trustedPath) async {
+  if (!Platform.isWindows) throw UnsupportedError('Windows APIs unavailable');
+  if (WindowsCorePidRecord.tryParse(record.encode()) == null) {
+    throw StateError('Invalid core identity');
+  }
+  final sameInstallation = using((arena) =>
+      _compareOrdinal(
+          record.canonicalExecutablePath.toNativeUtf16(allocator: arena),
+          record.canonicalExecutablePath.length,
+          trustedPath.toNativeUtf16(allocator: arena),
+          trustedPath.length,
+          1) ==
+      2);
+  if (!sameInstallation) return WindowsCoreTermination.wrongInstallation;
+  final opened = OpenProcess(
+      PROCESS_QUERY_LIMITED_INFORMATION |
+          PROCESS_TERMINATE |
+          PROCESS_SYNCHRONIZE,
+      false,
+      record.pid);
+  final handle = opened.value;
+  if (handle.isNull) {
+    if (opened.error == ERROR_INVALID_PARAMETER) {
+      return WindowsCoreTermination.terminatedOrGone;
+    }
+    throw StateError('OpenProcess failed: ${opened.error}');
+  }
+  try {
+    if (WaitForSingleObject(handle, 0).value == WAIT_OBJECT_0) {
+      return WindowsCoreTermination.terminatedOrGone;
+    }
+    final snapshot = _snapshotFromHandle(handle, trustedPath);
+    if (snapshot.pid != record.pid ||
+        snapshot.sessionId != snapshot.currentSessionId ||
+        snapshot.creationTime.toString() != record.creationTimeUtcFileTime) {
+      return WindowsCoreTermination.liveIdentityMismatch;
+    }
+    final terminated = TerminateProcess(handle, 1);
+    if (!terminated.value &&
+        WaitForSingleObject(handle, 0).value != WAIT_OBJECT_0) {
+      throw StateError('TerminateProcess failed: ${terminated.error}');
+    }
+    final deadline = Stopwatch()..start();
+    while (true) {
+      final wait = WaitForSingleObject(handle, 0);
+      if (wait.value == WAIT_OBJECT_0) {
+        return WindowsCoreTermination.terminatedOrGone;
+      }
+      if (wait.value != WAIT_TIMEOUT) {
+        throw StateError('Process wait failed: ${wait.error}');
+      }
+      if (deadline.elapsed >= const Duration(seconds: 8)) {
+        throw TimeoutException('Core termination was not confirmed');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+  } on WindowsCoreIdentityFailure catch (error) {
+    if (error.kind == WindowsCoreIdentityFailureKind.mismatch) {
+      return WindowsCoreTermination.liveIdentityMismatch;
+    }
+    rethrow;
+  } catch (_) {
+    if (WaitForSingleObject(handle, 0).value == WAIT_OBJECT_0) {
+      return WindowsCoreTermination.terminatedOrGone;
+    }
     rethrow;
   } finally {
     final closed = CloseHandle(handle);
-    if (!closed.value && primaryError == null) {
-      throw StateError('CloseHandle failed: ${closed.error}');
-    }
+    if (!closed.value) throw StateError('CloseHandle failed: ${closed.error}');
   }
 }

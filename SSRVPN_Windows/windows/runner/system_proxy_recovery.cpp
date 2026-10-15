@@ -426,7 +426,7 @@ bool IsNativeRecoveryJournalNonReplayable() noexcept {
 
 }  // namespace
 
-WindowsProxyTransactionLock::WindowsProxyTransactionLock() noexcept {
+WindowsProxyTransactionLock::WindowsProxyTransactionLock(bool wait) noexcept {
   const std::wstring lock_path = ProxyTransactionLockPath();
   if (lock_path.empty()) return;
   HANDLE file = CreateFileW(
@@ -436,7 +436,9 @@ WindowsProxyTransactionLock::WindowsProxyTransactionLock() noexcept {
   if (file == INVALID_HANDLE_VALUE) return;
 
   OVERLAPPED overlapped = {};
-  if (!LockFileEx(file, LOCKFILE_EXCLUSIVE_LOCK, 0, MAXDWORD, MAXDWORD,
+  const DWORD flags = LOCKFILE_EXCLUSIVE_LOCK |
+                      (wait ? 0 : LOCKFILE_FAIL_IMMEDIATELY);
+  if (!LockFileEx(file, flags, 0, MAXDWORD, MAXDWORD,
                   &overlapped)) {
     CloseHandle(file);
     return;
@@ -763,4 +765,55 @@ bool RestoreOrConfirmOwnedWindowsProxySafeToStop() noexcept {
   WindowsProxyTransactionLock transaction_lock;
   return RestoreOwnedWindowsProxy(transaction_lock) ||
          IsOwnedWindowsProxySafeToStop(transaction_lock);
+}
+
+int RecoverWindowsProxyForApplication() noexcept {
+  // Never block the Flutter platform thread on a Dart/guardian-held lock.
+  WindowsProxyTransactionLock transaction_lock(false);
+  if (!transaction_lock.acquired()) return 0;
+  HKEY backup = nullptr;
+  const LSTATUS status = RegOpenKeyExW(HKEY_CURRENT_USER, kBackupPath, 0,
+                                      KEY_QUERY_VALUE, &backup);
+  bool changed = false;
+  HKEY settings = nullptr;
+  if (status == ERROR_SUCCESS) {
+    ProxyStateSnapshot original, current;
+    std::wstring server, bypass;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, kInternetSettingsPath, 0,
+                      KEY_QUERY_VALUE, &settings) == ERROR_SUCCESS) {
+      changed = ReadBackupProxyState(backup, &original) &&
+                ReadCurrentProxyState(settings, &current) &&
+                ReadString(backup, L"OwnedProxyServer", &server) &&
+                ReadString(backup, L"OwnedProxyOverride", &bypass) &&
+                !ProxyStatesEqual(current, original) &&
+                !ProxyStatesEqual(current, OwnedProxyState(server, bypass));
+      RegCloseKey(settings);
+    }
+  }
+  if (status == ERROR_SUCCESS) RegCloseKey(backup);
+  const auto report = [changed](int outcome) {
+    return outcome < 0 ? outcome : outcome | (changed ? 4 : 0);
+  };
+  if (status != ERROR_SUCCESS && status != ERROR_FILE_NOT_FOUND) return 0;
+  if (!RestoreOwnedWindowsProxy(transaction_lock)) {
+    // Old installations may have only a JSON snapshot. Preserve it for the
+    // legacy owner-aware recovery path, never infer ownership from a port.
+    return report(status == ERROR_FILE_NOT_FOUND ? -1 : 0);
+  }
+  if (!RemoveRecoveryArtifacts()) {
+    return report(IsOwnedWindowsProxySafeToStop(transaction_lock) ? 2 : 0);
+  }
+  const std::wstring lock_path = ProxyTransactionLockPath();
+  const size_t separator = lock_path.find_last_of(L"\\/");
+  if (separator == std::wstring::npos) return 0;
+  const std::wstring snapshot = lock_path.substr(0, separator + 1) +
+                                 L"system_proxy_backup.json";
+  const DWORD attributes = GetFileAttributesW(snapshot.c_str());
+  if (attributes == INVALID_FILE_ATTRIBUTES) {
+    return report(GetLastError() == ERROR_FILE_NOT_FOUND ? 1 : 2);
+  }
+  if ((attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) != 0) {
+    return report(2);
+  }
+  return report(DeleteFileW(snapshot.c_str()) ? 1 : 2);
 }

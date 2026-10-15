@@ -54,6 +54,42 @@ void main() {
     tearDown(() async {
       await dir.delete(recursive: true);
     });
+    test('sort preference survives restart and interleaved pin saves',
+        () async {
+      final first = NodePinStore(dir.path), stale = NodePinStore(dir.path);
+      await Future.wait([first.load(), stale.load()]);
+      await first.setSortByLatency(true);
+      await stale.toggle(node('A'));
+      final restarted = NodePinStore(dir.path);
+      await restarted.load();
+      expect(restarted.sortByLatency, isTrue);
+      expect(restarted.contains(node('A')), isTrue);
+      await restarted.setSortByLatency(false);
+      await first.toggle(node('B'));
+      final nextRestart = NodePinStore(dir.path);
+      await nextRestart.load();
+      expect(nextRestart.sortByLatency, isFalse);
+      expect(nextRestart.contains(node('A')), isTrue);
+      expect(nextRestart.contains(node('B')), isTrue);
+      for (final store in [first, stale, restarted, nextRestart]) {
+        store.dispose();
+      }
+    });
+    test(
+        'legacy preferences default to original sorting and failed save preserves it',
+        () async {
+      final file = File('${dir.path}/${NodePinStore.fileName}');
+      await file.writeAsString('{"version":1,"pins":[]}');
+      final store = NodePinStore(dir.path);
+      await store.load();
+      expect(store.sortByLatency, isFalse);
+      await file.delete();
+      await Directory(file.path).create();
+      await expectLater(
+          store.setSortByLatency(true), throwsA(isA<FileSystemException>()));
+      expect(store.sortByLatency, isFalse);
+      store.dispose();
+    });
     test('restart, toggle, bounded hashes and no credentials on disk',
         () async {
       final store = NodePinStore(dir.path);

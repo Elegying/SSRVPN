@@ -47,7 +47,11 @@ void main() {
       final result = await Process.run('icacls.exe', [
         protectedPath,
         allow ? '/remove:d' : '/deny',
-        allow ? '*$sid' : '*$sid:$inherit${readable ? '(W)' : '(R,W)'}',
+        // Generic W also denies SYNCHRONIZE, which Dart needs to enumerate a
+        // directory. Deny only write-specific rights for a readable fixture.
+        allow
+            ? '*$sid'
+            : '*$sid:$inherit${readable ? '(WD,AD,WEA,WA)' : '(R,W)'}',
       ]);
       expect(result.exitCode, 0, reason: '${result.stdout} ${result.stderr}');
     } else {
@@ -143,12 +147,22 @@ void main() {
   test('readable read-only source still migrates normally', () async {
     await sourceAccess(false, readable: true);
     try {
+      expect(await installed.list().toList(), isNotEmpty);
+      expect(await sourceSettings.readAsString(), isNotEmpty);
       await migrate();
       expect((await settings())['proxyPort'], 7890);
       expect(await marker.exists(), isTrue);
     } finally {
       await sourceAccess(true);
     }
+  });
+
+  test('migration preserves node pins and persisted sorting', () async {
+    const preferences = '{"version":1,"pins":[],"sortByLatency":true}';
+    await File('${installed.path}/node-pins.json').writeAsString(preferences);
+    await migrate();
+    expect(await File('${fallback.path}/node-pins.json').readAsString(),
+        preferences);
   });
 
   test('an unreadable optional cache does not prevent metadata migration',

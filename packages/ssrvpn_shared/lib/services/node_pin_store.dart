@@ -20,6 +20,8 @@ class NodePinStore extends ChangeNotifier {
   }
 
   Set<String> _keys = {};
+  bool _sortByLatency = false;
+  bool get sortByLatency => _sortByLatency;
   Future<void>? _loading;
   static const maxEntries = 10000;
   static const maxBytes = 800000;
@@ -50,6 +52,7 @@ class NodePinStore extends ChangeNotifier {
         return;
       }
       _keys = pins.cast<String>().toSet();
+      _sortByLatency = data['sortByLatency'] == true;
       if (!_disposed) notifyListeners();
     } on FileSystemException {
       // A read failure is not evidence of corrupt/empty preferences. A writer
@@ -60,17 +63,24 @@ class NodePinStore extends ChangeNotifier {
     }
   }
 
-  Future<void> toggle(ProxyNode node) => _writes.add(() async {
+  Future<void> toggle(ProxyNode node) => _change(node: node);
+  Future<void> setSortByLatency(bool value) => _change(sortByLatency: value);
+
+  Future<void> _change({ProxyNode? node, bool? sortByLatency}) =>
+      _writes.add(() async {
         await load();
         await _load(requireReadable: true);
-        final key = NodeLatencyCache.endpointKey(node);
         final next = Set<String>.of(_keys);
-        if (!next.remove(key)) {
-          if (next.length >= maxEntries) {
-            throw const FormatException('置顶数量已达上限');
+        if (node != null) {
+          final key = NodeLatencyCache.endpointKey(node);
+          if (!next.remove(key)) {
+            if (next.length >= maxEntries) {
+              throw const FormatException('置顶数量已达上限');
+            }
+            next.add(key);
           }
-          next.add(key);
         }
+        final nextSort = sortByLatency ?? _sortByLatency;
         final root = Directory(directory);
         await root.create(recursive: true);
         final file = File('$directory/$fileName');
@@ -83,11 +93,16 @@ class NodePinStore extends ChangeNotifier {
         try {
           final staged = File('${temp.path}/pins.json');
           await staged.writeAsString(
-            jsonEncode({'version': 1, 'pins': next.toList()}),
+            jsonEncode({
+              'version': 1,
+              'pins': next.toList(),
+              'sortByLatency': nextSort
+            }),
             flush: true,
           );
           await staged.rename(file.path);
           _keys = next;
+          _sortByLatency = nextSort;
           if (!_disposed) notifyListeners();
         } finally {
           try {

@@ -71,8 +71,16 @@ void main() {
       expect(minimum['width'], bounds['width']);
       expect(minimum['height'], bounds['height']);
       expect(maximum, minimum);
-      expect(calls.map((c) => c.method),
-          containsAllInOrder(['setMinimumSize', 'setBounds', 'show', 'focus']));
+      expect(
+          calls.map((c) => c.method),
+          containsAllInOrder([
+            'setTitleBarStyle',
+            'setAsFrameless',
+            'setMinimumSize',
+            'setBounds',
+            'show',
+            'focus'
+          ]));
     });
   }
 }

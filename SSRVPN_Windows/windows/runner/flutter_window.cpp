@@ -495,6 +495,11 @@ bool FlutterWindow::OnCreate() {
       [](const flutter::MethodCall<flutter::EncodableValue>& call,
          std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
              result) {
+        if (call.method_name() == "recoverSystemProxy") {
+          result->Success(flutter::EncodableValue(
+              RecoverWindowsProxyForApplication()));
+          return;
+        }
         if (call.method_name() != "getWindowsVersionInfo") {
           result->NotImplemented();
           return;
