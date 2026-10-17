@@ -8,6 +8,47 @@ import 'package:ssrvpn_shared/models/app_diagnostics.dart';
 import 'package:ssrvpn_shared/widgets/app_diagnostics_view.dart';
 
 void main() {
+  testWidgets(
+      'copy retains every stored entry beyond 20 records and 8192 chars',
+      (tester) async {
+    String? clipboard;
+    tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        clipboard = (call.arguments as Map)['text'] as String;
+      }
+      if (call.method == 'Clipboard.getData') return {'text': clipboard};
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+    final logs = [
+      for (var i = 0; i < 30; i++)
+        '[2026-10-18T00:00:00Z] [INFO] [runtime] record-$i ${'x' * 235}',
+      '[2026-10-18T00:00:00Z] [ERROR] [runtime] FINAL_ERROR token=private-value'
+    ].join('\n');
+    final report = AppDiagnosticReport(
+        generatedAt: DateTime.utc(2026), checks: const [], recentLogs: logs);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: AppDiagnosticsView(
+      runDiagnostics: () async => report,
+      loadHistory: () async => const [],
+      repair: (_) async => const AppRepairResult(success: false, message: ''),
+    ))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('复制报告'));
+    await tester.pumpAndSettle();
+    expect(clipboard!.length, greaterThan(8192));
+    for (var i = 0; i < 30; i++) {
+      expect(clipboard, contains('record-$i '));
+    }
+    expect(clipboard, contains('FINAL_ERROR'));
+    expect(clipboard, isNot(contains('private-value')));
+    expect(clipboard, isNot(contains('报告已截断')));
+    expect(find.text('诊断报告已复制（敏感内容已脱敏）'), findsOneWidget);
+  });
+
   test('clipboard verification accepts Windows newline normalization', () {
     expect(
       diagnosticClipboardMatchesReport(

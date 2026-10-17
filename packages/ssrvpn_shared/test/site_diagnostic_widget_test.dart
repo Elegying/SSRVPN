@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/models/app_diagnostics.dart';
 import 'package:ssrvpn_shared/models/site_diagnostic_report.dart';
@@ -45,9 +46,14 @@ class _Diagnostic extends SiteAccessDiagnostic {
               rule: 'Domain example.com', chain: ['REJECT']));
 }
 
-Future<void> _open(WidgetTester tester, _Core core) async {
+Future<void> _open(WidgetTester tester, _Core core,
+    {double textScale = 1}) async {
   await tester.pumpWidget(MaterialApp(
     theme: ThemeData.dark(),
+    builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context)
+            .copyWith(textScaler: TextScaler.linear(textScale)),
+        child: child!),
     home: Scaffold(body: Builder(builder: (context) {
       return TextButton(
         onPressed: () => showSsrvpnSiteDiagnostic(context, core),
@@ -60,6 +66,63 @@ Future<void> _open(WidgetTester tester, _Core core) async {
 }
 
 void main() {
+  for (final scale in [2.0, 3.2]) {
+    testWidgets('diagnostic guidance does not truncate at text scale $scale',
+        (tester) async {
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final core = _Core();
+      addTearDown(core.dispose);
+      await _open(tester, core, textScale: scale);
+      for (final text in ['网站地址', '域名自动使用 HTTPS']) {
+        final paragraph = tester.renderObject<RenderParagraph>(find.text(text));
+        expect(paragraph.didExceedMaxLines, isFalse, reason: text);
+      }
+      await tester.tap(find.text('开始诊断'));
+      await tester.pumpAndSettle();
+      final error = find.text('请输入要检查的网站，例如 example.com');
+      expect(tester.renderObject<RenderParagraph>(error).didExceedMaxLines,
+          isFalse);
+      expect(find.text('关闭').hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
+  testWidgets('diagnostic explains prerequisites and keeps errors beside input',
+      (tester) async {
+    final core = _Core();
+    addTearDown(core.dispose);
+    await _open(tester, core);
+    expect(find.text('当前未连接。请先在主页连接节点，再开始诊断。'), findsOneWidget);
+    expect(find.text('域名自动使用 HTTPS'), findsOneWidget);
+    final input = find.byKey(const Key('ssrvpn-site-diagnostic-input'));
+    await tester.tap(find.text('开始诊断'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(input).decoration!.errorText,
+        '请输入要检查的网站，例如 example.com');
+    await tester.enterText(input, 'https://127.0.0.1/private');
+    await tester.tap(find.text('开始诊断'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(input).decoration!.errorText,
+        '请使用公开网站域名，不支持本机或 IP 地址');
+    expect(tester.widget<TextField>(input).controller!.text,
+        'https://127.0.0.1/private');
+    await tester.enterText(input, 'example.com');
+    expect(tester.widget<TextField>(input).controller!.text, 'example.com');
+    await tester.pump();
+    expect(tester.widget<TextField>(input).decoration!.errorText, isNull);
+    core.connected = true;
+    core.notifyStatusChanged();
+    await tester.pumpAndSettle();
+    expect(find.text('当前未连接。请先在主页连接节点，再开始诊断。'), findsNothing);
+    expect(tester.widget<TextField>(input).controller!.text, 'example.com');
+    expect(core.connectionDesired, isFalse);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   for (final fail in [false, true]) {
     testWidgets(
         'routing suggestion requires confirmation and reports persistence: fail=$fail',

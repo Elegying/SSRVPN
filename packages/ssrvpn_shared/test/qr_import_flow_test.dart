@@ -53,6 +53,83 @@ class _Scanner extends MobileScannerPlatform {
 }
 
 void main() {
+  for (final platform in [
+    TargetPlatform.macOS,
+    TargetPlatform.windows,
+    TargetPlatform.android
+  ]) {
+    testWidgets('$platform camera visibility and pending startup',
+        (tester) async {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      final original = MobileScannerPlatform.instance;
+      final scanner = _Scanner()..pendingStart = Completer<void>();
+      MobileScannerPlatform.instance = scanner;
+      addTearDown(() async {
+        MobileScannerPlatform.instance = original;
+        await scanner.codes.close();
+      });
+      await tester.pumpWidget(const MaterialApp(home: SsrvpnQrScanner()));
+      await tester.pump();
+      expect(find.text('正在开启相机，请稍候…'), findsOneWidget);
+      expect(tester.getSize(find.byKey(const Key('qr-camera-preview'))).width,
+          tester.view.physicalSize.width / tester.view.devicePixelRatio);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      scanner.pendingStart!.complete();
+      scanner.pendingStart = null;
+      await tester.pumpAndSettle();
+      final desktop = platform != TargetPlatform.android;
+      expect(scanner.stops, desktop ? 0 : greaterThan(0));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(scanner.starts, desktop ? 1 : 2);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      await tester.pumpAndSettle();
+      expect(scanner.stops, greaterThan(0));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pumpAndSettle();
+      expect(scanner.starts, 2);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    }, variant: TargetPlatformVariant({platform}), skip: Platform.isWindows);
+  }
+  testWidgets('desktop scan waits for focus before asking to import',
+      (tester) async {
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    final original = MobileScannerPlatform.instance, scanner = _Scanner();
+    MobileScannerPlatform.instance = scanner;
+    addTearDown(() async {
+      MobileScannerPlatform.instance = original;
+      await scanner.codes.close();
+    });
+    final input = TextEditingController(text: 'existing draft');
+    addTearDown(input.dispose);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SsrvpnQrImportButton(
+                enabled: true,
+                controller: input,
+                onAdd: () => fail('must not import')))));
+    await tester.tap(find.byKey(const Key('ssrvpn-qr-import')));
+    await tester.pumpAndSettle();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    scanner.codes.add(const BarcodeCapture(
+        barcodes: [Barcode(rawValue: 'https://example.com/feed')]));
+    await tester.pumpAndSettle();
+    expect(find.text('导入二维码'), findsNothing);
+    expect(input.text, 'existing draft');
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.text('导入二维码'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(input.text, 'existing draft');
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  },
+      variant: const TargetPlatformVariant({TargetPlatform.macOS}),
+      skip: Platform.isWindows);
   for (final action in ['closed', 'closing', 'background']) {
     testWidgets('$action while camera stops must not open the gallery later',
         (tester) async {

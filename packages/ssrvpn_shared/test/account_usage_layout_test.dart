@@ -28,8 +28,8 @@ void main() {
           find.byKey(const ValueKey('home-traffic-card-已用流量')), findsOneWidget);
       expect(find.byKey(const ValueKey('home-traffic-card-已连接设备')),
           findsOneWidget);
-      expect(find.text('暂未更新'), findsNWidgets(2));
-      expect(find.byTooltip('统计服务响应较慢，将自动重试'), findsOneWidget);
+      expect(find.text('暂未更新'), findsNothing);
+      expect(find.byType(Tooltip), findsNothing);
       expect(tester.takeException(), isNull);
     });
   }

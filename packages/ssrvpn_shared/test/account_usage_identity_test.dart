@@ -104,7 +104,8 @@ void main() {
     'authentication',
     'rate limited'
   ]) {
-    testWidgets('$name preserves marked historical numbers, then recovers',
+    testWidgets(
+        '$name preserves historical numbers without home notices, then recovers',
         (tester) async {
       final origin = tester.binding.clock.now();
       var next = Completer<AccountUsage>();
@@ -117,7 +118,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1));
       expect(cardCount(), 5);
       expect(controller.value, isNull);
-      expect(find.text('暂未更新'), findsNWidgets(2));
+      expect(find.text('暂未更新'), findsNothing);
       next.complete(AccountUsage.parse(usageJson()));
       await tester.pump(const Duration(milliseconds: 1));
       expect(cardCount(), 5);
@@ -155,7 +156,7 @@ void main() {
       expect(controller.value, isNull);
       expect(find.text('已用流量'), findsOneWidget);
       expect(find.text('已连接设备'), findsOneWidget);
-      expect(find.text('上次数据·暂未更新'), findsNWidgets(2));
+      expect(find.text('上次数据·暂未更新'), findsNothing);
       next = Completer<AccountUsage>();
       await tester.pump(const Duration(seconds: 15));
       next.complete(
@@ -260,7 +261,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
     expect(cardCount(), 5);
     expect(controller.value, isNull);
-    expect(find.text('上次数据·暂未更新'), findsNWidgets(2));
+    expect(find.text('上次数据·暂未更新'), findsNothing);
     await tester.pump(const Duration(seconds: 30));
     pending.last.complete(AccountUsage.parse(usageJson(time: 1030)));
     await tester.pump(const Duration(milliseconds: 1));

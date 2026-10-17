@@ -1,4 +1,4 @@
-import 'ssrvpn_liquid_glass.dart' show ssrvpnGlassQuality;
+import 'ssrvpn_liquid_glass.dart' show ssrvpnGlassDisabled, ssrvpnGlassQuality;
 import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -72,11 +72,11 @@ class _SsrvpnGlassCaptureState extends State<SsrvpnGlassCapture>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _key = glass.LiquidGlassScope.of(context);
-    _enabled =
+    _enabled = !ssrvpnGlassDisabled(context) &&
         (widget.captureSupported ?? ui.ImageFilter.isShaderFilterSupported) &&
-            TickerMode.valuesOf(context).enabled &&
-            !MediaQuery.highContrastOf(context) &&
-            ssrvpnGlassQuality(context) == glass.GlassQuality.premium;
+        TickerMode.valuesOf(context).enabled &&
+        !MediaQuery.highContrastOf(context) &&
+        ssrvpnGlassQuality(context) == glass.GlassQuality.premium;
     final route = ModalRoute.of(context);
     if (_route != route) {
       _listenToRoute(false);

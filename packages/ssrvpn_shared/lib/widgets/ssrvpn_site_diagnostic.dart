@@ -40,6 +40,7 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
   final _input = TextEditingController();
   SiteAccessDiagnostic? _running;
   String? _result;
+  String? _inputError;
   SiteDiagnosticReport? _report;
   String? _stage;
   bool? _pendingDirect;
@@ -53,7 +54,10 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
   }
 
   void _changed() {
-    if (_running == null && _report == null) return;
+    if (_running == null && _report == null) {
+      if (mounted) setState(() => _result = null);
+      return;
+    }
     // Any core transition invalidates this advisory result; never repair or switch automatically.
     _epoch++;
     _running?.cancel();
@@ -68,7 +72,10 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed) _changed();
+    if (state != AppLifecycleState.resumed &&
+        (_running != null || _report != null)) {
+      _changed();
+    }
   }
 
   Future<void> _run() async {
@@ -76,12 +83,15 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
     setState(() {
       _report = null;
       _pendingDirect = null;
+      _inputError = null;
+      _result = null;
     });
     Uri target;
     try {
       target = SiteAccessDiagnostic.parseTarget(_input.text.trim());
     } on FormatException catch (e) {
-      setState(() => _result = e.message);
+      setState(() => _inputError =
+          _input.text.trim().isEmpty ? '请输入要检查的网站，例如 example.com' : e.message);
       return;
     }
     final core = widget.core;
@@ -206,6 +216,12 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Semantics(
+                    liveRegion: true,
+                    child: Text(widget.core.isRunning
+                        ? '检查网站访问情况，帮助判断下一步该如何处理。'
+                        : '当前未连接。请先在主页连接节点，再开始诊断。')),
+                const SizedBox(height: 16),
                 TextField(
                   key: const Key('ssrvpn-site-diagnostic-input'),
                   controller: _input,
@@ -215,12 +231,20 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
                   enableSuggestions: true,
                   enableIMEPersonalizedLearning: false,
                   keyboardType: TextInputType.url,
-                  decoration: const InputDecoration(
-                    hintText: 'https://example.com',
+                  textInputAction: TextInputAction.go,
+                  decoration: InputDecoration(
+                    labelText: '网站地址',
+                    hintText: 'example.com',
+                    helperText: '域名自动使用 HTTPS',
+                    helperMaxLines: 4,
+                    counterText: '',
+                    errorText: _inputError,
+                    errorMaxLines: 8,
                   ),
                   onChanged: (_) => setState(() {
                     _report = null;
                     _result = null;
+                    _inputError = null;
                     _pendingDirect = null;
                   }),
                   onSubmitted: (_) => _run(),

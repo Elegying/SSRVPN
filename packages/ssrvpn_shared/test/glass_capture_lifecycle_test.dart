@@ -1,4 +1,6 @@
 import 'dart:ui' as ui;
+import 'package:ssrvpn_shared/models/app_settings.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as glass;
@@ -6,6 +8,65 @@ import 'package:ssrvpn_shared/widgets/ssrvpn_glass_capture.dart';
 import 'support/animated_test_background.dart';
 
 void main() {
+  testWidgets('only glass themes retain textures without resetting page state',
+      (tester) async {
+    final variant = ValueNotifier(AppThemeVariant.cloud);
+    final controller = TextEditingController(text: 'unsaved input');
+    addTearDown(variant.dispose);
+    addTearDown(controller.dispose);
+    SsrvpnGlassFrame? frame;
+    final images = <ui.Image>{};
+    final page = glass.LiquidGlassScope(
+      child: SsrvpnGlassCapture(
+        captureSupported: true,
+        child: Stack(fit: StackFit.expand, children: [
+          const SsrvpnGlassBackgroundSource(
+              child: ColoredBox(color: Colors.blue)),
+          Builder(
+              builder: (context) => ValueListenableBuilder<SsrvpnGlassFrame?>(
+                    valueListenable: SsrvpnGlassFrame.listenableOf(context)!,
+                    child: TextField(controller: controller),
+                    builder: (_, value, child) {
+                      frame = value;
+                      if (value != null) images.add(value.image);
+                      return child!;
+                    },
+                  )),
+        ]),
+      ),
+    );
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpWidget(MaterialApp(
+      home: ValueListenableBuilder<AppThemeVariant>(
+        valueListenable: variant,
+        child: page,
+        builder: (_, theme, child) => Theme(
+          data: ThemeData(extensions: [SsrvpnTheme(theme)]),
+          child: Scaffold(body: child),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(frame, isNull);
+    final state = tester.state(find.byType(TextField));
+    for (final theme in AppThemeVariant.values
+        .where((theme) => theme != AppThemeVariant.defaultTheme)) {
+      variant.value = AppThemeVariant.defaultTheme;
+      await tester.pumpAndSettle();
+      expect(frame, isNotNull);
+      final texture = frame!.image;
+      variant.value = theme;
+      await tester.pumpAndSettle();
+      expect(frame, isNull, reason: theme.name);
+      expect(texture.debugDisposed, isTrue);
+      expect(identical(tester.state(find.byType(TextField)), state), isTrue);
+      expect(controller.text, 'unsaved input');
+    }
+    await tester.pumpWidget(const SizedBox());
+    expect(images.every((image) => image.debugDisposed), isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
       'static glass reuses full resolution texture while foreground changes',
       (tester) async {

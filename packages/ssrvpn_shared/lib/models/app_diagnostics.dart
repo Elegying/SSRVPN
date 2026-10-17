@@ -683,9 +683,8 @@ class AppDiagnosticLogEntry {
   bool get requiresAttention => level != AppDiagnosticLogLevel.information;
 }
 
-/// Runtime entries are individually bounded and normalized by the logger.
-/// Keep continuation lines with their entry so quoted multiline secrets are
-/// redacted together. Never apply the single-entry 4 KiB limit to a batch.
+/// The runtime logger already bounds retained entries. Redact the whole batch
+/// so multiline secrets stay protected, without clipping entry tails again.
 String sanitizedDiagnosticLogs(String rawLogs) {
   var bounded = rawLogs;
   if (bounded.length > AppConstants.maxLogBufferSize) {
@@ -693,19 +692,7 @@ String sanitizedDiagnosticLogs(String rawLogs) {
     bounded =
         bounded.substring(0, end >= 0 ? end : AppConstants.maxLogBufferSize);
   }
-  bounded = LogRedactor.sanitizeLogBatchForDisplay(bounded);
-  final starts = RegExp(
-    r'^\[[^\]\r\n]+\] \[[A-Z]+\] \[[a-z0-9_.-]+\] ',
-    multiLine: true,
-  ).allMatches(bounded).map((match) => match.start).toList();
-  final boundaries = {0, ...starts, bounded.length}.toList()..sort();
-  final result = StringBuffer();
-  for (var i = 0; i + 1 < boundaries.length; i++) {
-    result.writeln(LogRedactor.sanitizeForDisplay(
-            bounded.substring(boundaries[i], boundaries[i + 1]))
-        .trimRight());
-  }
-  return result.toString();
+  return LogRedactor.sanitizeLogBatchForDisplay(bounded).trimRight();
 }
 
 List<AppDiagnosticLogEntry> readableDiagnosticLogs(
@@ -725,6 +712,15 @@ List<AppDiagnosticLogEntry> readableDiagnosticLogs(
     if (line.isEmpty) continue;
     final match = pattern.firstMatch(line);
     final rawMessage = match?.group(4) ?? line;
+    // Hide routine core chatter only at information level. Warnings and
+    // errors stay visible even if their detail quotes an informational line.
+    if (match?.group(3) == 'runtime' &&
+        match?.group(2) == 'INFO' &&
+        RegExp(r'^\[mihomo\] time="[^"]+" level=(debug|info) msg=')
+            .hasMatch(rawMessage) &&
+        _plainRuntimeSummary('runtime', rawMessage) == null) {
+      continue;
+    }
     final message = _plainRuntimeSummary(match?.group(3), rawMessage) ??
         _readableDiagnosticMessage(rawMessage);
     if (message == null || message.isEmpty) continue;
@@ -764,6 +760,9 @@ List<AppDiagnosticLogEntry> readableDiagnosticLogs(
 // Match owned event categories and explicit observations, never guess a cause
 // from arbitrary core output. Raw evidence remains available in the report.
 String? _plainRuntimeSummary(String? event, String text) {
+  if (event == 'connection_timing') {
+    return text.replaceFirst(RegExp(r'；?\s*attempt=\d+.*$'), '');
+  }
   if (event == 'runtime' &&
       RegExp(r'^\[mihomo\] time="[^"]+" level=(info|warning) msg="')
           .hasMatch(text) &&
@@ -985,8 +984,12 @@ class AppDiagnosticReport {
     return '本次已完成的检查未发现异常';
   }
 
-  String toText({int maxLength = 8192}) {
-    if (maxLength <= 0) throw ArgumentError.value(maxLength, 'maxLength');
+  /// Clipboard exports include every retained log entry. Only the bounded
+  /// history store explicitly requests a shortened snapshot.
+  String toText({int? maxLength}) {
+    if (maxLength != null && maxLength <= 0) {
+      throw ArgumentError.value(maxLength, 'maxLength');
+    }
     final localTime = generatedAt.toLocal().toIso8601String();
     final platform = switch (defaultTargetPlatform) {
       TargetPlatform.android => 'Android',
@@ -1023,6 +1026,16 @@ class AppDiagnosticReport {
           ..writeln('  影响：${guidance.impact}')
           ..writeln('  下一步：${guidance.nextStep}');
       }
+    }
+    if (maxLength == null) {
+      final logs = sanitizedDiagnosticLogs(recentLogs);
+      if (logs.isNotEmpty) {
+        buffer
+          ..writeln()
+          ..writeln('运行日志（当前保留的完整记录，已脱敏）')
+          ..writeln(logs);
+      }
+      return buffer.toString();
     }
     final logs = readableLogs;
     const marker = '\n…报告已截断';

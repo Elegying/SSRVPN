@@ -378,7 +378,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
     expect(cards(), 5);
     expect(controller.value, isNull);
-    expect(find.text('暂未更新'), findsNWidgets(2));
+    expect(find.text('暂未更新'), findsNothing);
     pending.complete(AccountUsage.parse(usageJson()));
     await tester.pump(const Duration(milliseconds: 1));
     expect(cards(), 5);
@@ -391,7 +391,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
     expect(cards(), 5);
     expect(controller.value, isNull);
-    expect(find.text('上次数据·暂未更新'), findsNWidgets(2));
+    expect(find.text('上次数据·暂未更新'), findsNothing);
     expect(find.text('暂不可用'), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });

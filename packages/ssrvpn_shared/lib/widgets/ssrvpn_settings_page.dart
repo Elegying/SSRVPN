@@ -41,7 +41,10 @@ class SsrvpnSettingsPage extends StatefulWidget {
   State<SsrvpnSettingsPage> createState() => _SsrvpnSettingsPageState();
 }
 
-class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
+class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
   late final TextEditingController _port;
   final _siteDiagnosticFocus = FocusNode();
   final _runtimeLogFocus = FocusNode();
@@ -160,6 +163,7 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final width = MediaQuery.sizeOf(context).width;
     final horizontalPadding = width > 680 ? (width - 640) / 2 : 20.0;
     return SafeArea(
@@ -223,23 +227,26 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                                       fontWeight: FontWeight.bold))),
                           const SizedBox(width: 12),
                           Expanded(
-                            child: TextField(
-                                controller: _port,
-                                keyboardType: TextInputType.number,
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.digitsOnly,
-                                  LengthLimitingTextInputFormatter(5)
-                                ],
-                                decoration: InputDecoration(
-                                    hintText: '下次连接生效',
-                                    hintMaxLines: 3,
-                                    contentPadding: const EdgeInsets.symmetric(
-                                        horizontal: 12, vertical: 12),
-                                    border: const OutlineInputBorder(),
-                                    errorMaxLines: 8,
-                                    errorText: _portError),
-                                onSubmitted:
-                                    _saving ? null : (_) => _savePort()),
+                            child: Semantics(
+                                label: '代理端口',
+                                child: TextField(
+                                    controller: _port,
+                                    keyboardType: TextInputType.number,
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.digitsOnly,
+                                      LengthLimitingTextInputFormatter(5)
+                                    ],
+                                    decoration: InputDecoration(
+                                        hintText: '下次连接生效',
+                                        hintMaxLines: 3,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                                horizontal: 12, vertical: 12),
+                                        border: const OutlineInputBorder(),
+                                        errorMaxLines: 8,
+                                        errorText: _portError),
+                                    onSubmitted:
+                                        _saving ? null : (_) => _savePort())),
                           ),
                         ])),
                 const SizedBox(height: 12),
@@ -335,7 +342,7 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                         style: const TextStyle(fontSize: 14, height: 1.4)))),
             IconButton(
                 tooltip: '关闭提示',
-                icon: const Icon(Icons.close, size: 20),
+                icon: const Icon(Icons.close, size: 20, semanticLabel: '关闭提示'),
                 onPressed: () => setState(() => _notice = null)),
           ])));
 

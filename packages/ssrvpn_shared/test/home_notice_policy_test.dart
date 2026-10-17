@@ -8,7 +8,7 @@ import 'account_usage_test.dart' show usageJson, usageNode, usageProviders;
 void main() {
   for (final theme in AppThemeVariant.values) {
     testWidgets(
-        'device notice preserves readable cards in ${theme.name} at maximum text size',
+        'no extra notices beside readable cards in ${theme.name} at maximum text size',
         (tester) async {
       tester.view.physicalSize = const Size(320, 568);
       tester.view.devicePixelRatio = 1;
@@ -60,19 +60,21 @@ void main() {
             (widget.properties.label?.startsWith(label) ?? false));
         expect(tester.getSize(card).height, greaterThanOrEqualTo(10));
       }
-      final notice =
-          tester.getRect(find.byKey(const Key('device-limit-notice')));
-      final nav = tester
-          .getRect(find.byKey(const Key('ssrvpn-bottom-navigation')).first);
-      expect(notice.height, greaterThanOrEqualTo(10));
-      expect(notice.bottom, lessThanOrEqualTo(nav.top));
+      expect(find.byKey(const Key('device-limit-notice')), findsNothing);
+      expect(find.textContaining('设备数达到上限'), findsNothing);
+      expect(
+          find.descendant(
+              of: find.byType(SsrvpnHomeStatistics),
+              matching: find.byType(Tooltip)),
+          findsNothing);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     });
   }
 
   for (final failure in UsageFailureKind.values) {
-    testWidgets('only current device limit survives $failure', (tester) async {
+    testWidgets('home stays quiet while diagnostics retain $failure',
+        (tester) async {
       var calls = 0;
       final logs = <String>[];
       final start = tester.binding.clock.now();
@@ -100,8 +102,8 @@ void main() {
       await tester.pumpWidget(host(usageNode()));
       await tester.pump(const Duration(milliseconds: 1));
       await tester.pump();
-      expect(find.byKey(const Key('device-limit-notice')), findsOneWidget);
-      expect(find.textContaining('请断开其他设备'), findsOneWidget);
+      expect(find.byKey(const Key('device-limit-notice')), findsNothing);
+      expect(find.textContaining('请断开其他设备'), findsNothing);
       expect(
           tester
               .widget<SsrvpnHomeTrafficPanel>(
@@ -118,11 +120,7 @@ void main() {
                   find.byType(SsrvpnHomeTrafficPanel))
               .accountStatus,
           '上次数据·暂未更新');
-      expect(
-          find.byKey(const Key('device-limit-notice')),
-          failure == UsageFailureKind.deviceLimit
-              ? findsOneWidget
-              : findsNothing);
+      expect(find.byKey(const Key('device-limit-notice')), findsNothing);
       expect(find.textContaining('上次数据，暂未更新'), findsNothing);
       expect(logs.single, contains('上次数据，暂未更新'));
       await tester.pumpWidget(host(usageNode(password: 'different-account')));

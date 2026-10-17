@@ -71,6 +71,7 @@ class _SsrvpnQrImportButtonState extends State<SsrvpnQrImportButton> {
         key: const Key('ssrvpn-qr-import'),
         tooltip: '扫描或选择二维码图片',
         onPressed: widget.enabled && !_busy ? _scan : null,
-        icon: const Icon(Icons.qr_code_scanner_rounded),
+        icon: const Icon(Icons.qr_code_scanner_rounded,
+            semanticLabel: '扫描或选择二维码图片'),
       );
 }

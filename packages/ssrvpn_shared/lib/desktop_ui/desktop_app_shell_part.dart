@@ -137,13 +137,24 @@ class _DesktopAppShell extends StatelessWidget {
   }
 }
 
-class _PageStack extends StatelessWidget {
+class _PageStack extends StatefulWidget {
   const _PageStack({required this.currentIndex});
 
   final int currentIndex;
 
   @override
+  State<_PageStack> createState() => _PageStackState();
+}
+
+class _PageStackState extends State<_PageStack> {
+  // Home owns connection recovery and must stay mounted from startup. Other
+  // tabs retain their form/scroll state after their first visit.
+  final _visited = <int>{0};
+
+  @override
   Widget build(BuildContext context) {
+    final currentIndex = widget.currentIndex;
+    _visited.add(currentIndex);
     return IndexedStack(
       index: currentIndex,
       children: [
@@ -153,10 +164,15 @@ class _PageStack extends StatelessWidget {
         ),
         SsrvpnPageActivity(
           active: currentIndex == 1,
-          child: SubscriptionScreen(),
+          child: _visited.contains(1)
+              ? SubscriptionScreen()
+              : const SizedBox.shrink(),
         ),
         SsrvpnPageActivity(
-            active: currentIndex == 2, child: _buildSettingsPage(context)),
+            active: currentIndex == 2,
+            child: _visited.contains(2)
+                ? Builder(builder: _buildSettingsPage)
+                : const SizedBox.shrink()),
       ],
     );
   }

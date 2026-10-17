@@ -1,6 +1,7 @@
 import '../models/subscription_usage.dart';
 import 'ssrvpn_subscription_usage_metrics.dart';
 import 'ssrvpn_themed_statistics.dart';
+import 'ssrvpn_statistics_metric.dart';
 import 'ssrvpn_usage_ring.dart';
 import 'ssrvpn_liquid_glass.dart';
 import 'dart:async';
@@ -41,6 +42,12 @@ class SsrvpnHomeTrafficPanel extends StatefulWidget {
 
 class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
     with WidgetsBindingObserver {
+  static const _labels = ['上传速率', '下载速率', '本次累计'];
+  static const _arrows = ['↑', '↓', ''];
+  final _trafficValues = [
+    for (var i = 0; i < 3; i++)
+      ValueNotifier(ssrvpnTrafficValue(_labels[i], 0, _arrows[i], i < 2))
+  ];
   Timer? _timer;
   VpnTrafficSample? _previous;
   double _uploadRate = 0;
@@ -75,7 +82,7 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Focus changes must preserve the running timer, pending read and rate
     // baseline. Only actual visibility transitions invalidate sampling.
-    if (_shouldPoll != _polling) setState(_restart);
+    if (_shouldPoll != _polling) _restart();
   }
 
   void _restart() {
@@ -87,6 +94,7 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
     _polling = _shouldPoll;
     final epoch = ++_epoch;
     if (!widget.connected) _total = 0;
+    _publishTraffic();
     if (_polling) {
       unawaited(_refresh(epoch));
     }
@@ -106,20 +114,31 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
           _uploadRate != upload ||
           _downloadRate != download ||
           _total != total) {
-        setState(() {
-          _uploadRate = upload;
-          _downloadRate = download;
-          _total = total;
-          _unavailable = false;
-        });
+        _uploadRate = upload;
+        _downloadRate = download;
+        _total = total;
+        _unavailable = false;
+        _publishTraffic();
       }
     } catch (_) {
       if (!mounted || epoch != _epoch) return;
       _previous = null;
-      if (!_unavailable) setState(() => _unavailable = true);
+      if (!_unavailable) {
+        _unavailable = true;
+        _publishTraffic();
+      }
     }
     if (!mounted || epoch != _epoch) return;
     _timer = Timer(Duration(seconds: 1), () => _refresh(epoch));
+  }
+
+  void _publishTraffic() {
+    final values = [_uploadRate, _downloadRate, _total];
+    for (var i = 0; i < 3; i++) {
+      _trafficValues[i].value = ssrvpnTrafficValue(
+          _labels[i], values[i], _arrows[i], i < 2,
+          unavailable: _unavailable);
+    }
   }
 
   @override
@@ -127,39 +146,30 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
     _epoch++;
     _timer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
+    for (final value in _trafficValues) {
+      value.dispose();
+    }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final account = widget.accountUsage;
-    String traffic(num value, bool rate) =>
-        _unavailable ? '—' : formatVpnTraffic(value, rate: rate);
-    final metrics = <({
-      String label,
-      String number,
-      String unit,
-      Color color,
-      String semantics
-    })>[];
-    void local(String label, num bytes, Color color, String arrow, bool rate) {
-      final value = traffic(bytes, rate);
-      final parts = value.split(' ');
-      final digits = parts.first.length > 4 && parts.first.endsWith('.0')
-          ? parts.first.substring(0, parts.first.length - 2)
-          : parts.first;
-      metrics.add((
-        label: label,
-        number: '$arrow$digits',
-        unit: parts.length > 1 ? parts.last : ' ',
-        color: color,
-        semantics: '$label：${_unavailable ? '暂不可用' : value}'
-      ));
-    }
-
-    local('上传速率', _uploadRate, SsrvpnUiTokens.of(context).primary, '↑', true);
-    local('下载速率', _downloadRate, SsrvpnUiTokens.of(context).success, '↓', true);
-    local('本次累计', _total, SsrvpnUiTokens.of(context).textPrimary, '', false);
+    final colors = [
+      SsrvpnUiTokens.of(context).primary,
+      SsrvpnUiTokens.of(context).success,
+      SsrvpnUiTokens.of(context).textPrimary,
+    ];
+    final metrics = <SsrvpnMetric>[
+      for (var i = 0; i < 3; i++)
+        (
+          label: _labels[i],
+          number: _trafficValues[i].value.number,
+          unit: _trafficValues[i].value.unit,
+          color: colors[i],
+          semantics: _trafficValues[i].value.semantics
+        )
+    ];
     if (account != null) {
       final usage = formatAccountUsage(account);
       final count =
@@ -169,22 +179,19 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
       metrics.add((
         label: '已用流量',
         number: usage.amount,
-        unit: widget.accountStale ? '上次数据·暂未更新' : '每月1日重置',
+        unit: '每月1日重置',
         color: SsrvpnUiTokens.of(context).textPrimary,
-        semantics:
-            '${widget.accountStale ? '上次数据，暂未更新。' : ''}${usage.semantics}。每月1日重置'
+        semantics: '${usage.semantics}。每月1日重置'
       ));
       metrics.add((
         label: '已连接设备',
         number: '$count/$limit',
-        unit: widget.accountStale
-            ? '上次数据·暂未更新'
-            : account.onlineDevices >= 10000 || account.deviceLimit >= 10000
-                ? '约值·实例'
-                : '客户端实例',
+        unit: account.onlineDevices >= 10000 || account.deviceLimit >= 10000
+            ? '约值·实例'
+            : '客户端实例',
         color: SsrvpnUiTokens.of(context).textPrimary,
         semantics:
-            '${widget.accountStale ? '上次数据，暂未更新。' : ''}已连接设备：$count，上限 $limit。在线客户端实例 ${account.onlineDevices} 个，上限 ${account.deviceLimit} 个，非物理设备去重数'
+            '已连接设备：$count，上限 $limit。在线客户端实例 ${account.onlineDevices} 个，上限 ${account.deviceLimit} 个，非物理设备去重数'
       ));
     }
     if (account == null && widget.accountStatus != null) {
@@ -192,9 +199,9 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
         metrics.add((
           label: label,
           number: '—',
-          unit: '暂未更新',
+          unit: label == '已用流量' ? '每月1日重置' : '客户端实例',
           color: SsrvpnUiTokens.of(context).textPrimary,
-          semantics: '$label：${widget.accountStatus}'
+          semantics: '$label：—'
         ));
       }
     }
@@ -204,14 +211,9 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
       metrics.addAll(subscriptionUsageMetrics(
           widget.subscriptionUsage!, SsrvpnUiTokens.of(context).textPrimary));
     }
-    final hint = widget.accountStatus ??
-        (widget.subscriptionUsage == null
-            ? ''
-            : subscriptionUsageUpdateLabel(widget.subscriptionUsage!));
     if (!SsrvpnTheme.of(context).isDefault) {
-      return Tooltip(
-          message: hint,
-          child: SsrvpnThemedStatistics(metrics: metrics, account: account));
+      return SsrvpnThemedStatistics(
+          metrics: metrics, account: account, trafficValues: _trafficValues);
     }
     final panel = LayoutBuilder(
         key: Key('home-traffic-panel'),
@@ -279,104 +281,116 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
                                             : 24)
                                         : 10)
                                 : 1),
-                    child: Semantics(
-                      label: row[index].semantics,
-                      excludeSemantics: true,
-                      child: SsrvpnLiquidSurface(
-                          radius: 14,
-                          dense: false,
-                          key:
-                              ValueKey('home-traffic-card-${row[index].label}'),
-                          padding: EdgeInsets.symmetric(
-                              horizontal: columns == 5
-                                  ? 2
-                                  : width < 340
-                                      ? 5
-                                      : 10,
-                              vertical: verticalPadding),
-                          // Caption and number sizes already include the
-                          // system scale and the available card-height budget.
-                          child: MediaQuery.withNoTextScaling(
-                              child: _withUsageRing(
-                                  row[index].label,
-                                  account,
-                                  Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Flexible(
-                                            flex: (caption * 100).round(),
-                                            child: SsrvpnHomeText(
-                                                row[index].label,
-                                                maxFontSize: caption,
-                                                style: TextStyle(
-                                                    letterSpacing: 0,
-                                                    color: SsrvpnUiTokens.of(
-                                                            context)
-                                                        .textSecondary,
-                                                    fontSize: caption,
-                                                    fontWeight:
-                                                        FontWeight.w600))),
-                                        Flexible(
-                                            flex: (number * 100).round(),
-                                            child: SsrvpnHomeText(
-                                                row[index].number,
-                                                fitReference: widget
-                                                                .subscriptionUsage !=
-                                                            null &&
-                                                        index + start >= 3
-                                                    ? row[index].number
-                                                    : row[index].label ==
-                                                            '已连接设备'
-                                                        ? '9999/9999'
-                                                        : row[index].label ==
-                                                                    '已用流量' &&
-                                                                widget.subscriptionUsage ==
-                                                                    null
-                                                            ? '1023MB/1023MB'
-                                                            : '↑9999',
-                                                key: ValueKey(
-                                                    'home-traffic-number-${row[index].label}'),
-                                                maxFontSize: number,
-                                                style: TextStyle(
-                                                    letterSpacing: 0,
-                                                    color: row[index].color,
-                                                    fontSize: number,
-                                                    fontWeight: FontWeight.w700,
-                                                    fontFeatures: [
-                                                      FontFeature
-                                                          .tabularFigures()
-                                                    ]))),
-                                        Flexible(
-                                            flex: (caption * 100).round(),
-                                            child: SsrvpnHomeText(
-                                                row[index].unit,
-                                                fitReference: widget
-                                                                .subscriptionUsage !=
-                                                            null &&
-                                                        index + start >= 3
-                                                    ? row[index].unit
-                                                    : row[index].label ==
-                                                            '已连接设备'
-                                                        ? '约值·实例'
-                                                        : row[index].label ==
-                                                                    '已用流量' &&
-                                                                widget.subscriptionUsage ==
-                                                                    null
-                                                            ? '每月1日重置'
-                                                            : '999E',
-                                                key: ValueKey(
-                                                    'home-traffic-unit-${row[index].label}'),
-                                                maxFontSize: caption,
-                                                style: TextStyle(
-                                                    letterSpacing: 0,
-                                                    color: row[index].color,
-                                                    fontSize: caption,
-                                                    fontWeight:
-                                                        FontWeight.w600))),
-                                      ])))),
-                    )),
+                    child: SsrvpnMetricBuilder(
+                        metric: row[index],
+                        value: start + index < 3
+                            ? _trafficValues[start + index]
+                            : null,
+                        builder: (context, metric) => Semantics(
+                              label: metric.semantics,
+                              excludeSemantics: true,
+                              child: SsrvpnLiquidSurface(
+                                  radius: 14,
+                                  dense: false,
+                                  key: ValueKey(
+                                      'home-traffic-card-${metric.label}'),
+                                  padding: EdgeInsets.symmetric(
+                                      horizontal: columns == 5
+                                          ? 2
+                                          : width < 340
+                                              ? 5
+                                              : 10,
+                                      vertical: verticalPadding),
+                                  // Caption and number sizes already include the
+                                  // system scale and the available card-height budget.
+                                  child: MediaQuery.withNoTextScaling(
+                                      child: _withUsageRing(
+                                          metric.label,
+                                          account,
+                                          Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Flexible(
+                                                    flex:
+                                                        (caption * 100).round(),
+                                                    child: SsrvpnHomeText(
+                                                        metric.label,
+                                                        maxFontSize: caption,
+                                                        style: TextStyle(
+                                                            letterSpacing: 0,
+                                                            color: SsrvpnUiTokens
+                                                                    .of(context)
+                                                                .textSecondary,
+                                                            fontSize: caption,
+                                                            fontWeight:
+                                                                FontWeight
+                                                                    .w600))),
+                                                Flexible(
+                                                    flex:
+                                                        (number * 100).round(),
+                                                    child: SsrvpnHomeText(
+                                                        metric.number,
+                                                        fitReference: widget.subscriptionUsage !=
+                                                                    null &&
+                                                                index + start >=
+                                                                    3
+                                                            ? metric.number
+                                                            : metric.label ==
+                                                                    '已连接设备'
+                                                                ? '9999/9999'
+                                                                : metric.label ==
+                                                                            '已用流量' &&
+                                                                        widget.subscriptionUsage ==
+                                                                            null
+                                                                    ? '1023MB/1023MB'
+                                                                    : '↑9999',
+                                                        key: ValueKey(
+                                                            'home-traffic-number-${metric.label}'),
+                                                        maxFontSize: number,
+                                                        style: TextStyle(
+                                                            letterSpacing: 0,
+                                                            color: metric.color,
+                                                            fontSize: number,
+                                                            fontWeight:
+                                                                FontWeight.w700,
+                                                            fontFeatures: [
+                                                              FontFeature
+                                                                  .tabularFigures()
+                                                            ]))),
+                                                Flexible(
+                                                    flex:
+                                                        (caption * 100).round(),
+                                                    child: SsrvpnHomeText(
+                                                        metric.unit,
+                                                        fitReference: widget
+                                                                        .subscriptionUsage !=
+                                                                    null &&
+                                                                index + start >=
+                                                                    3
+                                                            ? metric.unit
+                                                            : metric.label ==
+                                                                    '已连接设备'
+                                                                ? '约值·实例'
+                                                                : metric.label ==
+                                                                            '已用流量' &&
+                                                                        widget.subscriptionUsage ==
+                                                                            null
+                                                                    ? '每月1日重置'
+                                                                    : '999E',
+                                                        key: ValueKey(
+                                                            'home-traffic-unit-${metric.label}'),
+                                                        maxFontSize: caption,
+                                                        style: TextStyle(
+                                                            letterSpacing: 0,
+                                                            color: metric.color,
+                                                            fontSize: caption,
+                                                            fontWeight:
+                                                                FontWeight
+                                                                    .w600))),
+                                              ])))),
+                            ))),
               ],
             ]));
           }
@@ -387,7 +401,7 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
                   child: Column(
                       mainAxisSize: MainAxisSize.min, children: children)));
         });
-    return Tooltip(message: hint, child: panel);
+    return panel;
   }
 
   Widget _withUsageRing(String label, AccountUsage? account, Widget child) =>

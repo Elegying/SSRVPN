@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.0.2] - 2026-10-18
+
+- 优化稳定性，提升连接体验。
+
 ## [6.0.1] - 2026-10-15
 
 - 修复 Windows 在部分环境下断开后系统代理未恢复、客户端退出受阻的问题。

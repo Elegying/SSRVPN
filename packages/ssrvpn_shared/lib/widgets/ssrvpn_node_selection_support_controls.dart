@@ -70,12 +70,12 @@ class _NodeSelectionHeader extends StatelessWidget {
           IconButton(
             tooltip: '刷新节点',
             onPressed: busy ? null : onRefresh,
-            icon: Icon(Icons.refresh_rounded, size: 28),
+            icon: Icon(Icons.refresh_rounded, size: 28, semanticLabel: '刷新节点'),
           ),
           IconButton(
             tooltip: testLabel,
             onPressed: busy ? null : onTestAll,
-            icon: Icon(Icons.bolt_rounded, size: 28),
+            icon: Icon(Icons.bolt_rounded, size: 28, semanticLabel: testLabel),
           ),
         ],
       ),

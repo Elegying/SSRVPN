@@ -1,3 +1,5 @@
+import 'package:ssrvpn_windows/screens/subscription_screen.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_settings_page.dart';
 import 'dart:async';
 import '../../packages/ssrvpn_shared/test/support/home_probe_notice.dart';
 import 'package:ssrvpn_windows/services/tray_manager.dart';
@@ -43,6 +45,54 @@ proxies:
 ''';
 
 void main() {
+  testWidgets('secondary tabs mount on first visit and retain draft state',
+      (tester) async {
+    final fixture = (await tester
+        .runAsync(() => _HomeFixture.create(withNodes: true, running: true)))!;
+    addTearDown(fixture.dispose);
+    final status = StartupStatus.instance;
+    status.prepareCoreRetry();
+    status.setServices(
+        settings: fixture.settings,
+        clash: fixture.clash,
+        subscription: fixture.subscription);
+    addTearDown(status.prepareCoreRetry);
+    await tester.pumpWidget(desktop_app.SSRVpnApp(
+        startupFlags: StartupFlags.parse(const ['--safe-mode'])));
+    await tester.pumpAndSettle();
+    final home = tester.state(find.byType(HomeScreen));
+    expect(find.byType(SubscriptionScreen, skipOffstage: false), findsNothing);
+    expect(find.byType(SsrvpnSettingsPage, skipOffstage: false), findsNothing);
+    Future<void> select(int index) async {
+      tester
+          .widget<SsrvpnBottomNavigation>(find.byType(SsrvpnBottomNavigation))
+          .onTap(index);
+      await tester.pumpAndSettle();
+    }
+
+    await select(2);
+    final settings = tester.state(find.byType(SsrvpnSettingsPage));
+    final port = find.byWidgetPredicate((widget) =>
+        widget is TextField && widget.decoration?.hintText == '下次连接生效');
+    tester.widget<TextField>(port).controller!.text = '12345';
+    await select(1);
+    final subscription = tester.state(find.byType(SubscriptionScreen));
+    await select(0);
+    expect(identical(tester.state(find.byType(HomeScreen)), home), isTrue);
+    await select(2);
+    expect(identical(tester.state(find.byType(SsrvpnSettingsPage)), settings),
+        isTrue);
+    expect(tester.widget<TextField>(port).controller!.text, '12345');
+    await select(1);
+    expect(
+        identical(tester.state(find.byType(SubscriptionScreen)), subscription),
+        isTrue);
+    expect(fixture.clash.isRunning, isTrue);
+    expect(fixture.clash.startCalls, 0);
+    await tester.pumpWidget(const SizedBox());
+    expect(tester.takeException(), isNull);
+  });
+
   for (final preloaded in [false, true]) {
     testWidgets(
         'home separates external probes from failures preloaded=$preloaded',
