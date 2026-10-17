@@ -2,7 +2,7 @@
 
 最近更新：2026-10-15
 
-当前应用版本：`v6.0.1`
+当前应用版本：`v6.0.2`
 
 最新正式版本：[GitHub Releases 当前正式版](https://github.com/Elegying/SSRVPN/releases/latest)
 

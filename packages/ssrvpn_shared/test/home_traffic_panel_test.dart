@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:ssrvpn_shared/widgets/ssrvpn_usage_ring.dart';
 import 'account_usage_test.dart' show usageJson;
 
 import 'package:flutter/material.dart';
@@ -98,6 +99,45 @@ void main() {
     expect(find.bySemanticsLabel('上传速率：0 B/s'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
+
+  for (final theme in AppThemeVariant.values) {
+    testWidgets('traffic updates only changed cards in ${theme.name}',
+        (tester) async {
+      var current = sample(1000, 0, 0);
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(extensions: [SsrvpnTheme(theme)]),
+        home: Scaffold(
+            body: Center(
+                child: SizedBox(
+          width: 400,
+          height: 260,
+          child: SsrvpnHomeTrafficPanel(
+            active: true,
+            connected: true,
+            readSample: () async => current,
+            accountUsage: AccountUsage.parse(usageJson()),
+          ),
+        ))),
+      ));
+      await tester.pumpAndSettle();
+      final account = tester.widget(find.byType(SsrvpnUsageRing));
+      final download = find.byWidgetPredicate((widget) =>
+          widget is Semantics && widget.properties.label == '下载速率：0 B/s');
+      final staticDownload = tester.widget(download);
+      for (var i = 1; i <= 3; i++) {
+        current = sample(1000 + i * 1000, i * 1024, 0);
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pump();
+        expect(find.bySemanticsLabel('上传速率：1.0 KB/s'), findsOneWidget);
+        expect(identical(tester.widget(find.byType(SsrvpnUsageRing)), account),
+            isTrue,
+            reason: 'account must not rebuild on traffic ticks');
+        expect(identical(tester.widget(download), staticDownload), isTrue);
+      }
+      await tester.pumpWidget(const SizedBox());
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   test('rates use elapsed time and never mix sessions or regressing counters',
       () {

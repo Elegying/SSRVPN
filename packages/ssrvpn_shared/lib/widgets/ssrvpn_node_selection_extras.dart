@@ -87,17 +87,19 @@ extension _NodeSelectionExtras on _SsrvpnNodeSelectionPageState {
         context: context,
         builder: (ctx) => SsrvpnLiquidAlertDialog(
           title: const Text('搜索节点'),
-          content: TextField(
-            key: const Key('ssrvpn-node-search-input'),
-            controller: controller,
-            autofocus: true,
-            maxLength: NodeSearchPolicy.maxQueryLength,
-            autocorrect: false,
-            enableSuggestions: true,
-            enableIMEPersonalizedLearning: false,
-            decoration: const InputDecoration(hintText: '输入节点名称、订阅或协议关键词'),
-            onSubmitted: (value) => dismissSsrvpnDialog(ctx, value),
-          ),
+          content: Semantics(
+              label: '节点搜索关键词',
+              child: TextField(
+                key: const Key('ssrvpn-node-search-input'),
+                controller: controller,
+                autofocus: true,
+                maxLength: NodeSearchPolicy.maxQueryLength,
+                autocorrect: false,
+                enableSuggestions: true,
+                enableIMEPersonalizedLearning: false,
+                decoration: const InputDecoration(hintText: '输入节点名称、订阅或协议关键词'),
+                onSubmitted: (value) => dismissSsrvpnDialog(ctx, value),
+              )),
           actions: [
             TextButton(
               onPressed: () => dismissSsrvpnDialog(ctx, ''),

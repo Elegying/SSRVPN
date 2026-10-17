@@ -69,7 +69,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('home shows expiry only for eligible source metadata',
+  testWidgets('home keeps expiry date without extra notices and logs expiry',
       (tester) async {
     final logs = <String>[];
     final usage = SubscriptionUsage(expire: 1, updatedAt: DateTime(2020));
@@ -90,6 +90,9 @@ void main() {
         name: '普通', type: 'hysteria2', server: 'a.example.test', port: 443);
     await tester.pumpWidget(host(node));
     expect(find.textContaining('ACCOUNT_EXPIRED'), findsNothing);
+    expect(find.textContaining('已到期'), findsNothing);
+    expect(find.byType(Tooltip), findsNothing);
+    expect(find.text('到期时间'), findsOneWidget);
     expect(logs, hasLength(1));
     logs.clear();
     expect(tester.takeException(), isNull);

@@ -3,6 +3,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
+  test('information filtering never hides an outer warning or error', () {
+    for (final level in ['WARNING', 'ERROR']) {
+      final entries = readableDiagnosticLogs(
+        '[2026-10-18T00:00:00Z] [$level] [runtime] '
+        '[mihomo] time="2026-10-18T00:00:00Z" level=info msg="evidence"',
+      );
+      expect(entries.single.requiresAttention, isTrue);
+      expect(entries.single.message, contains('evidence'));
+    }
+  });
   test(
       'forged log headers inside multiline credentials cannot escape redaction',
       () {
@@ -17,7 +27,7 @@ void main() {
     expect(report.toText(), isNot(contains('private-continuation')));
   });
 
-  test('batch redaction retains multiline secret protection and entry bounds',
+  test('batch redaction protects multiline secrets without clipping entries',
       () {
     final raw = '[2026-10-04T14:55:00Z] [INFO] [runtime] '
         'password="private-first\nprivate-second"\n'
@@ -29,7 +39,8 @@ void main() {
     expect(safe, isNot(contains('private-second')));
     expect(safe, isNot(contains('another-secret')));
     expect(safe, isNot(contains('8.8.4.4')));
-    expect(safe, contains('log entry truncated ...\n[2026'));
+    expect(safe, contains('${'x' * 4300}\n[2026'));
+    expect(safe, isNot(contains('truncated')));
     expect(
         readableDiagnosticLogs(raw).last.level, AppDiagnosticLogLevel.warning);
   });
@@ -104,6 +115,8 @@ void main() {
     expect(report.userConclusion, '本次已完成的检查未发现异常');
     expect(report.readableLogs.single.category, '连接耗时');
     expect(report.readableLogs.single.requiresAttention, isFalse);
+    expect(report.readableLogs.single.message, isNot(contains('attempt=')));
+    expect(report.toText(), contains('attempt=1 outcome=advanced'));
     expect(report.toText(), contains('耗时 6000ms'));
   });
 
@@ -692,10 +705,20 @@ void main() {
         '[mihomo] time="2026-09-17T14:00:23+08:00" level=info '
             'msg="[TCP] example.com:443 using PROXY[i/o timeout]"',
       ]) {
-        final entry = readableDiagnosticLogs(
-          '[2026-09-17T06:00:23Z] [INFO] [runtime] $text',
-        ).single;
-        expect(entry.message, isNot(contains('这次未能连上节点服务器')));
+        final raw = '[2026-09-17T06:00:23Z] [INFO] [runtime] $text';
+        final entries = readableDiagnosticLogs(raw);
+        if (text.contains('level=info')) {
+          expect(entries, isEmpty);
+          expect(
+              AppDiagnosticReport(
+                      generatedAt: DateTime.utc(2026),
+                      checks: const [],
+                      recentLogs: raw)
+                  .toText(),
+              contains('using PROXY'));
+        } else {
+          expect(entries.single.message, isNot(contains('这次未能连上节点服务器')));
+        }
       }
     });
 

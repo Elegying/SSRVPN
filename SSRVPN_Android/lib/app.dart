@@ -372,7 +372,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
                   ),
                   SsrvpnPageActivity(
                       active: _currentIndex == 2,
-                      child: _buildSettingsPage(context)),
+                      child: Builder(builder: _buildSettingsPage)),
                 ],
               ),
               navigation: Consumer<UpdateAvailabilityController>(

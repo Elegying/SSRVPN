@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'ssrvpn_statistics_metric.dart';
 import 'ssrvpn_statistics_fit.dart';
 import 'ssrvpn_pixel_statistics.dart';
 import '../models/app_settings.dart';
@@ -6,22 +8,26 @@ import '../models/account_usage.dart';
 import 'ssrvpn_theme.dart';
 import 'ssrvpn_illustrated_surface.dart';
 import 'ssrvpn_theme_icon.dart';
-import 'ssrvpn_themed_statistics.dart' show SsrvpnMetric;
 import 'ssrvpn_home_text.dart';
 import 'ssrvpn_usage_ring.dart';
 
 /// The reference traffic panel, with the real private-account and device metrics.
 class SsrvpnIllustratedStatistics extends StatelessWidget {
   const SsrvpnIllustratedStatistics(
-      {super.key, required this.metrics, required this.account});
+      {super.key,
+      required this.metrics,
+      required this.account,
+      this.trafficValues});
   final List<SsrvpnMetric> metrics;
   final AccountUsage? account;
+  final List<ValueListenable<SsrvpnMetricValue>>? trafficValues;
   @override
   Widget build(BuildContext context) {
     final t = SsrvpnTheme.of(context);
     if (t.variant == AppThemeVariant.pixel &&
         !MediaQuery.highContrastOf(context)) {
-      return SsrvpnPixelStatistics(metrics: metrics, account: account);
+      return SsrvpnPixelStatistics(
+          metrics: metrics, account: account, trafficValues: trafficValues);
     }
     final scale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 3.2);
     Widget text(String s, double size, {bool bold = false}) => SsrvpnHomeText(s,
@@ -50,26 +56,30 @@ class SsrvpnIllustratedStatistics extends StatelessWidget {
                     for (var i = 0; i < 3; i++) ...[
                       if (i > 0) const SizedBox(width: 8),
                       Expanded(
-                          child: Semantics(
-                              label: metrics[i].semantics,
-                              excludeSemantics: true,
-                              child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    label(
-                                        ['upload', 'download', 'total'][i],
-                                        [
-                                          Icons.arrow_upward,
-                                          Icons.arrow_downward,
-                                          Icons.data_usage
-                                        ][i],
-                                        metrics[i].label),
-                                    const SizedBox(height: 5),
-                                    text(
-                                        '${metrics[i].number.replaceFirst(RegExp(r"^[↑↓]"), "")} ${metrics[i].unit}',
-                                        18,
-                                        bold: true),
-                                  ]))),
+                          child: SsrvpnMetricBuilder(
+                              metric: metrics[i],
+                              value: trafficValues?[i],
+                              builder: (context, metric) => Semantics(
+                                  label: metric.semantics,
+                                  excludeSemantics: true,
+                                  child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        label(
+                                            ['upload', 'download', 'total'][i],
+                                            [
+                                              Icons.arrow_upward,
+                                              Icons.arrow_downward,
+                                              Icons.data_usage
+                                            ][i],
+                                            metric.label),
+                                        const SizedBox(height: 5),
+                                        text(
+                                            '${metric.number.replaceFirst(RegExp(r"^[↑↓]"), "")} ${metric.unit}',
+                                            18,
+                                            bold: true),
+                                      ])))),
                     ]
                   ])),
               if (metrics.length > 3) ...[
@@ -87,7 +97,7 @@ class SsrvpnIllustratedStatistics extends StatelessWidget {
                                   excludeSemantics: true,
                                   child: SsrvpnUsageRing(
                                       enabled: account != null ||
-                                          metrics[3].unit == '暂未更新',
+                                          metrics[3].number == '—',
                                       account: account,
                                       child: Column(
                                           mainAxisAlignment:

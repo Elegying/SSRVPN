@@ -24,7 +24,6 @@ List<SsrvpnMetric> subscriptionUsageMetrics(
     SubscriptionUsage usage, Color color) {
   final result = <SsrvpnMetric>[];
   final used = usage.used;
-  final note = subscriptionUsageUpdateLabel(usage);
   if (used != null) {
     final amount =
         '${_bytes(used)}${usage.total == null ? '' : usage.total == 0 ? ' / 不限量' : ' / ${_bytes(usage.total!)}'}';
@@ -33,7 +32,7 @@ List<SsrvpnMetric> subscriptionUsageMetrics(
       number: amount,
       unit: '订阅账号用量',
       color: color,
-      semantics: '已用流量：$amount。$note'
+      semantics: '已用流量：$amount。订阅账号用量'
     ));
   }
   final expire = usage.expire;
@@ -41,19 +40,13 @@ List<SsrvpnMetric> subscriptionUsageMetrics(
     final date = expire == 0
         ? null
         : DateTime.fromMillisecondsSinceEpoch(expire * 1000).toLocal();
-    final expired = date != null && !date.isAfter(DateTime.now());
     final number = date == null ? '长期有效' : _date(date);
     result.add((
       label: '到期时间',
       number: number,
-      unit: expired
-          ? '已到期'
-          : date == null
-              ? '未设到期时间'
-              : '本地时间',
+      unit: date == null ? '未设到期时间' : '本地时间',
       color: color,
-      semantics:
-          '到期时间：${date?.toString() ?? number}。${expired ? '已到期。' : ''}$note'
+      semantics: '到期时间：${date?.toString() ?? number}'
     ));
   }
   return result;

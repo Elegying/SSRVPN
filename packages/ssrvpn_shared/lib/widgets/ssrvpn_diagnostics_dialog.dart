@@ -55,6 +55,7 @@ Future<void> showSsrvpnDiagnosticsDialog(
                         tooltip: '关闭诊断中心',
                         icon: Icon(
                           Icons.close,
+                          semanticLabel: '关闭诊断中心',
                           size: 18,
                           color: Theme.of(dialogContext)
                               .colorScheme

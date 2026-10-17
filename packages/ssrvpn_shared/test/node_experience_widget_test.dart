@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show SemanticsAction;
 import 'dart:io';
 import 'package:flutter/gestures.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_theme.dart';
@@ -90,6 +91,33 @@ void main() {
             onSecondaryTapDown: (_, __) {},
             onLongPressNode: (_) {},
           )));
+  for (final platform in [
+    TargetPlatform.android,
+    TargetPlatform.macOS,
+    TargetPlatform.windows
+  ]) {
+    testWidgets('icon actions have spoken names on ${platform.name}',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(page(platform: platform));
+      await tester.pumpAndSettle();
+      for (final label in ['搜索节点', '按延迟从低到高排序', '刷新节点']) {
+        final data =
+            tester.getSemantics(find.byTooltip(label)).getSemanticsData();
+        expect(data.label, label);
+        expect(data.hasAction(SemanticsAction.tap), isTrue);
+      }
+      await tester.tap(find.byKey(const Key('ssrvpn-node-search')));
+      await tester.pumpAndSettle();
+      final input = tester
+          .getSemantics(find.byKey(const Key('ssrvpn-node-search-input')))
+          .getSemanticsData();
+      expect(input.label, contains('节点搜索关键词'));
+      await tester.pumpWidget(const SizedBox());
+      semantics.dispose();
+    });
+  }
+
   testWidgets('sort toggle persists across fresh page and store instances',
       (tester) async {
     final dir = (await tester.runAsync(

@@ -7,7 +7,6 @@ import '../services/account_usage_client.dart';
 import '../models/vpn_traffic_sample.dart';
 import '../utils/statistics_visibility.dart';
 import 'ssrvpn_home_traffic_panel.dart';
-import 'ssrvpn_home_text.dart';
 import 'ssrvpn_subscription_expiry_notice.dart';
 
 /// Account state owns no part of the local sampler's connection lifecycle.
@@ -106,16 +105,6 @@ class _StatisticsState extends State<SsrvpnHomeStatistics>
                 usage: widget.subscriptionUsage,
                 active: widget.active,
                 onDiagnostic: widget.onDiagnostic),
-          if (_account.deviceLimitNotice case final message?)
-            Flexible(
-                child: Semantics(
-                    liveRegion: true,
-                    child: SsrvpnHomeText(message,
-                        key: const Key('device-limit-notice'),
-                        maxLines: 2,
-                        maxFontSize: 14,
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.labelSmall))),
         ]),
       );
 }

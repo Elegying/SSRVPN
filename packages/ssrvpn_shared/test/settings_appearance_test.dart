@@ -62,6 +62,49 @@ void main() {
     expect(AppSettings.fromJson({'themeVariant': 'future'}).themeVariant,
         AppThemeVariant.cloud);
   });
+  testWidgets('PageView creates settings on demand and keeps an unsaved port',
+      (tester) async {
+    final controller = PageController();
+    addTearDown(controller.dispose);
+    var created = 0;
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: PageView(
+      controller: controller,
+      children: [
+        const SizedBox(),
+        const SizedBox(),
+        Builder(builder: (_) {
+          created++;
+          return SsrvpnSettingsPage(
+            settings: AppSettings(),
+            core: _Core(),
+            onAppearanceChanged: ({themeVariant}) async {},
+            onPortChanged: (_) async {},
+            checkForUpdate: () async => null,
+            onUpdateFound: (_) {},
+          );
+        }),
+      ],
+    ))));
+    await tester.pumpAndSettle();
+    expect(created, 0);
+    controller.jumpToPage(2);
+    await tester.pumpAndSettle();
+    final state = tester.state(find.byType(SsrvpnSettingsPage));
+    final port = find.byWidgetPredicate((widget) =>
+        widget is TextField && widget.decoration?.hintText == '下次连接生效');
+    tester.widget<TextField>(port).controller!.text = '12345';
+    controller.jumpToPage(0);
+    await tester.pumpAndSettle();
+    controller.jumpToPage(2);
+    await tester.pumpAndSettle();
+    expect(identical(tester.state(find.byType(SsrvpnSettingsPage)), state),
+        isTrue);
+    expect(tester.widget<TextField>(port).controller!.text, '12345');
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets(
       'all themes apply without losing input; failed save retains theme',
       (tester) async {

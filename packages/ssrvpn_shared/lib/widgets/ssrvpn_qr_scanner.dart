@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../services/qr_image_decoder.dart';
 import '../utils/node_import_policy.dart';
+import '../utils/statistics_visibility.dart';
 
 // Native mobile-scanner sessions are process-wide, including across routes.
 Future<void>? _mobileCameraOperation;
@@ -46,8 +47,16 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
   Future<void>? _stopping;
   int _epoch = 0;
   bool _starting = false, _picking = false, _capturing = false, _done = false;
-  String? _notice, _imageNotice, _pendingImage;
+  String? _notice, _imageNotice, _pendingImage, _pendingDetection;
   int _cameraFailures = 0;
+  // Desktop inactive means a visible window without keyboard focus.
+  // Keep its preview alive, but only accept results in the foreground.
+  bool get _cameraActive =>
+      mounted &&
+      !_done &&
+      !_picking &&
+      statisticsViewIsVisible(WidgetsBinding.instance.lifecycleState) &&
+      ModalRoute.of(context)?.isCurrent != false;
   bool get _active =>
       mounted &&
       !_done &&
@@ -63,7 +72,7 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
+    if (_cameraActive) {
       _start();
     } else {
       _stop();
@@ -71,10 +80,11 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
   }
 
   Future<void> _start() async {
-    if (!_active) return;
-    final image = _pendingImage;
-    if (image != null) {
+    if (!_cameraActive) return;
+    final image = _pendingImage ?? _pendingDetection;
+    if (image != null && _active) {
       _pendingImage = null;
+      _pendingDetection = null;
       _accept(image);
       return;
     }
@@ -85,13 +95,13 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
     try {
       // A native stop can outlive an inactive/resumed lifecycle round trip.
       await _stopping;
-      if (!_active || epoch != _epoch) return;
+      if (!_cameraActive || epoch != _epoch) return;
       if (Platform.isWindows) {
         if (_camera != null) return;
         initializing = SsrvpnWindowsQrCamera();
         _openingCamera = initializing;
         await initializing.initialize();
-        if (!_active || epoch != _epoch) {
+        if (!_cameraActive || epoch != _epoch) {
           await initializing.dispose();
           return;
         }
@@ -100,9 +110,9 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
         _timer = Timer.periodic(const Duration(seconds: 1), (_) => _capture());
       } else {
         await _withMobileCamera(() async {
-          if (_active && epoch == _epoch) await _scanner!.start();
+          if (_cameraActive && epoch == _epoch) await _scanner!.start();
         });
-        if (!_active || epoch != _epoch) {
+        if (!_cameraActive || epoch != _epoch) {
           await _withMobileCamera(() => _scanner!.stop());
           return;
         }
@@ -120,12 +130,13 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
     } finally {
       _openingCamera = null;
       _starting = false;
-      if (_active && epoch != _epoch) _start();
+      if (_cameraActive && epoch != _epoch) _start();
     }
   }
 
   Future<void> _stop() {
     _epoch++;
+    _pendingDetection = null;
     return _stopping ??= _stopCamera().whenComplete(() => _stopping = null);
   }
 
@@ -150,13 +161,18 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
   }
 
   void _accept(String? value) {
-    if (!_active) return;
+    if (!_cameraActive) return;
     final candidate = NodeImportPolicy.candidate(
       value,
       allowSubscription: true,
     );
     if (candidate == null) {
       setState(() => _notice = '未识别到有效节点或订阅链接，请换一个二维码');
+      return;
+    }
+    if (!_active) {
+      // noDuplicates may not emit the same code again after focus returns.
+      _pendingDetection = candidate;
       return;
     }
     _done = true;
@@ -273,17 +289,25 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
                         child: Text('将节点或订阅二维码放入画面。识别后需要确认导入。'),
                       ),
                       SizedBox(
+                        key: const Key('qr-camera-preview'),
+                        width: double.infinity,
                         height:
                             (constraints.maxHeight * .55).clamp(160.0, 420.0),
                         child: Platform.isWindows
                             ? _camera == null
-                                ? const Center(
-                                    child: Icon(Icons.videocam_off_outlined,
-                                        size: 64),
+                                ? Center(
+                                    child: _notice == null
+                                        ? const Text('正在开启相机，请稍候…')
+                                        : const Icon(
+                                            Icons.videocam_off_outlined,
+                                            size: 64),
                                   )
                                 : _camera!.preview()
                             : MobileScanner(
                                 controller: _scanner,
+                                placeholderBuilder: (_) => const Center(
+                                  child: Text('正在开启相机，请稍候…'),
+                                ),
                                 onDetect: (capture) {
                                   for (final barcode in capture.barcodes) {
                                     if (NodeImportPolicy.candidate(
@@ -295,8 +319,16 @@ class _SsrvpnQrScannerState extends State<SsrvpnQrScanner>
                                     }
                                   }
                                 },
-                                errorBuilder: (context, error) => const Center(
-                                    child: Text('无法使用相机，可选择二维码图片')),
+                                errorBuilder: (context, error) => Center(
+                                  child: SingleChildScrollView(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Text(error.errorCode ==
+                                            MobileScannerErrorCode
+                                                .permissionDenied
+                                        ? '相机权限未开启，请在系统设置中允许 SSRVPN 使用相机后重试。也可选择二维码图片。'
+                                        : '无法使用相机，请重试；若其他应用正在使用相机，请先关闭。也可选择二维码图片。'),
+                                  ),
+                                ),
                               ),
                       ),
                       if (_imageNotice != null || _notice != null)

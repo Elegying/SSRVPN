@@ -146,7 +146,8 @@ class _SubscriptionFilter extends StatelessWidget {
               key: Key('ssrvpn-node-search'),
               tooltip: searching ? '修改或清除节点搜索' : '搜索节点',
               onPressed: onSearchPressed,
-              icon: Icon(Icons.search_rounded),
+              icon: Icon(Icons.search_rounded,
+                  semanticLabel: searching ? '修改或清除节点搜索' : '搜索节点'),
               color: searching
                   ? SsrvpnUiTokens.of(context).primary
                   : SsrvpnUiTokens.of(context).textSecondary,
@@ -164,6 +165,7 @@ class _SubscriptionFilter extends StatelessWidget {
                 sortByLatency
                     ? Icons.filter_list_off_rounded
                     : Icons.sort_rounded,
+                semanticLabel: sortByLatency ? '恢复默认节点顺序' : '按延迟从低到高排序',
               ),
             ),
           ],

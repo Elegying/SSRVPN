@@ -55,39 +55,41 @@ class _SubscriptionAddCard extends StatelessWidget {
           ),
           SizedBox(height: 10),
           SsrvpnLiquidField(
-              child: TextField(
-            key: Key('ssrvpn-subscription-input'),
-            controller: urlController,
-            focusNode: inputFocusNode,
-            enabled: !isBusy,
-            keyboardType: TextInputType.text,
-            textInputAction: TextInputAction.done,
-            autocorrect: false,
-            enableSuggestions: true,
-            enableIMEPersonalizedLearning: false,
-            scrollPadding: EdgeInsets.fromLTRB(20, 20, 20, 120),
-            onSubmitted: isBusy ? null : (_) => onAdd(),
-            decoration: InputDecoration(
-              hintText: '粘贴订阅或节点链接',
-              prefixIcon: Icon(Icons.link_rounded),
-              filled: true,
-              fillColor: Colors.transparent,
-              contentPadding: EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 12,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(18),
-                borderSide:
-                    BorderSide(color: SsrvpnUiTokens.of(context).border),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(18),
-                borderSide:
-                    BorderSide(color: SsrvpnUiTokens.of(context).border),
-              ),
-            ),
-          )),
+              child: Semantics(
+                  label: '订阅或节点链接',
+                  child: TextField(
+                    key: Key('ssrvpn-subscription-input'),
+                    controller: urlController,
+                    focusNode: inputFocusNode,
+                    enabled: !isBusy,
+                    keyboardType: TextInputType.text,
+                    textInputAction: TextInputAction.done,
+                    autocorrect: false,
+                    enableSuggestions: true,
+                    enableIMEPersonalizedLearning: false,
+                    scrollPadding: EdgeInsets.fromLTRB(20, 20, 20, 120),
+                    onSubmitted: isBusy ? null : (_) => onAdd(),
+                    decoration: InputDecoration(
+                      hintText: '粘贴订阅或节点链接',
+                      prefixIcon: Icon(Icons.link_rounded),
+                      filled: true,
+                      fillColor: Colors.transparent,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: BorderSide(
+                            color: SsrvpnUiTokens.of(context).border),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: BorderSide(
+                            color: SsrvpnUiTokens.of(context).border),
+                      ),
+                    ),
+                  ))),
           SizedBox(height: 10),
           ConstrainedBox(
             key: addActionKey,

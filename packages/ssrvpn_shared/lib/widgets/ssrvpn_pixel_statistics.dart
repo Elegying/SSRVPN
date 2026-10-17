@@ -1,17 +1,20 @@
+import 'package:flutter/foundation.dart';
+import 'ssrvpn_statistics_metric.dart';
 import 'package:flutter/material.dart';
 import '../models/account_usage.dart';
 import 'ssrvpn_home_text.dart';
 import 'ssrvpn_pixel_surface.dart';
 import 'ssrvpn_statistics_fit.dart';
 import 'ssrvpn_theme_icon.dart';
-import 'ssrvpn_themed_statistics.dart' show SsrvpnMetric;
 import 'ssrvpn_usage_ring.dart';
 
 /// Pixel reference layout, retaining live quota and device ownership semantics.
 class SsrvpnPixelStatistics extends StatelessWidget {
-  const SsrvpnPixelStatistics({super.key, required this.metrics, this.account});
+  const SsrvpnPixelStatistics(
+      {super.key, required this.metrics, this.account, this.trafficValues});
   final List<SsrvpnMetric> metrics;
   final AccountUsage? account;
+  final List<ValueListenable<SsrvpnMetricValue>>? trafficValues;
   static const _cream = Color(0xFFEBDCB5), _ink = Color(0xFF153A2A);
   Widget _text(String value, double size, Color color) => SsrvpnHomeText(value,
       maxFontSize: size,
@@ -39,32 +42,36 @@ class SsrvpnPixelStatistics extends StatelessWidget {
                         margin: const EdgeInsets.symmetric(horizontal: 8),
                         color: const Color(0xFF496B52)),
                   Expanded(
-                      child: Semantics(
-                          label: metrics[i].semantics,
-                          excludeSemantics: true,
-                          child: Row(children: [
-                            SsrvpnThemeIcon(['upload', 'download', 'total'][i],
-                                fallback: [
-                                  Icons.arrow_upward,
-                                  Icons.arrow_downward,
-                                  Icons.storage
-                                ][i],
-                                size: 24,
-                                color: _cream),
-                            const SizedBox(width: 5),
-                            Expanded(
-                                child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                  _text(metrics[i].label, 12, _cream),
-                                  const SizedBox(height: 5),
-                                  _text(
-                                      '${metrics[i].number.replaceFirst(RegExp(r"^[↑↓]"), "")} ${metrics[i].unit}',
-                                      16,
-                                      const Color(0xFFFAF7EB)),
-                                ])),
-                          ]))),
+                      child: SsrvpnMetricBuilder(
+                          metric: metrics[i],
+                          value: trafficValues?[i],
+                          builder: (context, metric) => Semantics(
+                              label: metric.semantics,
+                              excludeSemantics: true,
+                              child: Row(children: [
+                                SsrvpnThemeIcon(
+                                    ['upload', 'download', 'total'][i],
+                                    fallback: [
+                                      Icons.arrow_upward,
+                                      Icons.arrow_downward,
+                                      Icons.storage
+                                    ][i],
+                                    size: 24,
+                                    color: _cream),
+                                const SizedBox(width: 5),
+                                Expanded(
+                                    child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                      _text(metric.label, 12, _cream),
+                                      const SizedBox(height: 5),
+                                      _text(
+                                          '${metric.number.replaceFirst(RegExp(r"^[↑↓]"), "")} ${metric.unit}',
+                                          16,
+                                          const Color(0xFFFAF7EB)),
+                                    ])),
+                              ])))),
                 ]
               ])),
           if (metrics.length > 3) ...[
@@ -83,7 +90,7 @@ class SsrvpnPixelStatistics extends StatelessWidget {
                               child: SsrvpnUsageRing(
                                   account: account,
                                   enabled: account != null ||
-                                      metrics[3].unit == '暂未更新',
+                                      metrics[3].number == '—',
                                   foregroundColor: _ink,
                                   progressColor: const Color(0xFF246347),
                                   child: Column(
@@ -98,7 +105,7 @@ class SsrvpnPixelStatistics extends StatelessWidget {
                                             _ink),
                                         const SizedBox(height: 8),
                                         if (account != null ||
-                                            metrics[3].unit == '暂未更新')
+                                            metrics[3].number == '—')
                                           SizedBox(
                                               height: 10,
                                               child: DecoratedBox(

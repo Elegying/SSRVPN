@@ -975,6 +975,7 @@ void main() {
 
   testWidgets('subscription cards expose Android long-press editing',
       (tester) async {
+    final semantics = tester.ensureSemantics();
     final controller = TextEditingController();
     addTearDown(controller.dispose);
     final subscription = Subscription(
@@ -1003,11 +1004,30 @@ void main() {
       ),
     );
 
+    for (final label in ['编辑订阅', '删除订阅']) {
+      final data =
+          tester.getSemantics(find.byTooltip(label)).getSemanticsData();
+      expect(data.label, '$label Android subscription');
+      expect(data.hasAction(SemanticsAction.tap), isTrue);
+    }
+    expect(
+        tester
+            .getSemantics(find.byKey(const Key('ssrvpn-qr-import')))
+            .getSemanticsData()
+            .label,
+        '扫描或选择二维码图片');
+    expect(
+        tester
+            .getSemantics(find.byKey(const Key('ssrvpn-subscription-input')))
+            .getSemanticsData()
+            .label,
+        contains('订阅或节点链接'));
     await tester.longPress(find.text('Android subscription'));
     expect(edited, same(subscription));
     edited = null;
     await tester.tap(find.byTooltip('编辑订阅'));
     expect(edited, same(subscription));
+    semantics.dispose();
   });
 
   testWidgets('subscription cards expose desktop right-click editing',

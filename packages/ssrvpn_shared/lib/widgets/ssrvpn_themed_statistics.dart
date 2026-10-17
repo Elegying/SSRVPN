@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'ssrvpn_statistics_metric.dart';
 import 'ssrvpn_statistics_fit.dart';
 import 'ssrvpn_illustrated_statistics.dart';
 import 'package:flutter/material.dart';
@@ -9,24 +11,23 @@ import 'ssrvpn_home_text.dart';
 import 'ssrvpn_usage_ring.dart';
 import 'ssrvpn_theme_icon.dart';
 
-typedef SsrvpnMetric = ({
-  String label,
-  String number,
-  String unit,
-  Color color,
-  String semantics
-});
+export 'ssrvpn_statistics_metric.dart' show SsrvpnMetric;
 
 class SsrvpnThemedStatistics extends StatelessWidget {
   const SsrvpnThemedStatistics(
-      {super.key, required this.metrics, required this.account});
+      {super.key,
+      required this.metrics,
+      required this.account,
+      this.trafficValues});
   final List<SsrvpnMetric> metrics;
   final AccountUsage? account;
+  final List<ValueListenable<SsrvpnMetricValue>>? trafficValues;
   @override
   Widget build(BuildContext context) {
     final theme = SsrvpnTheme.of(context);
     if (theme.isIllustrated) {
-      return SsrvpnIllustratedStatistics(metrics: metrics, account: account);
+      return SsrvpnIllustratedStatistics(
+          metrics: metrics, account: account, trafficValues: trafficValues);
     }
     final cloud = theme.variant == AppThemeVariant.cloud || theme.isSoft;
     final sakura = theme.variant == AppThemeVariant.sakura;
@@ -95,76 +96,80 @@ class SsrvpnThemedStatistics extends StatelessWidget {
                                     indent: 8,
                                     endIndent: 8),
                           Expanded(
-                              child: Semantics(
-                                  label: metrics[i].semantics,
-                                  excludeSemantics: true,
-                                  child: frame(
-                                      Column(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          children: [
-                                            Row(
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment.center,
-                                                children: [
-                                                  SsrvpnThemeIcon(
-                                                      [
-                                                        'upload',
-                                                        'download',
-                                                        'total'
-                                                      ][i],
-                                                      fallback: icons[i],
-                                                      color: metrics[i].color,
-                                                      size: 20),
-                                                  const SizedBox(width: 4),
-                                                  Flexible(
-                                                      child: SsrvpnHomeText(
-                                                          metrics[i].label,
-                                                          maxFontSize: 12,
-                                                          style: TextStyle(
-                                                              color: theme
-                                                                  .textSecondary,
-                                                              fontSize: 12))),
-                                                ]),
-                                            const SizedBox(height: 7),
-                                            Flexible(
-                                                child: FittedBox(
-                                                    fit: BoxFit.scaleDown,
-                                                    child: Text.rich(
-                                                        TextSpan(children: [
-                                                      TextSpan(
-                                                          text: metrics[i]
-                                                              .number
-                                                              .replaceFirst(
-                                                                  RegExp(
-                                                                      r'^[↑↓]'),
-                                                                  ''),
-                                                          style: TextStyle(
-                                                              color: theme
-                                                                  .textPrimary,
-                                                              fontSize: 22,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .w700,
-                                                              fontFeatures: const [
-                                                                FontFeature
-                                                                    .tabularFigures()
-                                                              ])),
-                                                      TextSpan(
-                                                          text:
-                                                              ' ${metrics[i].unit}',
-                                                          style: TextStyle(
-                                                              color: theme
-                                                                  .textSecondary,
-                                                              fontSize: 12)),
-                                                    ])))),
-                                          ]),
-                                      card: cloud,
-                                      color: [
-                                        const Color(0xFFF0F8FF),
-                                        const Color(0xFFF1FCF6),
-                                        const Color(0xFFFFFAEC)
-                                      ][i]))),
+                              child: SsrvpnMetricBuilder(
+                                  metric: metrics[i],
+                                  value: trafficValues?[i],
+                                  builder: (context, metric) => Semantics(
+                                      label: metric.semantics,
+                                      excludeSemantics: true,
+                                      child: frame(
+                                          Column(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.center,
+                                              children: [
+                                                Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .center,
+                                                    children: [
+                                                      SsrvpnThemeIcon(
+                                                          [
+                                                            'upload',
+                                                            'download',
+                                                            'total'
+                                                          ][i],
+                                                          fallback: icons[i],
+                                                          color: metric.color,
+                                                          size: 20),
+                                                      const SizedBox(width: 4),
+                                                      Flexible(
+                                                          child: SsrvpnHomeText(
+                                                              metric.label,
+                                                              maxFontSize: 12,
+                                                              style: TextStyle(
+                                                                  color: theme
+                                                                      .textSecondary,
+                                                                  fontSize:
+                                                                      12))),
+                                                    ]),
+                                                const SizedBox(height: 7),
+                                                Flexible(
+                                                    child: FittedBox(
+                                                        fit: BoxFit.scaleDown,
+                                                        child: Text.rich(
+                                                            TextSpan(children: [
+                                                          TextSpan(
+                                                              text: metric
+                                                                  .number
+                                                                  .replaceFirst(
+                                                                      RegExp(
+                                                                          r'^[↑↓]'),
+                                                                      ''),
+                                                              style: TextStyle(
+                                                                  color: theme
+                                                                      .textPrimary,
+                                                                  fontSize: 22,
+                                                                  fontWeight: FontWeight.w700,
+                                                                  fontFeatures: const [
+                                                                    FontFeature
+                                                                        .tabularFigures()
+                                                                  ])),
+                                                          TextSpan(
+                                                              text:
+                                                                  ' ${metric.unit}',
+                                                              style: TextStyle(
+                                                                  color: theme
+                                                                      .textSecondary,
+                                                                  fontSize:
+                                                                      12)),
+                                                        ])))),
+                                              ]),
+                                          card: cloud,
+                                          color: [
+                                            const Color(0xFFF0F8FF),
+                                            const Color(0xFFF1FCF6),
+                                            const Color(0xFFFFFAEC)
+                                          ][i])))),
                         ]
                       ])),
               if (metrics.length > 3) ...[
@@ -184,7 +189,7 @@ class SsrvpnThemedStatistics extends StatelessWidget {
                                   child: frame(
                                       SsrvpnUsageRing(
                                           enabled: account != null ||
-                                              metrics[3].unit == '暂未更新',
+                                              metrics[3].number == '—',
                                           account: account,
                                           child: Column(
                                               mainAxisAlignment:
