@@ -290,7 +290,6 @@ class SsrvpnNavigationDestination extends StatelessWidget {
     final destination = Semantics(
       button: true,
       selected: selected,
-      label: label,
       child: Material(
         color: soft || pixel
             ? Colors.transparent

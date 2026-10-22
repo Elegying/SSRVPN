@@ -1,9 +1,75 @@
+import 'dart:ui' show SemanticsAction, Tristate;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_appearance.dart';
 
 void main() {
+  for (final highContrast in [false, true]) {
+    testWidgets(
+        'navigation has one spoken label and keeps actions $highContrast',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      var selected = 0;
+      final actions = <int>[];
+      await tester.pumpWidget(MaterialApp(
+        home: StatefulBuilder(builder: (context, update) {
+          return MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              highContrast: highContrast,
+              textScaler: const TextScaler.linear(2),
+            ),
+            child: SsrvpnAppearanceScope(
+              settings: AppSettings(themeVariant: AppThemeVariant.cloud),
+              child: Scaffold(
+                bottomNavigationBar: SsrvpnBottomNavigation(
+                  currentIndex: selected,
+                  version: 'test',
+                  onTap: (value) {
+                    actions.add(value);
+                    update(() => selected = value);
+                  },
+                ),
+              ),
+            ),
+          );
+        }),
+      ));
+      await tester.pumpAndSettle();
+      const labels = ['主页', '订阅', '设置'];
+      for (var index = 0; index < labels.length; index++) {
+        final node = tester.getSemantics(find.text(labels[index]));
+        expect(node.getSemanticsData().label, labels[index]);
+        expect(node.flagsCollection.isButton, isTrue);
+        expect(node.flagsCollection.isSelected,
+            index == 0 ? Tristate.isTrue : Tristate.isFalse);
+        expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+      }
+      final subscription = tester.getSemantics(find.text('订阅'));
+      subscription.owner!.performAction(subscription.id, SemanticsAction.tap);
+      await tester.pumpAndSettle();
+      expect(actions, [1]);
+      expect(tester.getSemantics(find.text('订阅')).flagsCollection.isSelected,
+          Tristate.isTrue);
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+      expect(actions, [1, 2]);
+      for (var index = 0; index < labels.length; index++) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+      }
+      expect(tester.getSemantics(find.text('设置')).flagsCollection.isFocused,
+          Tristate.isTrue);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(actions, [1, 2, 2]);
+      expect(tester.takeException(), isNull);
+      semantics.dispose();
+    });
+  }
+
   for (final theme in AppThemeVariant.values.skip(1)) {
     for (final scale in [1.0, 2.0, 3.2]) {
       testWidgets('${theme.name} error actions remain reachable at $scale',
