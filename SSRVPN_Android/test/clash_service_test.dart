@@ -3319,6 +3319,13 @@ secret: rejected-test-secret
             return nativeState;
           case 'syncSettings':
             return 'snapshot-generation';
+          case 'stopCore':
+            nativeState.addAll({
+              'running': false,
+              'protectedConfigPath': null,
+              'sessionGeneration': null,
+            });
+            return true;
           case 'notifyVpnStateChanged':
             return true;
         }
@@ -3332,8 +3339,305 @@ secret: rejected-test-secret
 
       expect(await File(active).exists(), isTrue);
       expect(await old.exists(), isTrue);
+
+      await service.stop();
+
+      expect(await old.exists(), isFalse);
+      expect(await File(active).exists(), isTrue);
     },
   );
+
+  for (final condition in [
+    'unknown native state',
+    'recovery reservation',
+    'invalid cleanup marker',
+    'cleanup write failure',
+  ]) {
+    test('deferred versioned pruning preserves files on $condition', () async {
+      SharedPreferences.setMockInitialValues({});
+      const channel = MethodChannel('com.ssrvpn/native');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final dir =
+          await Directory.systemTemp.createTemp('ssrvpn_deferred_prune_');
+      final service = ClashService()
+        ..setPaths(configDir: dir.path, configPath: '${dir.path}/config.yaml')
+        ..updateSettings(AppSettings(apiSecret: 'test-secret'));
+      addTearDown(() async {
+        service.stopStatusMonitor();
+        messenger.setMockMethodCallHandler(channel, null);
+        await dir.delete(recursive: true);
+      });
+      final old = File('${dir.path}/config-old.yaml');
+      await old.writeAsString(_testProxies);
+      final active = await service.writeConfig(_testProxies);
+      final prepared = await service.writeConfig(_testProxies);
+      final marker = File('${dir.path}/.snapshot-cleanup.pending');
+      if (condition == 'invalid cleanup marker') {
+        await marker.writeAsString('preserve-unreadable-recovery-material');
+      } else if (condition == 'cleanup write failure') {
+        await Directory('${marker.path}.tmp').create();
+      }
+      Map<String, Object?>? nativeState = {
+        'running': true,
+        'transitioning': false,
+        'protectedConfigPath': active,
+        'sessionGeneration': 41,
+      };
+      const idle = <String, Object?>{
+        'running': false,
+        'transitioning': false,
+        'protectedConfigPath': null,
+        'sessionGeneration': null,
+      };
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        switch (call.method) {
+          case 'startCoreWithVpn':
+          case 'getConnectionState':
+            return nativeState;
+          case 'syncSettings':
+            return 'current-snapshot';
+          case 'stopCore':
+            nativeState = condition == 'unknown native state'
+                ? null
+                : condition == 'recovery reservation'
+                    ? {
+                        ...idle,
+                        'transitioning': true,
+                        'protectedConfigPath': old.path
+                      }
+                    : idle;
+            return true;
+          case 'notifyVpnStateChanged':
+            return true;
+          case 'clearConnectionSnapshot':
+            fail(
+                'File pruning must not invalidate the committed native snapshot');
+        }
+        return null;
+      });
+
+      expect(await service.start(preparedConfigPath: active), isTrue);
+      expect(service.lastStartError, isNull);
+      await service.stop();
+
+      expect(await old.exists(), isTrue);
+      expect(await File(active).exists(), isTrue);
+      expect(await File(prepared).exists(), isTrue);
+      if (condition == 'invalid cleanup marker') {
+        expect(await marker.readAsString(),
+            'preserve-unreadable-recovery-material');
+      } else if (condition == 'cleanup write failure') {
+        expect(await Directory('${marker.path}.tmp').exists(), isTrue);
+        expect(await marker.exists(), isFalse);
+      } else {
+        expect(await marker.exists(), isTrue);
+        nativeState = idle;
+        await service.resumePendingNativeSnapshotCleanup();
+        expect(await old.exists(), isFalse);
+        expect(await File(active).exists(), isTrue);
+        expect(await File(prepared).exists(), isTrue);
+      }
+    });
+  }
+
+  test(
+      'deferred versioned pruning survives restart without clearing the snapshot',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp('ssrvpn_prune_restart_');
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: '${dir.path}/config.yaml')
+      ..updateSettings(AppSettings(apiSecret: 'test-secret'));
+    addTearDown(() async {
+      service.stopStatusMonitor();
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+    final old = File('${dir.path}/config-old.yaml');
+    final legacy = File('${dir.path}/config.yaml');
+    await old.writeAsString(_testProxies);
+    await legacy.writeAsString(_testProxies);
+    final active = await service.writeConfig(_testProxies);
+    var nativeState = <String, Object?>{
+      'running': true,
+      'transitioning': false,
+      'protectedConfigPath': active,
+      'sessionGeneration': 43,
+    };
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'startCoreWithVpn':
+        case 'getConnectionState':
+          return nativeState;
+        case 'syncSettings':
+          return 'current-snapshot';
+        case 'notifyVpnStateChanged':
+          return true;
+        case 'clearConnectionSnapshot':
+          fail('Restarted file cleanup must preserve the native snapshot');
+      }
+      return null;
+    });
+    expect(await service.start(preparedConfigPath: active), isTrue);
+    service.stopStatusMonitor();
+    expect(await old.exists(), isTrue);
+    nativeState = {
+      'running': false,
+      'transitioning': false,
+      'protectedConfigPath': null,
+      'sessionGeneration': null,
+    };
+
+    final reopened = ClashService()
+      ..setPaths(configDir: dir.path, configPath: legacy.path);
+    await reopened.resumePendingNativeSnapshotCleanup();
+
+    expect(await old.exists(), isFalse);
+    expect(await File(active).exists(), isTrue);
+    expect(await legacy.exists(), isTrue);
+    expect(
+        await File('${dir.path}/.snapshot-cleanup.pending').exists(), isFalse);
+  });
+
+  for (final failureAfterCommit in [false, true]) {
+    test(
+        'snapshot cleanup failure ${failureAfterCommit ? 'after' : 'before'} commit preserves the usable config',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      const channel = MethodChannel('com.ssrvpn/native');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final dir = await Directory.systemTemp.createTemp('ssrvpn_prune_commit_');
+      final service = ClashService()
+        ..setPaths(configDir: dir.path, configPath: '${dir.path}/config.yaml')
+        ..updateSettings(AppSettings(apiSecret: 'test-secret'));
+      addTearDown(() async {
+        service.stopStatusMonitor();
+        messenger.setMockMethodCallHandler(channel, null);
+        await dir.delete(recursive: true);
+      });
+      final active = await service.writeConfig(_testProxies);
+      final successor = await service.writeConfig(_testProxies);
+      final marker = File('${dir.path}/.snapshot-cleanup.pending');
+      const idle = <String, Object?>{
+        'running': false,
+        'transitioning': false,
+        'protectedConfigPath': null,
+        'sessionGeneration': null,
+      };
+      var nativeState = idle;
+      var generation = 0;
+      var syncCalls = 0;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        switch (call.method) {
+          case 'startCoreWithVpn':
+            generation++;
+            nativeState = {
+              ...idle,
+              'running': true,
+              'protectedConfigPath': call.arguments['configPath'],
+              'sessionGeneration': generation,
+            };
+            return nativeState;
+          case 'getConnectionState':
+            return nativeState;
+          case 'syncSettings':
+            syncCalls++;
+            if (generation == 2 && failureAfterCommit) {
+              // Native commit succeeds, but its subsequent Dart cleanup cannot
+              // persist. Restart must still protect the newly committed config.
+              await Directory('${marker.path}.tmp').create();
+            }
+            return 'generation-$generation';
+          case 'stopCore':
+            nativeState = idle;
+            return true;
+          case 'notifyVpnStateChanged':
+            return true;
+          case 'clearConnectionSnapshot':
+            fail('Deferred pruning must never clear the newer native snapshot');
+        }
+        return null;
+      });
+      expect(await service.start(preparedConfigPath: active), isTrue);
+      await service.stop();
+      expect(await File(successor).exists(), isTrue);
+      if (!failureAfterCommit) {
+        await Directory('${marker.path}.tmp').create();
+      }
+      expect(await service.start(preparedConfigPath: successor),
+          failureAfterCommit);
+      expect(syncCalls, failureAfterCommit ? 2 : 1);
+      if (!failureAfterCommit) {
+        expect(service.lastStartError, contains('已安全回滚'));
+        expect(service.isRunning, isFalse);
+      }
+      service.stopStatusMonitor();
+      nativeState = idle;
+
+      final reopened = ClashService()
+        ..setPaths(configDir: dir.path, configPath: '${dir.path}/config.yaml');
+      await reopened.resumePendingNativeSnapshotCleanup();
+
+      expect(
+          await File(failureAfterCommit ? successor : active).exists(), isTrue);
+    });
+  }
+
+  for (final unsafeName in [
+    'config-child/../../outside.yaml',
+    r'config-child\..\..\outside.yaml',
+  ]) {
+    test('snapshot cleanup rejects a path in place of a filename: $unsafeName',
+        () async {
+      const channel = MethodChannel('com.ssrvpn/native');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final root = await Directory.systemTemp.createTemp('ssrvpn_prune_path_');
+      final dir = await Directory('${root.path}/managed').create();
+      await Directory('${dir.path}/config-child').create();
+      final outside = File('${root.path}/outside.yaml');
+      await outside.writeAsString('unrelated recovery material');
+      final marker = File('${dir.path}/.snapshot-cleanup.pending');
+      final original = jsonEncode({
+        'version': 4,
+        'committed': true,
+        'files': [unsafeName],
+        'expectedNativeGeneration': null,
+        'deferredUntilReplacement': false,
+        'replacementPrepared': false,
+        'replacementBaselineGeneration': null,
+        'replacementFileName': null,
+      });
+      await marker.writeAsString(original);
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'getConnectionState') {
+          return <String, Object?>{
+            'running': false,
+            'transitioning': false,
+            'protectedConfigPath': null,
+            'sessionGeneration': null,
+          };
+        }
+        return null;
+      });
+      addTearDown(() async {
+        messenger.setMockMethodCallHandler(channel, null);
+        await root.delete(recursive: true);
+      });
+      final service = ClashService()
+        ..setPaths(configDir: dir.path, configPath: '${dir.path}/config.yaml');
+
+      await service.resumePendingNativeSnapshotCleanup();
+
+      expect(await outside.readAsString(), 'unrelated recovery material');
+      expect(await marker.readAsString(), original);
+    });
+  }
 
   test(
     'pending snapshot files are removed after a later successful stop',

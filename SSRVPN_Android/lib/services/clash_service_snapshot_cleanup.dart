@@ -176,8 +176,10 @@ extension AndroidSnapshotCleanup on ClashService {
       );
 
   bool _isSnapshotConfigFileName(String name) =>
-      name == 'config.yaml' ||
-      (name.startsWith('config-') && name.endsWith('.yaml'));
+      !name.contains('/') &&
+      !name.contains(r'\') &&
+      (name == 'config.yaml' ||
+          (name.startsWith('config-') && name.endsWith('.yaml')));
 
   Future<Set<String>> _collectSnapshotConfigFileNames() async {
     final directory = Directory(configDir);
@@ -365,19 +367,30 @@ extension AndroidSnapshotCleanup on ClashService {
     String snapshotPath,
   ) async {
     final pending = await _readSnapshotCleanupMarker();
-    if (pending == null) return;
-    final remaining = Set<String>.of(pending.fileNames);
+    // A running session cannot prune files immediately. Record its superseded
+    // versions for the existing idle cleanup, including after a process restart.
+    // An unreadable marker remains recovery material; do not replace it.
+    if (pending == null && await _snapshotCleanupMarker.exists()) return;
+    final remaining = pending != null
+        ? Set<String>.of(pending.fileNames)
+        : {
+            for (final name in await _collectSnapshotConfigFileNames())
+              if (name.startsWith('config-')) name,
+          };
     final snapshot = File(snapshotPath).absolute;
     if (snapshot.parent.path == Directory(configDir).absolute.path) {
       remaining.remove(snapshot.uri.pathSegments.last);
     }
+    if (pending == null && remaining.isEmpty) return;
     // A successful syncSettings replaces whichever native snapshot existed
     // before it. Any older prepared clear must never replay against this new
     // generation, while its exact old files remain eligible for later cleanup.
     await _writeSnapshotCleanupMarker(
       committed: true,
       fileNames: remaining,
-      expectedNativeGeneration: pending.expectedNativeGeneration,
+      expectedNativeGeneration: pending != null
+          ? pending.expectedNativeGeneration
+          : _nativeSnapshotGeneration,
     );
   }
 
@@ -394,7 +407,21 @@ extension AndroidSnapshotCleanup on ClashService {
     if (!pending.generationBound) {
       pending = await _retireUnboundLegacySnapshotCleanup(pending);
     }
-    if (!pending.deferredUntilReplacement) return;
+    if (!pending.deferredUntilReplacement) {
+      final snapshot = File(snapshotPath).absolute;
+      final name = snapshot.uri.pathSegments.last;
+      if (snapshot.parent.path == Directory(configDir).absolute.path &&
+          pending.fileNames.contains(name)) {
+        // Remove a prepared successor durably before native commit. If the
+        // process then dies, idle recovery must not delete that new snapshot.
+        await _writeSnapshotCleanupMarker(
+          committed: pending.committed,
+          fileNames: Set<String>.of(pending.fileNames)..remove(name),
+          expectedNativeGeneration: pending.expectedNativeGeneration,
+        );
+      }
+      return;
+    }
 
     pending = await _resolveCommittedDeferredReplacement(pending);
     if (!pending.deferredUntilReplacement) return;
