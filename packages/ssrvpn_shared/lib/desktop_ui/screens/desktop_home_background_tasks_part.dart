@@ -187,37 +187,28 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
     }
   }
 
-  Future<void> _checkForUpdateManually() async {
-    if (!_canUpdateUi) return;
+  Future<String?> _checkForUpdateManually() async {
+    if (!_canUpdateUi) return null;
     if (_updateCheckInProgress) {
-      _showHomeSnackBar(
-        const SnackBar(content: Text('正在检查更新，请稍候')),
-      );
-      return;
+      return '正在检查更新，请稍候';
     }
     _updateCheckTimer?.cancel();
     _updateCheckInProgress = true;
     try {
       final update = await _fetchAvailableUpdate();
-      if (!_canUpdateUi) return;
+      if (!_canUpdateUi) return null;
       if (update == null) {
-        _showHomeSnackBar(
-          const SnackBar(content: Text('当前已是最新版本')),
-        );
-        return;
+        return '当前已是最新版本';
       }
       context.read<UpdateAvailabilityController>().publish(update);
       // The persistent footer already announces the update and provides its action.
       // Remove queued notices immediately so they cannot cover that action.
       ScaffoldMessenger.maybeOf(context)?.clearSnackBars();
       ScaffoldMessenger.maybeOf(context)?.removeCurrentSnackBar();
+      return null;
     } catch (error) {
       AppLogger.warning('Update', '手动检查更新异常: $error');
-      if (_canUpdateUi) {
-        _showHomeSnackBar(
-          SnackBar(content: Text(UpdateChecker.checkFailureMessage(error))),
-        );
-      }
+      return UpdateChecker.checkFailureMessage(error);
     } finally {
       _updateCheckInProgress = false;
     }

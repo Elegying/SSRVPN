@@ -58,6 +58,27 @@ double _contrastRatio(Color foreground, Color background) {
 }
 
 void main() {
+  testWidgets('manual About update failures stay visible and retryable',
+      (tester) async {
+    final fixture =
+        (await tester.runAsync(() => _HomeFixture.create(withNodes: true)))!;
+    addTearDown(fixture.dispose);
+    await tester.pumpWidget(fixture.build());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('ssrvpn-about-button')));
+    await tester.pumpAndSettle();
+    final button = find.byKey(const Key('ssrvpn-check-update-button'));
+    final action = tester.widget<OutlinedButton>(button).onPressed!;
+    await tester.runAsync(() => (action as Future<void> Function())());
+    await tester.pumpAndSettle();
+    expect(tester.widget<OutlinedButton>(button).onPressed, isNotNull);
+    expect(find.text('检查更新失败，请检查网络后重试'), findsOneWidget);
+    expect(find.byKey(const Key('ssrvpn-about-glass')), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(fixture.clash.isRunning, isFalse);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('secondary tabs mount on first visit and retain draft state',
       (tester) async {
     final fixture = (await tester

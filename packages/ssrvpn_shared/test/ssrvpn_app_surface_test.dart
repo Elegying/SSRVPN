@@ -1231,6 +1231,174 @@ void main() {
     );
   });
 
+  testWidgets(
+      'About retains a pending check and shows its result without home notices',
+      (tester) async {
+    var checks = 0;
+    final pending = Completer<String?>();
+    Future<String?> checkUpdate() {
+      checks++;
+      return pending.future;
+    }
+
+    await tester.pumpWidget(host(Builder(
+      builder: (context) => TextButton(
+        onPressed: () =>
+            showSsrvpnAboutDialog(context, onCheckForUpdate: checkUpdate),
+        child: const Text('打开关于'),
+      ),
+    )));
+    await tester.tap(find.text('打开关于'));
+    await tester.pumpAndSettle();
+    final button = find.byKey(const Key('ssrvpn-check-update-button'));
+    final staleAction = tester.widget<OutlinedButton>(button).onPressed!;
+    await tester.tap(button);
+    staleAction();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const Key('ssrvpn-about-glass')), findsOneWidget);
+    expect(find.text('正在检查更新…'), findsOneWidget);
+    expect(tester.widget<OutlinedButton>(button).onPressed, isNull);
+    expect(checks, 1);
+    pending.complete('当前已是最新版本');
+    await tester.pumpAndSettle();
+    expect(find.text('当前已是最新版本'), findsOneWidget);
+    expect(find.byKey(const Key('ssrvpn-about-glass')), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
+      'About failed checks remain retryable and sanitize unexpected errors',
+      (tester) async {
+    var checks = 0;
+    await tester.pumpWidget(host(Builder(
+      builder: (context) => TextButton(
+        onPressed: () =>
+            showSsrvpnAboutDialog(context, onCheckForUpdate: () async {
+          if (++checks == 1) throw StateError('private token and local path');
+          return '当前已是最新版本';
+        }),
+        child: const Text('打开关于'),
+      ),
+    )));
+    await tester.tap(find.text('打开关于'));
+    await tester.pumpAndSettle();
+    final button = find.byKey(const Key('ssrvpn-check-update-button'));
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(find.text('检查更新失败，请检查网络后重试'), findsOneWidget);
+    expect(find.textContaining('private token'), findsNothing);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(checks, 2);
+    expect(find.text('当前已是最新版本'), findsOneWidget);
+    expect(find.text('检查更新失败，请检查网络后重试'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  for (final fail in [false, true]) {
+    for (final closeFirst in [false, true]) {
+      testWidgets(
+          'About late result never closes a newer dialog closeFirst=$closeFirst fail=$fail',
+          (tester) async {
+        final pending = Completer<String?>();
+        late BuildContext hostContext;
+        await tester.pumpWidget(host(Builder(builder: (context) {
+          hostContext = context;
+          return TextButton(
+            onPressed: () => showSsrvpnAboutDialog(context,
+                onCheckForUpdate: () => pending.future),
+            child: const Text('打开关于'),
+          );
+        })));
+        await tester.tap(find.text('打开关于'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('ssrvpn-check-update-button')));
+        await tester.pump();
+        if (closeFirst) {
+          await tester.tap(find.text('知道了'));
+          await tester.pumpAndSettle();
+        }
+        unawaited(showDialog<void>(
+            context: hostContext,
+            builder: (_) => const AlertDialog(content: Text('另一项操作'))));
+        await tester.pumpAndSettle();
+        if (fail) {
+          pending.completeError(StateError('late private detail'));
+        } else {
+          pending.complete(null);
+        }
+        await tester.pumpAndSettle();
+        expect(find.text('另一项操作'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    }
+  }
+
+  for (final dismissFirst in [false, true]) {
+    testWidgets('About ignores a late check action dismissFirst=$dismissFirst',
+        (tester) async {
+      var checks = 0;
+      late BuildContext hostContext;
+      await tester.pumpWidget(host(Builder(builder: (context) {
+        hostContext = context;
+        return TextButton(
+            onPressed: () =>
+                showSsrvpnAboutDialog(context, onCheckForUpdate: () async {
+                  checks++;
+                  return '当前已是最新版本';
+                }),
+            child: const Text('打开关于'));
+      })));
+      await tester.tap(find.text('打开关于'));
+      await tester.pumpAndSettle();
+      final action = tester
+          .widget<OutlinedButton>(
+              find.byKey(const Key('ssrvpn-check-update-button')))
+          .onPressed!;
+      if (dismissFirst) {
+        await tester.tap(find.text('知道了'));
+        await tester.pumpAndSettle();
+      } else {
+        unawaited(showDialog<void>(
+            context: hostContext,
+            builder: (_) => const AlertDialog(content: Text('另一项操作'))));
+        await tester.pumpAndSettle();
+      }
+      await (action as Future<void> Function())();
+      await tester.pumpAndSettle();
+      expect(checks, 0);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
+  testWidgets('About result remains reachable at 200 percent text size',
+      (tester) async {
+    await tester.pumpWidget(host(
+        Builder(
+            builder: (context) => TextButton(
+                  onPressed: () => showSsrvpnAboutDialog(context,
+                      onCheckForUpdate: () async => '检查更新失败，请检查网络后重试'),
+                  child: const Text('打开关于'),
+                )),
+        size: const Size(380, 560),
+        textScaleFactor: 2));
+    await tester.tap(find.text('打开关于'));
+    await tester.pumpAndSettle();
+    final button = find.byKey(const Key('ssrvpn-check-update-button'));
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('检查更新失败，请检查网络后重试'));
+    expect(tester.takeException(), isNull);
+    expect(find.text('知道了').hitTestable(), findsOneWidget);
+    await tester.tap(find.text('知道了'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('ssrvpn-about-glass')), findsNothing);
+  });
+
   testWidgets('About check update closes the dialog and invokes the caller',
       (tester) async {
     var checks = 0;
@@ -1240,7 +1408,10 @@ void main() {
           builder: (context) => TextButton(
             onPressed: () => showSsrvpnAboutDialog(
               context,
-              onCheckForUpdate: () => checks++,
+              onCheckForUpdate: () async {
+                checks++;
+                return null;
+              },
             ),
             child: const Text('打开关于'),
           ),

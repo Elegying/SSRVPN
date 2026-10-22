@@ -662,7 +662,7 @@ class _HomeScreenState extends State<HomeScreen> {
         onOpenNodes: _openNodeSelection,
         onShowAbout: () => showSsrvpnAboutDialog(
           context,
-          onCheckForUpdate: () => unawaited(_checkForUpdateManually()),
+          onCheckForUpdate: _checkForUpdateManually,
         ),
         onShowTutorial: () => _showDesktopHomeTutorialDialog(context),
         onShowLogs: () => _showDesktopHomeLogsDialog(context),
