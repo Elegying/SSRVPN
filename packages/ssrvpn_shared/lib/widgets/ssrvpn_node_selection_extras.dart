@@ -12,12 +12,13 @@ extension _NodeSelectionExtras on _SsrvpnNodeSelectionPageState {
   }
 
   List<ProxyNode> _visibleNodes(List<ProxyNode> nodes, String subscription) {
+    final matches = NodeSearchPolicy.matcher(_searchQuery);
     return nodes
         .where(
           (node) =>
               (subscription == _allSubscriptions ||
                   node.group.trim() == subscription) &&
-              NodeSearchPolicy.matches(node, _searchQuery),
+              matches(node),
         )
         .toList();
   }
@@ -37,10 +38,16 @@ extension _NodeSelectionExtras on _SsrvpnNodeSelectionPageState {
     }).ignore();
   }
 
-  List<ProxyNode> _pinSorted(List<ProxyNode> nodes) => [
-        ...nodes.where((node) => _pins?.contains(node) ?? false),
-        ...nodes.where((node) => !(_pins?.contains(node) ?? false)),
-      ];
+  List<ProxyNode> _pinSorted(List<ProxyNode> nodes) {
+    final pins = _pins;
+    if (pins == null) return nodes;
+    final pinned = <ProxyNode>[], others = <ProxyNode>[];
+    for (final node in nodes) {
+      (pins.contains(node) ? pinned : others).add(node);
+    }
+    return pinned..addAll(others);
+  }
+
   Future<void> _toggleSort() async {
     if (_pinBusy) return;
     final store = _pins;

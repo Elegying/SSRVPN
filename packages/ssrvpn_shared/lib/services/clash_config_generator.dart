@@ -17,7 +17,8 @@ import '../utils/runtime_config_name_policy.dart';
 ///
 /// 生成通用的 Clash 配置，平台特定的配置可以通过继承或组合方式扩展
 class ClashConfigGenerator {
-  static const int isolateThreshold = 256 * 1024;
+  // Medium subscriptions also exceed a frame budget during bounded parsing.
+  static const int isolateThreshold = 64 * 1024;
 
   /// App metadata that must not alter core routing or connection identity.
   static const internalProxyKeys = {
@@ -59,8 +60,11 @@ class ClashConfigGenerator {
     Iterable<String> extraRulesBeforeDirect = const [],
     String? smartRuleProviderPathPrefix,
   }) {
-    final proxyNames = extractProxyNames(rawYaml);
-    final proxiesText = buildProxiesText(rawYaml);
+    // Share this call's bounded parse; never retain subscription credentials
+    // across generations or bypass the runtime validation/normalization below.
+    final proxies = _parseProxyList(rawYaml);
+    final proxyNames = _extractProxyNames(proxies);
+    final proxiesText = _buildProxiesText(proxies);
     if (proxyNames.isEmpty || proxiesText.isEmpty) {
       throw Exception('订阅中没有可用节点，请先刷新订阅');
     }
@@ -461,7 +465,14 @@ class ClashConfigGenerator {
   /// 从 YAML 中提取代理节点名称
   static List<String> extractProxyNames(String rawYaml) {
     try {
-      final proxies = _parseProxyList(rawYaml);
+      return _extractProxyNames(_parseProxyList(rawYaml));
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static List<String> _extractProxyNames(List<dynamic>? proxies) {
+    try {
       if (proxies == null) return [];
       return proxies
           .whereType<Map<Object?, Object?>>()
@@ -479,9 +490,12 @@ class ClashConfigGenerator {
   /// 订阅里的节点字段先由 YAML parser 解析，再以 JSON flow map 写回；
   /// JSON 是合法 YAML 子集，可避免节点名、密码等用户输入逃逸 YAML 结构。
   static String buildProxiesText(String rawYaml,
+          {ProxyEgressPolicy? egressPolicy}) =>
+      _buildProxiesText(_parseProxyList(rawYaml), egressPolicy: egressPolicy);
+
+  static String _buildProxiesText(List<dynamic>? proxies,
       {ProxyEgressPolicy? egressPolicy}) {
     try {
-      final proxies = _parseProxyList(rawYaml);
       if (proxies != null) {
         ProxyDependencyPolicy.resolve(
             proxies.whereType<Map<Object?, Object?>>());
@@ -515,10 +529,18 @@ class ClashConfigGenerator {
   }
 
   static List<dynamic>? _parseProxyList(String rawYaml) {
-    final yaml = BoundedYaml.load(rawYaml);
-    if (yaml is! Map) return null;
-    final proxies = yaml['proxies'];
-    return proxies is List ? proxies : null;
+    try {
+      final yaml = BoundedYaml.load(rawYaml);
+      if (yaml is! Map) return null;
+      final proxies = yaml['proxies'];
+      return proxies is List ? proxies : null;
+    } on FormatException {
+      rethrow;
+    } catch (_) {
+      // Preserve the public helpers' existing malformed-YAML behavior while
+      // keeping resource-limit FormatExceptions visible to config generation.
+      return null;
+    }
   }
 
   static Object? _plainYamlValue(Object? value) {

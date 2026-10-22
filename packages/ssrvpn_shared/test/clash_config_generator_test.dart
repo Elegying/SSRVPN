@@ -4,9 +4,52 @@ import 'package:ssrvpn_shared/constants/app_constants.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/services/clash_config_generator.dart';
 import 'package:ssrvpn_shared/utils/runtime_config_name_policy.dart';
+import 'package:ssrvpn_shared/utils/bounded_yaml.dart';
 
 void main() {
   group('ClashConfigGenerator', () {
+    test('medium async generation preserves snapshot and byte output',
+        () async {
+      final proxies = List.generate(
+          960,
+          (i) =>
+              '  - {name: Node $i, type: ss, server: node-$i.example, port: 443, cipher: aes-128-gcm, password: fixture}');
+      final yaml = 'proxies:\n${proxies.join('\n')}\n';
+      expect(yaml.length, greaterThan(ClashConfigGenerator.isolateThreshold));
+      expect(yaml.length, lessThan(256 * 1024));
+      final settings = AppSettings(forceProxySites: ['example.com']);
+      final extraGroups = ['Extra'];
+      final expected = ClashConfigGenerator.generateConfig(yaml, settings,
+          preferredNodeName: 'Node 959',
+          includeFallbackGroup: true,
+          extraSelectGroupNames: extraGroups);
+      final pending = ClashConfigGenerator.generateConfigAsync(yaml, settings,
+          preferredNodeName: 'Node 959',
+          includeFallbackGroup: true,
+          extraSelectGroupNames: extraGroups);
+      settings.proxyPort = 8888;
+      settings.forceProxySites[0] = 'changed.example';
+      extraGroups.clear();
+      expect(await pending, expected);
+    });
+
+    test('shared parse preserves malformed input and resource-limit contracts',
+        () {
+      const malformed = 'proxies: [';
+      expect(ClashConfigGenerator.extractProxyNames(malformed), isEmpty);
+      expect(() => ClashConfigGenerator.buildProxiesText(malformed),
+          throwsA(isA<YamlException>()));
+      expect(
+          () => ClashConfigGenerator.generateConfig(malformed, AppSettings()),
+          throwsA(isA<YamlException>()));
+      final tooDeep = '${'[' * 70}0${']' * 70}';
+      expect(ClashConfigGenerator.extractProxyNames(tooDeep), isEmpty);
+      expect(() => ClashConfigGenerator.buildProxiesText(tooDeep),
+          throwsA(isA<YamlResourceLimitException>()));
+      expect(() => ClashConfigGenerator.generateConfig(tooDeep, AppSettings()),
+          throwsA(isA<YamlResourceLimitException>()));
+    });
+
     test('large async generation is byte-for-byte equivalent', () async {
       final padding = List.filled(14000, '# keep UI responsive').join('\n');
       final yaml = '''

@@ -34,6 +34,12 @@ class _DelayedPins extends _MemoryPins {
   }
 }
 
+class _OrderingPins extends _MemoryPins {
+  bool sorted = true;
+  @override
+  bool get sortByLatency => sorted;
+}
+
 class _PersistentPreferences extends NodePinStore {
   _PersistentPreferences(super.directory);
   Future<void>? lastSave;
@@ -43,6 +49,76 @@ class _PersistentPreferences extends NodePinStore {
 }
 
 void main() {
+  testWidgets('pin partition preserves ties, failures and live owner changes',
+      (tester) async {
+    tester.view.physicalSize = const Size(1000, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final latencies = <int?>[50, 50, 20, 0, 65535, -1, null];
+    final items = List.generate(
+        latencies.length,
+        (i) => ProxyNode(
+            name: 'Order $i',
+            type: 'ss',
+            server: 'node-$i.example',
+            port: 443,
+            latency: latencies[i]));
+    final refresh = ValueNotifier<int>(0);
+    final pins = _OrderingPins()..keys.addAll(['Order 1', 'Order 4']);
+    await tester.pumpWidget(MaterialApp(
+      theme: SsrvpnTheme(AppThemeVariant.cloud)
+          .material(ThemeData.dark().copyWith(platform: TargetPlatform.macOS)),
+      home: SsrvpnNodeSelectionPage(
+        preferenceDirectory: '/test-pins',
+        pinStoreFactory: (_) => pins,
+        ownerStateListenable: refresh,
+        nodesOf: () => items,
+        selectedNodeNameOf: () => null,
+        proxyModeOf: () => ProxyMode.rule,
+        testingNodeNameOf: () => null,
+        isBatchTestingOf: () => false,
+        isConnectingOf: () => false,
+        countryCodeOf: (_) => 'UN',
+        latencyOf: (node) => node.latency,
+        onClose: () {},
+        onRefresh: () async {},
+        onTestAll: () async {},
+        onTestLatency: (_) async {},
+        onSelectNode: (_) async {},
+        onProxyModeChanged: (_) async {},
+      ),
+    ));
+    await tester.pumpAndSettle();
+    void expectOrder(List<int> order) {
+      final positions = [
+        for (final index in order)
+          tester.getTopLeft(find.text('Order $index')).dy,
+      ];
+      expect(positions, orderedEquals(List<double>.of(positions)..sort()));
+    }
+
+    expectOrder([1, 4, 2, 0, 3, 5, 6]);
+    items[0].latency = 10;
+    items[1].latency = null;
+    items[4].latency = 5;
+    refresh.value++;
+    await tester.pump();
+    expectOrder([4, 1, 0, 2, 3, 5, 6]);
+    pins.sorted = false;
+    pins.keys.remove('Order 1');
+    pins.notifyListeners();
+    await tester.pump();
+    expectOrder([4, 0, 1, 2, 3, 5, 6]);
+    final moved = items.removeAt(6);
+    items.insert(0, moved);
+    refresh.value++;
+    await tester.pump();
+    expectOrder([4, 6, 0, 1, 2, 3, 5]);
+    await tester.pumpWidget(const SizedBox.shrink());
+    refresh.dispose();
+  });
+
   final nodes = [
     ProxyNode(
         name: '香港 Premium',

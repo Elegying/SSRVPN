@@ -31,7 +31,10 @@ class NodeLatencyCache {
 
   // Keep each named node's own last result, even when endpoints are shared.
   // TCP probes do not use credentials or chain dependencies.
-  static String endpointKey(ProxyNode node) => sha256
+  // All key fields are final. Weak keys release replaced subscription nodes;
+  // mutable latency, online state and credentials never participate in this key.
+  static final _endpointKeys = Expando<String>();
+  static String endpointKey(ProxyNode node) => _endpointKeys[node] ??= sha256
       .convert(utf8.encode(jsonEncode([
         node.name,
         node.type.trim().toLowerCase(),

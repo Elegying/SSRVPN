@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/services/clash_config_generator.dart';
 import 'package:ssrvpn_shared/services/subscription_parser.dart';
@@ -12,7 +13,14 @@ void main(List<String> arguments) {
   final smoke = arguments.contains('--smoke');
   final verify = arguments.contains('--verify');
   final nodeCount = smoke ? 240 : 1200;
-  final iterations = smoke ? 2 : 7;
+  final iterationArgument =
+      arguments.where((argument) => argument.startsWith('--iterations='));
+  final iterations = iterationArgument.isEmpty
+      ? (smoke ? 2 : 7)
+      : int.parse(iterationArgument.single.split('=').last);
+  if (iterations < 1 || iterations > 100) {
+    throw ArgumentError('iterations must be between 1 and 100');
+  }
   const sourceCount = 4;
 
   final fixture = _yamlFixture(0, nodeCount);
@@ -69,6 +77,8 @@ void main(List<String> arguments) {
       'merged_nodes': mergedNodeCount,
       'merged_bytes': utf8.encode(merged).length,
       'generated_config_bytes': utf8.encode(generated).length,
+      'generated_config_sha256':
+          sha256.convert(utf8.encode(generated)).toString(),
     },
     'results': results,
     'notes': [
@@ -95,6 +105,7 @@ Map<String, Object> _measure(int iterations, Object? Function() operation) {
     'min_us': samples.first,
     'median_us': samples[samples.length ~/ 2],
     'max_us': samples.last,
+    'samples_us': samples,
   };
 }
 

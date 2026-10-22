@@ -54,6 +54,28 @@ void main() {
     tearDown(() async {
       await dir.delete(recursive: true);
     });
+    test('cached identity follows immutable endpoint fields, not live results',
+        () async {
+      final store = NodePinStore(dir.path);
+      addTearDown(store.dispose);
+      final original = node('A');
+      await store.toggle(original);
+      expect(store.contains(original), isTrue);
+      original
+        ..latency = 42
+        ..isOnline = false
+        ..lastLatencyTest = DateTime.utc(2026, 10, 22);
+      original.extra['password'] = 'replacement-fixture';
+      expect(store.contains(original), isTrue);
+      expect(store.contains(original.copyWith(group: 'Other')), isTrue);
+      expect(
+          store.contains(original.copyWith(server: 'other.example')), isFalse);
+      expect(store.contains(original.copyWith(port: 8443)), isFalse);
+      expect(store.contains(original.copyWith(name: 'B')), isFalse);
+      expect(store.contains(original.copyWith(type: 'ss')), isFalse);
+      await store.toggle(original.copyWith());
+      expect(store.contains(original), isFalse);
+    });
     test('sort preference survives restart and interleaved pin saves',
         () async {
       final first = NodePinStore(dir.path), stale = NodePinStore(dir.path);
