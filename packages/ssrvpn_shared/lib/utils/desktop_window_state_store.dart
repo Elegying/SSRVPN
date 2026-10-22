@@ -102,9 +102,8 @@ class DesktopWindowStateStore {
   }
 
   Future<Rect?> _load() async {
-    if (!await file.exists()) return null;
-
     try {
+      if (!await file.exists()) return null;
       final decoded = jsonDecode(await file.readAsString());
       if (decoded is! Map<String, dynamic>) {
         throw const FormatException('window state must be a JSON object');
@@ -141,6 +140,11 @@ class DesktopWindowStateStore {
         await _save(rect);
       }
       return rect;
+    } on FileSystemException catch (error, stack) {
+      // Temporary access failures do not prove the saved state is corrupt.
+      onError?.call(
+          'Failed to read window state; keeping saved bounds', error, stack);
+      return null;
     } catch (error, stack) {
       onError?.call('Invalid window state; backing it up', error, stack);
       await _backupBadFile();

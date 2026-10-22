@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -131,6 +132,26 @@ void main() {
     expect(errors, ['Invalid window state; backing it up']);
   });
 
+  for (final failMetadata in [false, true]) {
+    test('temporary storage failure preserves bounds, metadata=$failMetadata',
+        () async {
+      const bounds = Rect.fromLTWH(24, 48, 460, 840);
+      await store.save(bounds);
+      final original = await stateFile.readAsBytes();
+      final unavailable = _TemporarilyUnavailableFile(stateFile, failMetadata);
+      final reader = DesktopWindowStateStore(unavailable,
+          onError: (message, error, stack) => errors.add(message));
+
+      expect(await reader.load(), isNull);
+      expect(await stateFile.readAsBytes(), original);
+      expect(tempDirectory.listSync().whereType<File>(), hasLength(1));
+      expect(errors, ['Failed to read window state; keeping saved bounds']);
+
+      unavailable.fail = false;
+      expect(await reader.load(), bounds);
+    });
+  }
+
   test('migrates legacy wide bounds to the compact desktop width', () async {
     await stateFile.writeAsString(
       '{"schemaVersion":1,"left":100,"top":48,'
@@ -217,4 +238,28 @@ void main() {
 
     expect(await stateFile.exists(), isFalse);
   });
+}
+
+class _TemporarilyUnavailableFile extends Fake implements File {
+  _TemporarilyUnavailableFile(this.delegate, this.failMetadata);
+  final File delegate;
+  final bool failMetadata;
+  bool fail = true;
+
+  @override
+  String get path => delegate.path;
+  @override
+  Future<bool> exists() async {
+    if (fail && failMetadata) throw const FileSystemException('fixture');
+    return delegate.exists();
+  }
+
+  @override
+  Future<String> readAsString({Encoding encoding = utf8}) async {
+    if (fail && !failMetadata) throw const FileSystemException('fixture');
+    return delegate.readAsString(encoding: encoding);
+  }
+
+  @override
+  Future<File> rename(String newPath) => delegate.rename(newPath);
 }
