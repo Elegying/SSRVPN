@@ -931,6 +931,40 @@ void main() {
     expect(notices.single.level, RuntimeNoticeLevel.error);
   });
 
+  test('idle native user stop publishes an intent-only state change', () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'getConnectionState') {
+        return {
+          'running': false,
+          'transitioning': false,
+          'manuallyStopped': true
+        };
+      }
+      return null;
+    });
+    final service = ClashService()..requestConnectionIntent(true);
+    var notifications = 0;
+    service.onStatusChanged = () => notifications++;
+    addTearDown(() {
+      service.dispose();
+      messenger.setMockMethodCallHandler(channel, null);
+    });
+
+    expect(await service.refreshNativeConnectionState(), isTrue);
+    expect(service.connectionDesired, isFalse);
+    expect(service.isRunning, isFalse);
+    expect(notifications, 1);
+
+    final stopped = service.requestConnectionIntent(false);
+    expect(await service.refreshNativeConnectionState(), isTrue);
+    expect(
+        service.isConnectionIntentCurrent(stopped, connected: false), isTrue);
+    expect(notifications, 1);
+  });
+
   test('native running sync adopts the externally started session', () async {
     const channel = MethodChannel('com.ssrvpn/native');
     final messenger =

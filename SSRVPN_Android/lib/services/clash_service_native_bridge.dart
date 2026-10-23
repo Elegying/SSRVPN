@@ -420,6 +420,7 @@ extension AndroidNativeBridge on ClashService {
     required String source,
   }) {
     final nativeWasRunning = isRunning;
+    final connectionWasDesired = connectionDesired;
     final recoveryWasObserved = _nativeConnectionTransitioning;
     final dartOwnsStart = _startOperation != null;
     final dartOwnsStop = _stopOperation != null;
@@ -474,6 +475,7 @@ extension AndroidNativeBridge on ClashService {
     if (!state.running &&
         !state.transitioning &&
         state.manuallyStopped &&
+        connectionDesired &&
         !dartOwnsStart &&
         !dartOwnsStop) {
       // Notification and tile actions do not create a Dart stop transaction.
@@ -520,6 +522,7 @@ extension AndroidNativeBridge on ClashService {
     }
     if (!terminalUnexpectedStop &&
         (statusChanged ||
+            connectionWasDesired != connectionDesired ||
             transitionChanged ||
             sessionChanged ||
             underlyingNetworkChanged)) {

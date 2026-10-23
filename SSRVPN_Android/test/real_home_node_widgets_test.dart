@@ -6,6 +6,7 @@ import 'dart:io';
 import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -1026,6 +1027,69 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('native denial during config cleanup releases home busy state',
+      (tester) async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final pendingCleanup = Completer<Object?>();
+    var stateQueries = 0;
+    const idle = {
+      'running': false,
+      'transitioning': false,
+      'manuallyStopped': true
+    };
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'getConnectionState') {
+        if (stateQueries++ == 0) return pendingCleanup.future;
+        return idle;
+      }
+      return null;
+    });
+    final clash = _PermissionDismissalAndroidClashService();
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    clash.setPaths(
+        configDir: fixture.directory.path,
+        configPath: '${fixture.directory.path}/config.yaml');
+    addTearDown(() {
+      if (!pendingCleanup.isCompleted) pendingCleanup.complete(idle);
+      clash.dispose();
+      fixture.dispose();
+      messenger.setMockMethodCallHandler(channel, null);
+    });
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(tester, find.byKey(const Key('ssrvpn-power-button')));
+    await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+    await _waitForAsyncCondition(tester, () => clash.startCalls == 1);
+    clash.releaseStart.complete(false);
+    await _waitForAsyncCondition(tester, () => stateQueries == 1);
+
+    // The permission error is already delivered, while the cancelled config
+    // is still being released. onResume then publishes the native idle state.
+    await tester.runAsync(() => clash.refreshNativeConnectionState());
+    await tester.pump();
+    final overview = tester.widget<SsrvpnHomeOverview>(
+      find.byType(SsrvpnHomeOverview),
+    );
+    expect(overview.isConnecting, isFalse);
+    expect(overview.isConnected, isFalse);
+    await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+    expect(clash.connectionDesired, isTrue);
+    // Retry is queued before the old cleanup returns. Its late completion
+    // must not cancel the new intent or turn the retry into a stop action.
+    pendingCleanup.complete(idle);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester
+        .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
+    await tester.pump();
+    await _waitForAsyncCondition(tester, () => clash.startCalls == 2);
+    expect(clash.stopCalls, 0);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('failed online reload publishes its failure and clears busy UI',
       (tester) async {
     final clash = _FailedReloadAndroidClashService()
@@ -1714,6 +1778,13 @@ class _FailedReloadAndroidClashService
     setLastStartError('用户拒绝了 VPN 权限');
     return releaseStart.future;
   }
+}
+
+class _PermissionDismissalAndroidClashService
+    extends _FailedReloadAndroidClashService {
+  @override
+  Future<String> writeConfig(String config) async =>
+      '$configDir/config-permission.yaml';
 }
 
 class _MismatchedReadbackAndroidClashService
