@@ -24,6 +24,31 @@ The source record pins the upstream commit/tree, Go toolchain, patch digest and
 custom executable SHA-256. Its `Official asset` fields describe the upstream
 reference; bootstrap installs the custom binary from `Mirror URL`.
 
+## Reuse verified CI assets
+
+On a checkout of the exact successful `main` CI commit, an authenticated GitHub
+CLI can restore the six pinned files without rebuilding another platform's core:
+
+```bash
+python3 scripts/reuse-ci-core-assets.py --repo Elegying/SSRVPN --sha "$(git rev-parse HEAD)"
+bash scripts/verify-core-assets.sh
+```
+
+The helper requires a recent eligible CI run (within 24 hours), checks the run and
+artifact identities, verifies the archive and each pinned file digest, and only
+then installs the complete validated set. Exit 3 means no reusable artifact;
+other nonzero results are verification failures. Do not bypass the exact-commit,
+age or digest checks. A documentation-only commit may have no core artifact;
+use the exact code checkout separately and compare the source records before
+copying its validated files, then rerun verification in the destination checkout.
+Never reset a working tree to obtain assets. If no eligible artifact exists,
+rebuild using the pinned source recipes and supported toolchains.
+
+Windows PowerShell can run the same final checks through
+`scripts/verify-windows.ps1 -Mode Preflight`; see [testing](TESTING.md).
+Restoring the recorded GeoIP bytes is not a GeoIP refresh. Source records and
+checksums remain unchanged; generated files stay ignored by Git.
+
 ## Android
 
 - Bundled file: `SSRVPN_Android/android/app/src/main/jniLibs/arm64-v8a/libgojni.so`

@@ -65,13 +65,13 @@ for path, (limit, parts) in services.items():
 windows_lifecycle = Path("SSRVPN_Windows/lib/services/clash_service_lifecycle.dart")
 windows_support = windows_lifecycle.with_name("clash_service_process_support.dart")
 for declaration in ("enum _VerifiedCoreTermination {", "Future<bool> terminateCoreProcess("):
-    if declaration in windows_lifecycle.read_text() or declaration not in windows_support.read_text():
+    if declaration in windows_lifecycle.read_text(encoding="utf-8") or declaration not in windows_support.read_text(encoding="utf-8"):
         raise SystemExit(f"{windows_support}: process support responsibility returned to orchestration")
 
 windows_validation = windows_lifecycle.with_name("clash_service_config_validation.dart")
 validation_declaration = "Future<bool> validateConfig("
-if (validation_declaration in windows_lifecycle.read_text() or
-        validation_declaration not in windows_validation.read_text()):
+if (validation_declaration in windows_lifecycle.read_text(encoding="utf-8") or
+        validation_declaration not in windows_validation.read_text(encoding="utf-8")):
     raise SystemExit(f"{windows_validation}: validation responsibility returned to orchestration")
 
 update_service = Path("packages/ssrvpn_shared/lib/services/update_service.dart")

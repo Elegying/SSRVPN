@@ -313,6 +313,18 @@ def current_policy_claims(root: Path, relative_name: str, markdown: str) -> list
         if "三页" not in text or "双栈" not in text:
             findings.append("PR checklist must preserve the three-page dual-stack baseline")
     if relative_name == "docs/PROJECT_HEALTH.md":
+        version = re.search(r"^当前应用版本：`(v\d+\.\d+\.\d+)`", markdown, re.MULTILINE)
+        if version:
+            for title in ("当前证据边界", "下一阶段优先级"):
+                sections = re.findall(
+                    rf"^## {title}\s*\n(.*?)(?=^## |\Z)", markdown,
+                    re.MULTILINE | re.DOTALL,
+                )
+                if len(sections) != 1 or f"当前基线：`{version.group(1)}`" not in sections[0]:
+                    findings.append(f"{title} must appear once and identify the current application baseline")
+                elif any(value != version.group(1) for value in
+                         re.findall(r"\bv\d+\.\d+\.\d+\b", sections[0])):
+                    findings.append(f"{title} contains another version; move historical evidence to a versioned section")
         # Older release sections are evidence, not assertions about this candidate.
         current = "## ".join(re.split(r"^## ", markdown, maxsplit=2, flags=re.MULTILINE)[:2])
         if re.search(r"第三方代理\s*[/／]\s*VPN\s*软件不受影响", current):

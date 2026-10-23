@@ -4,6 +4,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+case "${1:-}" in
+  '' | --preflight | --assets-only) ;;
+  *) echo "usage: $0 [--preflight|--assets-only]" >&2; exit 2 ;;
+esac
+if (( $# > 1 )); then echo "Too many verification arguments." >&2; exit 2; fi
+# shellcheck source=scripts/verification-environment.sh
+source "$ROOT/scripts/verification-environment.sh"
+trap cleanup_verification_environment EXIT
+prepare_verification_environment
+
 run_step() {
   local title="$1"
   shift
@@ -19,6 +29,17 @@ run_in() {
 }
 
 run_step "Flutter toolchain version" scripts/check-flutter-version.sh
+run_step "Verification prerequisites" check_verification_prerequisites
+if [[ "${1:-}" == --preflight ]]; then
+  run_step "Fixed asset readiness" scripts/verify-core-assets.sh
+  echo "Preflight passed; tests and native platform acceptance have not run."
+  exit 0
+fi
+if [[ "${1:-}" == --assets-only ]]; then
+  run_step "Core asset bootstrap" scripts/bootstrap-core-assets.sh
+  run_step "Core binary assets" scripts/verify-core-assets.sh
+  exit 0
+fi
 run_step "Shared barrel imports" scripts/check-shared-barrel-imports.sh
 run_step "Version sync" scripts/check-version-sync.sh
 run_step "Bundled smart-routing rules" python3 scripts/verify-smart-rules.py
@@ -61,12 +82,16 @@ run_step "Release tooling tests" scripts/test-release-tooling.sh
 
 run_step "Critical-path performance smoke" scripts/check-performance-baseline.sh
 run_step "Workspace analyze" scripts/workspace.sh analyze
-run_step "Shared tests" scripts/run-flutter-coverage.sh packages/ssrvpn_shared
+test_args=()
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*) test_args+=(--concurrency=1) ;;
+esac
+run_step "Shared tests" scripts/run-flutter-coverage.sh packages/ssrvpn_shared "${test_args[@]}"
 run_step "Shared coverage thresholds" \
   scripts/check-coverage-thresholds.sh packages/ssrvpn_shared
 
 for app in SSRVPN_Android SSRVPN_MacOS SSRVPN_Windows; do
-  run_step "$app tests" scripts/run-flutter-coverage.sh "$app"
+  run_step "$app tests" scripts/run-flutter-coverage.sh "$app" "${test_args[@]}"
   if [[ "$app" == "SSRVPN_Android" ]]; then
     run_step "Android native unit tests" scripts/test-android-native.sh
   elif [[ "$app" == "SSRVPN_MacOS" ]]; then

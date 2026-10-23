@@ -57,6 +57,30 @@ make verify
 `mise exec flutter@3.44.1 -- make verify`。完整入口会自动引导并校验核心资产，离线测试前可先运行
 `make assets` 预取资源。
 
+Windows PowerShell 使用同一 Bash 门禁的包装入口（需要 Git for Windows）：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-windows.ps1 -Mode Preflight
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-windows.ps1
+```
+
+入口只为子进程补充 Git Bash/OpenSSL 路径、Python UTF-8 和可用 Python 3.12+ 的选择，
+不修改系统环境变量。Windows 已有 Java/Android SDK 默认位置可被识别；自定义安装请设置
+`JAVA_HOME`（JDK 17）及 `ANDROID_SDK_ROOT`。Flutter 仍须精确为 3.44.1，ShellCheck 需在 PATH。
+`Preflight` 检查工具与固定资产，不执行测试，缺失或摘要不符即失败；完整入口仍执行资产引导及校验。
+`-Mode Assets` 只执行前置检查和既有资产引导/校验；定制内核缺失时仍须具备对应源码构建工具链。
+已验证精确提交的 CI 资产可按[核心资产说明](CORE_ASSETS.md)复用，不能拿官方内核或其他版本 GeoIP 补位。
+Windows 本地完整入口与 CI 一样串行运行各包测试文件，保留用例内部并发、时限和覆盖率门槛。
+macOS 原生 XCTest 在 Windows 上明确跳过，不代表该平台通过；完整入口成功也不替代真机验收。
+Git Bash/NTFS 的符号链接和权限语义不等同于 POSIX；macOS TUN/DNS 事务用例在该环境失败时，
+完整入口继续返回失败，需在支持相应语义的 Linux/macOS 宿主复验，不得删除断言来取得绿色结果。
+使用 WSL 补验时，将同一候选代码检出到 Linux 文件系统（不要直接使用 `/mnt/c` 工作树），
+再执行 `bash scripts/test-macos-tun-dns-transaction.sh` 与 `bash scripts/test-release-tooling.sh`。
+分别保留宿主、候选代码、退出码和跳过项目；这些补验结果不等于 Windows 完整入口通过，
+也不能代替 macOS 原生 XCTest、codesign 或目标平台真实内核验收。
+Android 原生路径策略测试也依赖符号链接解析；Windows JDK 的 `File.canonicalFile`
+语义不等同于 Android/Linux，相关断言必须保留，并在 Linux CI 运行原始 Gradle 测试任务。
+
 当前门禁依次验证：
 
 - 全部受版本控制 Dart 源码格式、Shell 脚本 ShellCheck、共享包导入、版本同步、安装包内指南和当前文档一致性。

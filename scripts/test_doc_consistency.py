@@ -14,6 +14,21 @@ RULES = '# Hard rules\n\n' + ''.join(f'{n}. Rule {n}\n' for n in range(1, 58)) +
 
 
 class HardRuleDocumentationTests(unittest.TestCase):
+    def test_health_current_sections_match_version_and_history_is_preserved(self):
+        name = 'docs/PROJECT_HEALTH.md'
+        current = ('# Health\n当前应用版本：`v6.0.3`\n'
+                   '## 当前证据边界\n当前基线：`v6.0.3`。\n'
+                   '## 下一阶段优先级\n当前基线：`v6.0.3`。\n')
+        self.assertEqual(self.check({name: current + '## 历史 v4.0.36\n旧记录。\n'}), [])
+        for invalid in (
+            current.replace('当前基线：`v6.0.3`', '当前基线：`v4.0.36`', 1),
+            current + '## 当前证据边界\n当前基线：`v6.0.3`。\n',
+            current.replace('## 下一阶段优先级', '## 历史优先级'),
+            current + '请执行 v4.0.36 新版实机矩阵。\n',
+        ):
+            with self.subTest(invalid=invalid):
+                self.assertTrue(self.check({name: invalid}))
+
     def test_unreleased_notes_keep_the_approved_summary_without_rewriting_history(self):
         approved = '## [Unreleased]\n\n- 优化稳定性，提升连接体验。\n'
         self.assertEqual(self.check({'CHANGELOG.md': approved + '\n## [1.0.0]\n历史功能说明。'}), [])
