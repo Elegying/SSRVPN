@@ -91,12 +91,19 @@ class RegistrySandbox final {
   RegistrySandbox& operator=(const RegistrySandbox&) = delete;
 
   bool Initialize() {
-    path_ = L"Software\\SSRVPN\\NativeRecoveryTests\\" +
+    // Volatile creation also creates missing parents as volatile. Keep the
+    // entire sandbox outside the application's persistent registry namespace.
+    path_ = L"SSRVPNNativeRecoveryTests-" +
             std::to_wstring(GetCurrentProcessId()) + L"-" +
             std::to_wstring(GetTickCount64());
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, path_.c_str(), 0, nullptr,
+    DWORD disposition = 0;
+    const LSTATUS created = RegCreateKeyExW(HKEY_CURRENT_USER, path_.c_str(), 0, nullptr,
                         REG_OPTION_VOLATILE, KEY_ALL_ACCESS, nullptr, &root_,
-                        nullptr) != ERROR_SUCCESS) {
+                        &disposition);
+    if (created != ERROR_SUCCESS || disposition != REG_CREATED_NEW_KEY) {
+      if (root_ != nullptr) RegCloseKey(root_);
+      root_ = nullptr;
+      path_.clear();
       return false;
     }
     if (RegOverridePredefKey(HKEY_CURRENT_USER, root_) != ERROR_SUCCESS) {
@@ -111,6 +118,43 @@ class RegistrySandbox final {
   std::wstring path_;
   bool overridden_ = false;
 };
+
+std::wstring ApplicationRegistryFingerprint(const wchar_t* path) {
+  HKEY key = nullptr;
+  const LSTATUS opened = RegOpenKeyExW(HKEY_CURRENT_USER, path, 0, KEY_READ, &key);
+  if (opened == ERROR_FILE_NOT_FOUND) return L"absent";
+  if (opened != ERROR_SUCCESS) return {};
+  DWORD children = 0, values = 0;
+  FILETIME written = {};
+  const LSTATUS queried = RegQueryInfoKeyW(key, nullptr, nullptr, nullptr,
+      &children, nullptr, nullptr, &values, nullptr, nullptr, nullptr, &written);
+  RegCloseKey(key);
+  if (queried != ERROR_SUCCESS) return {};
+  return std::to_wstring(children) + L":" + std::to_wstring(values) + L":" +
+         std::to_wstring(written.dwHighDateTime) + L":" +
+         std::to_wstring(written.dwLowDateTime);
+}
+
+bool TestSandboxLeavesApplicationNamespaceUnchanged() {
+  constexpr const wchar_t* paths[] = {
+      L"Software\\SSRVPN", L"Software\\SSRVPN\\NativeRecoveryTests"};
+  std::wstring before[2];
+  for (int i = 0; i < 2; ++i) {
+    before[i] = ApplicationRegistryFingerprint(paths[i]);
+    if (before[i].empty()) return false;
+  }
+  {
+    RegistrySandbox sandbox;
+    if (!sandbox.Initialize()) return false;
+    HKEY fixture = nullptr;
+    if (!CreateKey(kBackupPath, &fixture)) return false;
+    RegCloseKey(fixture);
+  }
+  for (int i = 0; i < 2; ++i) {
+    if (ApplicationRegistryFingerprint(paths[i]) != before[i]) return false;
+  }
+  return true;
+}
 
 bool SeedOwnedSettings() {
   HKEY settings = nullptr;
@@ -280,6 +324,10 @@ bool TestApplicationRecovery(int scenario) {
 }  // namespace
 
 int wmain() {
+  if (!TestSandboxLeavesApplicationNamespaceUnchanged()) {
+    std::wcerr << L"registry sandbox modified the application namespace\n";
+    return 1;
+  }
   for (int scenario = 0; scenario < 6; ++scenario) {
     if (!TestApplicationRecovery(scenario)) {
       std::wcerr << L"application recovery scenario failed: " << scenario << L"\n";
