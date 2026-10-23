@@ -1,7 +1,7 @@
 name: ssrvpn_windows
 description: SSRVPN - 安全稳定的VPN客户端 (Windows 安装版)
 publish_to: 'none'
-version: 6.0.2+6004
+version: 6.0.3+6005
 resolution: workspace
 
 environment:
