@@ -6,32 +6,46 @@
 
 最新正式版本：[GitHub Releases 当前正式版](https://github.com/Elegying/SSRVPN/releases/latest)
 
-## 2026-10-23：6.0.3 三端候选验收与发布门禁
+## 2026-10-23：6.0.3 正式发布与验证状态
 
-维护者将本轮范围更新为三端日常稳定性与可用性，候选 `6.0.3+6005` 在完成实机验收、
-问题修复、回归及单独复审后发布新的稳定版。主动断网和读屏专项不再执行；保留安装升级、
-数据保存、正常连接/断开、节点与订阅操作、窗口/托盘、后台返回等常用流程。
-三端已安装候选均绑定 `413b74a4b61181c8cfe2d1fa5b576e1134946a27`，完成覆盖升级与数据
-保留、正常连接/断开、取消、订阅刷新、窗口/托盘及后台返回；具体次数、采样缺口和未执行
-边界见 [真机矩阵](UAT_MATRIX.md)。Android 连接/断开熄屏测量均超过 30 分钟，连接补测
-返回前台后 3 次独立 HTTPS 204 通过，正常断开后没有 VPN Service/TUN 残留。
+[稳定版 v6.0.3](https://github.com/Elegying/SSRVPN/releases/tag/v6.0.3) 已公开，版本
+`6.0.3+6005`，不可变 tag 固定在 `5ea4c59cba3aa73ec1978f0da4569a60a9df60d8`。
+[PR #342](https://github.com/Elegying/SSRVPN/pull/342) 经受保护流程合并；
+[最终 PR CI](https://github.com/Elegying/SSRVPN/actions/runs/39919846992) 14 项通过，
+[精确 main CI](https://github.com/Elegying/SSRVPN/actions/runs/39923978950) 13 项通过，
+仅限 PR 的 Dependency review 在 push 事件按配置跳过。
 
-Windows 实机发现原生测试会留下应用注册表易失父项，影响后续持久恢复记录创建。
-`5c97a3c81dfa907ed1ae59c7cb73f5c6279e69df` 将测试临时根移出应用命名空间，并增加
-应用注册表不变回归。相同 Windows 环境旧代码失败、修复后 9 项原生检查通过，本机
-37 项相关守卫通过；随包生产代码与已安装候选相同。最终改动和调用路径已单独复审，
-覆盖会话隔离、错误传播、数据保留、失败回滚和安全边界，没有发现新的未解决问题。
+本机 `verify-all.sh` 在 `5c97a3c81dfa907ed1ae59c7cb73f5c6279e69df` 完整串行重跑通过；
+其后只更新维护记录，生产与测试代码未变。首次并发运行的大缓存回滚超时记录保留，
+没有放宽断言或时限。客户端可靠性专项在 `e425495828f5b08db5ba6e3ceb4bdfce6acdfebc`
+通过 409 项、跳过 7 项；该提交与发布提交的完整 Git tree 一致。目标平台 main CI 的结果如下：
 
-已安装候选的 [CI 39900361688](https://github.com/Elegying/SSRVPN/actions/runs/39900361688)
-14 项任务通过，四包结果为共享 2520 / 14 跳过、Android 447、macOS 388、Windows
-689 / 6 跳过，覆盖率依次为 91.84%、74.20%、77.13%、75.52%。Windows 原生、
-PowerShell 5.1 与实际安装故障矩阵有独立日志；macOS 平台跳过不算 Windows 通过。
+| 包与执行环境 | 通过 / 跳过 | 行覆盖率 |
+| --- | ---: | ---: |
+| 共享 / Ubuntu 24.04 | 2520 / 14 | 91.86% |
+| Android / Ubuntu 24.04 | 447 / 0 | 74.20% |
+| macOS / macOS 15 arm64 | 388 / 0 | 77.13% |
+| Windows / Windows Server 2025 x64 | 689 / 6 | 75.52% |
 
-新增测试修复后的本机全量验证首次在大缓存回滚用例触发 30 秒时限；保留失败后，同一
-用例按测试文件串行执行在 17 秒内通过，未改断言或时限。完整串行重跑、最终 PR/main CI、
-正式发布和匿名公开安装包复验仍分别作为门禁，结果绑定精确提交更新到
-[PR #342](https://github.com/Elegying/SSRVPN/pull/342)。下面的 `072b5dd2` Android 证据
-保持原提交归属；历史“不发布”描述只代表当时阶段，当前已获授权在门禁通过后发布。
+Android 与 macOS 原生测试、Windows 原生/PowerShell 5.1 和隔离安装故障矩阵通过，
+并核对实际日志。本机 macOS 上的 Windows 跳过项不算 Windows 通过。修复后的最终差异与
+调用路径已单独复审，覆盖会话隔离、错误传播、数据保留、失败回滚及安全边界，无新的
+未解决发现；这是同一维护代理的独立复审步骤，不声称外部人工审计。
+
+[Prepare Release](https://github.com/Elegying/SSRVPN/actions/runs/39928588386) 与
+[Release](https://github.com/Elegying/SSRVPN/actions/runs/39928652505) 全部完成。
+公开后的 APK、DMG、EXE 从 GitHub、OSS 版本化路径及固定下载入口独立匿名完整下载，
+SHA-256、大小、sidecar、provenance、不可变 Release 身份和更新清单一致；三份 GitHub
+构建证明按精确工作流、tag 与提交验证通过。结构 smoke 和
+[公开 Windows EXE 隔离安装验收](https://github.com/Elegying/SSRVPN/actions/runs/39932333916)
+通过，三端调试符号及发行资产已归档。构建证明不替代 Apple 公证或 Microsoft 发行证书。
+
+本轮范围为三端日常稳定性与可用性，主动断网和读屏专项不执行。候选阶段的覆盖升级、
+数据保留、20 轮正常连接/断开、快速取消、节点与订阅操作、窗口/托盘及连接/断开各
+30 分钟资源观察按精确候选记录，正式包安装后另做启动和联网复验，详见
+[真机矩阵](UAT_MATRIX.md)。历史“不发布”描述仅代表当时阶段，未把旧候选记录改写成
+正式包重新执行过的结果。最低系统、其他 OEM、16 KiB Android 硬件、真实 UAC 取消、
+睡眠及其他未覆盖交互仍单列；不据此宣称所有系统或完整三端矩阵全部通过。
 
 ## 2026-10-23：Android 日常流程与资源清理修复（未发布）
 
