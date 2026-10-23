@@ -3062,6 +3062,77 @@ secret: rejected-test-secret
     expect(service.isRunning, isFalse);
   });
 
+  for (final terminal in ['idle', 'unavailable', 'recovering', 'stopFailed']) {
+    test('cancelled config waits for native stop before cleanup: $terminal',
+        () async {
+      const channel = MethodChannel('com.ssrvpn/native');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final dir =
+          await Directory.systemTemp.createTemp('ssrvpn_cancel_cleanup_');
+      final service = ClashService()
+        ..setPaths(configDir: dir.path, configPath: '${dir.path}/config.yaml');
+      final prepared = await service.writeConfig('cancelled attempt');
+      final startInvoked = Completer<void>();
+      final startResult = Completer<Object?>();
+      final startReturned = Completer<void>();
+      final stopResult = Completer<void>();
+      var stopping = true;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        switch (call.method) {
+          case 'startCoreWithVpn':
+            startInvoked.complete();
+            return startResult.future;
+          case 'stopCore':
+            startResult.completeError(PlatformException(code: 'CORE_FAILED'));
+            await stopResult.future;
+            stopping = false;
+            if (terminal == 'stopFailed') {
+              throw PlatformException(code: 'STOP_INCOMPLETE');
+            }
+            return true;
+          case 'isCoreRunning':
+            return terminal == 'stopFailed';
+          case 'getConnectionState':
+            if (!stopping && terminal == 'unavailable') return null;
+            final protected = stopping ||
+                terminal == 'recovering' ||
+                terminal == 'stopFailed';
+            return {
+              'running': !stopping && terminal == 'stopFailed',
+              'transitioning': stopping || terminal == 'recovering',
+              'protectedConfigPath': protected ? prepared : null,
+              'sessionGeneration':
+                  !stopping && terminal == 'stopFailed' ? 7 : null,
+            };
+        }
+        return null;
+      });
+      addTearDown(() async {
+        service.dispose();
+        messenger.setMockMethodCallHandler(channel, null);
+        await dir.delete(recursive: true);
+      });
+      final starting =
+          service.start(preparedConfigPath: prepared).then((result) async {
+        startReturned.complete();
+        await service.discardPreparedConfig(prepared);
+        return result;
+      });
+      await startInvoked.future;
+      final stop = service.stop();
+      final stopChecked = terminal == 'stopFailed'
+          ? expectLater(stop, throwsStateError)
+          : expectLater(stop, completes);
+      await startReturned.future;
+      expect(await File(prepared).exists(), isTrue);
+      stopResult.complete();
+      await stopChecked;
+      expect(await starting, isFalse);
+      expect(await File(prepared).exists(), terminal != 'idle');
+    });
+  }
+
   test(
     'native notification failure does not escape a successful stop',
     () async {

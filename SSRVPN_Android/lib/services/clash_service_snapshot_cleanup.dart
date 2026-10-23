@@ -131,6 +131,17 @@ extension AndroidSnapshotCleanup on ClashService {
   Future<void> discardPreparedConfig(String path) async {
     final absolutePath = File(path).absolute.path;
     try {
+      // Android cancels the start result before its worker releases the config.
+      // Reuse the in-flight stop barrier, then recheck authoritative ownership.
+      // This cleanup never starts or retries a stop of its own.
+      final stopping = _stopOperation;
+      if (stopping != null) {
+        try {
+          await stopping;
+        } catch (error) {
+          log('临时配置清理前停止未完整结束: cause=${safeRuntimeErrorCode(error)}');
+        }
+      }
       await _discardPreparedConfigIfIdle(absolutePath);
     } on FileSystemException {
       // Cleanup must not replace the result of a connect/cancel operation.
