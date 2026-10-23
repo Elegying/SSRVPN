@@ -142,7 +142,20 @@ extension AndroidSnapshotCleanup on ClashService {
           log('临时配置清理前停止未完整结束: cause=${safeRuntimeErrorCode(error)}');
         }
       }
-      await _discardPreparedConfigIfIdle(absolutePath);
+      final retryWindow = _nativeStateRetryDelays.fold(
+        Duration.zero,
+        (total, delay) => total + delay,
+      );
+      final retryClock = Stopwatch()..start();
+      if (await _discardPreparedConfigIfIdle(absolutePath)) return;
+      // onDestroy may briefly start another native cleanup after stop returns.
+      // Reuse the bounded state retry cadence, never infer idle from elapsed
+      // time, and do not multiply a slow/timeout query into repeated waits.
+      for (final delay in _nativeStateRetryDelays) {
+        if (retryClock.elapsed >= retryWindow) break;
+        await Future<void>.delayed(delay);
+        if (await _discardPreparedConfigIfIdle(absolutePath)) return;
+      }
     } on FileSystemException {
       // Cleanup must not replace the result of a connect/cancel operation.
       log('临时连接配置清理失败，保留文件并延后清理');
@@ -151,24 +164,22 @@ extension AndroidSnapshotCleanup on ClashService {
     }
   }
 
-  Future<void> _discardPreparedConfigIfIdle(String absolutePath) async {
-    if (absolutePath == _runningConfigPath ||
-        absolutePath == _nativeSnapshotConfigPath) {
-      return;
-    }
+  Future<bool> _discardPreparedConfigIfIdle(String absolutePath) async {
+    if (absolutePath == _nativeSnapshotConfigPath) return true;
+    if (absolutePath == _runningConfigPath) return false;
     final file = File(absolutePath);
     final name = file.uri.pathSegments.last;
-    if (!name.startsWith('config-') || !name.endsWith('.yaml')) return;
-    if (file.parent.path != Directory(configDir).absolute.path) return;
+    if (!name.startsWith('config-') || !name.endsWith('.yaml')) return true;
+    if (file.parent.path != Directory(configDir).absolute.path) return true;
     final nativeState = await _queryNativeConnectionState();
     if (nativeState == null) {
       log('原生 VPN 状态不明确，保留临时连接配置');
-      return;
+      return false;
     } else if (nativeState.running ||
         nativeState.transitioning ||
         nativeState.protectedConfigPath != null) {
       log('原生 VPN 已认领配置，延后清理');
-      return;
+      return false;
     }
     if (await FileSystemEntity.type(absolutePath, followLinks: false) ==
         FileSystemEntityType.file) {
@@ -176,10 +187,11 @@ extension AndroidSnapshotCleanup on ClashService {
           _nativeConnectionTransitioning ||
           absolutePath == _runningConfigPath ||
           absolutePath == _nativeSnapshotConfigPath) {
-        return;
+        return false;
       }
       await file.delete();
     }
+    return true;
   }
 
   File get _snapshotCleanupMarker => File(

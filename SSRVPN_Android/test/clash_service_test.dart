@@ -3133,6 +3133,125 @@ secret: rejected-test-secret
     });
   }
 
+  for (final transient in ['teardown', 'unavailable']) {
+    test('cancelled config survives transient native teardown: $transient',
+        () async {
+      const channel = MethodChannel('com.ssrvpn/native');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final dir =
+          await Directory.systemTemp.createTemp('ssrvpn_teardown_cleanup_');
+      final service = ClashService()
+        ..setPaths(configDir: dir.path, configPath: '${dir.path}/config.yaml');
+      final prepared = await service.writeConfig('cancelled attempt');
+      var queries = 0;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'stopCore' ||
+            call.method == 'notifyVpnStateChanged') {
+          return true;
+        }
+        if (call.method != 'getConnectionState') return null;
+        final destroying = queries++ == 0;
+        if (destroying) expect(await File(prepared).exists(), isTrue);
+        if (destroying && transient == 'unavailable') return null;
+        return {
+          'running': false,
+          'transitioning': destroying,
+          'protectedConfigPath': destroying ? prepared : null,
+          'sessionGeneration': null,
+        };
+      });
+      addTearDown(() async {
+        service.dispose();
+        messenger.setMockMethodCallHandler(channel, null);
+        await dir.delete(recursive: true);
+      });
+
+      // Android can acknowledge stop, then briefly enter another onDestroy
+      // cleanup. Never treat that first unavailable/busy read as idle.
+      await service.stop();
+      await service.discardPreparedConfig(prepared);
+
+      expect(await File(prepared).exists(), isFalse);
+      expect(service.isRunning, isFalse);
+    });
+  }
+
+  test('config cleanup retry preserves a newer native session', () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp('ssrvpn_newer_cleanup_');
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: '${dir.path}/config.yaml');
+    final prepared = await service.writeConfig('cancelled attempt');
+    final newer = await service.writeConfig('new session');
+    final observedTeardown = Completer<void>();
+    var newSessionRunning = false;
+    var stopCalls = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'stopCore') {
+        stopCalls++;
+        return true;
+      }
+      if (call.method == 'notifyVpnStateChanged') return true;
+      if (call.method != 'getConnectionState') return null;
+      if (!observedTeardown.isCompleted) observedTeardown.complete();
+      return {
+        'running': newSessionRunning,
+        'transitioning': !newSessionRunning,
+        'protectedConfigPath': newSessionRunning ? newer : prepared,
+        'sessionGeneration': newSessionRunning ? 19 : null,
+      };
+    });
+    addTearDown(() async {
+      service.dispose();
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+
+    await service.stop();
+    final discarded = service.discardPreparedConfig(prepared);
+    await observedTeardown.future;
+    newSessionRunning = true;
+    service.setRunning(true);
+    await discarded;
+
+    expect(await File(prepared).readAsString(), 'cancelled attempt');
+    expect(await File(newer).readAsString(), 'new session');
+    expect(service.isRunning, isTrue);
+    expect(stopCalls, 1);
+  });
+
+  test('config cleanup does not repeat a slow unavailable native query',
+      () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp('ssrvpn_slow_cleanup_');
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: '${dir.path}/config.yaml');
+    final prepared = await service.writeConfig('keep recovery material');
+    var queries = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'getConnectionState') {
+        queries++;
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
+      return null;
+    });
+    addTearDown(() async {
+      service.dispose();
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+
+    await service.discardPreparedConfig(prepared);
+
+    expect(queries, 1);
+    expect(await File(prepared).readAsString(), 'keep recovery material');
+  });
+
   test(
     'native notification failure does not escape a successful stop',
     () async {
