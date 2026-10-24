@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -11,7 +12,7 @@ SCRIPT = ROOT / "scripts" / "run-flutter-coverage.sh"
 
 class RunFlutterCoverageTests(unittest.TestCase):
     def _run(self, target: str) -> subprocess.CompletedProcess[str]:
-        temporary_directory = tempfile.TemporaryDirectory()
+        temporary_directory = tempfile.TemporaryDirectory(prefix="ssrvpn coverage 中文 ")
         self.addCleanup(temporary_directory.cleanup)
         fake_bin = Path(temporary_directory.name)
         capture = fake_bin / "capture.txt"
@@ -19,12 +20,17 @@ class RunFlutterCoverageTests(unittest.TestCase):
         flutter.write_text(
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
-            "{ printf '%s\\n' \"$PWD\"; printf '%s\\n' \"$@\"; } > \"$CAPTURE\"\n",
+            # Ask the same native Python that runs the assertion for the actual
+            # child CWD. Git Bash's $PWD uses /c/... on Windows, not C:\\... .
+            "{ \"$TEST_PYTHON\" -c 'import os; print(os.getcwd())'; "
+            "printf '%s\\n' \"$@\"; } > \"$CAPTURE\"\n",
             encoding="utf-8",
         )
         flutter.chmod(0o755)
         environment = os.environ.copy()
         environment["CAPTURE"] = str(capture)
+        environment["TEST_PYTHON"] = sys.executable
+        environment["PYTHONIOENCODING"] = "utf-8"
         environment["PATH"] = f"{fake_bin}{os.pathsep}{environment['PATH']}"
         result = subprocess.run(
             ["bash", str(SCRIPT), target],
@@ -32,6 +38,7 @@ class RunFlutterCoverageTests(unittest.TestCase):
             env=environment,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             check=False,
         )
         result.capture_lines = (

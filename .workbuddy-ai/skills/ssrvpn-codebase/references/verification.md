@@ -28,7 +28,7 @@ bash scripts/verify-all.sh
 
 ## 2. `verify-all.sh` 步骤全表（`set -euo pipefail`，**遇错即停**）
 
-顺序即权威，照抄自 `scripts/verify-all.sh`：
+下表用于导航；执行顺序和平台条件以当前 `scripts/verify-all.sh` 为准：
 
 | # | 步骤 | 命令 | 条件 |
 |---|---|---|---|
@@ -46,6 +46,7 @@ bash scripts/verify-all.sh
 | 12 | Core binary assets | `scripts/verify-core-assets.sh` | |
 | 13 | Production routing on real core | `python3 scripts/check-routing-core.py` | **Darwin only** |
 | 14 | Dual-stack forwarding on real core | `python3 scripts/check-core-dual-stack.py` | **Darwin only** |
+| 14a | Explicit IPv4-only HY2 egress | `python3 scripts/check-core-ipv4-egress.py` | **Darwin only** |
 | 15 | Dual-stack encrypted protocol paths | `python3 scripts/check-core-dual-stack-protocols.py` | **Darwin only** |
 | 16 | Imported SS plugin and HY2 traffic | `python3 scripts/check-imported-protocol-traffic.py --restls` | **Darwin only** |
 | 17 | Android native bridge guards | `scripts/check-android-native-bridge-guards.sh` | |
@@ -57,6 +58,7 @@ bash scripts/verify-all.sh
 | 23 | macOS core privilege guards | `scripts/check-macos-core-privileges.sh` | |
 | 24 | macOS TUN DNS transaction tests | `scripts/test-macos-tun-dns-transaction.sh` | |
 | 25 | Windows launcher security | `scripts/check-windows-launcher-security.sh` | |
+| 25a | Explicit IPv4-only HY2 egress | `python3 scripts/check-core-ipv4-egress.py --core SSRVPN_Windows/assets/mihomo.exe` | **Windows only** |
 | 26 | Imported SS plugin and HY2 traffic | `python3 scripts/check-imported-protocol-traffic.py --core SSRVPN_Windows/assets/mihomo.exe` | **Windows only** |
 | 27 | Windows native proxy recovery fault harness | `powershell.exe ... scripts/test_windows_native_proxy_recovery.ps1` | **Windows only** |
 | 28 | Secret scan | `scripts/check-secrets.sh` | |
@@ -68,7 +70,7 @@ bash scripts/verify-all.sh
 | 34-36 | 三端各自：tests → （Android/macOS 加原生单测）→ coverage thresholds | `run-flutter-coverage.sh <app>`、`check-coverage-thresholds.sh <app>` | 循环 |
 
 原生单测：`scripts/test-android-native.sh`（Android 之后）、`scripts/test-macos-native.sh`（macOS 之后）。
-Windows **没有**对应的原生单测步骤。
+Windows 原生代理恢复见步骤 27；CI 另有 policy、安装器故障矩阵及真实安装/卸载检查，不能把其他宿主上跳过的 Windows 测试计为通过。
 
 ⚠️ **注意两个名字很像但不同的脚本**：
 - `scripts/check-coverage-thresholds.sh`（**连字符**，verify-all 用的入口）
@@ -77,6 +79,16 @@ Windows **没有**对应的原生单测步骤。
 ⚠️ `make assets` **不在** verify-all 里——那是发版清单第 6 步的命令。verify-all 用的是 `bootstrap-core-assets.sh` + `verify-core-assets.sh`。
 
 ## 3. 踩过的坑（照抄能省半小时）
+
+### Windows 本地验证前置条件
+
+- 仓库文本按 UTF-8 读取，不依赖 Python 的系统默认编码。全量与发布工具测试入口固定 `PYTHONUTF8=1`、`PYTHONIOENCODING=utf-8`，统一夹具和子进程日志；源码守卫仍显式指定编码，并用模拟 CP936 的回归防止环境设置掩盖遗漏。
+- Git Bash 的 `$PWD` 是 `/c/...`，原生 Python 路径是 `C:\\...`；验证子进程工作目录时应采用同一原生路径表示，命令参数仍逐项精确比较。
+- 先恢复固定资产并运行 `bash scripts/verify-core-assets.sh`。缺少定制核心或固定 GeoIP 时，测试和 analyze 的资源错误不是客户端逻辑失败；不得创建占位文件、换官方内核或修改哈希。恢复现有固定 GeoIP 不等于运行更新任务。
+- `bootstrap-core-assets.sh` 对带扩展核心使用固定工具链重建；没有工具链时可从匹配 CI 或可信本地缓存恢复，但仍须逐字节满足仓库记录的 SHA-256。
+- macOS DNS shell 测试依赖 POSIX 权限和真实符号链接。Git Bash 的 `ln -s` 可能生成副本，不能以该环境的替代语义判定 macOS 行为；在 POSIX 宿主执行原测试，不删除断言或把失败改成通过。
+- 发布工具自测还包含 `os.getuid`、Unix 可执行替身和权限检查，不能把整组在 Windows 原生 Python 下的运行等同于其 POSIX CI 环境。完整组在 POSIX 宿主执行，Windows 的编码/路径回归、Flutter 测试、实核协议与原生代理恢复仍须在 Windows 另跑；原始失败日志保留。
+- Windows 共享包和平台包测试按 CI 使用 `--concurrency=1`，避免真实辅助进程争抢资源。全量门禁跨宿主运行，macOS XCTest 与 Windows 原生检查须分别取得目标平台证据。
 
 ### 测试必须在包目录里跑
 `proxy_option_validation_test.dart:72` 读 `test/fixtures/proxy_option_cases.json`、
@@ -145,13 +157,13 @@ cd "$(git rev-parse --show-toplevel)/packages/ssrvpn_shared" && flutter test
 8. `scripts/smoke-release-artifacts.sh --allow-missing`
 
 发版 tag 驱动：`release.yml` 由 push tag `v*` 触发，另有 `prepare-release.yml` 手动输入 tag。
-CI/Release 的 macOS runner 是 `macos-15`（自带 Xcode 16，支持 `MACOSX_DEPLOYMENT_TARGET = 11.0`）；本机 Xcode 27 不支持 11.0，属本机摩擦，不影响发布。
+CI/Release 的 macOS runner 是 `macos-15`；当前最低支持 macOS **13.0**，以 Xcode 工程和发布资产递归 Mach-O 检查为准，不再沿用历史 11.0 配置说明。当前开发机 Xcode 与 CI 工具链差异需单独记录。
 
 ## 6. 文档政策（`docs/README.md`）
 
 - 过期审查报告和一次性执行计划**不保留在文档树中**；需要追溯用 Git 历史。
 - 一次性审查证据保留在**对应提交 / Issue / Pull Request**，不新增快照型 Markdown。
-- 用户可见变化写根 `CHANGELOG.md`，未完成项写 `ROADMAP.md`。
+- 用户可见变化写根 `CHANGELOG.md`，未完成项写 `docs/ROADMAP.md`。
 - **引用历史结论前，必须在当前提交上重新执行对应测试或检查。**
 - 文档门禁自动枚举全部受版本控制 Markdown；`CHANGELOG.md` 只做链接检查，其余当前文档还检查已知陈旧结论和危险发布命令。
 - 既有先例目录 `docs/diagnostics/`、`docs/audit/` 用**英文 kebab-case** 命名。

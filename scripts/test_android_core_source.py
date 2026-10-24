@@ -183,9 +183,9 @@ class AndroidBridgeProbeGuardTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         native = ROOT / "SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android"
-        cls.service = (native / "SsrvpnVpnService.kt").read_text()
-        cls.probe = (native / "BridgeRunningProbe.kt").read_text()
-        guard = (ROOT / "scripts/check-android-native-bridge-guards.sh").read_text()
+        cls.service = (native / "SsrvpnVpnService.kt").read_text(encoding="utf-8")
+        cls.probe = (native / "BridgeRunningProbe.kt").read_text(encoding="utf-8")
+        guard = (ROOT / "scripts/check-android-native-bridge-guards.sh").read_text(encoding="utf-8")
         marker = 'python3 - "$SERVICE" "$BRIDGE_RUNNING_PROBE" <<\'PY\'\n'
         cls.check = guard.split(marker, 1)[1].split("\nPY", 1)[0]
 
@@ -193,11 +193,11 @@ class AndroidBridgeProbeGuardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             service_file = Path(directory) / "SsrvpnVpnService.kt"
             probe_file = Path(directory) / "BridgeRunningProbe.kt"
-            service_file.write_text(self.service if service is None else service)
-            probe_file.write_text(self.probe if probe is None else probe)
+            service_file.write_text(self.service if service is None else service, encoding="utf-8")
+            probe_file.write_text(self.probe if probe is None else probe, encoding="utf-8")
             return subprocess.run(
                 [sys.executable, "-", str(service_file), str(probe_file)],
-                input=self.check, text=True, capture_output=True,
+                input=self.check, text=True, encoding="utf-8", capture_output=True,
             )
 
     def test_guard_accepts_extracted_process_scoped_probe(self):

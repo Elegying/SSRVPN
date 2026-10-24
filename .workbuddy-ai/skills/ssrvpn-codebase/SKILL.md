@@ -44,6 +44,6 @@ Flutter 单仓（`ssrvpn_workspace`）跨平台 Mihomo(Clash Meta) 客户端，�
 
 ## 5. 改完之后
 
-- 用户可见变化写根 `CHANGELOG.md`，未完成项写 `ROADMAP.md`。
+- 用户可见变化写根 `CHANGELOG.md`，未完成项写 `docs/ROADMAP.md`。
 - **不要往 `docs/` 新增一次性审查报告**（`docs/README.md` 明确禁止，证据留在提交/Issue/PR）。
 - 引用历史结论前必须在当前提交重跑对应测试。

@@ -16,7 +16,7 @@ SSRVPN/
 ├── native/proxy_traffic/     # Go：定制内核补丁 + 流量统计扩展
 ├── rule-channel/             # 规则通道（签名、发布）
 ├── scripts/                  # 全部门禁脚本 + verify-all.sh
-└── docs/                     # 文档树（有严格政策，见 SKILL.md 第 6 节）
+└── docs/                     # 文档树（政策见 docs/README.md 和 verification.md 第 6 节）
 ```
 
 `packages/ssrvpn_shared/lib/` 分五个子树：`services/`（业务与平台服务）、`models/`（纯数据模型，**刻意不依赖 `dart:io`**）、`controllers/`（页面级编排）、`widgets/` + `desktop_ui/`（UI）、`utils/` + `constants/`（策略与常量）。

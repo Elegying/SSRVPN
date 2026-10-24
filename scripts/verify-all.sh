@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Repository fixtures and subprocess diagnostics are UTF-8 on every host,
+# including Windows installations whose system code page is CP936.
+export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 

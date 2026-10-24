@@ -107,9 +107,9 @@ part of desktop_home_screen;          // ← 反向挂回平台库
 - **失效只有一个入口**：`_invalidateDataPlaneObservationAndReprobe()`（`clash_service_data_plane_support.dart`）= epoch++ / 清 coalesced / sessionReset / 清告警 / `if (isRunning) scheduleDataPlaneObservation()`。**路由变化与物理网络变化共用它**——两条路径语义必须一致，别各写一份。
 - `isDataPlaneObservationCurrent` 靠 `runZoned` 携带的 epoch 比对；不匹配则 `setConnectivityWarning` 拒收。**「让旧观察失效」= 递增 epoch**，不是删告警。
 - **跨世代探测重叠是既有设计**：`Future.timeout` 不取消源，bump epoch 后旧探测仍在跑（最多 2 倍请求）。旧结果被双重丢弃（zone epoch 拒收 + `finishObservation` 的 epoch 不匹配）。
-- `clearConnectivityWarningSilently()` 是**静默**的，用户可见性由**调用方**负责。路由路径在 `clash_service_base.dart:512`（紧接 `onDataPlaneRouteChanged()` 之后）调用 `_notifyStatusChanged()`（定义在 :718）；物理网络变化路径**没有这样的调用方**，必须自己补 `notifyStatusChanged()`，否则「清了但界面照旧」。
+- `clearConnectivityWarningSilently()` 是**静默**的，通知由调用路径负责；路由变更和物理网络变更均须核对通知，不能把清除缓存等同于已更新界面。首页只展示本地所有权问题，外部观察留在诊断与日志。
 - 可测性钩子：`buildNetworkFingerprint()`（`@protected`，返回 null = 未知不动状态）、`runNetworkChangeCheck()`（`@visibleForTesting`）。
-- 指纹只含**有非 link-local 地址**的接口；`awdl0`/`llw0`/`utun*` 只有 `fe80::` 被整接口滤掉。真实噪声源只有 IPv6 临时地址轮换（约每天一次）。
+- 指纹只含有非 link-local 地址的接口；同一接口有 IPv4 时只使用 IPv4，避免 IPv6 临时地址轮换触发重复观察。纯 IPv6 接口保留 IPv6 地址。以 `networkFingerprintOf` 与对应回归为准。
 
 ## 6. 外部网络探测（数据面健康）契约
 
@@ -117,8 +117,8 @@ part of desktop_home_screen;          // ← 反向挂回平台库
 - **6 是硬上限**：`verifyUserConnectivity` 内部 `clamp(1, 6)`，调大常量只会被静默截断。理由：单轮最坏 ≈ 41 秒，须留在 `dataPlaneObservationTimeout`（60 秒）内。clamp 刻意写死 6 不引用常量（引用会同时放宽安全边界）。已有测试锁定上下界。
 - 端点顺序：TUN `youtube`→`cp.cloudflare.com`→`gstatic`；系统代理 `gstatic`→`cloudflare`→`youtube`。
 - 成功判据：**仅 HTTP 200 / 204**。单次超时 6s、连接超时 5s、整体 60s。
-- ⚠️ 探测**经本地代理发出**，mihomo 在链路上 → **节点死亡时 mihomo 主动返回 HTTP 502 而不抛异常**。因此「有响应即通道可用」是错的；只认 200/204 是正确设计。也意味着「端点状态码异常」无法与「节点已死」区分——措辞上不要断言是站点问题。
-- 失败**只告警**，永不重启核心 / 断开 / 切节点。自动恢复由**控制面** `onPeriodicHealthCheckResult` 驱动。
+- 系统代理模式显式走本地 HTTP 代理；TUN 模式使用 `DIRECT` 让系统流量进入实际 TUN 路由。代理链路可返回 HTTP 502 而不抛异常，因此不能把任意 HTTP 响应当作成功，也不能仅凭端点状态码认定站点或节点故障。
+- 外部观察失败仅记录诊断和日志，不触发重启核心 / 断开 / 切节点，也不作为首页连接故障。自动恢复由控制面健康检查及平台恢复策略负责。当前路径成功后停止背景外部探测，连接、路由或物理网络变化使观察失效。
 - 文案两分支（**引自 `clash_service_data_plane_support.dart` 原文**）：有响应 → `'外部网络验证未通过（端点 HTTP $lastStatusCode），仅供参考'`；全程无响应 → `'外部网络验证未通过（连接无响应），仅供参考'`。两分支都带「，仅供参考」后缀。
 - 诊断页读**缓存告警**不重新探测（完整探测最坏 41s > `diagnosticCheckTimeout` 10s），用 `buildDataPlaneDiagnosticSummary()` 标注观察年龄。三端均已接线。
 - 错误分类**先按异常类型**（`TimeoutException`/`HandshakeException`/`http.ClientException`/`SocketException`），再退回字符串匹配。类型判定只放 services 层。

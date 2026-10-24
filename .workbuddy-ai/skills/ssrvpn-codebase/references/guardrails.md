@@ -1,6 +1,6 @@
 # 门禁全表：改之前先看会不会撞墙
 
-> **核心警告：上限卡得很死。** 实测零余量/紧余量不止一处：`Windows/clash_service_lifecycle.dart` 1628/1690（余62）、`subscription_service_persistence.dart` 196/196、`desktop_connection_coordinator.dart` 188/188（零余量）；`system_proxy_models.dart` 129/130、Windows `system_proxy_service.dart` 1314/1320、`CoreProcessSupport.swift` 238/240（余量见下表）。**加几行就 fail 是常态，不是意外。**
+> **核心警告：多个文件接近上限。** 当前 `desktop_connection_coordinator.dart` 188/188、`stop_ssrvpn_processes.ps1` 1350/1350 均无余量；订阅持久化 195/196、订阅事务 179/180、来源缓存 159/160、代理模型 129/130 各余 1 行。Windows 生命周期为 1485/1690（余 205），系统代理为 1307/1320（余 13）。
 > 守卫脚本用 `raise SystemExit`，**遇错即停**：修好一处才暴露下一处。
 > 验证时一次性算完所有数值，别打地鼠。
 
@@ -18,17 +18,19 @@
 
 ### 宿主文件行数上限 + 必须声明的 part
 
-**「当前」列是实测快照（2026-10-03）；实时数值以 `bash scripts/check-clash-service-boundaries.sh` 输出为准，会随代码变动——动手前自己 `wc -l` 复核。**
+**「当前」列是实测快照（2026-10-24）；实时数值以 `bash scripts/check-clash-service-boundaries.sh` 输出为准，会随代码变动——动手前自己 `wc -l` 复核。**
 
 | 文件 | 当前 | 上限 | 余量 | 必须的 part |
 |---|---|---|---|---|
 | `SSRVPN_Android/lib/services/clash_service.dart` | 841 | **850** | 9 ⚠️ | `clash_service_native_bridge.dart`、`clash_service_snapshot_cleanup.dart`、`clash_service_config.dart`、`clash_service_country.dart`、`clash_service_data_plane.dart` |
-| `packages/ssrvpn_shared/lib/services/clash_service_base.dart` | 723 | **760** | 37 | `clash_service_config_support.dart`、`clash_service_diagnostics.dart`、`clash_service_runtime_support.dart`、`clash_service_health_monitor.dart`、`clash_service_rule_provider_support.dart`、`clash_service_data_plane_support.dart`、`clash_service_latency_support.dart` |
+| `packages/ssrvpn_shared/lib/services/clash_service_base.dart` | 725 | **760** | 35 | `clash_service_config_support.dart`、`clash_service_diagnostics.dart`、`clash_service_runtime_support.dart`、`clash_service_health_monitor.dart`、`clash_service_rule_provider_support.dart`、`clash_service_data_plane_support.dart`、`clash_service_latency_support.dart` |
 | `SSRVPN_MacOS/lib/services/clash_service.dart` | 419 | **550** | 131 | `clash_service_config.dart`、`clash_service_lifecycle.dart` |
-| `SSRVPN_Windows/lib/services/clash_service.dart` | 222 | **550** | 328 | `clash_service_config.dart`、`clash_service_lifecycle.dart`、`clash_service_config_validation.dart` |
+| `SSRVPN_Windows/lib/services/clash_service.dart` | 222 | **550** | 328 | `clash_service_config.dart`、`clash_service_lifecycle.dart`、`clash_service_process_support.dart`、`clash_service_config_validation.dart` |
 | `SSRVPN_Windows/lib/services/clash_service_config_validation.dart` | 59 | **80** | 21 | （宿主声明 part） |
 | `SSRVPN_Windows/lib/services/clash_service_process_support.dart` | 28 | **35** | 7 ⚠️ | （宿主声明 part） |
-| `SSRVPN_Windows/lib/services/clash_service_lifecycle.dart` | **1628** | **1690** | **62** | （无，遗留热点） |
+| `SSRVPN_Windows/lib/services/clash_service_lifecycle.dart` | 1485 | **1690** | 205 | （无，遗留热点） |
+| `packages/ssrvpn_shared/lib/services/clash_service_data_plane_support.dart` | 597 | 600 | 3 ⚠️ | （宿主声明 part） |
+| `packages/ssrvpn_shared/lib/services/clash_service_latency_support.dart` | 78 | 120 | 42 | （宿主声明 part） |
 
 > `ClashServiceBase` 挂载的 7 个 mixin part 均由守卫检查存在与声明；数据面与测速 part 另有限制：600 行与 120 行。
 
@@ -36,9 +38,9 @@
 
 | 文件 | 当前 | 上限 | 余量 |
 |---|---|---|---|
-| `update_service.dart`（facade） | 525 | 650 | 125 |
-| `update_service_download.dart` | 264 | 360 | 96 |
-| `update_service_publication.dart` | 779 | 900 | 121 |
+| `update_service.dart`（facade） | 552 | 650 | 98 |
+| `update_service_download.dart` | 258 | 360 | 102 |
+| `update_service_publication.dart` | 802 | 900 | 98 |
 
 facade 里**不得出现**这些符号（属已下沉职责）：`_recoverInterruptedPublicationLocked`、`_acquirePublicationLock`、`_cancellableStream`
 
@@ -48,10 +50,10 @@ facade 里**不得出现**这些符号（属已下沉职责）：`_recoverInterr
 
 | 文件 | 当前 | 上限 | 余量 |
 |---|---|---|---|
-| `subscription_service_base.dart` | 797 | 800 | **3** 🚨 |
-| `subscription_service_persistence.dart` | **196** | 196 | **0** 🚨零余量 |
-| `subscription_service_transaction.dart` | 175 | 180 | **5** 🚨 |
-| `subscription_source_cache.dart` | 117 | 160 | 43 |
+| `subscription_service_base.dart` | 751 | 800 | 49 |
+| `subscription_service_persistence.dart` | 195 | 196 | 1 ⚠️ |
+| `subscription_service_transaction.dart` | 179 | 180 | 1 ⚠️ |
+| `subscription_source_cache.dart` | 159 | 160 | 1 ⚠️ |
 | `subscription_node_editor.dart` | 114 | 140 | 26 |
 | `node_preference_transaction.dart` | 122 | 160 | 38 |
 | `subscription_undo_record.dart` | 47 | 100 | 53 |
@@ -60,7 +62,7 @@ facade 里**不得出现**这些符号（属已下沉职责）：`_recoverInterr
 
 ### macOS settings
 
-- `SSRVPN_MacOS/lib/services/settings_service.dart`：当前 **665** / 上限 **703**，余 38
+- `SSRVPN_MacOS/lib/services/settings_service.dart`：当前 **650** / 上限 **703**，余 53
 - 必须声明 part `macos_private_file_store.dart`
 
 ### 系统代理调用位置
@@ -73,49 +75,49 @@ macOS 与 Windows：`setSystemProxy` / `clearSystemProxy` **只能**出现在 `c
 
 | 文件 | 当前 | 上限 | 余量 |
 |---|---|---|---|
-| `desktop_home_screen_part.dart` | 779 | **900** | 121 |
-| `desktop_home_runtime_actions_part.dart` | 384 | **600** | 216 |
-| `desktop_home_background_tasks_part.dart` | 234 | **300** | 66 |
-| `desktop_home_initial_subscription_part.dart` | 273 | **300** | **27** ⚠️ |
+| `desktop_home_screen_part.dart` | 744 | **900** | 156 |
+| `desktop_home_runtime_actions_part.dart` | 383 | **600** | 217 |
+| `desktop_home_background_tasks_part.dart` | 224 | **300** | 76 |
+| `desktop_home_initial_subscription_part.dart` | 274 | **300** | 26 |
 | `desktop_home_public_ip_part.dart` | 91 | **600** | 509 |
-| `desktop_subscription_screen_part.dart` | 349 | 450 | 101 |
+| `desktop_subscription_screen_part.dart` | 359 | 450 | 91 |
 
-⚠️ **三部件合计（home + runtime_actions + background_tasks）≤ 1410**，当前 **1397，余 13**。
+⚠️ **三部件合计（home + runtime_actions + background_tasks）≤ 1410**，当前 **1351，余 59**。
 单项上限宽松但**合计卡得死**，往这三个文件里塞东西前先算总账。
 
 ### 共享 widgets（`packages/ssrvpn_shared/lib/widgets/`）
 
 | 文件 | 当前 | 上限 | 余量 |
 |---|---|---|---|
-| `ssrvpn_app_surface.dart` | 376 | 400 | 24 |
-| `ssrvpn_home_overview.dart` | 573 | 600 | 27 |
-| `ssrvpn_home_overview_header.dart` | 134 | 200 | 66 |
-| `ssrvpn_subscription_view.dart` | **591** | 600 | **9** ⚠️ |
-| `ssrvpn_subscription_header.dart` | 93 | 100 | **7** ⚠️ |
-| `ssrvpn_subscription_error_dialog.dart` | 138 | 200 | 62 |
+| `ssrvpn_app_surface.dart` | 350 | 400 | 50 |
+| `ssrvpn_home_overview.dart` | 322 | 600 | 278 |
+| `ssrvpn_home_overview_header.dart` | 165 | 200 | 35 |
+| `ssrvpn_subscription_view.dart` | 577 | 600 | 23 |
+| `ssrvpn_subscription_header.dart` | 75 | 100 | 25 |
+| `ssrvpn_subscription_error_dialog.dart` | 142 | 200 | 58 |
 | `ssrvpn_version_update_footer.dart` | 84 | 120 | 36 |
-| `ssrvpn_power_button.dart` | 100 | 120 | 20 |
-| `ssrvpn_node_selection_page.dart` | **350** | 360 | **10** ⚠️ |
-| `ssrvpn_node_selection_latency.dart` | 104 | 160 | 56 |
-| `ssrvpn_node_selection_controls.dart` | 366 | 400 | 34 |
+| `ssrvpn_power_button.dart` | 113 | 120 | 7 ⚠️ |
+| `ssrvpn_node_selection_page.dart` | 348 | 360 | 12 |
+| `ssrvpn_node_selection_latency.dart` | 120 | 160 | 40 |
+| `ssrvpn_node_selection_controls.dart` | 277 | 400 | 123 |
 | `ssrvpn_node_selection_support_controls.dart` | 120 | 200 | 80 |
-| `ssrvpn_node_selection_subscription_filter.dart` | 170 | 220 | 50 |
-| `ssrvpn_node_selection_node_card.dart` | 209 | 250 | 41 |
+| `ssrvpn_node_selection_subscription_filter.dart` | 212 | 220 | 8 ⚠️ |
+| `ssrvpn_node_selection_node_card.dart` | 231 | 250 | 19 |
 
 ### 其他（含原生/安装器/应用入口的紧余量）
 
 | 文件 | 当前 | 上限 | 余量 |
 |---|---|---|---|
-| `desktop_connection_coordinator.dart` | **188** | 188 | **0** 🚨 |
-| Windows `system_proxy_service.dart` | **1314** | 1320 | **6** ⚠️ |
+| `desktop_connection_coordinator.dart` | 188 | 188 | 0 🚨零余量 |
+| Windows `system_proxy_service.dart` | 1307 | 1320 | 13 |
 | Windows `system_proxy_recovery_journal.dart` | 140 | 155 | 15 |
-| `system_proxy_models.dart` | **129** | 130 | **1** 🚨 |
-| `CoreProcessSupport.swift` | **238** | 240 | **2** 🚨 |
-| `stop_ssrvpn_processes.ps1` | 1333 | 1350 | **17** ⚠️ |
-| `launcher_main.cpp` | 1473 | 1500 | **27** ⚠️ |
-| `AppDelegate.swift` | 2002 | 2020 | **18** ⚠️ |
-| macOS `app_runtime_actions_part.dart` | 311 | 320 | **9** ⚠️ |
-| `program_files_transaction.ps1` | 1477 | 1600 | 123 |
+| `system_proxy_models.dart` | 129 | 130 | 1 ⚠️ |
+| `CoreProcessSupport.swift` | 238 | 240 | 2 ⚠️ |
+| `stop_ssrvpn_processes.ps1` | 1350 | 1350 | 0 🚨零余量 |
+| `launcher_main.cpp` | 1473 | 1500 | 27 |
+| `AppDelegate.swift` | 2009 | 2020 | 11 |
+| macOS `app_runtime_actions_part.dart` | 312 | 320 | 8 ⚠️ |
+| `program_files_transaction.ps1` | 1490 | 1600 | 110 |
 | macOS `system_proxy_service.dart` | 1062 | 1100 | 38 |
 
 - macOS/Windows 的 `screens/home_screen.dart` 必须引用全部 4 个 desktop home part（runtime_actions / initial_subscription / background_tasks / public_ip）

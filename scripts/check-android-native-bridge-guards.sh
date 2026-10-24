@@ -1474,7 +1474,7 @@ echo "Android native bridge guard check passed."
 python3 - "$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/PhysicalTcpLatencyProbe.kt" <<'PY_GUARD'
 import sys
 from pathlib import Path
-probe = Path(sys.argv[1]).read_text()
+probe = Path(sys.argv[1]).read_text(encoding="utf-8")
 foreign = probe.index('if (foreignVpn)')
 resolve = probe.index('val addresses = resolve(')
 assert foreign < resolve, 'Foreign VPN detection must precede physical DNS'

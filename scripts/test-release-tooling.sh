@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Keep Python fixtures and child-process logs consistent with the full gate.
+export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
@@ -16,6 +19,7 @@ python3 -m unittest \
   scripts/test_verify_android_core_elf.py \
   scripts/test_authorize_existing_release_retry.py \
   scripts/test_check_coverage_thresholds.py \
+  scripts/test_clash_service_boundaries.py \
   scripts/test_code_scanning_and_attestations.py \
   scripts/test_dependency_security.py \
   scripts/test_find_reusable_main_ci.py \
