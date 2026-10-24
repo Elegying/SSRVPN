@@ -11,7 +11,7 @@ Windows 对外只发布 `SSRVPN_Setup.exe`，使用管理员安装模式，默�
 
 - Flutter SDK **3.44.1**，其他 stable 版本不能替代；
 - Visual Studio 2022，安装“使用 C++ 的桌面开发”工作负载；
-- Inno Setup 6.5 或更高版本（5.0.20 的 CI 安装验收使用 6.7.1）；
+- Python 3.10 或更高版本；Inno Setup 6.5 或更高版本；
 - Windows 10 1507（build 10240）或更高版本的 x64 Windows。
 
 ## 构建安装器
@@ -22,7 +22,7 @@ Windows 对外只发布 `SSRVPN_Setup.exe`，使用管理员安装模式，默�
 ```powershell
 flutter pub get
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass `
-  -File .\tool\package_windows.ps1 -DartDefineFromFile ..\config\ssrvpn-usage-defines.json
+  -File .\tool\package_windows.ps1 -DartDefineFromFile ..\config\ssrvpn-private-defines.json
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass `
   -File .\tool\build_installer.ps1
 ```
@@ -33,6 +33,12 @@ powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass `
 
 - `SSRVPN_Setup.exe`
 - `SSRVPN_Setup.exe.sha256`
+
+本地安装必须使用完整构建配置；缺少配置时请使用正式发行版。打包入口自动验证配置并将
+结果绑定到编译产物摘要；`-SkipBuild` 和单独生成安装器也要求匹配的验证记录。
+CI 的空配置测试须在两个入口显式指定 `-IsolatedTestBuild`，生成的安装器仅允许在本仓库
+GitHub 托管 Windows runner 中运行，不能用于日常设备。环境标识用于防误操作，不作为
+对恶意本地修改的安全证明。
 
 构建机访问 `pub.dev` 不稳定时，可为载荷脚本加 `-ChinaMirror` 或 `-OfflinePub`。
 

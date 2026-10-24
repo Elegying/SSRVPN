@@ -103,6 +103,15 @@ Windows 原生代理恢复见步骤 27；CI 另有 policy、安装器故障矩�
 - Mac 使用 `scripts/build-macos-local.sh`；Windows 将同一私有文件显式传给
   `tool/package_windows.ps1 -DartDefineFromFile`。安装后核对版本、统计入口与实际数据显示；
   未验证的项目明确记录，不能把生命周期测试结果当作统计功能验收。
+- 本地入口现由 `scripts/desktop_build_guard.py` 强制执行编译配置验证，再使用同一临时快照
+  构建并记录应用二进制摘要。失败先撤销旧验证记录；`-SkipBuild`、独立 Windows 安装器和
+  `scripts/install-macos-local.sh` 均拒绝缺失、错配或测试用途的记录。不要直接复制原始
+  `flutter build` 产物到日常设备；这些入口防止误操作，不替代正式产物的构建证明。
+- Windows 空配置 CI 构建和安装器须同时指定 `-IsolatedTestBuild`；安装器只允许本仓库
+  GitHub 托管 Windows runner，且在进程清理和文件事务之前拒绝日常环境。Mac 本地安装
+  先暂存、验证摘要与签名，再正常退出旧实例和替换；旧应用保留，替换失败恢复旧应用。
+- 构建互斥锁残留表示上次构建被中断；确认无构建进程后再移除对应包 `build` 下的
+  `.ssrvpn-configuration.lock` 并完整重建，不能补造验证记录。
 - 2026-10-24 本地 6.0.5 候选曾误用公共配置，导致统计入口缺失；该候选不作为正式资产。
   不把私有配置、订阅、凭据或完整诊断写入提交和日志。
 
@@ -119,6 +128,11 @@ cd "$(git rev-parse --show-toplevel)/packages/ssrvpn_shared" && flutter test
 ```
 
 ### macOS 没有 `timeout` 命令
+
+- DMG 布局由 `scripts/macos_dmg_layout.py` 直接写入 `.DS_Store` 并读回校验，
+  不再调用 Finder Apple Events；旧流程曾在桌面未锁定时阻塞于 Finder 的事件队列。
+  保留背景、窗口尺寸、两项内容和图标位置验证；不得用忽略布局失败来生成安装包。
+  构建依赖仅临时安装，版本与 wheel 哈希见 `scripts/dmg-requirements.txt`。
 `timeout 900 ...` → `zsh: command not found: timeout`。直接去掉，不要装 coreutils。
 
 ### `dart test` 跑不动这里的测试

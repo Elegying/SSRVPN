@@ -62,9 +62,11 @@ class FreeDesktopDistributionTest(unittest.TestCase):
         self.assertEqual(release.count("secrets.SSRVPN_USAGE_PROVIDERS"), 3)
         mac = (ROOT / "SSRVPN_MacOS/tool/package_macos.sh").read_text()
         windows = (ROOT / "SSRVPN_Windows/tool/package_windows.ps1").read_text()
-        self.assertIn('--split-debug-info=build/symbols "$@"', mac)
+        self.assertIn('scripts/build-macos-local.sh" "$@"', mac)
         self.assertIn('"--dart-define-from-file=$DartDefineFromFile"', windows)
-        self.assertIn("--split-debug-info=build/symbols @usageArgs", windows)
+        self.assertIn('build --platform windows --flutter $flutter @usageArgs @profileArgs', windows)
+        guard = (ROOT / 'scripts/desktop_build_guard.py').read_text()
+        self.assertIn('--split-debug-info=build/symbols', guard)
 
     def test_macos_release_metadata_matches_the_documented_macos_13_floor(
         self,

@@ -621,11 +621,13 @@ jobs:
           cd SSRVPN_Windows
           # Windows PowerShell does not stop when a child process returns non-zero.
           # Keep every child exit check adjacent so later builds cannot mask a failure.
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\package_windows.ps1 -DartDefineFromFile ..\config\ssrvpn-usage-defines.json
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\package_windows.ps1 -DartDefineFromFile ..\config\ssrvpn-usage-defines.json -IsolatedTestBuild
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ..\scripts\test_windows_native_proxy_recovery.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\build_installer.ps1
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\build_installer.ps1 -IsolatedTestBuild
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ..\scripts\test_windows_test_installer_guard.ps1 -InstallerPath .\SSRVPN_Setup.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ..\scripts\test_windows_installer_package.ps1 -InstallerPath .\SSRVPN_Setup.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

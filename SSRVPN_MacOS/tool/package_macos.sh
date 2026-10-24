@@ -18,6 +18,7 @@ DMG_BACKGROUND_SOURCE="$PROJECT_ROOT/tool/dmg/background.png"
 THIRD_PARTY_SOURCE="$PROJECT_ROOT/../third_party"
 STANDARD_VOLUME_MOUNT="/Volumes/$APP_NAME"
 CORE_TMP=""
+APP_SNAPSHOT=""
 
 cleanup() {
   if [[ -d "$MOUNT_DIR" ]] && mount | grep -qF "$MOUNT_DIR"; then
@@ -25,6 +26,7 @@ cleanup() {
   fi
   rm -f "$CORE_TMP"
   rm -rf "$MOUNT_DIR"
+  if [[ -n "$APP_SNAPSHOT" ]]; then rm -rf "$APP_SNAPSHOT"; fi
 }
 trap cleanup EXIT
 
@@ -37,7 +39,18 @@ if mount | grep -qF " on $STANDARD_VOLUME_MOUNT ("; then
 fi
 
 echo "Building $APP_NAME $VERSION_RAW for macOS $ARCH..."
-flutter build macos --release --split-debug-info=build/symbols "$@"
+bash "$PROJECT_ROOT/../scripts/build-macos-local.sh" "$@"
+python3 "$PROJECT_ROOT/../scripts/desktop_build_guard.py" verify --platform macos --root "$APP_PATH"
+
+# Keep packaging/signing off the shared Flutter output. Verify the captured
+# bytes again in case another build replaced the app while ditto was copying.
+mkdir -p "$PACKAGE_DIR"
+APP_SNAPSHOT="$(mktemp -d "$PACKAGE_DIR/verified-app.XXXXXX")"
+ditto "$APP_PATH" "$APP_SNAPSHOT/$APP_NAME.app"
+cp "$APP_PATH.ssrvpn-build-verification.json" \
+  "$APP_SNAPSHOT/$APP_NAME.app.ssrvpn-build-verification.json"
+APP_PATH="$APP_SNAPSHOT/$APP_NAME.app"
+python3 "$PROJECT_ROOT/../scripts/desktop_build_guard.py" verify --platform macos --root "$APP_PATH"
 
 if [[ ! -d "$APP_PATH" ]]; then
   echo "Release app not found: $APP_PATH" >&2
@@ -99,40 +112,11 @@ hdiutil create \
   "$RW_DMG_PATH"
 
 mkdir -p "$MOUNT_DIR"
-hdiutil attach "$RW_DMG_PATH" -mountpoint "$MOUNT_DIR"
+hdiutil attach "$RW_DMG_PATH" -nobrowse -mountpoint "$MOUNT_DIR"
 
-echo "Applying drag-to-Applications Finder layout..."
-command -v osascript >/dev/null
-if ! python3 "$PROJECT_ROOT/../scripts/run-command-with-timeout.py" \
-  15 osascript <<EOF
-set dmgFolder to POSIX file "$MOUNT_DIR" as alias
-set backgroundFile to POSIX file "$MOUNT_DIR/.background/background.png" as alias
-tell application "Finder"
-  open dmgFolder
-  set dmgWindow to container window of dmgFolder
-  set current view of dmgWindow to icon view
-  try
-    set toolbar visible of dmgWindow to false
-  end try
-  try
-    set statusbar visible of dmgWindow to false
-  end try
-  set the bounds of dmgWindow to {100, 100, 760, 522}
-  set arrangement of icon view options of dmgWindow to not arranged
-  set icon size of icon view options of dmgWindow to 112
-  set text size of icon view options of dmgWindow to 14
-  set background picture of icon view options of dmgWindow to backgroundFile
-  set position of item "$APP_NAME.app" of dmgFolder to {175, 190}
-  set position of item "Applications" of dmgFolder to {485, 190}
-  update dmgFolder without registering applications
-  delay 3
-  try
-    close dmgWindow
-  end try
-end tell
-EOF
-then
-  echo "DMG Finder layout failed; refusing to package an unbranded installer" >&2
+echo "Writing drag-to-Applications disk image layout..."
+if ! python3 "$PROJECT_ROOT/../scripts/macos_dmg_layout.py" "$MOUNT_DIR"; then
+  echo "DMG layout verification failed; refusing to package an unbranded installer" >&2
   exit 1
 fi
 
@@ -163,6 +147,11 @@ hdiutil convert "$RW_DMG_PATH" \
   -o "$VERSIONED_DMG_PATH"
 
 hdiutil verify "$VERSIONED_DMG_PATH"
+mkdir -p "$MOUNT_DIR"
+hdiutil attach "$VERSIONED_DMG_PATH" -readonly -nobrowse -mountpoint "$MOUNT_DIR"
+python3 "$PROJECT_ROOT/../scripts/macos_dmg_layout.py" "$MOUNT_DIR" --verify-only
+hdiutil detach "$MOUNT_DIR"
+rm -rf "$MOUNT_DIR"
 ditto "$VERSIONED_DMG_PATH" "$DMG_PATH"
 
 echo "DMG: $DMG_PATH"

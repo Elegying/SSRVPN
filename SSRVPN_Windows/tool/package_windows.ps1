@@ -8,7 +8,8 @@ param(
   [switch]$OfflinePub,
   [string]$PubHostedUrl,
   [string]$FlutterStorageBaseUrl,
-  [string]$DartDefineFromFile
+  [string]$DartDefineFromFile,
+  [switch]$IsolatedTestBuild
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,6 +22,9 @@ if (-not (Test-Path -LiteralPath $payloadGuardPath -PathType Leaf)) {
 }
 . $payloadGuardPath
 $buildDir = Join-Path $projectRoot 'build\windows\x64\runner\Release'
+$configurationGuard = Join-Path $projectRoot '..\scripts\desktop_build_guard.py'
+$profileArgs = @()
+if ($IsolatedTestBuild) { $profileArgs += '--isolated-test-build' }
 $releaseDir = Join-Path $projectRoot 'SSRVPN_Windows_Release'
 $binDir = Join-Path $releaseDir 'bin'
 $thirdPartySource = [System.IO.Path]::GetFullPath(
@@ -469,6 +473,7 @@ function Move-InstallerInternalsToBin {
     'remove_legacy_cet_exemption.ps1',
     'remove_legacy_cet_exemption.bat',
     'SHA256SUMS.txt',
+    'ssrvpn-build-verification.json',
     'third_party'
   ) + $runtimeDlls
 
@@ -843,7 +848,7 @@ try {
       if ($DartDefineFromFile) {
         $usageArgs += "--dart-define-from-file=$DartDefineFromFile"
       }
-      & $flutter build windows --release --no-pub --split-debug-info=build/symbols @usageArgs
+      & python $configurationGuard build --platform windows --flutter $flutter @usageArgs @profileArgs
       if ($LASTEXITCODE -ne 0) {
         throw "flutter build failed with exit code $LASTEXITCODE"
       }
@@ -860,6 +865,8 @@ try {
   if (-not (Test-Path -LiteralPath $buildDir -PathType Container)) {
     throw "Release build directory not found: $buildDir"
   }
+  & python $configurationGuard verify --platform windows --root $buildDir @profileArgs
+  if ($LASTEXITCODE -ne 0) { throw 'Unverified build cannot be packaged.' }
   Assert-CleanPackagePayload -Root $buildDir
 
   $expectedReleaseDir = [System.IO.Path]::GetFullPath(
@@ -908,6 +915,8 @@ try {
   Write-RuntimeProvenance
 
   Move-InstallerInternalsToBin
+  & python $configurationGuard verify --platform windows --root $releaseDir --payload @profileArgs
+  if ($LASTEXITCODE -ne 0) { throw 'Packaged application differs from the verified build.' }
   Test-ReleaseContents -Root $releaseDir
 
   $releasePrefix = [System.IO.Path]::GetFullPath($releaseDir).TrimEnd('\') + '\'

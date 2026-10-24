@@ -42,6 +42,7 @@ python3 -m unittest \
   scripts/test_promote_oss_public_channel.py \
   scripts/test_prepare_release_workflow.py \
   scripts/test_prepare_private_defines.py \
+  scripts/test_desktop_build_guard.py \
   scripts/test_quality_hygiene_entrypoint.py \
   scripts/test_release_tooling_entrypoint.py \
   scripts/test_reuse_github_release_assets.py \

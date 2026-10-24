@@ -13,6 +13,12 @@
 #ifndef PayloadManifestPath
   #error PayloadManifestPath is required
 #endif
+#ifndef BuildProfile
+  #error BuildProfile is required; use the verified packaging entrypoint
+#endif
+#if (BuildProfile != "verified") && (BuildProfile != "isolated-test")
+  #error Invalid BuildProfile
+#endif
 
 #ifndef CompressionFastBytes
   #define CompressionFastBytes 273
@@ -254,6 +260,22 @@ var
   RequestPath: String;
   Token: AnsiString;
 begin
+#if BuildProfile == "isolated-test"
+  { Empty-configuration installers are only for disposable hosted CI. Reject
+    before cleanup, handoff, recovery or any installed-file mutation. These
+    environment checks prevent accidental installation, not hostile forgery. }
+  Result := (GetEnv('GITHUB_ACTIONS') = 'true') and
+    (GetEnv('RUNNER_ENVIRONMENT') = 'github-hosted') and
+    (GetEnv('RUNNER_OS') = 'Windows') and
+    (GetEnv('GITHUB_REPOSITORY') = 'Elegying/SSRVPN');
+  if not Result then
+  begin
+    Log('SSRVPN_TEST_BUILD_BLOCKED');
+    SuppressibleMsgBox('此安装包仅供隔离测试，不能用于日常设备。请下载正式安装包。',
+      mbError, MB_OK, IDOK);
+    exit;
+  end;
+#endif
   Result := InitializePowerShellEnvironment();
   if not Result then exit;
   VerifiedUpdateActualInstallerName :=

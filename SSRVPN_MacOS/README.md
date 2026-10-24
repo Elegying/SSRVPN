@@ -15,7 +15,7 @@ SSRVPN macOS 版，基于 Flutter 和 Mihomo/Clash Meta 核心的桌面客户端
 
 - 安装 Xcode、Command Line Tools 与 CocoaPods 的 macOS
 - Flutter SDK **3.44.1**；其他 stable 版本不能替代
-- 用于 DMG 打包的 `hdiutil`
+- 用于 DMG 打包的 `hdiutil`，以及带 pip 的 Python 3.10 或更高版本
 
 ## 验证
 
@@ -32,18 +32,26 @@ flutter test
 
 ## 构建可拖拽安装 DMG
 
-```bash
-bash tool/package_macos.sh --dart-define-from-file=../config/ssrvpn-usage-defines.json
-```
-
-从仓库根目录可运行 `scripts/build-macos-local.sh`，自动携带账户查询配置。
-手动构建本地验收应用时也必须带上同一配置：
+打包直接生成并读回验证磁盘映像布局，不依赖 Finder 自动化或桌面会话。
+布局工具按 `scripts/dmg-requirements.txt` 的固定版本与 SHA-256 安装到临时目录；
+需要能访问 Python 包源，工具不会进入客户端，也不会改动系统 Python 环境。
 
 ```bash
-flutter build macos --release --dart-define-from-file=../config/ssrvpn-usage-defines.json --dart-define=SSRVPN_FRAME_DIAGNOSTICS=true
+bash tool/package_macos.sh --dart-define-from-file=../config/ssrvpn-private-defines.json
 ```
 
-遗漏该配置会禁用账户用量与设备数查询。
+从仓库根目录使用受保护的本地构建与安装入口（需要 Python 3.10 或更高版本）：
+
+```bash
+bash scripts/build-macos-local.sh
+bash scripts/install-macos-local.sh
+```
+
+完整配置不可用时请使用正式发行版。脚本拒绝空配置，在同一份配置快照上执行编译验证和
+构建，并把验证记录绑定到应用二进制摘要。安装入口先暂存并核对摘要及签名，再退出和
+替换旧应用；旧应用保留为 `/Applications/SSRVPN.previous-<唯一标识>.app`，数据目录不变。
+原始 `flutter build` 产物没有验证记录，不能通过此安装入口。不要绕过入口直接复制到
+日常设备。需要诊断选项时，将其写入同一完整配置文件，不能用额外命令行定义覆盖验证配置。
 
 脚本会生成：
 

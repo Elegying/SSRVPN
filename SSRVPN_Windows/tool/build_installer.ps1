@@ -3,7 +3,8 @@ param(
   [string]$SourceDir,
   [string]$OutputDir,
   [string]$Version,
-  [string]$InnoCompiler
+  [string]$InnoCompiler,
+  [switch]$IsolatedTestBuild
 )
 
 $ErrorActionPreference = 'Stop'
@@ -17,6 +18,13 @@ if (-not $OutputDir) {
 }
 $SourceDir = [System.IO.Path]::GetFullPath($SourceDir)
 $OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
+$profileArgs = @()
+if ($IsolatedTestBuild) { $profileArgs += '--isolated-test-build' }
+$buildProfile = & python (Join-Path $projectRoot '..\scripts\desktop_build_guard.py') `
+  verify --platform windows --root $SourceDir --payload @profileArgs
+if ($LASTEXITCODE -ne 0 -or $buildProfile -notin @('verified', 'isolated-test')) {
+  throw 'Unverified payload cannot become an installer.'
+}
 
 if (-not $Version) {
   $pubspecPath = Join-Path $projectRoot 'pubspec.yaml'
@@ -215,7 +223,20 @@ $payloadManifestPath = Join-Path ([System.IO.Path]::GetTempPath()) `
 $compressionRoot = Join-Path ([System.IO.Path]::GetTempPath()) `
   "ssrvpn-compression-$([Guid]::NewGuid().ToString('N'))"
 try {
-  New-TrustedPayloadManifest -PayloadRoot $SourceDir `
+  # Snapshot before the final guard: another packaging process may replace the
+  # shared payload directory while compression is running. Never compile from
+  # that mutable directory after accepting its configuration/profile.
+  $verifiedSourceDir = Join-Path $compressionRoot 'verified-payload'
+  New-Item -ItemType Directory -Path $verifiedSourceDir -Force | Out-Null
+  foreach ($item in Get-ChildItem -LiteralPath $SourceDir -Force) {
+    Copy-Item -LiteralPath $item.FullName -Destination $verifiedSourceDir -Recurse
+  }
+  $snapshotProfile = & python (Join-Path $projectRoot '..\scripts\desktop_build_guard.py') `
+    verify --platform windows --root $verifiedSourceDir --payload @profileArgs
+  if ($LASTEXITCODE -ne 0 -or $snapshotProfile -cne $buildProfile) {
+    throw 'Installer payload changed before the verified snapshot was captured.'
+  }
+  New-TrustedPayloadManifest -PayloadRoot $verifiedSourceDir `
     -ManifestPath $payloadManifestPath
   $smallest = $null
   $baselineSize = 0
@@ -224,10 +245,11 @@ try {
     New-Item -ItemType Directory -Path $candidateDirectory -Force | Out-Null
     & $compiler `
       "/DAppVersion=$Version" `
-      "/DSourceDir=$SourceDir" `
+      "/DSourceDir=$verifiedSourceDir" `
       "/DOutputDir=$candidateDirectory" `
       "/DProjectDir=$projectRoot" `
       "/DCompressionFastBytes=$fastBytes" `
+      "/DBuildProfile=$buildProfile" `
       "/DPayloadManifestPath=$payloadManifestPath" `
       $installerScript
     if ($LASTEXITCODE -ne 0) {
