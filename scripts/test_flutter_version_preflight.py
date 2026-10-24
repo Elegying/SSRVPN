@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import shutil
 import tempfile
 import unittest
 
@@ -27,7 +28,7 @@ class FlutterVersionPreflightTest(unittest.TestCase):
             environment = os.environ.copy()
             environment["SSRVPN_FLUTTER_BIN"] = str(fake)
             return subprocess.run(
-                ["bash", str(CHECK)],
+                [shutil.which("bash") or "bash", str(CHECK)],
                 cwd=ROOT,
                 env=environment,
                 text=True,

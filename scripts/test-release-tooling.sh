@@ -31,6 +31,7 @@ python3 -m unittest \
   scripts/test_classify_ci_scope.py \
   scripts/test_free_desktop_distribution.py \
   scripts/test_flutter_version_preflight.py \
+  scripts/test_verification_environment.py \
   scripts/test_geoip_workflow.py \
   scripts/test_generate_oss_release_manifest.py \
   scripts/test_generate_release_notes.py \
