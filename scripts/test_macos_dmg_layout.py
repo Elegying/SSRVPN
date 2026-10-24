@@ -2,6 +2,9 @@
 import struct
 import unittest
 import tempfile
+import shutil
+import subprocess
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
@@ -42,6 +45,24 @@ class MacosDmgLayoutTest(unittest.TestCase):
         self.assertNotIn("GUIDE_NAME", script)
         self.assertNotIn("warning: Finder layout unavailable", script)
         self.assertNotIn('osascript', script)
+
+    @unittest.skipIf(os.name == 'nt', 'POSIX package-guide entrypoint')
+    def test_guide_gate_accepts_headless_layout_and_rejects_missing_guards(self):
+        with tempfile.TemporaryDirectory(prefix='dmg-guide-') as folder:
+            root = Path(folder)
+            for name in ('scripts/check-package-guides.sh', 'SSRVPN_MacOS/DMG_README.txt',
+                         'SSRVPN_Windows/USER_GUIDE.md', 'SSRVPN_MacOS/tool/package_macos.sh'):
+                destination = root / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT / name, destination)
+            package = root / 'SSRVPN_MacOS/tool/package_macos.sh'
+            original = package.read_text(encoding='utf-8')
+            for text, code in ((original, 0), (original.replace('--verify-only', ''), 1),
+                               (original + '\nosascript\n', 1)):
+                package.write_text(text, encoding='utf-8')
+                result = subprocess.run(['bash', str(root / 'scripts/check-package-guides.sh')],
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, code, result.stdout + result.stderr)
 
     def test_local_and_github_smoke_checks_reject_the_old_tutorial_item(self) -> None:
         smoke = SMOKE_SCRIPT.read_text(encoding="utf-8")

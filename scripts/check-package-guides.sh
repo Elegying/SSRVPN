@@ -32,9 +32,13 @@ if grep -Fq '`SSRVPN.zip`' "$WINDOWS_GUIDE"; then
   exit 1
 fi
 
-if ! grep -Fq 'run-command-with-timeout.py' \
-  "$ROOT/SSRVPN_MacOS/tool/package_macos.sh"; then
-  echo "package guide check failed: Finder layout must have a hard timeout" >&2
+MAC_PACKAGE="$ROOT/SSRVPN_MacOS/tool/package_macos.sh"
+# Match literal shell source, including its unexpanded mount variable.
+# shellcheck disable=SC2016
+if grep -Fq 'osascript' "$MAC_PACKAGE" || \
+  ! grep -Fq 'scripts/macos_dmg_layout.py" "$MOUNT_DIR"; then' "$MAC_PACKAGE" || \
+  ! grep -Fq 'scripts/macos_dmg_layout.py" "$MOUNT_DIR" --verify-only' "$MAC_PACKAGE"; then
+  echo "package guide check failed: headless DMG layout and final-image verification are required" >&2
   exit 1
 fi
 
