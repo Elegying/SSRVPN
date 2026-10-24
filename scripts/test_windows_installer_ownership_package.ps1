@@ -2,6 +2,7 @@ param()
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_OS -cne 'Windows' -or
+    $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
     $env:GITHUB_REPOSITORY -cne 'Elegying/SSRVPN' -or -not $env:RUNNER_TEMP) {
   throw 'Real installer ownership tests require a disposable GitHub Windows runner.'
 }
@@ -86,6 +87,8 @@ function Uninstall-Current([string]$Phase) {
 function Build-Candidate([string]$Name, [switch]$Legacy, [switch]$Fault, [string]$BootstrapFault = '') {
   $buildRoot = Join-Path $root $Name
   $project = Join-Path $buildRoot 'SSRVPN_Windows'
+  $candidatePayload = $sourcePayload
+  $profileArgs = @()
   New-Item -ItemType Directory -Path $buildRoot | Out-Null
   if ($Legacy) {
     $archive = Join-Path $buildRoot 'historical-source.zip'
@@ -93,6 +96,18 @@ function Build-Candidate([string]$Name, [switch]$Legacy, [switch]$Fault, [string
     if ($LASTEXITCODE -ne 0) { throw 'Could not retrieve historical installer source.' }
     Expand-Archive -LiteralPath $archive -DestinationPath $buildRoot
   } else {
+    # Historical bytes are a pinned installer fixture, not a verified normal
+    # build. Mark only this private copy as isolated-test; never promote it.
+    $candidatePayload = Join-Path $buildRoot 'payload'
+    Copy-Item -LiteralPath $sourcePayload -Destination $candidatePayload -Recurse
+    Write-Text (Join-Path $candidatePayload 'ssrvpn-build-verification.json') ([ordered]@{
+      schema = 1; platform = 'windows'; profile = 'isolated-test'
+      sha256 = (Get-FileHash -LiteralPath (Join-Path $candidatePayload 'bin\data\app.so')).Hash.ToLowerInvariant()
+    } | ConvertTo-Json)
+    $profileArgs = @('-IsolatedTestBuild')
+    $guardDirectory = Join-Path $buildRoot 'scripts'
+    New-Item -ItemType Directory -Path $guardDirectory | Out-Null
+    Copy-Item -LiteralPath (Join-Path $repo 'scripts\desktop_build_guard.py') -Destination $guardDirectory
     New-Item -ItemType Directory -Path (Join-Path $project 'tool'), (Join-Path $project 'windows\runner\resources') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $repo 'SSRVPN_Windows\installer') -Destination (Join-Path $project 'installer') -Recurse
     Copy-Item -LiteralPath (Join-Path $repo 'SSRVPN_Windows\tool\build_installer.ps1') -Destination (Join-Path $project 'tool')
@@ -125,7 +140,7 @@ function Build-Candidate([string]$Name, [switch]$Legacy, [switch]$Fault, [string
   }
   $version = if ($Fault) { '9.9.9' } else { '5.0.19' }
   & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $project 'tool\build_installer.ps1') `
-    -SourceDir $sourcePayload -OutputDir $buildRoot -Version $version *> (Join-Path $buildRoot 'compile.log')
+    -SourceDir $candidatePayload -OutputDir $buildRoot -Version $version @profileArgs *> (Join-Path $buildRoot 'compile.log')
   if ($LASTEXITCODE -ne 0) { throw "Fixture installer compile failed: $Name" }
   return (Join-Path $buildRoot 'SSRVPN_Setup.exe')
 }

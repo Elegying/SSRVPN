@@ -717,6 +717,13 @@ function Test-PreCommitFailureRollback {
     -Destination (Join-Path $faultProject 'installer') -Recurse
   Copy-Item -LiteralPath (Join-Path $sourceProject 'tool\build_installer.ps1') `
     -Destination $faultTool
+  $guardDirectory = Join-Path $faultRoot 'scripts'
+  New-Item -ItemType Directory -Path $guardDirectory | Out-Null
+  Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'desktop_build_guard.py') -Destination $guardDirectory
+  $profileArgs = @()
+  $receiptPath = Join-Path $sourceProject 'SSRVPN_Windows_Release\ssrvpn-build-verification.json'
+  $receipt = Get-Content -LiteralPath $receiptPath -Encoding UTF8 -Raw | ConvertFrom-Json
+  if ($receipt.profile -ceq 'isolated-test') { $profileArgs = @('-IsolatedTestBuild') }
   Copy-Item -LiteralPath (Join-Path $sourceProject 'windows\runner\resources\app_icon.ico') `
     -Destination $faultResources
   $faultHelper = Join-Path $faultProject 'installer\program_files_transaction.ps1'
@@ -739,7 +746,7 @@ function Test-PreCommitFailureRollback {
     -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
     -File (Join-Path $faultTool 'build_installer.ps1') `
     -SourceDir (Join-Path $sourceProject 'SSRVPN_Windows_Release') `
-    -OutputDir $faultRoot -Version '9.9.9'
+    -OutputDir $faultRoot -Version '9.9.9' @profileArgs
   if ($LASTEXITCODE -ne 0) { throw 'Could not build the isolated fault-injection installer.' }
 
   $beforeRegistry = Get-MachineUninstallSnapshot
