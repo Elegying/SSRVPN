@@ -12,24 +12,38 @@ from typing import Mapping, Sequence
 
 
 TOTAL_THRESHOLDS = {
-    "packages/ssrvpn_shared": 65.0,
-    "SSRVPN_Android": 30.0,
-    "SSRVPN_MacOS": 30.0,
-    "SSRVPN_Windows": 30.0,
+    "packages/ssrvpn_shared": 90.0,
+    "SSRVPN_Android": 70.0,
+    "SSRVPN_MacOS": 75.0,
+    "SSRVPN_Windows": 68.0,
 }
 
 # These floors ratchet the review's measured baselines. Raising a floor requires
 # fresh full-suite coverage evidence; lowering one requires an explicit review.
 CRITICAL_FILE_THRESHOLDS = {
+    "packages/ssrvpn_shared": {
+        "lib/services/subscription_service_transaction.dart": 95.0,
+        "lib/services/subscription_service_persistence.dart": 95.0,
+        "lib/services/subscription_source_cache.dart": 95.0,
+        "lib/services/update_service_download.dart": 90.0,
+        "lib/services/update_service_publication.dart": 80.0,
+        "lib/services/clash_service_health_monitor.dart": 95.0,
+        "lib/services/clash_service_data_plane_support.dart": 88.0,
+    },
+    "SSRVPN_Android": {
+        "lib/services/clash_service_native_bridge.dart": 85.0,
+    },
     "SSRVPN_MacOS": {
-        "lib/services/clash_service_lifecycle.dart": 60.0,
-        "lib/services/system_proxy_service.dart": 80.0,
-        "lib/services/system_proxy_snapshot.dart": 80.0,
+        "lib/services/clash_service_lifecycle.dart": 75.0,
+        "lib/services/system_proxy_service.dart": 85.0,
+        "lib/services/system_proxy_snapshot.dart": 90.0,
+        "lib/services/macos_start_transaction.dart": 95.0,
     },
     "SSRVPN_Windows": {
         "lib/services/clash_service_lifecycle.dart": 58.0,
         "lib/services/clash_service_process_support.dart": 90.0,
         "lib/services/clash_service_config_validation.dart": 90.0,
+        "lib/services/windows_start_transaction.dart": 95.0,
     },
 }
 

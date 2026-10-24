@@ -89,21 +89,36 @@ make verify
 
 | 目标 | 最低行覆盖率 |
 | --- | ---: |
-| `packages/ssrvpn_shared` | 65% |
-| Android | 30% |
-| macOS | 30% |
-| Windows | 30% |
+| `packages/ssrvpn_shared` | **90.0%** |
+| `SSRVPN_Android` | **70.0%** |
+| `SSRVPN_MacOS` | **75.0%** |
+| `SSRVPN_Windows` | **68.0%** |
 
-平台总覆盖率容易掩盖低覆盖的关键生命周期文件，因此门禁还会检查以下基于完整测试套件实测后
-锁定的渐进下限（以下证据来自 2026-09-30 的包目录全量测试）：
+关键事务、更新与生命周期文件独立设门槛，防止包级平均值掩盖回归：
 
-| 关键文件 | 最低行覆盖率 | 当前锁定证据 |
-| --- | ---: | ---: |
-| Windows `clash_service_config_validation.dart` | 90.00% | `29/31`（93.55%） |
-| Windows `clash_service_process_support.dart` | 90.00% | `8/8`（100.00%） |
-| Windows `clash_service_lifecycle.dart` | 58.00% | macOS 主机 `386/664`（58.13%）；Windows 主机 `517/664`（77.86%） |
-| macOS `clash_service_lifecycle.dart` | 60.00% | `646/842`（76.72%） |
-| macOS `system_proxy_service.dart` | 80.00% | `393/439`（89.52%） |
+| 目标 | 关键文件 | 最低行覆盖率 |
+| --- | --- | ---: |
+| packages/ssrvpn_shared | `lib/services/subscription_service_transaction.dart` | 95.0% |
+| packages/ssrvpn_shared | `lib/services/subscription_service_persistence.dart` | 95.0% |
+| packages/ssrvpn_shared | `lib/services/subscription_source_cache.dart` | 95.0% |
+| packages/ssrvpn_shared | `lib/services/update_service_download.dart` | 90.0% |
+| packages/ssrvpn_shared | `lib/services/update_service_publication.dart` | 80.0% |
+| packages/ssrvpn_shared | `lib/services/clash_service_health_monitor.dart` | 95.0% |
+| packages/ssrvpn_shared | `lib/services/clash_service_data_plane_support.dart` | 88.0% |
+| SSRVPN_Android | `lib/services/clash_service_native_bridge.dart` | 85.0% |
+| SSRVPN_MacOS | `lib/services/clash_service_lifecycle.dart` | 75.0% |
+| SSRVPN_MacOS | `lib/services/system_proxy_service.dart` | 85.0% |
+| SSRVPN_MacOS | `lib/services/system_proxy_snapshot.dart` | 90.0% |
+| SSRVPN_MacOS | `lib/services/macos_start_transaction.dart` | 95.0% |
+| SSRVPN_Windows | `lib/services/clash_service_lifecycle.dart` | 58.0% |
+| SSRVPN_Windows | `lib/services/clash_service_process_support.dart` | 90.0% |
+| SSRVPN_Windows | `lib/services/clash_service_config_validation.dart` | 90.0% |
+| SSRVPN_Windows | `lib/services/windows_start_transaction.dart` | 95.0% |
+
+门槛按 Windows 与 macOS 宿主的完整套件分别核验，保留跨宿主差异和小幅变动余量。
+Windows 包在非 Windows 宿主会跳过原生用例，因此统一总门槛为 68%，生命周期保留 58%；
+目标平台全套和原生检查仍须通过，跨宿主跳过不算目标平台验证。行数分母及实际结果应随 PR
+保存，不能把旧快照作为新提交的验证证据。
 
 这些下限不把当前仍偏低的数值包装成目标值，只防止已有证据悄然倒退；关键文件从 LCOV 中消失
 同样会使门禁失败。新增生命周期行为时应先提高对应测试与下限，而不是依靠平台总覆盖率吸收

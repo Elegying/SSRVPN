@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ssrvpn_shared/models/app_settings.dart';
+import 'package:ssrvpn_shared/services/node_preference_transaction.dart';
 import 'package:ssrvpn_shared/services/subscription_fetch_policy.dart';
 import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
 import 'package:ssrvpn_shared/services/subscription_service_base.dart';
@@ -25,6 +27,101 @@ void main() {
     service.dispose();
     await directory.delete(recursive: true);
   });
+
+  test(
+      'joint rename publishes both stores only after the undo record is removed',
+      () async {
+    await service.addSubscription('Old', _oldLink);
+    final preferences =
+        _PreferenceStore(File('${directory.path}/settings.json'));
+    await preferences.save(preferences.current);
+    var staged = false;
+    var published = 0;
+    service.afterWrite = (file) async {
+      if (!file.path.endsWith('/$_cache')) return;
+      staged = true;
+      expect(service.allNodes.single.name, 'Old');
+      expect(preferences.current.lastSelectedNodeName, 'Old');
+      final record =
+          jsonDecode(await File('${directory.path}/$_journal').readAsString());
+      expect(record['version'], 2);
+      expect(record['preference']['updatedName'], 'Renamed');
+      expect(
+          jsonDecode(
+              await preferences.file.readAsString())['lastSelectedNodeName'],
+          'Renamed');
+    };
+    service.addListener(() {
+      published++;
+      expect(service.allNodes.single.name, 'Renamed');
+      expect(preferences.current.lastSelectedNodeName, 'Renamed');
+      expect(File('${directory.path}/$_journal').existsSync(), isFalse);
+    });
+    await service.updateNode(
+        'Old', {...service.allNodes.single.extra, 'name': 'Renamed'},
+        preferences: preferences);
+    expect(staged, isTrue);
+    expect(published, 1);
+  });
+
+  for (final selectLater in [false, true]) {
+    test(
+        'failed joint recovery blocks writes and preserves later selection=$selectLater',
+        () async {
+      await service.addSubscription('Old', _oldLink);
+      final originalYaml = service.rawYaml;
+      final preferences =
+          _PreferenceStore(File('${directory.path}/settings.json'));
+      await preferences.save(preferences.current);
+      var notifications = 0;
+      service.addListener(() => notifications++);
+      service.afterWrite = (file) async {
+        if (!file.path.endsWith('/$_cache')) return;
+        service.afterWrite = null;
+        preferences.failRecovery = true;
+        throw const FileSystemException('cache durability failed');
+      };
+      await expectLater(
+          service.updateNode(
+              'Old', {...service.allNodes.single.extra, 'name': 'Renamed'},
+              preferences: preferences),
+          throwsA(isA<StateError>()));
+      final journal = File('${directory.path}/$_journal');
+      final undoBytes = await journal.readAsBytes();
+      final stagedYaml = await File('${directory.path}/$_cache').readAsString();
+      expect(service.rawYaml, originalYaml);
+      expect(notifications, 0);
+      await expectLater(service.addSubscription('New', _newLink),
+          throwsA(isA<FileSystemException>()));
+      expect(await journal.readAsBytes(), undoBytes);
+      expect(service.allNodes.single.name, 'Old');
+
+      final restarted = _FaultService();
+      addTearDown(restarted.dispose);
+      await expectLater(
+          restarted.init(directory.path), throwsA(isA<StateError>()));
+      expect(await journal.readAsBytes(), undoBytes);
+      expect(
+          await File('${directory.path}/$_cache').readAsString(), stagedYaml);
+      preferences.failRecovery = false;
+      if (selectLater) {
+        preferences.current = AppSettings(lastSelectedNodeName: 'Independent');
+        await preferences.save(preferences.current);
+      }
+      await restarted.init(directory.path, preferences: preferences);
+      expect(restarted.rawYaml, originalYaml);
+      expect(preferences.current.lastSelectedNodeName,
+          selectLater ? 'Independent' : 'Old');
+      final restoredSettings =
+          jsonDecode(await preferences.file.readAsString());
+      expect(restoredSettings['lastSelectedNodeName'],
+          selectLater ? 'Independent' : 'Old');
+      expect(restoredSettings['lastSelectedNodeRenameId'], isEmpty);
+      expect(await journal.exists(), isFalse);
+      await restarted.addSubscription('New', _newLink);
+      expect(restarted.allNodes.map((node) => node.name), ['Old', 'New']);
+    });
+  }
 
   test('startup quarantines oversized metadata without discarding its bytes',
       () async {
@@ -325,5 +422,37 @@ class _FaultService extends SubscriptionServiceBase {
     }
     await super.writeStringAtomically(file, content);
     await afterWrite?.call(file);
+  }
+}
+
+class _PreferenceStore implements NodePreferenceStore {
+  _PreferenceStore(this.file);
+  final File file;
+  AppSettings current = AppSettings(lastSelectedNodeName: 'Old');
+  bool failRecovery = false;
+
+  Future<void> save(AppSettings value) =>
+      file.writeAsString(jsonEncode(value.toJson()), flush: true);
+
+  @override
+  Future<void> withNodePreferenceRename(NodePreferenceRename change,
+          Future<void> Function(NodePreferenceWrite) edit) =>
+      edit(NodePreferenceWrite(
+        current: current,
+        change: change,
+        write: save,
+        publish: (value) => current = value,
+      ));
+
+  @override
+  Future<void> recoverNodePreference(NodePreferenceRename change) async {
+    if (failRecovery) throw const FileSystemException('recovery unavailable');
+    await NodePreferenceWrite.recover(
+      change: change,
+      current: current,
+      file: file,
+      write: save,
+      publish: (value) => current = value,
+    );
   }
 }

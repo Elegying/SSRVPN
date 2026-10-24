@@ -64,7 +64,7 @@ SSRVPN/
 - 原生侧：`android/app/src/main/kotlin/`（守卫脚本 `check-android-native-bridge-guards.sh`、`check-android-built-in-kotlin.sh`）
 
 ### macOS（`SSRVPN_MacOS/`）
-- 系统代理：`lib/services/system_proxy_service.dart`、`system_proxy_snapshot.dart`（**覆盖率门槛 80%，别降**）
+- 系统代理：`lib/services/system_proxy_service.dart`、`system_proxy_snapshot.dart`（**覆盖率门槛分别为 85% / 90%，别降**）
 - TUN / 权限：`macos_tun_session.dart`、`macos_tun_request_store.dart`、`macos_tun_rule_staging.dart`
 - 启动事务：`macos_start_transaction.dart`、`app_shutdown.dart`
 - 私有文件存储：`macos_private_file_store.dart`（`settings_service.dart` 的 part）

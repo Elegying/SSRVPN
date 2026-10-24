@@ -978,6 +978,38 @@ class CheckCoverageThresholdsTests(unittest.TestCase):
         self.assertIn("invalid DA", " ".join(report.total_errors))
 
     def test_configured_floors_do_not_regress_below_reviewed_baselines(self) -> None:
+        for target, floor in {
+            "packages/ssrvpn_shared": 90.0,
+            "SSRVPN_Android": 70.0,
+            "SSRVPN_MacOS": 75.0,
+            "SSRVPN_Windows": 68.0,
+        }.items():
+            with self.subTest(target=target):
+                self.assertGreaterEqual(coverage.TOTAL_THRESHOLDS[target], floor)
+        for target, floors in {
+            "packages/ssrvpn_shared": {
+                "subscription_service_transaction": 95.0,
+                "subscription_service_persistence": 95.0,
+                "subscription_source_cache": 95.0,
+                "update_service_download": 90.0,
+                "update_service_publication": 80.0,
+                "clash_service_health_monitor": 95.0,
+                "clash_service_data_plane_support": 88.0,
+            },
+            "SSRVPN_Android": {"clash_service_native_bridge": 85.0},
+            "SSRVPN_MacOS": {
+                "clash_service_lifecycle": 75.0,
+                "system_proxy_service": 85.0,
+                "system_proxy_snapshot": 90.0,
+                "macos_start_transaction": 95.0,
+            },
+            "SSRVPN_Windows": {"windows_start_transaction": 95.0},
+        }.items():
+            for name, floor in floors.items():
+                with self.subTest(target=target, critical_file=name):
+                    self.assertGreaterEqual(
+                        coverage.CRITICAL_FILE_THRESHOLDS[target]
+                        [f"lib/services/{name}.dart"], floor)
         self.assertGreaterEqual(
             coverage.TOTAL_THRESHOLDS["SSRVPN_Android"],
             30.0,
@@ -997,6 +1029,40 @@ class CheckCoverageThresholdsTests(unittest.TestCase):
             ["lib/services/system_proxy_service.dart"],
             80.0,
         )
+
+    def test_package_floors_accept_exact_boundary_and_reject_one_missed_line(self):
+        for target, threshold in coverage.TOTAL_THRESHOLDS.items():
+            for hit_delta in (0, -1):
+                with self.subTest(target=target, hit_delta=hit_delta):
+                    hits = round(threshold) + hit_delta
+                    path = self._write_lcov("\n".join([
+                        "SF:lib/source.dart",
+                        *(f"DA:{line},{int(line <= hits)}" for line in range(1, 101)),
+                        "LF:100", f"LH:{hits}", "end_of_record", "",
+                    ]))
+                    report = coverage.evaluate_lcov(
+                        target, path, total_threshold=threshold, critical_thresholds={})
+                    self.assertEqual(report.passed, hit_delta == 0)
+
+    def test_every_critical_floor_blocks_regression_despite_high_package_total(self):
+        for target, floors in coverage.CRITICAL_FILE_THRESHOLDS.items():
+            for critical, threshold in floors.items():
+                for hit_delta in (0, -1):
+                    with self.subTest(target=target, critical=critical, hit_delta=hit_delta):
+                        hits = round(threshold) + hit_delta
+                        path = self._write_lcov("\n".join([
+                            f"SF:{critical}",
+                            *(f"DA:{line},{int(line <= hits)}" for line in range(1, 101)),
+                            "LF:100", f"LH:{hits}", "end_of_record",
+                            "SF:lib/unrelated.dart",
+                            *(f"DA:{line},1" for line in range(1, 1001)),
+                            "LF:1000", "LH:1000", "end_of_record", "",
+                        ]))
+                        report = coverage.evaluate_lcov(
+                            target, path, total_threshold=coverage.TOTAL_THRESHOLDS[target],
+                            critical_thresholds={critical: threshold})
+                        self.assertTrue(report.total_passed)
+                        self.assertEqual(report.passed, hit_delta == 0)
 
 
 if __name__ == "__main__":

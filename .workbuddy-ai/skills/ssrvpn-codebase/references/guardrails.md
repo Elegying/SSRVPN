@@ -129,21 +129,34 @@ macOS 与 Windows：`setSystemProxy` / `clearSystemProxy` **只能**出现在 `c
 
 | 目标 | 门槛 |
 |---|---|
-| `packages/ssrvpn_shared` | **65.0%** |
-| `SSRVPN_Android` | 30.0% |
-| `SSRVPN_MacOS` | 30.0% |
-| `SSRVPN_Windows` | 30.0% |
+| `packages/ssrvpn_shared` | **90.0%** |
+| `SSRVPN_Android` | **70.0%** |
+| `SSRVPN_MacOS` | **75.0%** |
+| `SSRVPN_Windows` | **68.0%** |
 
 ### 关键文件地板（**提高需全量覆盖率证据，降低需显式审查**）
 
-| 端 | 文件 | 门槛 |
+| 目标 | 文件 | 门槛 |
 |---|---|---|
-| macOS | `lib/services/clash_service_lifecycle.dart` | 60.0% |
-| macOS | `lib/services/system_proxy_service.dart` | **80.0%** |
-| macOS | `lib/services/system_proxy_snapshot.dart` | **80.0%** |
-| Windows | `lib/services/clash_service_lifecycle.dart` | 58.0% |
-| Windows | `lib/services/clash_service_process_support.dart` | **90.0%** |
-| Windows | `lib/services/clash_service_config_validation.dart` | **90.0%** |
+| packages/ssrvpn_shared | `lib/services/subscription_service_transaction.dart` | 95.0% |
+| packages/ssrvpn_shared | `lib/services/subscription_service_persistence.dart` | 95.0% |
+| packages/ssrvpn_shared | `lib/services/subscription_source_cache.dart` | 95.0% |
+| packages/ssrvpn_shared | `lib/services/update_service_download.dart` | 90.0% |
+| packages/ssrvpn_shared | `lib/services/update_service_publication.dart` | 80.0% |
+| packages/ssrvpn_shared | `lib/services/clash_service_health_monitor.dart` | 95.0% |
+| packages/ssrvpn_shared | `lib/services/clash_service_data_plane_support.dart` | 88.0% |
+| SSRVPN_Android | `lib/services/clash_service_native_bridge.dart` | 85.0% |
+| SSRVPN_MacOS | `lib/services/clash_service_lifecycle.dart` | 75.0% |
+| SSRVPN_MacOS | `lib/services/system_proxy_service.dart` | 85.0% |
+| SSRVPN_MacOS | `lib/services/system_proxy_snapshot.dart` | 90.0% |
+| SSRVPN_MacOS | `lib/services/macos_start_transaction.dart` | 95.0% |
+| SSRVPN_Windows | `lib/services/clash_service_lifecycle.dart` | 58.0% |
+| SSRVPN_Windows | `lib/services/clash_service_process_support.dart` | 90.0% |
+| SSRVPN_Windows | `lib/services/clash_service_config_validation.dart` | 90.0% |
+| SSRVPN_Windows | `lib/services/windows_start_transaction.dart` | 95.0% |
+
+共享事务、更新发布与健康检查单独设地板，不能被高覆盖的 UI 或其他文件抵消。
+包级门槛保留跨宿主余量；Windows 包在 Mac 上的原生测试跳过会影响实测值，故统一总门槛取 68%，生命周期仍保留 58%。Windows 原生全套仍须单独通过，不能用跨宿主报告代替。
 
 覆盖率仅从 `<pkg>/coverage/lcov.info` 读取；shared 也必须提供完整 LCOV，缺失时门禁失败，不再回退 Dart VM coverage。
 
