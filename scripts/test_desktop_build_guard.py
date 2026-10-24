@@ -169,13 +169,50 @@ class DesktopBuildGuardTest(unittest.TestCase):
                 shutil.copytree(args[1], args[2])
             if args[0] == 'osascript':
                 self.assertTrue((destination / 'sentinel').exists())
+                self.assertEqual(kwargs['timeout'], 15)
+            return subprocess.CompletedProcess(args, 1 if args[0] == 'pgrep' and calls.count('pgrep') == 2 else 0)
+
+        with patch.object(guard.subprocess, 'run', side_effect=run):
+            guard.install_mac(source, destination)
+        self.assertEqual(calls, ['ditto', 'codesign', 'pgrep', 'osascript', 'pgrep'])
+        self.assertEqual(len(list(self.root.glob('SSRVPN.previous-*.app/sentinel'))), 1)
+        self.assertTrue(guard.artifact(destination, 'macos').exists())
+
+    def test_mac_install_does_not_launch_an_absent_application(self):
+        source = self.build('macos')
+        destination = self.root / 'SSRVPN.app'
+        calls = []
+
+        def run(args, **kwargs):
+            calls.append(args[0])
+            if args[0] == 'ditto':
+                shutil.copytree(args[1], args[2])
             return subprocess.CompletedProcess(args, 1 if args[0] == 'pgrep' else 0)
 
         with patch.object(guard.subprocess, 'run', side_effect=run):
             guard.install_mac(source, destination)
-        self.assertEqual(calls, ['ditto', 'codesign', 'osascript', 'pgrep'])
-        self.assertEqual(len(list(self.root.glob('SSRVPN.previous-*.app/sentinel'))), 1)
+        self.assertNotIn('osascript', calls)
         self.assertTrue(guard.artifact(destination, 'macos').exists())
+
+    def test_mac_uncertain_process_state_or_quit_timeout_preserves_old_app(self):
+        source = self.build('macos')
+        destination = self.root / 'SSRVPN.app'
+        destination.mkdir()
+        (destination / 'sentinel').write_text('old')
+        for status in (0, 2):
+            def run(args, **kwargs):
+                if args[0] == 'ditto':
+                    shutil.copytree(args[1], args[2])
+                if args[0] == 'osascript':
+                    self.assertEqual(status, 0)
+                    raise subprocess.TimeoutExpired(args, kwargs['timeout'])
+                return subprocess.CompletedProcess(args, status if args[0] == 'pgrep' else 0)
+
+            with patch.object(guard.subprocess, 'run', side_effect=run):
+                with self.assertRaises((ValueError, subprocess.TimeoutExpired)):
+                    guard.install_mac(source, destination)
+            self.assertEqual((destination / 'sentinel').read_text(), 'old')
+            self.assertFalse(list(self.root.glob('SSRVPN.previous-*.app')))
 
     def test_cli_redacts_bad_configuration_and_disallows_override_arguments(self):
         self.defines.write_text('private-sentinel', encoding='utf-8')

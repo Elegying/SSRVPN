@@ -112,7 +112,12 @@ def install_mac(source, destination=Path('/Applications/SSRVPN.app')):
         shutil.copy2(receipt_path(source, 'macos'), receipt_path(staged, 'macos'))
         verify(staged, 'macos')
         subprocess.run(['codesign', '--verify', '--deep', '--strict', str(staged)], check=True)
-        subprocess.run(['osascript', '-e', 'tell application "SSRVPN" to quit'], check=True)
+        status = subprocess.run(['pgrep', '-x', 'SSRVPN'], capture_output=True).returncode
+        if status not in (0, 1):
+            raise ValueError('Unable to determine application state')
+        if status == 0:
+            subprocess.run(['osascript', '-e', 'tell application "SSRVPN" to quit'],
+                           check=True, timeout=15)
         for _ in range(50):
             status = subprocess.run(['pgrep', '-x', 'SSRVPN'], capture_output=True).returncode
             if status == 1:
