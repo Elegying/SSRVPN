@@ -91,6 +91,21 @@ Windows 原生代理恢复见步骤 27；CI 另有 policy、安装器故障矩�
 - Windows 完整覆盖率使用 `bash scripts/run-flutter-coverage.sh SSRVPN_Windows --concurrency=1`，随后执行 `bash scripts/check-coverage-thresholds.sh SSRVPN_Windows --windows-native`。原生自动附加总量 74% / 生命周期 77% 下限；其他宿主保留 68% / 58%，不得复制其 LCOV 充当原生结果。
 - Windows 共享包和平台包测试按 CI 使用 `--concurrency=1`，避免真实辅助进程争抢资源。全量门禁跨宿主运行，macOS XCTest 与 Windows 原生检查须分别取得目标平台证据。
 
+### 本地安装候选必须使用完整发布配置
+
+- `config/ssrvpn-usage-defines.json` 的统计服务列表刻意为空，仅供隔离 CI/逻辑测试。
+  用它构建成功、启动成功或普通单测通过，不代表账号统计功能完整；不得把该包覆盖安装
+  到维护者日常设备，也不得上传为正式发布资产。
+- 本地日常试用、设备验收及正式发布，先通过 `prepare-private-defines.py` 从已授权环境
+  生成被 Git 忽略的 `config/ssrvpn-private-defines.json`，再执行共享包的
+  `flutter test test/account_usage_compiled_theme_test.dart --dart-define-from-file=../../config/ssrvpn-private-defines.json --dart-define=SSRVPN_VERIFY_USAGE_BUILD=true`。
+  私有配置不可用时，使用已通过相同验证的正式构建；不得以公共配置悄悄替代。
+- Mac 使用 `scripts/build-macos-local.sh`；Windows 将同一私有文件显式传给
+  `tool/package_windows.ps1 -DartDefineFromFile`。安装后核对版本、统计入口与实际数据显示；
+  未验证的项目明确记录，不能把生命周期测试结果当作统计功能验收。
+- 2026-10-24 本地 6.0.5 候选曾误用公共配置，导致统计入口缺失；该候选不作为正式资产。
+  不把私有配置、订阅、凭据或完整诊断写入提交和日志。
+
 ### 测试必须在包目录里跑
 `proxy_option_validation_test.dart:72` 读 `test/fixtures/proxy_option_cases.json`、
 `node_country_lookup_test.dart:161` 读 `../../SSRVPN_MacOS/assets/geoip.metadb.gz`、
