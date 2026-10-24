@@ -1,10 +1,11 @@
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,6 +50,76 @@ class CheckCoverageThresholdsTests(unittest.TestCase):
             self.assertGreaterEqual(
                 coverage.CRITICAL_FILE_THRESHOLDS["SSRVPN_Windows"][path], 90.0
             )
+
+    def _native_fixture(self, total_hit=740, lifecycle_hit=77):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        target = root / "SSRVPN_Windows"
+        counts = {
+            "lib/services/clash_service_lifecycle.dart": (100, lifecycle_hit),
+            "lib/services/clash_service_process_support.dart": (100, 95),
+            "lib/services/clash_service_config_validation.dart": (100, 95),
+            "lib/services/windows_start_transaction.dart": (100, 95),
+            "lib/other.dart": (600, total_hit - lifecycle_hit - 285),
+        }
+        records = []
+        for source, (found, hit) in counts.items():
+            path = target / source
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("int value() => 1;\n", encoding="utf-8")
+            records.append(f"SF:{source}\n" + "".join(
+                f"DA:{line},{int(line <= hit)}\n"
+                for line in range(1, found + 1)
+            ) + f"LF:{found}\nLH:{hit}\nend_of_record\n")
+        output = target / "coverage/lcov.info"
+        output.parent.mkdir()
+        output.write_text("".join(records), encoding="utf-8")
+        return root
+
+    def test_native_floors_are_additional_and_cannot_regress(self):
+        self.assertGreaterEqual(coverage.WINDOWS_NATIVE_TOTAL_THRESHOLD, 74)
+        self.assertGreaterEqual(coverage.WINDOWS_NATIVE_CRITICAL_THRESHOLDS[
+            "lib/services/clash_service_lifecycle.dart"], 77)
+
+    def test_native_boundaries_and_automatic_enforcement(self):
+        for total, lifecycle, expected in [(740, 77, 0), (739, 77, 1),
+                                           (740, 76, 1)]:
+            root = self._native_fixture(total, lifecycle)
+            for explicit in (False, True):
+                with self.subTest(total=total, lifecycle=lifecycle,
+                                  explicit=explicit), mock.patch.object(
+                                      coverage.sys, "platform", "win32"
+                                  ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    self.assertEqual(coverage.run(
+                        root, ["SSRVPN_Windows"], windows_native=explicit
+                    ), expected)
+
+    def test_portable_floors_remain_available_only_on_other_hosts(self):
+        root = self._native_fixture(680, 58)
+        for host in ("darwin", "linux"):
+            with self.subTest(host=host), mock.patch.object(
+                coverage.sys, "platform", host
+            ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(coverage.run(root, ["SSRVPN_Windows"]), 0)
+                self.assertEqual(coverage.run(
+                    root, ["SSRVPN_Windows"], windows_native=True), 1)
+
+    def test_native_mode_rejects_wrong_targets_and_missing_evidence(self):
+        root = self._native_fixture()
+        with mock.patch.object(coverage.sys, "platform", "win32"), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            for targets in ([], ["SSRVPN_MacOS"],
+                            ["SSRVPN_Windows", "SSRVPN_Android"]):
+                self.assertEqual(coverage.run(root, targets, windows_native=True), 1)
+            (root / "SSRVPN_Windows/coverage/lcov.info").unlink()
+            self.assertEqual(coverage.run(
+                root, ["SSRVPN_Windows"], windows_native=True), 1)
+
+    def test_cli_native_flag_reaches_host_validation(self):
+        with mock.patch.object(coverage.sys, "platform", "darwin"), \
+                redirect_stderr(io.StringIO()):
+            self.assertEqual(coverage.main(["SSRVPN_Windows", "--windows-native"]), 1)
 
     def _write_lcov(self, text: str) -> Path:
         temporary_directory = tempfile.TemporaryDirectory()

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -45,6 +46,14 @@ CRITICAL_FILE_THRESHOLDS = {
         "lib/services/clash_service_config_validation.dart": 90.0,
         "lib/services/windows_start_transaction.dart": 95.0,
     },
+}
+
+
+# Additional floors for full suites executed on the native Windows host.
+# Cross-host reports keep the portable floors above; never weaken those here.
+WINDOWS_NATIVE_TOTAL_THRESHOLD = 74.0
+WINDOWS_NATIVE_CRITICAL_THRESHOLDS = {
+    "lib/services/clash_service_lifecycle.dart": 77.0,
 }
 
 
@@ -788,14 +797,32 @@ def _print_report(report: CoverageReport) -> None:
         )
 
 
-def run(root: Path, targets: Sequence[str]) -> int:
+def run(
+    root: Path, targets: Sequence[str], *, windows_native: bool = False
+) -> int:
     selected_targets = list(targets) or list(TOTAL_THRESHOLDS)
+    if windows_native and (
+        sys.platform != "win32" or selected_targets != ["SSRVPN_Windows"]
+    ):
+        print("coverage: --windows-native requires a Windows host and only "
+              "the SSRVPN_Windows target", file=sys.stderr)
+        return 1
     failed = False
     for target in selected_targets:
         threshold = TOTAL_THRESHOLDS.get(target)
         if threshold is None:
             print(f"coverage: fail unknown target {target}", file=sys.stderr)
             return 1
+
+        critical_thresholds = dict(CRITICAL_FILE_THRESHOLDS.get(target, {}))
+        if target == "SSRVPN_Windows" and sys.platform == "win32":
+            # Automatic enforcement also protects verify-all and direct calls.
+            threshold = max(threshold, WINDOWS_NATIVE_TOTAL_THRESHOLD)
+            for source, floor in WINDOWS_NATIVE_CRITICAL_THRESHOLDS.items():
+                critical_thresholds[source] = max(
+                    critical_thresholds.get(source, 0), floor
+                )
+            print("coverage: applying Windows-native additional floors")
 
         coverage_dir = root / target / "coverage"
         lcov = coverage_dir / "lcov.info"
@@ -804,7 +831,7 @@ def run(root: Path, targets: Sequence[str]) -> int:
                 target,
                 lcov,
                 total_threshold=threshold,
-                critical_thresholds=CRITICAL_FILE_THRESHOLDS.get(target, {}),
+                critical_thresholds=critical_thresholds,
                 target_root=root / target,
             )
             _print_report(report)
@@ -821,9 +848,13 @@ def run(root: Path, targets: Sequence[str]) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    arguments = list(sys.argv[1:] if argv is None else argv)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--windows-native", action="store_true",
+                        help="require the Windows host and its additional floors")
+    parser.add_argument("targets", nargs="*")
+    arguments = parser.parse_args(argv)
     root = Path(__file__).resolve().parents[1]
-    return run(root, arguments)
+    return run(root, arguments.targets, windows_native=arguments.windows_native)
 
 
 if __name__ == "__main__":

@@ -557,7 +557,7 @@ jobs:
 
       - name: Enforce coverage threshold
         shell: bash
-        run: bash scripts/check-coverage-thresholds.sh SSRVPN_Windows
+        run: bash scripts/check-coverage-thresholds.sh SSRVPN_Windows --windows-native
 
       - name: Verify imported protocol traffic
         shell: bash

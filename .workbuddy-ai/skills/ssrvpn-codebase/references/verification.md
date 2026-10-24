@@ -88,6 +88,7 @@ Windows 原生代理恢复见步骤 27；CI 另有 policy、安装器故障矩�
 - `bootstrap-core-assets.sh` 对带扩展核心使用固定工具链重建；没有工具链时可从匹配 CI 或可信本地缓存恢复，但仍须逐字节满足仓库记录的 SHA-256。
 - macOS DNS shell 测试依赖 POSIX 权限和真实符号链接。Git Bash 的 `ln -s` 可能生成副本，不能以该环境的替代语义判定 macOS 行为；在 POSIX 宿主执行原测试，不删除断言或把失败改成通过。
 - 发布工具自测还包含 `os.getuid`、Unix 可执行替身和权限检查，不能把整组在 Windows 原生 Python 下的运行等同于其 POSIX CI 环境。完整组在 POSIX 宿主执行，Windows 的编码/路径回归、Flutter 测试、实核协议与原生代理恢复仍须在 Windows 另跑；原始失败日志保留。
+- Windows 完整覆盖率使用 `bash scripts/run-flutter-coverage.sh SSRVPN_Windows --concurrency=1`，随后执行 `bash scripts/check-coverage-thresholds.sh SSRVPN_Windows --windows-native`。原生自动附加总量 74% / 生命周期 77% 下限；其他宿主保留 68% / 58%，不得复制其 LCOV 充当原生结果。
 - Windows 共享包和平台包测试按 CI 使用 `--concurrency=1`，避免真实辅助进程争抢资源。全量门禁跨宿主运行，macOS XCTest 与 Windows 原生检查须分别取得目标平台证据。
 
 ### 测试必须在包目录里跑

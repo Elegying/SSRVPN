@@ -63,7 +63,7 @@ class WindowsWorkflowParallelismTest(unittest.TestCase):
         tests = job(workflow, "windows-tests", "windows-build")
         self.assertIn("Shared tests on Windows", tests)
         self.assertIn("scripts/run-flutter-coverage.sh SSRVPN_Windows", tests)
-        self.assertIn("scripts/check-coverage-thresholds.sh SSRVPN_Windows", tests)
+        self.assertIn("scripts/check-coverage-thresholds.sh SSRVPN_Windows --windows-native", tests)
         self.assertIn("coverage-SSRVPN_Windows", tests)
         self.assertNotIn("windows-build", tests.split("    steps:")[0])
         self.assertIn("    name: Windows\n", aggregate)

@@ -129,6 +129,11 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
                 f"scripts/check-coverage-thresholds.sh {target}", workflow
             )
 
+        self.assertIn(
+            "scripts/check-coverage-thresholds.sh SSRVPN_Windows --windows-native",
+            workflow,
+        )
+
         validate = workflow.index("Validate OSS publishing configuration")
         github_release = workflow.index("Create GitHub Draft Release")
         self.assertLess(validate, github_release)

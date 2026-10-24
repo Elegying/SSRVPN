@@ -250,6 +250,148 @@ Future<void> main(List<String> args) async {
       expect(core.recentLogs, contains('进程已退出，退出码: 19'));
     }, skip: !Platform.isWindows);
 
+    test('native startup publishes only after final health confirmation',
+        () async {
+      final proxy = _ControlledStopProxy();
+      final core = startup(proxy);
+      final checking = Completer<void>();
+      final release = Completer<bool>();
+      addTearDown(() {
+        if (!release.isCompleted) release.complete(false);
+      });
+      core.health = (call) {
+        if (call == 1) return Future.value(true);
+        checking.complete();
+        return release.future;
+      };
+      final starting = core.start();
+      await checking.future.timeout(const Duration(seconds: 20));
+      expect(proxy.setCalls, 1);
+      expect(core.isRunning, isFalse);
+      expect(core.observationSchedules, 0);
+      expect(await File('${fixture.path}/mihomo.pid').exists(), isTrue);
+      release.complete(true);
+      expect(await starting, isTrue);
+      expect(core.isRunning, isTrue);
+      expect(core.observationSchedules, 1);
+      expect(proxy.clearCalls, 0);
+      await core.stop();
+      expect(await File('${fixture.path}/mihomo.pid').exists(), isFalse);
+      expect(await config.readAsString(), 'mixed-port: 7890\n');
+    }, skip: !Platform.isWindows);
+
+    test('native final health success after cancellation cannot commit',
+        () async {
+      final proxy = _ControlledStopProxy();
+      final core = startup(proxy);
+      final checking = Completer<void>();
+      final release = Completer<bool>();
+      addTearDown(() {
+        if (!release.isCompleted) release.complete(false);
+      });
+      core.health = (call) {
+        if (call == 1) return Future.value(true);
+        checking.complete();
+        return release.future;
+      };
+      final starting = core.start();
+      await checking.future.timeout(const Duration(seconds: 20));
+      core.requestConnectionIntent(false);
+      final stopping = core.stop();
+      release.complete(true);
+      expect(await starting, isFalse);
+      await stopping;
+      expect(core.connectionDesired, isFalse);
+      expect(core.isRunning, isFalse);
+      expect(core.lastStartError, '连接已取消');
+      expect(core.observationSchedules, 0);
+      expect(proxy.clearCalls, greaterThanOrEqualTo(1));
+      expect(await File('${fixture.path}/mihomo.pid').exists(), isFalse);
+      expect(await config.readAsString(), 'mixed-port: 7890\n');
+      core.health = (_) async => true;
+      core.requestConnectionIntent(true);
+      expect(await core.start(), isTrue);
+      expect(core.isRunning, isTrue);
+      expect(proxy.setCalls, 2);
+      expect(core.observationSchedules, 1);
+      await core.stop();
+      expect(await File('${fixture.path}/mihomo.pid').exists(), isFalse);
+    }, skip: !Platform.isWindows);
+
+    test('native child exit during final health cannot publish running',
+        () async {
+      final proxy = _ControlledStopProxy();
+      final core = startup(proxy);
+      final checking = Completer<void>();
+      final release = Completer<bool>();
+      addTearDown(() {
+        if (!release.isCompleted) release.complete(false);
+      });
+      core.health = (call) {
+        if (call == 1) return Future.value(true);
+        checking.complete();
+        return release.future;
+      };
+      final starting = core.start();
+      await checking.future.timeout(const Duration(seconds: 20));
+      await File('${config.path}.exit').writeAsString('exit');
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      while (!core.recentLogs.contains('进程已退出，退出码: 19') &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(core.recentLogs, contains('进程已退出，退出码: 19'));
+      release.complete(true);
+      expect(await starting, isFalse);
+      expect(core.isRunning, isFalse);
+      expect(core.observationSchedules, 0);
+      expect(proxy.setCalls, 1);
+      expect(proxy.clearCalls, greaterThanOrEqualTo(1));
+      expect(await File('${fixture.path}/mihomo.pid').exists(), isFalse);
+      expect(await config.readAsString(), 'mixed-port: 7890\n');
+    }, skip: !Platform.isWindows);
+
+    for (final ownershipFailure in [
+      'external',
+      'unavailable',
+      'during-clear'
+    ]) {
+      test(
+          'native unexpected exit preserves external ownership: $ownershipFailure',
+          () async {
+        final proxy = _ControlledStopProxy();
+        final core = startup(proxy);
+        expect(await core.start(), isTrue);
+        final stopped = Completer<void>();
+        core.onRuntimeNotice = (notice) {
+          if (notice.message.contains('取消自动重连') && !stopped.isCompleted) {
+            stopped.complete();
+          }
+        };
+        proxy.ownership = () async {
+          if (ownershipFailure == 'unavailable') {
+            throw StateError('ownership unavailable');
+          }
+          return ownershipFailure == 'during-clear'
+              ? SystemProxyOwnershipStatus.owned
+              : SystemProxyOwnershipStatus.externallyChanged;
+        };
+        proxy.clear = () async {
+          proxy.ownershipChanged = ownershipFailure == 'during-clear';
+          return true;
+        };
+        await File('${config.path}.exit').writeAsString('exit');
+        await stopped.future.timeout(const Duration(seconds: 20));
+        expect(core.isRunning, isFalse);
+        expect(core.connectionDesired, isFalse);
+        expect(proxy.setCalls, 1);
+        expect(proxy.clearCalls, 1);
+        expect(core.observationSchedules, 1);
+        expect(await File('${fixture.path}/mihomo.pid').exists(), isFalse);
+        expect(await config.readAsString(), 'mixed-port: 7890\n');
+      }, skip: !Platform.isWindows);
+    }
+
     test('successful validation retains a safe idle runtime', () async {
       final core = service();
       expect(await core.runConfigValidation(), isTrue);
@@ -1174,14 +1316,17 @@ class _ControlledStopProxy implements SystemProxyService {
   int clearCalls = 0;
   int setCalls = 0;
   int recoveryCalls = 0;
+  Future<SystemProxyOwnershipStatus> Function() ownership =
+      () async => SystemProxyOwnershipStatus.owned;
+
+  bool ownershipChanged = false;
 
   @override
-  bool get ownershipChangedSinceLastAcquisition => false;
+  bool get ownershipChangedSinceLastAcquisition => ownershipChanged;
 
   @override
-  Future<SystemProxyOwnershipStatus>
-      currentSystemProxyOwnershipStatus() async =>
-          SystemProxyOwnershipStatus.owned;
+  Future<SystemProxyOwnershipStatus> currentSystemProxyOwnershipStatus() =>
+      ownership();
 
   @override
   Future<bool> setSystemProxy(String host, int port,

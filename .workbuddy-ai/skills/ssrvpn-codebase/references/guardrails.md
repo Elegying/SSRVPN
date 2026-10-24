@@ -158,6 +158,12 @@ macOS 与 Windows：`setSystemProxy` / `clearSystemProxy` **只能**出现在 `c
 共享事务、更新发布与健康检查单独设地板，不能被高覆盖的 UI 或其他文件抵消。
 包级门槛保留跨宿主余量；Windows 包在 Mac 上的原生测试跳过会影响实测值，故统一总门槛取 68%，生命周期仍保留 58%。Windows 原生全套仍须单独通过，不能用跨宿主报告代替。
 
+Windows 宿主另自动收紧：包级 **74%**、`clash_service_lifecycle.dart` **77%**，与上述
+门槛逐项取较高值。2026-10-24 原生完整基线为 4771/6319（75.50%）与 514/651（78.96%），
+保留约 1.50 / 1.96 个百分点余量。CI/Release 显式 `--windows-native` 要求 Windows 宿主与
+唯一 Windows 目标；直接调用和 `verify-all.sh` 也自动生效，不存在关闭原生附加门槛的开关。
+
+
 覆盖率仅从 `<pkg>/coverage/lcov.info` 读取；shared 也必须提供完整 LCOV，缺失时门禁失败，不再回退 Dart VM coverage。
 
 ## 5. 核心资产（**不可协商**）

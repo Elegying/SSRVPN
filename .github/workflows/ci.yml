@@ -560,7 +560,7 @@ jobs:
         timeout-minutes: 5
         working-directory: SSRVPN_Windows
         run: flutter test --no-pub --concurrency=1 --reporter expanded test/clash_service_lifecycle_test.dart --plain-name "real Windows child commits exact identity before acquiring proxy"
-      - run: bash scripts/check-coverage-thresholds.sh SSRVPN_Windows
+      - run: bash scripts/check-coverage-thresholds.sh SSRVPN_Windows --windows-native
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
