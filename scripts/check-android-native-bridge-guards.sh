@@ -1119,7 +1119,8 @@ done
 for needle in \
   "'expectedSessionGeneration': expectedSessionGeneration" \
   "postCommitState?.sessionGeneration" \
-  "原生 VPN 会话已变更或正在恢复"; do
+  "原生 VPN 正在运行，旧版本配置延后至空闲时清理" \
+  "原生 VPN 会话状态未确认稳定，延后清理旧版本配置"; do
   grep -Fq "$needle" "$CLASH_DART" || {
     echo "Android session-bound snapshot guard failed: missing '$needle'" >&2
     exit 1
