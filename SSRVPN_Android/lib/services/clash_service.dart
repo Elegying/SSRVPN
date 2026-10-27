@@ -663,7 +663,9 @@ class ClashService extends ClashServiceBase
             nativeState: postCommitState,
           );
           if (!cleanupSafe) {
-            log('原生 VPN 会话已变更或正在恢复，保留旧版本配置');
+            log(sessionStable && postCommitState?.transitioning == false
+                ? '原生 VPN 正在运行，旧版本配置延后至空闲时清理'
+                : '原生 VPN 会话状态未确认稳定，延后清理旧版本配置');
           } else {
             await _pruneVersionedConfigs(keepPaths);
           }

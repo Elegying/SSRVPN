@@ -394,12 +394,13 @@ extension AndroidSnapshotCleanup on ClashService {
     // versions for the existing idle cleanup, including after a process restart.
     // An unreadable marker remains recovery material; do not replace it.
     if (pending == null && await _snapshotCleanupMarker.exists()) return;
-    final remaining = pending != null
-        ? Set<String>.of(pending.fileNames)
-        : {
-            for (final name in await _collectSnapshotConfigFileNames())
-              if (name.startsWith('config-')) name,
-          };
+    // Every commit can supersede another snapshot while an earlier cleanup is
+    // pending. Merge new candidates instead of freezing the first file list.
+    final remaining = <String>{
+      ...?pending?.fileNames,
+      for (final name in await _collectSnapshotConfigFileNames())
+        if (name.startsWith('config-')) name,
+    };
     final snapshot = File(snapshotPath).absolute;
     if (snapshot.parent.path == Directory(configDir).absolute.path) {
       remaining.remove(snapshot.uri.pathSegments.last);

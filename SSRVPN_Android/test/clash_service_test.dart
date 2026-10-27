@@ -2903,6 +2903,7 @@ secret: rejected-test-secret
 
     expect(await activeConfig.exists(), isTrue);
     expect(await File(replacement).exists(), isTrue);
+    expect(service.recentLogs, contains('原生 VPN 会话状态未确认稳定，延后清理旧版本配置'));
   });
 
   test(
@@ -3570,6 +3571,100 @@ secret: rejected-test-secret
       expect(await File(active).exists(), isTrue);
     },
   );
+
+  for (final restartBeforeCleanup in [false, true]) {
+    test(
+        'successive live snapshots clean all superseded configs '
+        '(restart=$restartBeforeCleanup)', () async {
+      SharedPreferences.setMockInitialValues({});
+      const channel = MethodChannel('com.ssrvpn/native');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final dir = await Directory.systemTemp.createTemp('ssrvpn_multi_prune_');
+      final service = ClashService()
+        ..setPaths(configDir: dir.path, configPath: '${dir.path}/config.yaml')
+        ..updateSettings(AppSettings(apiSecret: 'test-secret'));
+      addTearDown(() async {
+        service.dispose();
+        messenger.setMockMethodCallHandler(channel, null);
+        await dir.delete(recursive: true);
+      });
+      final old = File('${dir.path}/config-old.yaml');
+      await old.writeAsString(_testProxies);
+      final active = await service.writeConfig(_testProxies);
+      var nativeState = <String, Object?>{
+        'running': true,
+        'transitioning': false,
+        'protectedConfigPath': active,
+        'sessionGeneration': 47,
+      };
+      const idle = <String, Object?>{
+        'running': false,
+        'transitioning': false,
+        'protectedConfigPath': null,
+        'sessionGeneration': null,
+      };
+      var commits = 0;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        switch (call.method) {
+          case 'startCoreWithVpn':
+          case 'getConnectionState':
+            return nativeState;
+          case 'syncSettings':
+            expect(call.arguments['expectedSessionGeneration'], 47);
+            return 'snapshot-${++commits}';
+          case 'stopCore':
+            nativeState = idle;
+            return true;
+          case 'notifyVpnStateChanged':
+            return true;
+          case 'clearConnectionSnapshot':
+            fail('Pruning must preserve the latest native snapshot');
+        }
+        return null;
+      });
+      expect(await service.start(preparedConfigPath: active), isTrue);
+      final snapshots = <String>[active];
+      for (final node in ['日本节点', '新加坡节点', '日本节点']) {
+        snapshots.add(await service.writePreferredNodeConfig(
+          _testProxies,
+          service.settings,
+          node,
+        ));
+      }
+      final marker = File('${dir.path}/.snapshot-cleanup.pending');
+      final pending = jsonDecode(await marker.readAsString()) as Map;
+      expect(
+          pending['files'],
+          containsAll([
+            'config-old.yaml',
+            for (final path in snapshots.take(snapshots.length - 1))
+              File(path).uri.pathSegments.last,
+          ]));
+      for (final path in snapshots) {
+        expect(await File(path).exists(), isTrue);
+      }
+      expect(service.recentLogs, isNot(contains('会话已变更或正在恢复')));
+      expect(service.recentLogs, contains('原生 VPN 正在运行，旧版本配置延后至空闲时清理'));
+      if (restartBeforeCleanup) {
+        service.stopStatusMonitor();
+        nativeState = idle;
+        final reopened = ClashService()
+          ..setPaths(
+              configDir: dir.path, configPath: '${dir.path}/config.yaml');
+        await reopened.resumePendingNativeSnapshotCleanup();
+        reopened.dispose();
+      } else {
+        await service.stop();
+      }
+      expect(await old.exists(), isFalse);
+      for (final path in snapshots.take(snapshots.length - 1)) {
+        expect(await File(path).exists(), isFalse);
+      }
+      expect(await File(snapshots.last).exists(), isTrue);
+      expect(await marker.exists(), isFalse);
+    });
+  }
 
   for (final condition in [
     'unknown native state',
