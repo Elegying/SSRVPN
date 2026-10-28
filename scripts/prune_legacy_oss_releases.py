@@ -21,7 +21,7 @@ def command(*arguments):
 
 def xml_api(operation, *arguments):
     raw = command("ossutil", "api", operation, "--bucket", BUCKET,
-                  *arguments, "--output-format", "xml")
+                  *arguments, "--output-format", "xml", "--quiet")
     root = ET.fromstring(raw)
     for node in root.iter():
         node.tag = node.tag.rsplit("}", 1)[-1]
@@ -102,7 +102,7 @@ def verify_channel(tag):
     latest = json.loads(command("gh", "api", "repos/Elegying/SSRVPN/releases/latest"))
     if latest.get("tag_name") != tag or latest.get("draft") is not False or latest.get("prerelease") is not False:
         raise ValueError("GitHub latest does not match the accepted public release")
-    manifest = command("ossutil", "cat", f"oss://{BUCKET}/ssrvpn/latest.json")
+    manifest = command("ossutil", "cat", f"oss://{BUCKET}/ssrvpn/latest.json", "--quiet")
     if json.loads(manifest).get("version") != tag[1:]:
         raise ValueError("OSS latest does not match GitHub")
     return latest["id"], manifest

@@ -115,3 +115,20 @@ class LegacyOssCleanupTest(unittest.TestCase):
                 prune.main()
                 self.assertEqual([call.args[-2:] for call in command.call_args_list],
                                  [('--version-id', 'old'), ('--version-id', 'marker')])
+
+    def test_xml_api_suppresses_real_cli_elapsed_footer(self):
+        payload = '<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>'
+        def output(*args):
+            return payload if '--quiet' in args else payload + '\n0.123456(s) elapsed\n'
+        with patch.object(prune, 'command', side_effect=output):
+            self.assertEqual(prune.xml_api('get-bucket-versioning').findtext('Status'), 'Enabled')
+
+    def test_manifest_read_suppresses_footer_without_relaxing_json_validation(self):
+        release = '{"id":1,"tag_name":"v6.0.9","draft":false,"prerelease":false}'
+        manifest = '{"version":"6.0.9"}'
+        def output(*args):
+            if args[0] == 'gh':
+                return release
+            return manifest if '--quiet' in args else manifest + '\n0.123456(s) elapsed\n'
+        with patch.object(prune, 'command', side_effect=output):
+            self.assertEqual(prune.verify_channel('v6.0.9'), (1, manifest))
