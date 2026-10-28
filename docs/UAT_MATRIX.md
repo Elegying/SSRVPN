@@ -1,5 +1,7 @@
 # 三端真机验收矩阵
 
+> 历史发行说明：6.0.0 之前的公开发行附件按保留策略清理；本文旧版本链接指向保留的源码标签，验收记录与摘要仅用于历史追溯。
+
 本矩阵是正式发布前人工验收的统一规范。自动化测试证明逻辑和失败边界，真机验收证明系统
 VPN、代理、TUN、安装、无障碍及电量在目标系统上实际成立。没有对应设备证据的条目必须保持
 “未执行”，不得标记通过。
@@ -261,7 +263,7 @@ strip 结果逐字节一致，源资产仍通过原固定 SHA-256。macOS 最低
 [精确 main CI](https://github.com/Elegying/SSRVPN/actions/runs/34176505762)、
 [Prepare](https://github.com/Elegying/SSRVPN/actions/runs/34176565853) 和
 [Release](https://github.com/Elegying/SSRVPN/actions/runs/34178392455) 均成功。
-[正式 Release](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.36) 于
+[正式 Release](https://github.com/Elegying/SSRVPN/tree/v4.0.36) 于
 `2026-09-08T02:12:09Z` 公开，Release ID `384403749`，不可变、非 draft、非 prerelease。
 
 | 平台产物 | 字节数 | 正式 SHA-256 | 本版证据状态 |
@@ -339,7 +341,7 @@ strip 结果逐字节一致，源资产仍通过原固定 SHA-256。macOS 最低
 - [#193](https://github.com/Elegying/SSRVPN/issues/193) 在候选实机验收通过后关闭。完整脱敏步骤、
   证据边界和发布摘要见
   [v4.0.27 Android 实机验收报告](uat/SSRVPN_Android_v4.0.27_实机验收报告_20260904.md)。
-- [GitHub Release v4.0.27](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.27) 为不可变、
+- [GitHub Release v4.0.27](https://github.com/Elegying/SSRVPN/tree/v4.0.27) 为不可变、
   非 draft、非 prerelease 的 latest，共七项资产。独立完整下载后 APK、DMG、EXE SHA-256
   分别为 `c001c392d89009753264d50fa4e0a3950ecd624ee430de5d04ac5be3e54b2847`、
   `ea59a57af7f5556e0668973846adace608cc4514710a6ae738d7947873f28044`、
@@ -366,7 +368,7 @@ strip 结果逐字节一致，源资产仍通过原固定 SHA-256。macOS 最低
   [主分支 CI 33742979692](https://github.com/Elegying/SSRVPN/actions/runs/33742979692)、
   [Prepare Release 33744510425](https://github.com/Elegying/SSRVPN/actions/runs/33744510425) 和
   [Release 33744541261](https://github.com/Elegying/SSRVPN/actions/runs/33744541261) 均成功。
-- [GitHub Release v4.0.26](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.26) 已公开，非
+- [GitHub Release v4.0.26](https://github.com/Elegying/SSRVPN/tree/v4.0.26) 已公开，非
   draft、非 prerelease，共七项资产。独立完整下载后 APK SHA-256 为
   `43f895620738202c65b34d8d56154ad0a90efe6d4414d310f8ccf2393f721aa4`，DMG 为
   `cd2b1c14708e34173c5d6371006e051dd146a2461f14495ae25afb735daa498d`，Windows 安装器为
@@ -413,7 +415,7 @@ strip 结果逐字节一致，源资产仍通过原固定 SHA-256。macOS 最低
   [主分支 CI 33726967743](https://github.com/Elegying/SSRVPN/actions/runs/33726967743)、
   [Prepare Release 33728358633](https://github.com/Elegying/SSRVPN/actions/runs/33728358633) 和
   [Release 33728388311](https://github.com/Elegying/SSRVPN/actions/runs/33728388311) 均成功。
-- [GitHub Release v4.0.24](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.24) 已公开，非
+- [GitHub Release v4.0.24](https://github.com/Elegying/SSRVPN/tree/v4.0.24) 已公开，非
   draft、非 prerelease，共七项资产。独立完整下载后 APK SHA-256 为
   `6d8486b4291a5fe074a10f9950aa6c9d0dc2aa62a7a01429a90f4a4eba31d522`，DMG 为
   `077fe8b96c8b35434e5edf4991d04784f8022fb532be20707cffed22a1453d1d`，Windows 安装器为
@@ -455,7 +457,7 @@ strip 结果逐字节一致，源资产仍通过原固定 SHA-256。macOS 最低
   [主分支 CI 33713779646](https://github.com/Elegying/SSRVPN/actions/runs/33713779646)、
   [Prepare Release 33714753378](https://github.com/Elegying/SSRVPN/actions/runs/33714753378) 和
   [Release 33714772096](https://github.com/Elegying/SSRVPN/actions/runs/33714772096) 均成功。
-- [GitHub Release v4.0.23](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.23) 已公开，非
+- [GitHub Release v4.0.23](https://github.com/Elegying/SSRVPN/tree/v4.0.23) 已公开，非
   draft、非 prerelease，共七项资产。独立完整下载后 APK SHA-256 为
   `7b970325eeab297558c4134cfe3d94730896b546257cce4f20c8eac7490d356e`，DMG 为
   `a72faf077f0f22bed3a0c140b851854c56d0ee28318f2695094f27718b76e398`，Windows 安装器为
@@ -495,7 +497,7 @@ strip 结果逐字节一致，源资产仍通过原固定 SHA-256。macOS 最低
   [主分支 CI 33625677508](https://github.com/Elegying/SSRVPN/actions/runs/33625677508)、
   [Prepare Release 33627188347](https://github.com/Elegying/SSRVPN/actions/runs/33627188347) 和
   [Release 33627219065](https://github.com/Elegying/SSRVPN/actions/runs/33627219065) 均成功。
-- [GitHub Release v4.0.22](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.22) 已公开，非
+- [GitHub Release v4.0.22](https://github.com/Elegying/SSRVPN/tree/v4.0.22) 已公开，非
   draft、非 prerelease，共七项资产。完整下载后 APK SHA-256 为
   `81faed6d73c707baf8ae8c7ff1dd89119d581fccdb44624bcd0d06b1dcb1ac72`，DMG 为
   `c66039fb4d5c66ac44e6ecb2619e0d51be3c4edce9db93ef50d52819dd91c3ef`，Windows 安装器为
@@ -536,7 +538,7 @@ strip 结果逐字节一致，源资产仍通过原固定 SHA-256。macOS 最低
   [33553184498](https://github.com/Elegying/SSRVPN/actions/runs/33553184498)、
   [Prepare Release 33554832427](https://github.com/Elegying/SSRVPN/actions/runs/33554832427) 和
   [正式 Release 33554866473](https://github.com/Elegying/SSRVPN/actions/runs/33554866473) 均成功。
-- [GitHub Release v4.0.20](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.20) 已公开，非
+- [GitHub Release v4.0.20](https://github.com/Elegying/SSRVPN/tree/v4.0.20) 已公开，非
   draft、非 prerelease，共七项资产。完整下载后 APK SHA-256 为
   `f6cae87cd42825bdae68dc9879605a5749414d357cea6b932883bbfc5497f977`，DMG 为
   `2c988fb8b7563591763c2798e43a26d3f7587d2301390fa1e96a65dca59fa1f9`，Windows 安装器为

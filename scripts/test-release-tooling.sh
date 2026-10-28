@@ -28,6 +28,7 @@ python3 -m unittest \
   scripts/test_ci_docs_scope.py \
   scripts/test_doc_consistency.py \
   scripts/test_pr_cache_cleanup.py \
+  scripts/test_prune_legacy_oss_releases.py \
   scripts/test_classify_ci_scope.py \
   scripts/test_free_desktop_distribution.py \
   scripts/test_flutter_version_preflight.py \

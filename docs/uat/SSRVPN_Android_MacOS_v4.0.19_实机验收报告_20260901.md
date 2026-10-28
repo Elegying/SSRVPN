@@ -1,9 +1,11 @@
 # SSRVPN Android / macOS v4.0.19 实机验收报告
 
+> 历史发行说明：6.0.0 之前的公开发行附件按保留策略清理；本文旧版本链接指向保留的源码标签，验收记录与摘要仅用于历史追溯。
+
 - 验收日期：2026-09-01（Asia/Shanghai）
 - 正式版本：`v4.0.19+4019`
 - 正式提交：`027baad349bd9cd071c5387a47abd692d665d0a8`
-- 正式 Release：[v4.0.19](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.19)
+- 正式 Release：[v4.0.19](https://github.com/Elegying/SSRVPN/tree/v4.0.19)
 - Android：Redmi Note 8，Android 11 / API 30，arm64-v8a，4 KiB page size
 - macOS：MacBook Air（Apple M1，8 GB），macOS 26.6.2（25G83），arm64
 - 原始证据：本机临时目录及 Android `logcat`；不提交订阅、节点凭据、设备序列号、用户名路径或未脱敏日志

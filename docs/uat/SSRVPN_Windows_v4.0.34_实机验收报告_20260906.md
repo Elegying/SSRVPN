@@ -1,5 +1,7 @@
 # SSRVPN Windows v4.0.34 实机验收报告
 
+> 历史发行说明：6.0.0 之前的公开发行附件按保留策略清理；本文旧版本链接指向保留的源码标签，验收记录与摘要仅用于历史追溯。
+
 > 执行日期：2026-09-06 至 2026-09-07，Asia/Shanghai。执行人：Windows 本机 Codex。
 > 本轮为正式安装版实机验证，测试节点由维护者提供。本文不包含节点地址、密码、订阅或本机用户名。
 
@@ -31,7 +33,7 @@ GUI 异常退出后的清理、同版本覆盖安装、卸载保留数据与正�
 | 初始状态 | GUI 打开、未连接；智能模式；TUN 偏好开启；系统代理关闭；无核心、监听或 TUN 残留 |
 | 执行矩阵 | 仓库 `docs/UAT_MATRIX.md`；桌面的旧矩阵路径不存在，因此使用当前项目版本 |
 
-正式资产见 [GitHub Release v4.0.34](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.34)。
+正式资产见 [GitHub Release v4.0.34](https://github.com/Elegying/SSRVPN/tree/v4.0.34)。
 本轮没有重新评价已明确不要求的 Windows Authenticode 签名，也没有把此前版本或其他平台的结果移记为本轮通过。
 
 ### 测量环境修复与证据口径

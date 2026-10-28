@@ -1,8 +1,10 @@
 # SSRVPN 项目健康与发布状态
 
+> 历史发行说明：6.0.0 之前的公开发行附件按保留策略清理；本文旧版本链接指向保留的源码标签，验收记录与摘要仅用于历史追溯。
+
 最近更新：2026-10-28
 
-当前应用版本：`v6.0.8`
+当前应用版本：`v6.0.9`
 
 最新正式版本：[GitHub Releases 当前正式版](https://github.com/Elegying/SSRVPN/releases/latest)
 
@@ -280,7 +282,7 @@ Windows 配置校验先补进程成功、错误输出、取消及启动失败回
 机械迁移，方法正文不变。生命周期从 1736 行减少至 1683 行，上限从 1740 收紧到 1690；
 没有更改启动、提交、回滚、超时或进程所有权判断。
 
-正式 [v5.0.24](https://github.com/Elegying/SSRVPN/releases/tag/v5.0.24) 已公开，
+正式 [v5.0.24](https://github.com/Elegying/SSRVPN/tree/v5.0.24) 已公开，
 非草稿、非预发布，GitHub 资产已锁定。源码为 `47bbedca2b83af27c1e918293f99c98700ad8e32`；
 [main CI](https://github.com/Elegying/SSRVPN/actions/runs/36720935889) 与
 [三端发布任务](https://github.com/Elegying/SSRVPN/actions/runs/36724476096) 均通过。
@@ -315,7 +317,7 @@ GitHub 记录及精确版本资产为准。没有更改内核、GeoIP、路由�
 
 ## v5.0.20 正式发布结果
 
-正式 [v5.0.20](https://github.com/Elegying/SSRVPN/releases/tag/v5.0.20) 已公开，非 draft、非 prerelease，
+正式 [v5.0.20](https://github.com/Elegying/SSRVPN/tree/v5.0.20) 已公开，非 draft、非 prerelease，
 latest 指向正确。源码为 `97ca130ef7222d777974feef8eefaa5e83368167`，经
 [PR #275](https://github.com/Elegying/SSRVPN/pull/275)、
 [main CI](https://github.com/Elegying/SSRVPN/actions/runs/36018913130)、
@@ -448,7 +450,7 @@ Windows 安装器的 P1 文件归属和 P2 注册表恢复范围问题仍未修�
 
 - 实际基线：`741ea3c1296ade164124301ff6a9647f4bf09ddf`，本地 `main`、`origin/main`、
   `v5.0.17^{commit}` 一致；三端源码版本均为 `5.0.17+5017`，开始时工作区干净。
-- GitHub API 已核实 [v5.0.17 正式 Release](https://github.com/Elegying/SSRVPN/releases/tag/v5.0.17)
+- GitHub API 已核实 [v5.0.17 正式 Release](https://github.com/Elegying/SSRVPN/tree/v5.0.17)
   于 2026-09-24 03:47:02 UTC 发布，非草稿、非预发布。
   基线 [CI 35950001143](https://github.com/Elegying/SSRVPN/actions/runs/35950001143) 和
   [Release 35951529964](https://github.com/Elegying/SSRVPN/actions/runs/35951529964) 成功且绑定上述完整提交。
@@ -1213,7 +1215,7 @@ Attestation 与 OSS 公共更新通道均已独立复核。Windows 主客户端�
 | 精确正式 `main` CI | [`33966155104`](https://github.com/Elegying/SSRVPN/actions/runs/33966155104) 成功；Workspace、Android、macOS、Windows、安全、安装器 smoke 与原生门禁全部通过 |
 | 标签与正式构建 | [`Prepare Release 33966225633`](https://github.com/Elegying/SSRVPN/actions/runs/33966225633) 和 [`Release 33967015011`](https://github.com/Elegying/SSRVPN/actions/runs/33967015011) 均成功；正式 Windows 安装器安装与卸载退出码均为 0，smoke 明确通过 |
 | 当前实机证据边界 | 本轮未新增正式安装包的完整三端人工验收；Android 17 断网与恢复证据仍属于 `v4.0.27`，macOS 本轮未执行断网测试 |
-| 正式公开资产 | [`v4.0.28`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.28) 为不可变、非 draft、非 prerelease 的 latest，共七项资产；独立完整下载后 APK `d1e83a84…10ff5e`、DMG `4aa08eb3…3c4368`、EXE `6837e952…c7e38`，实际文件、sidecar、Release API digest、provenance 与三份 GitHub Attestations 一致；证明绑定本仓库 `release.yml`、精确标签与源码提交 |
+| 正式公开资产 | [`v4.0.28`](https://github.com/Elegying/SSRVPN/tree/v4.0.28) 为不可变、非 draft、非 prerelease 的 latest，共七项资产；独立完整下载后 APK `d1e83a84…10ff5e`、DMG `4aa08eb3…3c4368`、EXE `6837e952…c7e38`，实际文件、sidecar、Release API digest、provenance 与三份 GitHub Attestations 一致；证明绑定本仓库 `release.yml`、精确标签与源码提交 |
 | OSS 公共通道 | `latest.json` 已指向 `4.0.28`；三个版本化安装包均已独立完整下载，SHA-256 与 GitHub 实际文件及清单一致 |
 
 发布流程在三平台产物和 shared 测试全部成功后才获准进入 `release` 环境；

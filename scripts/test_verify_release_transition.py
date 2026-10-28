@@ -71,7 +71,7 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
         self.assertIn("startsWith(github.ref, 'refs/tags/')", concurrency)
         self.assertIn("'ssrvpn-public-release'", concurrency)
         self.assertIn(
-            "format('ssrvpn-release-build-{0}', github.ref)", concurrency
+            "format('ssrvpn-release-build-{0}-{1}', github.ref, inputs.platform || 'all')", concurrency
         )
         self.assertIn("cancel-in-progress: false", concurrency)
         self.assertIn("overwrite_files: false", workflow)

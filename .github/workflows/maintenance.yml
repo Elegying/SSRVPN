@@ -10,11 +10,17 @@ on:
         options:
           - geoip-refresh
           - oss-smoke
+          - oss-prune-before-6
           - oss-rollback
           - windows-installer-catalogs
           - windows-installer-ownership
           - windows-public-installer
           - windows-installer-archive
+      apply_cleanup:
+        description: Apply the pre-6.0.0 OSS cleanup (otherwise inventory only)
+        required: false
+        type: boolean
+        default: false
       tag:
         description: Release tag for rollback/public installer; optional single archive baseline (v5.0.19 recovery)
         required: false
@@ -23,6 +29,44 @@ permissions:
   contents: read
 
 jobs:
+  oss-prune-before-6:
+    name: Retire pre-6.0.0 OSS releases
+    if: github.event_name == 'workflow_dispatch' && inputs.task == 'oss-prune-before-6' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: ssrvpn-public-release
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+      OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+      OSS_ENDPOINT: ${{ vars.ALIYUN_OSS_ENDPOINT }}
+      OSS_REGION: cn-qingdao
+      OSS_BUCKET: ${{ vars.ALIYUN_OSS_BUCKET }}
+      OSS_PREFIX: ${{ vars.ALIYUN_OSS_PREFIX }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install pinned ossutil
+        run: |
+          bash scripts/install-ossutil.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Inventory or delete exact retired objects
+        env:
+          ACCEPTED_TAG: ${{ inputs.tag }}
+          APPLY_CLEANUP: ${{ inputs.apply_cleanup }}
+        run: |
+          args=(--tag "$ACCEPTED_TAG" --report "$RUNNER_TEMP/retired-oss.json")
+          if [ "$APPLY_CLEANUP" = true ]; then args+=(--apply); fi
+          python3 scripts/prune_legacy_oss_releases.py "${args[@]}"
+      - name: Retain cleanup evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: retired-oss-releases
+          path: ${{ runner.temp }}/retired-oss.json
+          retention-days: 30
+
   windows-installer-archive:
     name: Preserve verified installer regression baselines
     if: github.event_name == 'workflow_dispatch' && inputs.task == 'windows-installer-archive' && github.ref == 'refs/heads/main'

@@ -113,6 +113,24 @@ class ReuseCiCoreAssetsTest(unittest.TestCase):
         self.run["created_at"] = "2026-09-07T10:59:59Z"
         self.assertFalse(self.restore())
 
+    def test_active_exact_main_ci_rebuilds_without_reading_artifacts(self):
+        for status in MODULE.CI.WAITABLE_STATUSES:
+            with self.subTest(status=status):
+                self.run.update(status=status, conclusion=None)
+                self.assertFalse(self.restore(run_id=None))
+                self.assertTrue(all(not (self.root / name).exists()
+                                    for name in self.payloads))
+
+    def test_active_wrong_identity_still_fails_closed(self):
+        self.run.update(status="in_progress", conclusion=None, head_sha="b" * 40)
+        with self.assertRaises(MODULE.CI.VerificationError):
+            self.restore()
+
+    def test_active_rerun_during_download_does_not_install(self):
+        with patch.object(MODULE, "trusted_run", side_effect=[self.run, None]):
+            self.assertFalse(self.restore())
+        self.assertTrue(all(not (self.root / name).exists() for name in self.payloads))
+
     def test_wrong_run_identity_and_conclusion_fail_closed(self):
         changes = (
             ("id", 999), ("workflow_id", 999), ("head_sha", "b" * 40),

@@ -55,6 +55,10 @@ def trusted_run(repo, sha, run_id, now):
         run, repo=repo, sha=sha, workflow_id=workflow_id, now=now,
         max_age=timedelta.max,
     )
+    # A correctly identified active CI has no trusted result yet. Rebuild the
+    # pinned inputs independently; never download its unfinished artifacts.
+    if state == "waitable":
+        return None
     if state != "reusable":
         raise CI.VerificationError("exact-main CI identity or conclusion is not reusable")
     if now - created_at > MAX_AGE:

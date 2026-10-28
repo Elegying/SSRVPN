@@ -154,6 +154,24 @@ GeoIP 更新不是发布回退步骤。只有收到明确更新指令时才手�
 该精确 tag 手动运行 `Release`，或执行 `gh workflow run release.yml --ref vX.Y.Z`。已有正式或
 可验证 Draft Release 的重试仍必须通过精确 tag、commit、资产和 provenance 身份校验。
 
+### 按平台构建测试包与减少重复构建
+
+- 单端预览使用当前 `main` 的 `Release` 手动入口，例如
+  `gh workflow run release.yml --ref main -f platform=macos`。
+  可选 `macos`、`windows`、`android`；默认 `all` 保持三端构建。单端选择只启动共享门禁和
+  对应平台测试/打包；完整配置、核心摘要、安装包验证及 attestation 均保留。对应平台安装包
+  artifact 上传后即可下载，不必等待其他任务结束；手动 main 构建不会公开发布。
+- 精确 main CI 尚在运行时，不使用未完成 CI 的 artifact，改为独立准备并验证固定核心资产；
+  同一 SHA 已成功的 CI 仍按原有身份、时效、必需 job 和摘要检查复用。CI 失败、身份异常或
+  API 检查失败仍停止，不能伪装成缓存未命中绕过检查。
+- 需要“实机验收后直接公开同一安装包”时，先冻结新版本与 main SHA，通过 `Prepare Release`
+  创建 tag。下载该 tag 的 `Release` run 已构建产物进行验收，在 `release` 环境审批处等待；
+  验收通过后批准同一个 run 的 publish job，直接使用同一 run 的三端 artifact，无需重新打包。
+  必须先确认 GitHub 的 `release` 环境已配置所需审核人；未配置人工审批时不能把它当作暂停点。
+- main 单端预览不能直接冒充新版本正式包，也不复用 PR 的成功状态充当 main 验证。代码、版本、
+  配置或工具链变化后，原包不再代表最终产物。tag 触发（包括手动 tag 触发）始终强制全平台门禁，
+  即使传入单平台选项也不能跳过其他端。当前暂不跨 run 提升预览 artifact 为正式发行资产。
+
 ### 公开前的最终产物验收
 
 - 正式 `Release` 完成三端构建后，在审批 `release` 环境前下载该 run 的安装包，核对
@@ -227,7 +245,10 @@ GeoIP 更新不是发布回退步骤。只有收到明确更新指令时才手�
 
 ## 当前公开发行版保留范围
 
-- 应用发行版从 `v4.0.15` 开始保留；`core-assets-v1` 是构建依赖通道，不按应用版本清理。
+- 应用发行版从 `v6.0.0` 开始保留；`core-assets-v1` 是构建依赖通道，不按应用版本清理。
+- OSS 清理入口为 `Maintenance > oss-prune-before-6`，先以 `apply_cleanup=false` 盘点，
+  再对相同最新公开 tag 执行删除。只删除精确旧版本目录下的对象，保留当前通道和固定 Windows
+  升级/回滚测试 EXE；这些摘要固定的样本是测试依赖，不属于继续公开的应用 Release。
 - 清理旧 Release 只删除 GitHub Release 对象及其附件，不删除 Git 标签，也不改写提交历史。
 - 清理前应确认 `latest`、OSS `latest.json` 和保留版本不受影响；清理后应再次扫描文档中的 Release 与下载链接。
 - 历史验收报告可保留当时的文件名、摘要和结论，但必须明确附件已移除，不能继续提供失效的下载链接。

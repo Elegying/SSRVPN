@@ -1,11 +1,13 @@
 # SSRVPN Windows v4.0.19 实机验收报告
 
+> 历史发行说明：6.0.0 之前的公开发行附件按保留策略清理；本文旧版本链接指向保留的源码标签，验收记录与摘要仅用于历史追溯。
+
 - 验收日期：2026-09-01（Asia/Shanghai）
 - 源码分支：`main`
 - 本地/远端提交：`eb2ed1fcbacbc443f5ac0a017966cf0fbe7487d0`
 - 正式标签：`v4.0.19` -> `027baad349bd9cd071c5387a47abd692d665d0a8`
 - 应用版本：`4.0.19+4019`
-- 正式 Release：[SSRVPN v4.0.19](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.19)
+- 正式 Release：[SSRVPN v4.0.19](https://github.com/Elegying/SSRVPN/tree/v4.0.19)
 - 执行人：Codex（用户授权的本机发布验收）
 - 脱敏规则：不记录订阅 URL、节点凭据、节点名称、用户名路径、完整公网 IP、原始截图或原始配置
 
