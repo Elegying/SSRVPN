@@ -60,11 +60,17 @@ void main() {
     expect(service.connectionDesired, isTrue);
     final report = await service.runDiagnostics();
     expect(report.checks.any((c) => c.id == 'connection_phase'), isTrue);
+    final timing =
+        report.checks.singleWhere((c) => c.id == 'connection_timing');
+    expect(timing.summary, contains('本地服务已就绪'));
+    expect(timing.summary, contains('本地就绪不代表外网已验证'));
+    final previousTiming = service.connectionTimingSummary;
     expect(report.checks.singleWhere((c) => c.id == 'network_request').summary,
         contains('ms'));
     service.requestConnectionIntent(false);
     service.setRunning(false);
     expect(service.networkVerification.checkedAt, isNull);
+    expect(service.connectionTimingSummary, previousTiming);
   });
 
   test('preparing connection blocks fresh public IP queries until intent ends',

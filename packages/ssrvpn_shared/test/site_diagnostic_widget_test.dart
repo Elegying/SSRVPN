@@ -10,6 +10,7 @@ import 'package:ssrvpn_shared/widgets/ssrvpn_site_diagnostic.dart';
 
 class _Core extends ClashServiceBase {
   bool connected = false;
+  void routeChanged() => onDataPlaneRouteChanged();
   Completer<String?>? pendingSelection;
   @override
   bool get isRunning => connected;
@@ -66,6 +67,26 @@ Future<void> _open(WidgetTester tester, _Core core,
 }
 
 void main() {
+  test('diagnostic validity is bound to route, intent and disposal', () {
+    final core = _Core()..connected = true;
+    core.requestConnectionIntent(true);
+    final first = core.captureDiagnosticValidity();
+    expect(first(), isTrue);
+    core.notifyStatusChanged();
+    expect(first(), isTrue);
+    core.routeChanged();
+    expect(first(), isFalse);
+    final second = core.captureDiagnosticValidity();
+    expect(second(), isTrue);
+    core.requestConnectionIntent(false);
+    core.requestConnectionIntent(true);
+    expect(second(), isFalse);
+    final third = core.captureDiagnosticValidity();
+    expect(third(), isTrue);
+    core.dispose();
+    expect(third(), isFalse);
+  });
+
   for (final scale in [2.0, 3.2]) {
     testWidgets('diagnostic guidance does not truncate at text scale $scale',
         (tester) async {
@@ -152,6 +173,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('匹配规则：域名匹配 example.com'), findsOneWidget);
       expect(find.textContaining('cp.cloudflare.com'), findsOneWidget);
+      core.notifyStatusChanged();
+      await tester.pumpAndSettle();
+      expect(find.textContaining('匹配规则：域名匹配 example.com'), findsOneWidget);
       expect(find.byType(CheckboxListTile), findsNothing);
       await tester.ensureVisible(find.text('添加强制代理'));
       await tester.tap(find.text('添加强制代理'));
@@ -189,7 +213,7 @@ void main() {
     core.dispose();
   });
 
-  for (final action in ['取消诊断', '关闭', 'background']) {
+  for (final action in ['取消诊断', '关闭', 'background', 'reconnect']) {
     testWidgets('$action invalidates a pending connection lookup',
         (tester) async {
       final core = _Core()
@@ -202,7 +226,11 @@ void main() {
       await tester.tap(find.text('开始诊断'));
       await tester.pump();
       expect(find.text('取消诊断'), findsOneWidget);
-      if (action == 'background') {
+      if (action == 'reconnect') {
+        core.requestConnectionIntent(false);
+        core.requestConnectionIntent(true);
+        core.notifyStatusChanged();
+      } else if (action == 'background') {
         for (final state in [
           AppLifecycleState.inactive,
           AppLifecycleState.hidden,
@@ -218,6 +246,8 @@ void main() {
       await tester.pumpAndSettle();
       if (action == '取消诊断') {
         expect(find.text('诊断已取消'), findsOneWidget);
+      } else if (action == 'reconnect') {
+        expect(find.text('连接状态已变化，请重新诊断'), findsOneWidget);
       } else if (action == 'background') {
         expect(find.text('连接状态已变化，请重新诊断'), findsOneWidget);
         for (final state in [

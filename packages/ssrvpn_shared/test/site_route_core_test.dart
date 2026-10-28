@@ -70,6 +70,50 @@ void main() {
         }
       });
     });
+    final dns = await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(dns.close);
+    dns.listen((event) {
+      if (event != RawSocketEvent.read) return;
+      final packet = dns.receive();
+      if (packet == null || packet.data.length < 17) return;
+      final bytes = packet.data;
+      var end = 12;
+      while (end < bytes.length && bytes[end] != 0) {
+        end += bytes[end] + 1;
+      }
+      if (end + 5 > bytes.length) return;
+      final a = bytes[end + 2] == 1;
+      final address =
+          a ? [192, 0, 2, 123] : [32, 1, 13, 184, ...List.filled(11, 0), 1];
+      dns.send([
+        bytes[0],
+        bytes[1],
+        0x81,
+        0x80,
+        0,
+        1,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        ...bytes.sublist(12, end + 5),
+        0xc0,
+        0x0c,
+        0,
+        a ? 1 : 28,
+        0,
+        1,
+        0,
+        0,
+        0,
+        60,
+        0,
+        address.length,
+        ...address,
+      ], packet.address, packet.port);
+    });
     final mixed = await freePort(), api = await freePort();
     final config = File('${folder.path}/config.yaml');
     await config.writeAsString('''
@@ -80,7 +124,9 @@ allow-lan: false
 mode: rule
 log-level: info
 dns:
-  enable: false
+  enable: true
+  ipv6: true
+  nameserver: [udp://127.0.0.1:${dns.port}]
 proxies:
   - name: fixture-node
     type: http
@@ -148,6 +194,8 @@ rules:
         reason: '${result.summary}\n${log.join()}');
     expect(result.route?.path, '代理 → fixture-node', reason: log.join());
     expect(result.route?.rule, contains('example.com'));
+    expect(result.dns, contains('192.0.2.123'));
+    expect(result.dns, contains('2001:db8::1'));
     final blocked = await SiteAccessDiagnostic().inspect(
         Uri.parse('http://blocked.example.com'),
         proxyPort: mixed,

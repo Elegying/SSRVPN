@@ -58,6 +58,7 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
   String _apiUrl(String path);
   String? get lastStartError;
   String? get _connectionProgress;
+  String? get connectionTimingSummary;
   String? get lastHealthCheckError;
   String? get lastRuntimePortAdjustmentMessage;
   String? get connectivityWarning;
@@ -200,6 +201,12 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
     DateTime Function()? clock,
   }) async {
     final checks = <AppDiagnosticCheck>[
+      if (connectionTimingSummary case final String timing)
+        AppDiagnosticCheck(
+            id: 'connection_timing',
+            title: '最近一次连接耗时（记录）',
+            status: AppDiagnosticStatus.passed,
+            summary: timing),
       AppDiagnosticCheck(
           id: 'connection_phase',
           title: '连接阶段',

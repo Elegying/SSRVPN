@@ -50,12 +50,25 @@ class SiteDiagnosticReport {
       required this.summary,
       required this.failure,
       this.statusCode,
+      this.dns,
       this.route,
       this.reference,
       this.redirectLocation,
       this.redirects = const [],
       this.redirectProblem});
   final String host, summary;
+  final String? dns;
+  SiteDiagnosticReport withDns(String value) => SiteDiagnosticReport(
+      host: host,
+      summary: summary,
+      failure: failure,
+      statusCode: statusCode,
+      route: route,
+      reference: reference,
+      redirectLocation: redirectLocation,
+      redirects: redirects,
+      redirectProblem: redirectProblem,
+      dns: value);
   final String? redirectLocation, redirectProblem;
   final List<SiteDiagnosticReport> redirects;
   SiteDiagnosticReport withRedirects(List<SiteDiagnosticReport> history,
@@ -65,6 +78,7 @@ class SiteDiagnosticReport {
           summary: summary,
           failure: failure,
           statusCode: statusCode,
+          dns: dns,
           route: route,
           redirectLocation: redirectLocation,
           redirects: List.unmodifiable(history),
@@ -94,6 +108,7 @@ class SiteDiagnosticReport {
           summary: summary,
           failure: failure,
           statusCode: statusCode,
+          dns: dns,
           route: route,
           reference: value,
           redirectLocation: redirectLocation,

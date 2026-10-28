@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- 优化稳定性，提升连接体验。
+
 ## [6.0.8] - 2026-10-28
 
 - 修复 macOS 安装盘打开后不显示安装指引的问题，重新设计拖放布局并提升 Retina 屏幕下的清晰度。

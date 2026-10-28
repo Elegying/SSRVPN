@@ -5,6 +5,25 @@ import 'package:ssrvpn_shared/services/site_access_diagnostic.dart';
 import 'package:ssrvpn_shared/constants/app_constants.dart';
 
 void main() {
+  test('cancelling at the DNS stage discards an earlier HTTP success',
+      () async {
+    final proxy = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => proxy.close(force: true));
+    proxy.listen((request) {
+      request.response.statusCode = 204;
+      request.response.close();
+    });
+    final check = SiteAccessDiagnostic();
+    final result = await check.inspect(Uri.parse('http://example.com'),
+        proxyPort: proxy.port, apiPort: proxy.port, onStage: (stage) {
+      if (stage == '查询当前核心的 DNS 结果…') check.cancel();
+    });
+    expect(result.succeeded, isFalse);
+    expect(result.summary, '诊断已取消');
+    expect(result.route, isNull);
+    expect(result.dns, isNull);
+  });
+
   test('proxy-generated 502 is not reported as a response from the website',
       () async {
     final proxy = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);

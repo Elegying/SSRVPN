@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'ssrvpn_home_text.dart';
+import 'ssrvpn_theme.dart';
 
 class SsrvpnVersionUpdateFooter extends StatelessWidget {
   const SsrvpnVersionUpdateFooter({
@@ -25,21 +26,45 @@ class SsrvpnVersionUpdateFooter extends StatelessWidget {
   Widget build(BuildContext context) {
     final latestVersion = availableVersion;
     final updateAction = onUpdateTap;
-    Widget label(String text, TextStyle style) => fitHomeText
-        ? Expanded(
-            child: SsrvpnHomeText(text,
-                maxFontSize: 14, style: style, textAlign: TextAlign.center))
-        : Text(text, style: style);
+    final palette = SsrvpnTheme.of(context);
+    Widget label(String text, TextStyle style, {bool badge = false}) {
+      Widget child = fitHomeText
+          ? SsrvpnHomeText(text,
+              maxFontSize: 14, style: style, textAlign: TextAlign.center)
+          : Text(text, style: style);
+      if (badge) {
+        child = Align(
+          widthFactor: 1,
+          heightFactor: 1,
+          child: DecoratedBox(
+            key: const Key('ssrvpn-version-badge'),
+            decoration: BoxDecoration(
+              color: palette.surface,
+              borderRadius: BorderRadius.circular(5),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              child: child,
+            ),
+          ),
+        );
+      }
+      return fitHomeText ? Expanded(child: child) : child;
+    }
+
     final children = <Widget>[
       label(
         '版本号：$version',
         TextStyle(
-          color: versionColor,
+          color: MediaQuery.highContrastOf(context)
+              ? palette.textPrimary
+              : versionColor,
           fontSize: 11,
           fontWeight: FontWeight.w500,
           letterSpacing: 0.2,
           decoration: TextDecoration.none,
         ),
+        badge: true,
       ),
       if (latestVersion != null && updateAction != null) ...[
         label(
