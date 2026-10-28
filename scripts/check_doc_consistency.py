@@ -246,13 +246,6 @@ def public_copy_boundary(relative_name: str, markdown: str) -> list[str]:
     if re.search(r'私家车|(?:[A-Za-z0-9-]+\.)*ssrvpn\.vip|private_node_latency_policy', markdown,
                  re.IGNORECASE):
         return ['public document contains internal operator policy details']
-    if relative_name == 'CHANGELOG.md':
-        unpublished = re.search(r'^## \[Unreleased\][^\n]*\n(.*?)(?=^## |\Z)',
-                                markdown, re.MULTILINE | re.DOTALL)
-        if unpublished and any(line.strip() not in ('', '优化稳定性，提升连接体验。',
-                                                    '- 优化稳定性，提升连接体验。')
-                               for line in unpublished.group(1).splitlines()):
-            return ['unreleased notes must use the approved public summary']
     return []
 
 

@@ -14,10 +14,12 @@ RULES = '# Hard rules\n\n' + ''.join(f'{n}. Rule {n}\n' for n in range(1, 58)) +
 
 
 class HardRuleDocumentationTests(unittest.TestCase):
-    def test_unreleased_notes_keep_the_approved_summary_without_rewriting_history(self):
-        approved = '## [Unreleased]\n\n- 优化稳定性，提升连接体验。\n'
-        self.assertEqual(self.check({'CHANGELOG.md': approved + '\n## [1.0.0]\n历史功能说明。'}), [])
-        self.assertTrue(self.check({'CHANGELOG.md': approved + '\n- 新的内部实现细节。'}))
+    def test_unreleased_notes_allow_specific_user_visible_fixes(self):
+        notes = ('## [Unreleased]\n\n'
+                 '- 修复 Windows 断开后自动检测代理设置未恢复的问题。\n'
+                 '- 优化 macOS 安装指引和拖放布局。\n')
+        self.assertEqual(self.check({'CHANGELOG.md': notes}), [])
+        self.assertTrue(self.check({'CHANGELOG.md': notes + '\n私家车策略说明'}))
 
     def test_public_boundary_includes_changelog_fences_and_links_only(self):
         with tempfile.TemporaryDirectory() as directory:

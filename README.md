@@ -4,7 +4,7 @@
 
 **Android · macOS · Windows**
 
-开源的跨平台代理客户端。导入自己的订阅，用一致的界面管理节点、连接与分流。
+一款开源的跨平台代理客户端。管理订阅与节点，按需分流，在三端保持熟悉的使用体验。
 
 [![Latest Release](https://img.shields.io/github/v/release/Elegying/SSRVPN?display_name=tag&sort=semver)](https://github.com/Elegying/SSRVPN/releases/latest)
 [![CI](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml?query=branch%3Amain)
@@ -14,9 +14,9 @@
 
 </div>
 
-SSRVPN 使用 Flutter 构建界面，基于带 SSRVPN 流量统计扩展的 Mihomo 核心提供代理能力。首页查看连接与流量，订阅页管理节点，设置页调整外观和常用选项。
+首页查看连接与流量，订阅页管理节点，设置页调整连接模式和外观。SSRVPN 提供 Android 系统 VPN，以及 macOS、Windows 系统代理与 TUN 模式。
 
-本项目只提供客户端，不提供代理节点或订阅服务。请准备兼容的订阅链接或节点链接；支持的协议和平台差异见[功能列表](docs/FEATURES.zh-CN.md)。
+**本项目只提供客户端，不提供代理节点或订阅服务。** 使用前请准备兼容的订阅链接或节点链接；协议和平台差异见[功能列表](docs/FEATURES.zh-CN.md)。
 
 ## 下载
 
@@ -38,14 +38,20 @@ Android 六套主题主页实机合照，公网 IPv4 已遮挡。截图中的节
   <img src="docs/assets/ssrvpn-product-preview.jpg" alt="SSRVPN 六套主题主页：默认、云朵游乐场、樱花晴空、暮色山境、Soft 新拟态与曜石极光" width="960">
 </p>
 
-## 快速开始
+## 安装与开始使用
 
-1. 下载并安装对应平台的客户端。
-2. 打开“订阅”，导入订阅链接或节点链接。
-3. 等待节点导入完成，按需手动测速并选择节点。
-4. 返回主页，点击连接，并按系统提示完成授权。
+| 平台 | 安装方式 |
+| --- | --- |
+| Android | 打开 APK，按系统提示安装；更新时覆盖安装即可。 |
+| macOS | 已运行时先从菜单栏退出 SSRVPN；打开 DMG，拖入 Applications，再从“应用程序”打开；完成后推出安装盘。 |
+| Windows | 运行安装器，按简体中文向导完成安装；覆盖升级保留订阅和设置。 |
 
-Android 使用系统 VPN；macOS 和 Windows 支持系统代理与 TUN。详细步骤见[使用指南](docs/USER_GUIDE.zh-CN.md)。
+1. 打开“订阅”，导入订阅链接或节点链接。
+2. 等待导入完成，按需测速并选择节点。
+3. 返回主页，点击连接，并完成系统授权。
+4. 使用结束后点击断开；桌面端也可从托盘菜单退出。
+
+桌面窗口关闭可能收起到托盘，并不等于断开连接。系统代理模式会在断开时恢复应用接管前的代理配置；遇到恢复失败请查看诊断提示。详细步骤见[使用指南](docs/USER_GUIDE.zh-CN.md)。
 
 ## 主要功能
 
@@ -55,7 +61,7 @@ Android 使用系统 VPN；macOS 和 Windows 支持系统代理与 TUN。详细�
 | 节点选择 | 按订阅查看节点，手动选择分组或多个节点测速；重启后复用已保存的延迟。延迟不代表下载速度。 |
 | 智能分流 | 根据规则选择直连或代理，也可填写强制直连、强制代理的网站；Android 另有应用分流。 |
 | 连接与流量 | 查看真实连接状态、公网 IPv4、上传下载速率和本次代理累计流量；桌面窗口失焦后仍保持刷新。 |
-| 外观设置 | 默认液态玻璃与五套主题，统一覆盖主页、节点、订阅、设置与弹窗；背景保持静态。 |
+| 外观设置 | 十套主题可选，默认云朵游乐场；覆盖主页、节点、订阅、设置与弹窗，背景保持静态。 |
 | 日常设置 | 自定义代理端口、检查更新、查看运行日志，设置保存在本机。 |
 | 问题诊断 | 用简明中文说明失败原因，支持展开技术详情和复制包含版本、平台的脱敏报告。 |
 

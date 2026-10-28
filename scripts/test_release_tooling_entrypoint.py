@@ -128,7 +128,7 @@ python3 -m unittest \\
         publish_header = publish[: publish.index("    steps:\n")]
         self.assertIn(
             "    needs: [validate-source, shared-test, build-android, "
-            "macos-tests, build-macos, windows-policy-tests, build-windows]\n",
+            "macos-tests, build-macos, windows-policy-tests, windows-tests, build-windows]\n",
             publish_header,
         )
 
