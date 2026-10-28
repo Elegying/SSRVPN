@@ -47,6 +47,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Validate concrete release notes before building
+        if: startsWith(github.ref, 'refs/tags/')
+        run: python3 scripts/generate-release-notes.py --tag "$GITHUB_REF_NAME" --output "$RUNNER_TEMP/release-notes.md"
+
       - name: Require release source to come from main
         id: source
         env:
@@ -922,6 +926,13 @@ jobs:
               --expected-release-identity "$EXPECTED_RELEASE_RETRY_IDENTITY"
             poll_release_id="$EXPECTED_RELEASE_RETRY_ID"
           fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > "$RUNNER_TEMP/notes-release.json"
+          ossutil cat "oss://$OSS_BUCKET/$OSS_PREFIX/releases/$tag/latest.json" --quiet \
+            > "$RUNNER_TEMP/notes-versioned.json"
+          python3 scripts/verify-release-notes.py --tag "$tag" --notes release-notes.md \
+            --github "$RUNNER_TEMP/notes-release.json" \
+            --manifest "$RUNNER_TEMP/notes-versioned.json" --manifest artifacts/oss/latest.json
+
           OSS_BACKUP_DIR="$backup_dir" OSS_PRESERVE_BACKUP=1 \
             OSS_VERSIONED_SOURCE_PREFIX="$OSS_PREFIX/releases/$tag" \
             bash scripts/promote-oss-public-channel.sh \
@@ -1090,6 +1101,15 @@ jobs:
             echo "::error::OSS latest.json does not point to the published version."
             exit 1
           fi
+
+          curl -fsSL --proto '=https' --proto-redir '=https' \
+            --retry 3 --connect-timeout 10 --max-time 30 --max-filesize 1048576 \
+            -H 'Cache-Control: no-cache' \
+            "https://$OSS_BUCKET.$OSS_ENDPOINT/$OSS_PREFIX/releases/$tag/latest.json?verify=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            -o "$RUNNER_TEMP/published-versioned-notes.json"
+          python3 scripts/verify-release-notes.py --tag "$tag" --notes release-notes.md \
+            --github "$release_json" --manifest "$manifest_json" \
+            --manifest "$RUNNER_TEMP/published-versioned-notes.json"
 
           python3 - "$release_json" "$manifest_json" "$tag" \
             "https://$OSS_BUCKET.$OSS_ENDPOINT/$OSS_PREFIX/releases/$tag" <<'PY'

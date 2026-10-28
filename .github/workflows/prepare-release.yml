@@ -32,6 +32,9 @@ jobs:
           ref: main
           fetch-depth: 0
 
+      - name: Validate concrete release notes before tagging
+        run: python3 scripts/generate-release-notes.py --tag "$RELEASE_TAG" --output "$RUNNER_TEMP/release-notes.md"
+
       - name: Prepare and start the release
         id: prepare
         env:
