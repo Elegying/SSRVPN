@@ -121,12 +121,17 @@ class ReuseCiCoreAssetsTest(unittest.TestCase):
                 self.assertTrue(all(not (self.root / name).exists()
                                     for name in self.payloads))
 
+    def test_explicit_release_preparation_run_cannot_fallback_while_active(self):
+        self.run.update(status="in_progress", conclusion=None)
+        with self.assertRaisesRegex(MODULE.CI.VerificationError, "explicitly selected"):
+            self.restore(run_id=777)
+
     def test_active_wrong_identity_still_fails_closed(self):
         self.run.update(status="in_progress", conclusion=None, head_sha="b" * 40)
         with self.assertRaises(MODULE.CI.VerificationError):
             self.restore()
 
-    def test_active_rerun_during_download_does_not_install(self):
+    def test_run_becomes_unavailable_during_download_does_not_install(self):
         with patch.object(MODULE, "trusted_run", side_effect=[self.run, None]):
             self.assertFalse(self.restore())
         self.assertTrue(all(not (self.root / name).exists() for name in self.payloads))

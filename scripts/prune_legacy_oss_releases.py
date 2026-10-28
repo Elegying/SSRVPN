@@ -150,7 +150,7 @@ def main():
             report["deleted"].append(key)
             save()
         after = read_inventory()
-        if any(key in after for key in selected) or any(
+        if any(eligible(object_key(key), protected) for key in after) or any(
                 after.get(key) != size for key, size in before.items() if key not in selected):
             raise ValueError("Post-cleanup inventory does not match the plan")
         if verify_channel(args.tag) != identity:

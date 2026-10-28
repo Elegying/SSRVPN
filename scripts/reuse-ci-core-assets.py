@@ -37,6 +37,7 @@ ASSETS = {
 
 
 def trusted_run(repo, sha, run_id, now):
+    explicitly_selected = run_id is not None
     workflow_id = CI.canonical_workflow_id(repo)
     if run_id is None:
         runs = CI.paginated_items(
@@ -58,6 +59,8 @@ def trusted_run(repo, sha, run_id, now):
     # A correctly identified active CI has no trusted result yet. Rebuild the
     # pinned inputs independently; never download its unfinished artifacts.
     if state == "waitable":
+        if explicitly_selected:
+            raise CI.VerificationError("explicitly selected CI run is still active")
         return None
     if state != "reusable":
         raise CI.VerificationError("exact-main CI identity or conclusion is not reusable")
