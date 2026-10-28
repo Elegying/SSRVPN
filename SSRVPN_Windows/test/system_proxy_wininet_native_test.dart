@@ -23,12 +23,28 @@ void main() {
         windowsPowerShellUtf8Script(windowsProxyFlagsInterop +
             r'''
 $original = [SsrvpnConnectionFlags]::Read()
+$path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
+$key = Get-Item -LiteralPath $path
+$hadAutoDetect = $key.GetValueNames() -contains 'AutoDetect'
+$autoDetect = $key.GetValue('AutoDetect')
+$kind = if ($hadAutoDetect) { $key.GetValueKind('AutoDetect') } else { $null }
 try {
-  $changed = $original -bxor 8
-  [SsrvpnConnectionFlags]::Write([uint32]$changed)
-  if ([SsrvpnConnectionFlags]::Read() -ne $changed) { throw 'LAN flag did not change' }
+  # Reproduce UI-enabled WPAD with an absent legacy DWORD.
+  [SsrvpnConnectionFlags]::Write([uint32](($original -band 7) -bor 8))
+  Remove-ItemProperty -LiteralPath $path -Name AutoDetect -ErrorAction SilentlyContinue
+  $before = [SsrvpnConnectionFlags]::Read()
+  if (($before -band 8) -eq 0) { throw 'Fixture did not retain UI auto-detect' }
+  Set-ItemProperty -LiteralPath $path -Name AutoDetect -Type DWord -Value 0
+  [SsrvpnConnectionFlags]::Write(3)
+  if (([SsrvpnConnectionFlags]::Read() -band 8) -ne 0) { throw 'Proxy did not acquire flags' }
+  Remove-ItemProperty -LiteralPath $path -Name AutoDetect -ErrorAction SilentlyContinue
+  [SsrvpnConnectionFlags]::Write($before)
+  if ([SsrvpnConnectionFlags]::Read() -ne $before) { throw 'Disconnect did not restore flags' }
 } finally {
+  if ($hadAutoDetect) { $key.SetValue('AutoDetect', $autoDetect, $kind) }
+  else { $key.DeleteValue('AutoDetect', $false) }
   [SsrvpnConnectionFlags]::Write($original)
+  $key.Dispose()
 }
 if ([SsrvpnConnectionFlags]::Read() -ne $original) { throw 'LAN flag did not restore' }
 'LAN_FLAGS_RESTORED'
