@@ -65,6 +65,36 @@ def inventory():
         tokens.add(token)
 
 
+def version_inventory():
+    result, markers, marker = {}, set(), None
+    while True:
+        arguments = ["--prefix", PREFIX, "--max-keys", "1000"]
+        if marker:
+            arguments += ["--key-marker", marker[0], "--version-id-marker", marker[1]]
+        root = xml_api("list-object-versions", *arguments)
+        if root.tag != "ListVersionsResult" or root.findtext("Prefix") != PREFIX:
+            raise ValueError("Unexpected OSS version inventory scope")
+        for item in list(root.findall("Version")) + list(root.findall("DeleteMarker")):
+            key, version = item.findtext("Key"), item.findtext("VersionId")
+            size = "0" if item.tag == "DeleteMarker" else item.findtext("Size")
+            if (not key or not key.startswith(PREFIX) or not version or
+                    not re.fullmatch(r"[A-Za-z0-9_.-]+", version) or
+                    any(identity[:2] == (key, version) for identity in result) or not size or not size.isdigit()):
+                raise ValueError("Malformed or duplicate object version")
+            result[(key, version, item.tag == "DeleteMarker")] = int(size)
+        truncated = root.findtext("IsTruncated")
+        if truncated == "false":
+            return result
+        marker = (root.findtext("NextKeyMarker"), root.findtext("NextVersionIdMarker"))
+        if truncated != "true" or not all(marker) or marker in markers:
+            raise ValueError("Invalid OSS version pagination")
+        markers.add(marker)
+
+
+def object_key(identity):
+    return identity[0] if isinstance(identity, tuple) else identity
+
+
 def verify_channel(tag):
     match = re.fullmatch(r"v([1-9][0-9]*)\.[0-9]+\.[0-9]+", tag)
     if not match or int(match[1]) < 6:
@@ -91,27 +121,35 @@ def main():
         raise ValueError("Cleanup requires the canonical manual main environment")
     identity = verify_channel(args.tag)
     versioning = xml_api("get-bucket-versioning")
-    if versioning.tag != "VersioningConfiguration" or versioning.findtext("Status"):
-        raise ValueError("Versioned bucket requires a separate version-aware cleanup")
-    before, protected = inventory(), protected_keys()
-    selected = {key: size for key, size in before.items() if eligible(key, protected)}
-    report = {"tag": args.tag, "apply": args.apply, "objects": selected,
+    status = versioning.findtext("Status")
+    if versioning.tag != "VersioningConfiguration" or status not in (None, "", "Enabled", "Suspended"):
+        raise ValueError("Unknown OSS bucket versioning status")
+    read_inventory = version_inventory if status in ("Enabled", "Suspended") else inventory
+    before, protected = read_inventory(), protected_keys()
+    selected = {key: size for key, size in before.items() if eligible(object_key(key), protected)}
+    report = {"tag": args.tag, "apply": args.apply, "versioning": status,
+              "objects": [{"key": object_key(key), "versionId": key[1] if isinstance(key, tuple) else None,
+                           "bytes": size} for key, size in selected.items()],
               "selectedBytes": sum(selected.values()),
-              "retainedBaselines": sorted(set(before) & protected), "deleted": []}
+              "retainedBaselines": sorted({object_key(key) for key in before} & protected), "deleted": []}
     target = Path(args.report)
     target.parent.mkdir(parents=True, exist_ok=True)
     def save():
         target.write_text(json.dumps(report, indent=2) + "\n")
     save()
     if args.apply:
-        for key in selected:
+        # Keep deletion markers until all selected data versions are gone, so
+        # removing a marker cannot temporarily resurrect an old download.
+        for key in sorted(selected, key=lambda item: isinstance(item, tuple) and item[2]):
             if verify_channel(args.tag) != identity:
                 raise ValueError("Public channel changed during cleanup")
             # Delete exact inventoried keys only; no recursive or wildcard removal.
-            command("ossutil", "api", "delete-object", "--bucket", BUCKET, "--key", key)
+            version_args = ("--version-id", key[1]) if isinstance(key, tuple) else ()
+            command("ossutil", "api", "delete-object", "--bucket", BUCKET,
+                    "--key", object_key(key), *version_args)
             report["deleted"].append(key)
             save()
-        after = inventory()
+        after = read_inventory()
         if any(key in after for key in selected) or any(
                 after.get(key) != size for key, size in before.items() if key not in selected):
             raise ValueError("Post-cleanup inventory does not match the plan")

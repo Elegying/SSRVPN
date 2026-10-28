@@ -247,7 +247,8 @@ GeoIP 更新不是发布回退步骤。只有收到明确更新指令时才手�
 
 - 应用发行版从 `v6.0.0` 开始保留；`core-assets-v1` 是构建依赖通道，不按应用版本清理。
 - OSS 清理入口为 `Maintenance > oss-prune-before-6`，先以 `apply_cleanup=false` 盘点，
-  再对相同最新公开 tag 执行删除。只删除精确旧版本目录下的对象，保留当前通道和固定 Windows
+  再对相同最新公开 tag 执行删除。启用版本控制时按版本 ID 清理旧对象及删除标记，避免只添加
+  删除标记而未释放空间。只删除精确旧版本目录下的对象，保留当前通道和固定 Windows
   升级/回滚测试 EXE；这些摘要固定的样本是测试依赖，不属于继续公开的应用 Release。
 - 清理旧 Release 只删除 GitHub Release 对象及其附件，不删除 Git 标签，也不改写提交历史。
 - 清理前应确认 `latest`、OSS `latest.json` 和保留版本不受影响；清理后应再次扫描文档中的 Release 与下载链接。

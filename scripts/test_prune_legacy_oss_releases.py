@@ -87,3 +87,31 @@ class LegacyOssCleanupTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 prune.main()
             command.assert_not_called()
+
+    def test_version_inventory_includes_historical_data_and_delete_markers(self):
+        root = ET.fromstring("""<ListVersionsResult><Prefix>ssrvpn/releases/</Prefix>
+          <Version><Key>ssrvpn/releases/v5.0.0/a</Key><VersionId>old</VersionId><Size>12</Size></Version>
+          <DeleteMarker><Key>ssrvpn/releases/v5.0.0/a</Key><VersionId>deleted</VersionId></DeleteMarker>
+          <IsTruncated>false</IsTruncated></ListVersionsResult>""")
+        with patch.object(prune, 'xml_api', return_value=root):
+            self.assertEqual(prune.version_inventory(), {
+                ('ssrvpn/releases/v5.0.0/a', 'old', False): 12,
+                ('ssrvpn/releases/v5.0.0/a', 'deleted', True): 0})
+
+    def test_versioned_apply_deletes_by_id_and_keeps_markers_until_last(self):
+        key = 'ssrvpn/releases/v5.0.0/a'
+        before = {(key, 'marker', True): 0, (key, 'old', False): 12,
+                  ('ssrvpn/releases/v6.0.0/a', 'retained', False): 30}
+        environment = {"GITHUB_REPOSITORY": "Elegying/SSRVPN", "GITHUB_REF": "refs/heads/main",
+                       "GITHUB_EVENT_NAME": "workflow_dispatch", "OSS_BUCKET": prune.BUCKET,
+                       "OSS_PREFIX": "ssrvpn", "OSS_ENDPOINT": "oss-cn-qingdao.aliyuncs.com"}
+        with tempfile.TemporaryDirectory() as directory:
+            argv = ['prune', '--tag', 'v6.0.9', '--report', str(Path(directory) / 'report'), '--apply']
+            with patch.dict(prune.os.environ, environment), patch('sys.argv', argv), \
+                 patch.object(prune, 'verify_channel', return_value=(1, 'manifest')), \
+                 patch.object(prune, 'xml_api', return_value=ET.fromstring('<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>')), \
+                 patch.object(prune, 'version_inventory', side_effect=[before, {('ssrvpn/releases/v6.0.0/a', 'retained', False): 30}]), \
+                 patch.object(prune, 'command') as command:
+                prune.main()
+                self.assertEqual([call.args[-2:] for call in command.call_args_list],
+                                 [('--version-id', 'old'), ('--version-id', 'marker')])
