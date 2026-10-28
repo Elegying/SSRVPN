@@ -6,6 +6,7 @@
 #include <string>
 
 #include "system_proxy_recovery.h"
+#include "system_proxy_directory.h"
 
 namespace {
 
@@ -246,15 +247,15 @@ bool TestMalformedJournalDisablesOwnedEndpoint() {
 class RecoveryFiles final {
  public:
   RecoveryFiles() {
-    wchar_t temporary[MAX_PATH] = {}, previous[32768] = {};
+    wchar_t temporary[MAX_PATH] = {};
     GetTempPathW(MAX_PATH, temporary);
-    GetEnvironmentVariableW(L"LOCALAPPDATA", previous, 32768);
-    previous_ = previous;
+    static unsigned sequence = 0;
     root_ = std::filesystem::path(temporary) /
-        (L"SSRVPN 用户's folder " + std::to_wstring(GetCurrentProcessId()));
+        (L"SSRVPN 用户's folder " + std::to_wstring(GetCurrentProcessId()) +
+         L"-" + std::to_wstring(++sequence));
     runtime_ = root_ / L"SSRVPN" / L"runtime";
     std::filesystem::create_directories(runtime_);
-    SetEnvironmentVariableW(L"LOCALAPPDATA", root_.c_str());
+    previous_ = SetProxyRecoveryDirectoryForTesting(root_.wstring());
     snapshot = runtime_ / L"system_proxy_backup.json";
     HANDLE file = CreateFileW(snapshot.c_str(), GENERIC_WRITE, 0, nullptr,
                               CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -262,7 +263,7 @@ class RecoveryFiles final {
     CloseHandle(file);
   }
   ~RecoveryFiles() {
-    SetEnvironmentVariableW(L"LOCALAPPDATA", previous_.empty() ? nullptr : previous_.c_str());
+    SetProxyRecoveryDirectoryForTesting(previous_);
     std::error_code error;
     std::filesystem::remove_all(root_, error);
   }
@@ -401,6 +402,19 @@ bool TestBypassEditStillRestoresOwnedAutoDetectBit() {
 }  // namespace
 
 int wmain() {
+  // Validate the production directory resolver outside the registry sandbox.
+  const auto trusted = TrustedProxyLocalAppData();
+  if (trusted.empty()) return 1;
+  wchar_t previous[32768] = {};
+  GetEnvironmentVariableW(L"LOCALAPPDATA", previous, 32768);
+  SetEnvironmentVariableW(L"LOCALAPPDATA", L"C:\\unexpected-proxy-directory");
+  const bool rejected = TrustedProxyLocalAppData().empty();
+  SetEnvironmentVariableW(L"LOCALAPPDATA", previous);
+  if (!rejected || TrustedProxyLocalAppData() != trusted) {
+    std::wcerr << L"untrusted proxy recovery directory accepted\n";
+    return 1;
+  }
+  RecoveryFiles root_files;
   if (!TestBypassEditStillRestoresOwnedAutoDetectBit()) {
     std::wcerr << L"bypass edit lost auto-detect recovery\n";
     return 1;

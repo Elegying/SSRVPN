@@ -1,5 +1,6 @@
 #include "system_proxy_recovery.h"
 #include "system_proxy_connection_flags.h"
+#include "system_proxy_directory.h"
 
 #include <windows.h>
 #include <wininet.h>
@@ -8,6 +9,10 @@
 #include <vector>
 
 namespace {
+
+#if defined(SSRVPN_SYSTEM_PROXY_RECOVERY_NO_WININET_NOTIFY)
+std::wstring test_recovery_directory;
+#endif
 
 constexpr wchar_t kBackupPath[] = L"Software\\SSRVPN\\RuntimeProxyBackup";
 constexpr wchar_t kInternetSettingsPath[] =
@@ -381,20 +386,14 @@ bool EnsureDirectory(const std::wstring& path) {
 }
 
 std::wstring ProxyTransactionLockPath() {
-  const DWORD required =
-      GetEnvironmentVariableW(L"LOCALAPPDATA", nullptr, 0);
-  if (required == 0) return std::wstring();
-  std::vector<wchar_t> local_app_data(required, L'\0');
-  const DWORD length = GetEnvironmentVariableW(
-      L"LOCALAPPDATA", local_app_data.data(),
-      static_cast<DWORD>(local_app_data.size()));
-  if (length == 0 ||
-      length >= static_cast<DWORD>(local_app_data.size())) {
-    return std::wstring();
-  }
-
+#if defined(SSRVPN_SYSTEM_PROXY_RECOVERY_NO_WININET_NOTIFY)
+  const std::wstring local_app_data = test_recovery_directory;
+#else
+  const std::wstring local_app_data = TrustedProxyLocalAppData();
+#endif
+  if (local_app_data.empty()) return {};
   const std::wstring app_directory =
-      JoinPath(std::wstring(local_app_data.data(), length), L"SSRVPN");
+      JoinPath(local_app_data, L"SSRVPN");
   const std::wstring runtime_directory = JoinPath(app_directory, L"runtime");
   if (!EnsureDirectory(app_directory) || !EnsureDirectory(runtime_directory)) {
     return std::wstring();
@@ -430,6 +429,14 @@ bool IsNativeRecoveryJournalNonReplayable() noexcept {
 }
 
 }  // namespace
+
+#if defined(SSRVPN_SYSTEM_PROXY_RECOVERY_NO_WININET_NOTIFY)
+std::wstring SetProxyRecoveryDirectoryForTesting(const std::wstring& directory) {
+  const auto previous = test_recovery_directory;
+  test_recovery_directory = directory;
+  return previous;
+}
+#endif
 
 WindowsProxyTransactionLock::WindowsProxyTransactionLock(bool wait) noexcept {
   const std::wstring lock_path = ProxyTransactionLockPath();
