@@ -1,4 +1,6 @@
 import re
+import os
+import subprocess
 import unittest
 from pathlib import Path
 from typing import Optional
@@ -17,6 +19,47 @@ def job(workflow: str, name: str, next_name: Optional[str] = None) -> str:
 
 
 class WindowsWorkflowParallelismTest(unittest.TestCase):
+    def test_preview_platform_selection_cannot_skip_tag_release_gates(self):
+        workflow = RELEASE.read_text()
+        platform_jobs = {
+            "android": ("build-android",),
+            "macos": ("macos-tests", "build-macos"),
+            "windows": ("windows-policy-tests", "windows-tests", "build-windows"),
+        }
+        for platform, names in platform_jobs.items():
+            for name in names:
+                condition = re.search(r"(?m)^    if: (.+)$", job(workflow, name)).group(1)
+                for ref in ("refs/heads/main", "refs/tags/v6.0.9"):
+                    for selection in ("", "all", "macos", "windows", "android"):
+                        expression = condition.replace(
+                            "startsWith(github.ref, 'refs/tags/')",
+                            str(ref.startswith("refs/tags/")),
+                        ).replace("inputs.platform", repr(selection)).replace("||", "or")
+                        with self.subTest(job=name, ref=ref, selection=selection):
+                            self.assertEqual(eval(expression, {"__builtins__": {} }),
+                                             ref.startswith("refs/tags/") or
+                                             selection in ("", "all", platform))
+        publish = job(workflow, "publish")
+        self.assertIn("    if: startsWith(github.ref, 'refs/tags/')", publish)
+        self.assertIn("environment: release", publish)
+        for names in platform_jobs.values():
+            for name in names:
+                self.assertIn(name, re.search(r"needs: (.+)", publish).group(1))
+        self.assertNotIn("    if:", job(workflow, "shared-test", "prepare-geoip"))
+        self.assertIn("default: all", workflow)
+        self.assertIn("inputs.platform || 'all'", workflow)
+
+    def test_invalid_platform_fails_before_fetch_or_build(self):
+        workflow = RELEASE.read_text()
+        validator = workflow.split('          case "$BUILD_PLATFORM" in', 1)[1].split(
+            "          git fetch", 1)[0]
+        validator = 'case "$BUILD_PLATFORM" in' + validator
+        for selection in ("all", "macos", "windows", "android", "bogus", "$(exit 0)"):
+            result = subprocess.run(["bash", "-c", validator], capture_output=True,
+                                    env={**os.environ, "BUILD_PLATFORM": selection})
+            self.assertEqual(result.returncode == 0,
+                             selection in ("all", "macos", "windows", "android"))
+
     def test_release_preserves_ci_policy_suite_time_budget(self) -> None:
         budgets = []
         for path in (CI, RELEASE):

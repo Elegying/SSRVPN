@@ -1,5 +1,7 @@
 # SSRVPN Android v4.0.27 实机验收报告
 
+> 历史发行说明：6.0.0 之前的公开发行附件按保留策略清理；本文旧版本链接指向保留的源码标签，验收记录与摘要仅用于历史追溯。
+
 ## 1. 结论
 
 2026-09-04 已在 USB 调试 Android 真机上完成 `v4.0.27+4027` 候选 APK 的断网与恢复专项
@@ -60,7 +62,7 @@ Android 系统在没有底层网络以及部分网络切换瞬间，普通 shell
 - 精确 [主分支 CI 33774884684](https://github.com/Elegying/SSRVPN/actions/runs/33774884684)、
   [Prepare Release 33782361025](https://github.com/Elegying/SSRVPN/actions/runs/33782361025) 和
   [Release 33782400613](https://github.com/Elegying/SSRVPN/actions/runs/33782400613) 全部成功。
-- [GitHub Release v4.0.27](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.27) 已公开，
+- [GitHub Release v4.0.27](https://github.com/Elegying/SSRVPN/tree/v4.0.27) 已公开，
   是非 draft、非 prerelease 的不可变 latest Release，共七项预期资产。
 - 独立下载后的正式 APK SHA-256 为
   `c001c392d89009753264d50fa4e0a3950ecd624ee430de5d04ac5be3e54b2847`，DMG 为

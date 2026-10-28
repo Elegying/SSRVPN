@@ -2,6 +2,16 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Build-only platform (tags always validate and build all platforms)'
+        type: choice
+        default: all
+        options:
+          - all
+          - macos
+          - windows
+          - android
   push:
     tags:
       - 'v*'
@@ -12,8 +22,8 @@ permissions:
 
 concurrency:
   # Tags mutate public aliases/latest.json and share one lock. Non-tag manual
-  # build-only runs are isolated by ref and cannot delay unrelated refs.
-  group: ${{ startsWith(github.ref, 'refs/tags/') && 'ssrvpn-public-release' || format('ssrvpn-release-build-{0}', github.ref) }}
+  # build-only runs are isolated by ref/platform to avoid cross-platform queues.
+  group: ${{ startsWith(github.ref, 'refs/tags/') && 'ssrvpn-public-release' || format('ssrvpn-release-build-{0}-{1}', github.ref, inputs.platform || 'all') }}
   cancel-in-progress: false
 
 env:
@@ -41,7 +51,12 @@ jobs:
         id: source
         env:
           GH_TOKEN: ${{ github.token }}
+          BUILD_PLATFORM: ${{ inputs.platform || 'all' }}
         run: |
+          case "$BUILD_PLATFORM" in
+            all|macos|windows|android) ;;
+            *) echo "::error::Unsupported build platform"; exit 1 ;;
+          esac
           git fetch --no-tags origin main:refs/remotes/origin/main
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             release_commit="$(bash scripts/verify-release-tag-source.sh "$GITHUB_REF")"
@@ -180,6 +195,7 @@ jobs:
 
   # ── Android ──
   build-android:
+    if: startsWith(github.ref, 'refs/tags/') || inputs.platform == 'all' || inputs.platform == '' || inputs.platform == 'android'
     name: Android APK
     needs: [validate-source, prepare-geoip]
     runs-on: ubuntu-latest
@@ -341,6 +357,7 @@ jobs:
 
   # ── macOS ──
   macos-tests:
+    if: startsWith(github.ref, 'refs/tags/') || inputs.platform == 'all' || inputs.platform == '' || inputs.platform == 'macos'
     name: macOS tests
     needs: [validate-source, prepare-geoip]
     runs-on: macos-15
@@ -383,6 +400,7 @@ jobs:
         run: bash scripts/check-coverage-thresholds.sh SSRVPN_MacOS
 
   build-macos:
+    if: startsWith(github.ref, 'refs/tags/') || inputs.platform == 'all' || inputs.platform == '' || inputs.platform == 'macos'
     name: macOS DMG
     needs: [validate-source, prepare-geoip]
     runs-on: macos-15
@@ -500,6 +518,7 @@ jobs:
 
   # ── Windows ──
   windows-policy-tests:
+    if: startsWith(github.ref, 'refs/tags/') || inputs.platform == 'all' || inputs.platform == '' || inputs.platform == 'windows'
     name: Windows policy tests
     needs: validate-source
     runs-on: windows-latest
@@ -518,6 +537,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   windows-tests:
+    if: startsWith(github.ref, 'refs/tags/') || inputs.platform == 'all' || inputs.platform == '' || inputs.platform == 'windows'
     name: Windows Flutter tests
     needs: [validate-source, prepare-geoip]
     runs-on: windows-latest
@@ -552,6 +572,7 @@ jobs:
         run: bash scripts/check-coverage-thresholds.sh SSRVPN_Windows --windows-native
 
   build-windows:
+    if: startsWith(github.ref, 'refs/tags/') || inputs.platform == 'all' || inputs.platform == '' || inputs.platform == 'windows'
     name: Windows installer
     needs: [validate-source, prepare-geoip]
     runs-on: windows-latest

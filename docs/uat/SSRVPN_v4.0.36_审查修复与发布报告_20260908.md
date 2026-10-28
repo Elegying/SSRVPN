@@ -1,5 +1,7 @@
 # SSRVPN v4.0.36 审查修复与发布报告
 
+> 历史发行说明：6.0.0 之前的公开发行附件按保留策略清理；本文旧版本链接指向保留的源码标签，验收记录与摘要仅用于历史追溯。
+
 维护者授权按上轮建议修复、再次审查并同步发版。本轮从正式 v4.0.35 源码
 `1338d04174dca81384f03cee787773963b4a685f` 开始，已交付正式版本 `4.0.36+4036`。
 [PR #217](https://github.com/Elegying/SSRVPN/pull/217) 经受保护门禁 rebase 合并；正式源码与
@@ -95,7 +97,7 @@ GeoIP 快照、Android 正式签名及受保护发布门禁均不放宽。
 | Prepare Release | [34176565853](https://github.com/Elegying/SSRVPN/actions/runs/34176565853) |
 | 三端 Release | [34178392455](https://github.com/Elegying/SSRVPN/actions/runs/34178392455) |
 | 正式源码和标签 | `b0611a1b6f54306175e32808c69fe82c7e137f68` / `v4.0.36` |
-| GitHub 公开状态 | [v4.0.36](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.36)，Release ID `384403749`，`2026-09-08T02:12:09Z` 公开；不可变、非 draft、非 prerelease 的 latest |
+| GitHub 公开状态 | [v4.0.36](https://github.com/Elegying/SSRVPN/tree/v4.0.36)，Release ID `384403749`，`2026-09-08T02:12:09Z` 公开；不可变、非 draft、非 prerelease 的 latest |
 
 | 正式产物 | 字节数 | SHA-256 |
 | --- | ---: | --- |

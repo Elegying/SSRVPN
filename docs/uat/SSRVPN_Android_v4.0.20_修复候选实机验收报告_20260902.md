@@ -1,5 +1,7 @@
 # SSRVPN Android v4.0.20 修复候选实机验收报告
 
+> 历史发行说明：6.0.0 之前的公开发行附件按保留策略清理；本文旧版本链接指向保留的源码标签，验收记录与摘要仅用于历史追溯。
+
 - 验收日期：2026-09-02（Asia/Shanghai）
 - 修复候选提交：`ae83e529a60830e51054b710db764293dcf53732`
 - 候选来源：非标签 Release workflow
@@ -86,7 +88,7 @@ attestation 和公共下载终验。
   [33553184498](https://github.com/Elegying/SSRVPN/actions/runs/33553184498)、
   [Prepare Release 33554832427](https://github.com/Elegying/SSRVPN/actions/runs/33554832427) 和
   [Release 33554866473](https://github.com/Elegying/SSRVPN/actions/runs/33554866473) 均成功。
-- [v4.0.20 正式 Release](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.20) 已公开，共七项
+- [v4.0.20 正式 Release](https://github.com/Elegying/SSRVPN/tree/v4.0.20) 已公开，共七项
   资产。APK SHA-256 为
   `f6cae87cd42825bdae68dc9879605a5749414d357cea6b932883bbfc5497f977`，DMG 为
   `2c988fb8b7563591763c2798e43a26d3f7587d2301390fa1e96a65dca59fa1f9`，Windows 安装器为
