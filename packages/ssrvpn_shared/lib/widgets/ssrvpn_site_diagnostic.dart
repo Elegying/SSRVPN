@@ -46,6 +46,7 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
   bool? _pendingDirect;
   bool _savingRule = false;
   int _epoch = 0;
+  bool Function()? _valid;
   @override
   void initState() {
     super.initState();
@@ -54,11 +55,16 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
   }
 
   void _changed() {
+    if (_valid?.call() == true) return;
+    _invalidate();
+  }
+
+  void _invalidate() {
     if (_running == null && _report == null) {
       if (mounted) setState(() => _result = null);
       return;
     }
-    // Any core transition invalidates this advisory result; never repair or switch automatically.
+    // Only changes to the observed session or route invalidate results.
     _epoch++;
     _running?.cancel();
     if (mounted) {
@@ -74,7 +80,7 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed &&
         (_running != null || _report != null)) {
-      _changed();
+      _invalidate();
     }
   }
 
@@ -103,6 +109,8 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
       setState(() => _result = '请先连接节点，等待节点切换完成后再诊断');
       return;
     }
+    final valid = core.captureDiagnosticValidity();
+    _valid = valid;
     final epoch = ++_epoch;
     final check = widget.createDiagnostic();
     setState(() {
@@ -111,21 +119,21 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
     });
     try {
       final selected = await core.currentSelectedProxyName();
-      if (!mounted ||
-          epoch != _epoch ||
-          !core.isConnectionIntentCurrent(intent, connected: true)) {
+      if (!mounted || epoch != _epoch || !valid()) {
         return;
       }
       var report = await check.inspect(target,
           proxyPort: core.runtimeProxyPort,
           apiPort: core.runtimeApiPort,
           apiHeaders: core.apiHeaders(), onStage: (stage) {
-        if (mounted && epoch == _epoch) setState(() => _stage = stage);
+        if (mounted && epoch == _epoch && valid()) {
+          setState(() => _stage = stage);
+        }
       });
       if (!report.succeeded &&
           mounted &&
           epoch == _epoch &&
-          core.isConnectionIntentCurrent(intent, connected: true) &&
+          valid() &&
           target.host !=
               Uri.parse(AppConstants.fallbackConnectivityTestUrl).host) {
         final reference = await check.inspect(
@@ -133,16 +141,15 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
             proxyPort: core.runtimeProxyPort,
             apiPort: core.runtimeApiPort,
             apiHeaders: core.apiHeaders(), onStage: (stage) {
-          if (mounted && epoch == _epoch) {
+          if (mounted && epoch == _epoch && valid()) {
             setState(() => _stage = '补充检查参考站点：$stage');
           }
         });
         report = report.withReference(reference);
       }
+      if (!mounted || epoch != _epoch || !valid()) return;
       final current = await core.currentSelectedProxyName();
-      if (!mounted ||
-          epoch != _epoch ||
-          !core.isConnectionIntentCurrent(intent, connected: true)) {
+      if (!mounted || epoch != _epoch || !valid()) {
         return;
       }
       setState(() {
@@ -153,7 +160,7 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
         }
       });
     } catch (_) {
-      if (mounted && epoch == _epoch) {
+      if (mounted && epoch == _epoch && valid()) {
         setState(() => _result = '当前连接不可用，请重新连接后诊断');
       }
     } finally {
@@ -163,6 +170,10 @@ class _SiteDiagnosticDialogState extends State<_SiteDiagnosticDialog>
   }
 
   Future<void> _saveRule() async {
+    if (_valid?.call() != true) {
+      _invalidate();
+      return;
+    }
     final report = _report;
     final direct = _pendingDirect;
     if (_savingRule ||

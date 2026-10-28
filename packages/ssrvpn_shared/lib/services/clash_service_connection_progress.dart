@@ -102,6 +102,7 @@ extension ClashConnectionProgress on ClashServiceBase {
     final trace = _connectionPhaseTrace;
     _connectionPhaseTrace = null;
     trace?.finish(outcome);
+    if (trace != null) _lastConnectionPhaseTrace = trace;
   }
 
   void _recordConnectionLoss() {

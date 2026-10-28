@@ -97,6 +97,10 @@ abstract class ClashServiceBase
   @override
   String? _connectionProgress;
   ConnectionPhaseTrace? _connectionPhaseTrace;
+  ConnectionPhaseTrace? _lastConnectionPhaseTrace;
+  @override
+  String? get connectionTimingSummary =>
+      (_connectionPhaseTrace ?? _lastConnectionPhaseTrace)?.summary;
   ConnectionPhaseTrace? _recoveryPhaseTrace;
   int _connectionTimingSequence = 0;
   final Set<void Function()> _connectionProgressListeners = {};
@@ -150,6 +154,24 @@ abstract class ClashServiceBase
 
   /// Includes queued selections so advisory work cannot resume between them.
   bool get isProxySelectionInProgress => _pendingProxySelections > 0;
+
+  /// A selected node can change away and back while a request is pending.
+  /// Bind diagnostics to generations, not just the final node name.
+  bool Function() captureDiagnosticValidity() {
+    final intent = captureAutomaticRestartIntent();
+    final network = _dataPlaneObservationEpoch;
+    final monitor = _healthMonitorEpoch;
+    final session = _trafficSessionGeneration;
+    return () =>
+        intent != null &&
+        isRunning &&
+        !isProxySelectionInProgress &&
+        isConnectionIntentCurrent(intent, connected: true) &&
+        monitor == _healthMonitorEpoch &&
+        network == _dataPlaneObservationEpoch &&
+        session == _trafficSessionGeneration;
+  }
+
   @override
   String get configDir => _configDir;
   @override

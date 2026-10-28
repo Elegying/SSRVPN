@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import '../models/site_diagnostic_report.dart';
 import 'site_route_monitor.dart';
+import 'core_dns_diagnostic.dart';
 
 /// A user-triggered GET request through the local proxy and current routing rules.
 /// Follows at most five public web redirects; never consumes bodies or changes connection state.
@@ -9,6 +10,7 @@ class SiteAccessDiagnostic {
   HttpClient? _client;
   SiteRouteMonitor? _monitor;
   bool _cancelled = false;
+  CoreDnsDiagnostic? _dns;
   static Uri parseTarget(String input) {
     if (input.length > 2048 || RegExp(r'[\x00-\x20\x7f]').hasMatch(input)) {
       throw const FormatException('请输入有效网站地址');
@@ -55,6 +57,7 @@ class SiteAccessDiagnostic {
     _cancelled = true;
     _client?.close(force: true);
     _monitor?.close();
+    _dns?.cancel();
   }
 
   Future<String> run(Uri target, {required int proxyPort}) async =>
@@ -66,6 +69,34 @@ class SiteAccessDiagnostic {
       Map<String, String> apiHeaders = const {},
       void Function(String)? onStage}) async {
     parseTarget(target.toString());
+    SiteDiagnosticReport cancelled() => SiteDiagnosticReport(
+        host: target.host, summary: '诊断已取消', failure: SiteFailure.cancelled);
+    final report = await _inspectRedirects(target,
+        proxyPort: proxyPort,
+        apiPort: apiPort,
+        apiHeaders: apiHeaders,
+        onStage: onStage);
+    if (_cancelled) return cancelled();
+    if (apiPort == null) return report;
+    onStage?.call('查询当前核心的 DNS 结果…');
+    if (_cancelled) return cancelled();
+    final dns = CoreDnsDiagnostic();
+    _dns = dns;
+    try {
+      final result =
+          await dns.inspect(target.host, apiPort: apiPort, headers: apiHeaders);
+      return _cancelled ? cancelled() : report.withDns(result);
+    } finally {
+      dns.cancel();
+      if (identical(_dns, dns)) _dns = null;
+    }
+  }
+
+  Future<SiteDiagnosticReport> _inspectRedirects(Uri target,
+      {required int proxyPort,
+      int? apiPort,
+      required Map<String, String> apiHeaders,
+      void Function(String)? onStage}) async {
     final history = <SiteDiagnosticReport>[];
     final visited = <String>{target.toString()};
     var current = target;

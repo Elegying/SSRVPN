@@ -1121,6 +1121,44 @@ void main() {
     expect(draft?.url, 'https://example.com/replacement');
   });
 
+  for (final brightness in [Brightness.light, Brightness.dark]) {
+    testWidgets('About disclaimer scrolls and returns to About: $brightness',
+        (tester) async {
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1;
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await tester.pumpWidget(host(
+          Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showSsrvpnAboutDialog(context),
+              child: const Text('打开关于'),
+            ),
+          ),
+          brightness: brightness));
+      await tester.tap(find.text('打开关于'));
+      await tester.pumpAndSettle();
+      final entry = find.byKey(const Key('ssrvpn-open-disclaimer'));
+      await tester.ensureVisible(entry);
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+      final panel = find.byKey(const Key('ssrvpn-disclaimer-glass'));
+      expect(panel, findsOneWidget);
+      expect(find.text('软件性质'), findsOneWidget);
+      final last = find.textContaining('并对使用本软件的全部行为及其后果独立承担法律责任');
+      await tester.ensureVisible(last);
+      await tester.pumpAndSettle();
+      expect(last, findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.descendant(of: panel, matching: find.text('知道了')));
+      await tester.pumpAndSettle();
+      expect(panel, findsNothing);
+      expect(find.byKey(const Key('ssrvpn-about-glass')), findsOneWidget);
+    });
+  }
+
   testWidgets('About dialog uses the shared frosted glass surface',
       (tester) async {
     await tester.pumpWidget(

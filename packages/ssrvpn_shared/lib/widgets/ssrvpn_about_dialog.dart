@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
 import '../services/update_checker.dart';
 import 'ssrvpn_info_dialog.dart';
+import 'ssrvpn_disclaimer_dialog.dart';
 
 Future<void> showSsrvpnAboutDialog(
   BuildContext context, {
@@ -64,10 +65,14 @@ Future<void> showSsrvpnAboutDialog(
             ),
             const SizedBox(height: 4),
             Text(
-              '本软件仅供学习与研究使用，请遵守当地法律法规。\n'
-              '使用者应对自身行为承担全部责任。\n'
-              '开发者不对因使用本软件产生的任何后果负责。',
+              '请阅读软件性质、使用限制与用户责任说明。',
               style: TextStyle(color: secondaryText, height: 1.45),
+            ),
+            TextButton.icon(
+              key: const Key('ssrvpn-open-disclaimer'),
+              onPressed: () => showSsrvpnDisclaimerDialog(dialogContext),
+              icon: const Icon(Icons.info_outline_rounded),
+              label: const Text('查看完整免责声明'),
             ),
             const SizedBox(height: 16),
             Text(

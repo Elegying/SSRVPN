@@ -20,6 +20,7 @@ extension _WindowsStartPreparationSupport on _WindowsCoreLifecycle {
   Future<_WindowsExistingRuntimePreparation> _prepareExistingWindowsRuntime(
     int startToken,
   ) async {
+    createConnectionProgressReporter()('正在检查上次运行资源…');
     if (isRunning) {
       try {
         if (await healthCheck()) {

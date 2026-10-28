@@ -41,6 +41,7 @@ class SsrvpnSiteDiagnosticResult extends StatelessWidget {
       if (report.reference != null)
         _section(context, '参考站点对比',
             '${report.reference!.host}：${report.reference!.verdict}\n出口：${report.reference!.route?.path ?? '未捕获，不能视为同一路径'}'),
+      if (report.dns != null) _section(context, 'DNS 查询', report.dns!),
       _section(context, '问题判断', report.assessment),
       _section(context, '下一步', report.advice),
       ExpansionTile(
