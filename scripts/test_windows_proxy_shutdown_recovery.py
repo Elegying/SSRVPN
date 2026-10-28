@@ -1651,7 +1651,9 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("[Console]::OutputEncoding", helper)
         self.assertIn("$OutputEncoding = [Console]::OutputEncoding", helper)
         self.assertIn("$ErrorActionPreference = 'Stop'", helper)
-        self.assertIn("windowsPowerShellUtf8Script(script)", proxy_service)
+        self.assertIn("windowsPowerShellUtf8Script(protectedScript)", proxy_service)
+        self.assertIn("windowsProxyCommandScript(", proxy_service)
+        self.assertIn("queryWindowsCoreIdentity(pid, Platform.resolvedExecutable)", proxy_service)
         self.assertIn("windowsPowerShellUtf8Script(script)", lifecycle)
 
     def test_orphan_cleanup_terminates_the_same_verified_handle(self) -> None:

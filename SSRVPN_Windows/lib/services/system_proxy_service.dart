@@ -7,8 +7,13 @@ import 'package:path/path.dart' as p;
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_windows/src/services/system_proxy_ownership.dart';
 import 'package:ssrvpn_windows/src/services/windows_powershell.dart';
+import '../src/services/windows_core_process_query.dart';
+import '../src/services/windows_proxy_command.dart';
 
 part 'system_proxy_models.dart';
+part 'system_proxy_cancellation.dart';
+part 'system_proxy_wininet.dart';
+part 'system_proxy_snapshot_reader.dart';
 part 'system_proxy_recovery_journal.dart';
 part 'system_proxy_native_recovery.dart';
 
@@ -404,6 +409,7 @@ Set-ItemProperty -Path \$regPath -Name ProxyOverride -Type String -Value '$_owne
 Set-ItemProperty -Path \$regPath -Name AutoDetect -Type DWord -Value 0
 Remove-ItemProperty -Path \$regPath -Name AutoConfigURL -ErrorAction SilentlyContinue
 Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value 1
+${windowsProxySetFlagsScript('3')}
 ${_notifyWinInetScript()}
 ''';
 
@@ -692,10 +698,14 @@ ${_notifyWinInetScript()}
   bool _isCurrentProxyEndpointSafeToStop(_ProxySnapshot current) {
     final previousProxy = _previousProxy;
     if (previousProxy != null &&
+        current.connectionFlags == previousProxy.connectionFlags &&
         current.toWindowsProxyState() == previousProxy.toWindowsProxyState()) {
       return true;
     }
-    if (current.proxyEnable == 0) return true;
+    if (current.proxyEnable == 0) {
+      return current.connectionFlags == null ||
+          current.connectionFlags! & 2 == 0;
+    }
     if (current.proxyEnable != 1 || !current.hasProxyServer) return false;
     final ownedProxyServer = _ownedProxyServer;
     if (ownedProxyServer == null || ownedProxyServer.isEmpty) return false;
@@ -830,6 +840,7 @@ ${_notifyWinInetScript()}
   }
 
   bool _isOwnedProxy(_ProxySnapshot current, String? ownedProxyServer) =>
+      (current.connectionFlags == null || current.connectionFlags == 3) &&
       isOwnedWindowsProxy(
         proxyEnable: current.proxyEnable,
         hasProxyServer: current.hasProxyServer,
@@ -881,7 +892,10 @@ ${_notifyWinInetScript()}
     final journal = await _readNativeRecoveryJournal(ownedState.proxyServer);
     if (journal == null) return _ProxyRecoveryAction.unavailable;
     final phase = journal.phase;
-    if (phase != null) {
+    if (phase != null &&
+        (current.connectionFlags == null ||
+            current.connectionFlags == 3 ||
+            current.connectionFlags == snapshot.connectionFlags)) {
       final reachable = isReachableWindowsProxyTransactionState(
         current: current.toWindowsProxyState(),
         original: snapshot.toWindowsProxyState(),
@@ -926,65 +940,11 @@ ${_notifyWinInetScript()}
     return supported;
   }
 
-  Future<_ProxySnapshot?> _readCurrentProxy({
-    Future<void>? cancellation,
-  }) async {
-    const script = r'''
-$regPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
-$key = Get-Item -Path $regPath
-$item = Get-ItemProperty -Path $regPath
-$dword = [Microsoft.Win32.RegistryValueKind]::DWord
-if ($null -ne $item.PSObject.Properties['ProxyEnable'] -and
-    $key.GetValueKind('ProxyEnable') -ne $dword) {
-  throw 'ProxyEnable must be a REG_DWORD value.'
-}
-if ($null -ne $item.PSObject.Properties['AutoDetect'] -and
-    $key.GetValueKind('AutoDetect') -ne $dword) {
-  throw 'AutoDetect must be a REG_DWORD value.'
-}
-[pscustomobject]@{
-  hasProxyEnable = $null -ne $item.PSObject.Properties['ProxyEnable']
-  proxyEnable = if ($null -eq $item.ProxyEnable) { 0 } else { [int]$item.ProxyEnable }
-  hasProxyServer = $null -ne $item.PSObject.Properties['ProxyServer']
-  proxyServer = [string]$item.ProxyServer
-  hasProxyOverride = $null -ne $item.PSObject.Properties['ProxyOverride']
-  proxyOverride = [string]$item.ProxyOverride
-  hasAutoConfigUrl = $null -ne $item.PSObject.Properties['AutoConfigURL']
-  autoConfigUrl = [string]$item.AutoConfigURL
-  hasAutoDetect = $null -ne $item.PSObject.Properties['AutoDetect']
-  autoDetect = if ($null -eq $item.AutoDetect) { 0 } else { [int]$item.AutoDetect }
-} | ConvertTo-Json -Compress
-''';
-    final result = await _runPowerShell(script, cancellation: cancellation);
-    if (result.exitCode == 125) {
-      throw const _SystemProxyAcquisitionCancelled();
-    }
-    if (result.exitCode != 0) {
-      _lastError = formatWindowsPowerShellError('读取 Windows 系统代理失败', result);
-      return null;
-    }
-
-    final output = result.stdout.toString().trim();
-    if (output.isEmpty) {
-      _lastError = 'Windows 系统代理返回了空状态，未修改代理';
-      return null;
-    }
-    try {
-      final decoded = jsonDecode(output);
-      if (decoded is! Map<String, dynamic>) {
-        throw const FormatException('Windows proxy state is not an object');
-      }
-      return _ProxySnapshot.fromJson(decoded);
-    } catch (error) {
-      _lastError = 'Windows 系统代理返回了无法验证的状态，未修改代理';
-      return null;
-    }
-  }
-
   Future<bool> _restoreSnapshot(_ProxySnapshot snapshot) async {
     final server = base64Encode(utf8.encode(snapshot.proxyServer));
     final override = base64Encode(utf8.encode(snapshot.proxyOverride));
     final script = '''
+$windowsProxyCaptureFlagsScript
 \$backupPath = '$_nativeBackupRegistryPath'
 Set-ItemProperty -Path \$backupPath -Name RestoreInProgress -Type DWord -Value 1
 \$regPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
@@ -1019,6 +979,7 @@ if (${snapshot.hasProxyEnable ? r'$true' : r'$false'}) {
 } else {
   Remove-ItemProperty -Path \$regPath -Name ProxyEnable -ErrorAction SilentlyContinue
 }
+${windowsProxySetFlagsScript(snapshot.connectionFlags?.toString() ?? '(\$ssrvpnPreservedFlags -band 13) -bor ${snapshot.proxyEnable == 1 ? 2 : 0}', includeInterop: false)}
 \$validTerminal = \$false
 try {
   Set-ItemProperty -Path \$backupPath -Name Valid -Type DWord -Value 0 -ErrorAction Stop
@@ -1043,6 +1004,7 @@ ${_notifyWinInetScript()}
   Future<bool> _restoreOwnedEndpoint(_ProxySnapshot snapshot) async {
     final server = base64Encode(utf8.encode(snapshot.proxyServer));
     final script = '''
+$windowsProxyCaptureFlagsScript
 \$backupPath = '$_nativeBackupRegistryPath'
 Set-ItemProperty -Path \$backupPath -Name EndpointRestoreInProgress -Type DWord -Value 1
 \$regPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
@@ -1060,6 +1022,11 @@ if (${snapshot.hasProxyEnable ? r'$true' : r'$false'}) {
 } else {
   Remove-ItemProperty -Path \$regPath -Name ProxyEnable -ErrorAction SilentlyContinue
 }
+\$ssrvpnEndpointFlags = (\$ssrvpnPreservedFlags -band 13) -bor ${snapshot.proxyEnable == 1 ? 2 : 0}
+if (\$ssrvpnPreservedFlags -eq 3) {
+  \$ssrvpnEndpointFlags = \$ssrvpnEndpointFlags -bor ${(snapshot.connectionFlags ?? 0) & 8}
+}
+${windowsProxySetFlagsScript(r'$ssrvpnEndpointFlags', includeInterop: false)}
 \$validTerminal = \$false
 try {
   Set-ItemProperty -Path \$backupPath -Name Valid -Type DWord -Value 0 -ErrorAction Stop
@@ -1254,7 +1221,18 @@ if (Test-Path -LiteralPath \$runOncePath) {
     String script, {
     Future<void>? cancellation,
   }) {
-    final utf8Script = windowsPowerShellUtf8Script(script);
+    final lockPath = _transactionLockPath;
+    final protectedScript = _scriptRunner != null || lockPath == null
+        ? script
+        : windowsProxyCommandScript(
+            script: script,
+            transactionLockPath: lockPath,
+            parentPid: pid,
+            parentCreationTime:
+                queryWindowsCoreIdentity(pid, Platform.resolvedExecutable)
+                    .creationTimeUtcFileTime,
+          );
+    final utf8Script = windowsPowerShellUtf8Script(protectedScript);
     final override = _scriptRunner;
     if (override != null) {
       final operation = override(utf8Script);

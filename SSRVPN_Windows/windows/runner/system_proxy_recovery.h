@@ -1,6 +1,11 @@
 #ifndef RUNNER_SYSTEM_PROXY_RECOVERY_H_
 #define RUNNER_SYSTEM_PROXY_RECOVERY_H_
 
+#if defined(SSRVPN_SYSTEM_PROXY_RECOVERY_NO_WININET_NOTIFY)
+#include <string>
+std::wstring SetProxyRecoveryDirectoryForTesting(const std::wstring& directory);
+#endif
+
 // Serializes WinINet proxy ownership changes across the Dart app and native
 // crash recovery. The byte-range lock is released automatically if a process
 // exits unexpectedly.
@@ -17,6 +22,7 @@ class WindowsProxyTransactionLock final {
 
  private:
   void* file_handle_ = nullptr;
+  void* command_handle_ = nullptr;
 };
 
 // Synchronously restores the pre-SSRVPN WinINet settings, or confirms that no

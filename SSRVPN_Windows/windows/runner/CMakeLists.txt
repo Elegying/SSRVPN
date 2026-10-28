@@ -107,6 +107,7 @@ target_compile_definitions(ssrvpn_system_proxy_recovery_test PRIVATE
 )
 target_link_libraries(ssrvpn_system_proxy_recovery_test PRIVATE "advapi32.lib")
 target_link_libraries(ssrvpn_system_proxy_recovery_test PRIVATE "wininet.lib")
+target_link_libraries(ssrvpn_system_proxy_recovery_test PRIVATE "shell32.lib" "ole32.lib")
 
 add_executable(ssrvpn_physical_tcp_latency_test EXCLUDE_FROM_ALL
   "physical_tcp_latency_probe.cpp"

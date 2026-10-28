@@ -6,6 +6,7 @@
 #include <string>
 
 #include "system_proxy_recovery.h"
+#include "system_proxy_directory.h"
 
 namespace {
 
@@ -246,15 +247,15 @@ bool TestMalformedJournalDisablesOwnedEndpoint() {
 class RecoveryFiles final {
  public:
   RecoveryFiles() {
-    wchar_t temporary[MAX_PATH] = {}, previous[32768] = {};
+    wchar_t temporary[MAX_PATH] = {};
     GetTempPathW(MAX_PATH, temporary);
-    GetEnvironmentVariableW(L"LOCALAPPDATA", previous, 32768);
-    previous_ = previous;
+    static unsigned sequence = 0;
     root_ = std::filesystem::path(temporary) /
-        (L"SSRVPN 用户's folder " + std::to_wstring(GetCurrentProcessId()));
+        (L"SSRVPN 用户's folder " + std::to_wstring(GetCurrentProcessId()) +
+         L"-" + std::to_wstring(++sequence));
     runtime_ = root_ / L"SSRVPN" / L"runtime";
     std::filesystem::create_directories(runtime_);
-    SetEnvironmentVariableW(L"LOCALAPPDATA", root_.c_str());
+    previous_ = SetProxyRecoveryDirectoryForTesting(root_.wstring());
     snapshot = runtime_ / L"system_proxy_backup.json";
     HANDLE file = CreateFileW(snapshot.c_str(), GENERIC_WRITE, 0, nullptr,
                               CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -262,7 +263,7 @@ class RecoveryFiles final {
     CloseHandle(file);
   }
   ~RecoveryFiles() {
-    SetEnvironmentVariableW(L"LOCALAPPDATA", previous_.empty() ? nullptr : previous_.c_str());
+    SetProxyRecoveryDirectoryForTesting(previous_);
     std::error_code error;
     std::filesystem::remove_all(root_, error);
   }
@@ -321,9 +322,119 @@ bool TestApplicationRecovery(int scenario) {
          NamedValueIsMissing(kRunOncePath, kRecoveryRunOnceName);
 }
 
+bool TestConnectionFlagsRecovery(bool user_changed, bool legacy) {
+  RegistrySandbox sandbox;
+  if (!sandbox.Initialize() || !SeedOwnedSettings() || !SeedJournal(false)) return false;
+  HKEY settings = nullptr, backup = nullptr;
+  if (!CreateKey(kInternetSettingsPath, &settings) || !CreateKey(kBackupPath, &backup)) return false;
+  // The UI changed, but the legacy AutoDetect DWORD remains zero.
+  const DWORD live = user_changed ? 11 : 3;
+  bool ok = SetDword(settings, L"TestConnectionFlags", live);
+  if (!legacy) ok = ok && SetDword(backup, L"OriginalConnectionFlags", 9);
+  RegCloseKey(settings);
+  RegCloseKey(backup);
+  if (!ok || !RestoreOwnedWindowsProxy()) return false;
+  if (!CreateKey(kInternetSettingsPath, &settings)) return false;
+  DWORD actual = 0;
+  ok = ReadDword(settings, L"TestConnectionFlags", &actual) &&
+       actual == (user_changed || !legacy ? 9u : 1u);
+  RegCloseKey(settings);
+  return ok && KeyIsMissing(kBackupPath);
+}
+
+bool TestRecoveryWaitsForSurvivingCommand() {
+  RecoveryFiles files;
+  const auto path = files.snapshot.parent_path() / L"system_proxy_transaction.lock.command";
+  HANDLE command = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (command == INVALID_HANDLE_VALUE) return false;
+  OVERLAPPED overlap{};
+  if (!LockFileEx(command, LOCKFILE_EXCLUSIVE_LOCK, 0, 1, 0, &overlap)) {
+    CloseHandle(command); return false;
+  }
+  bool blocked;
+  {
+    WindowsProxyTransactionLock recovery(false);
+    blocked = !recovery.acquired();
+  }
+  UnlockFileEx(command, 0, 1, 0, &overlap);
+  CloseHandle(command);
+  WindowsProxyTransactionLock retry(false);
+  return blocked && retry.acquired();
+}
+
+bool TestFailedConnectionFlagsRestoreRetainsJournal() {
+  RegistrySandbox sandbox;
+  if (!sandbox.Initialize() || !SeedOwnedSettings() || !SeedJournal(false)) return false;
+  HKEY settings = nullptr, backup = nullptr;
+  if (!CreateKey(kInternetSettingsPath, &settings) || !CreateKey(kBackupPath, &backup)) return false;
+  bool ok = SetDword(settings, L"TestConnectionFlags", 3) &&
+      SetDword(settings, L"TestFailFlagsWrite", 1) &&
+      SetDword(backup, L"OriginalConnectionFlags", 9);
+  RegCloseKey(backup);
+  if (ok) ok = !RestoreOwnedWindowsProxy() && !KeyIsMissing(kBackupPath) &&
+               !IsOwnedWindowsProxySafeToStop();
+  ok = ok && SetDword(settings, L"TestFailFlagsWrite", 0);
+  RegCloseKey(settings);
+  return ok && RestoreOwnedWindowsProxy() && KeyIsMissing(kBackupPath);
+}
+
+bool TestBypassEditStillRestoresOwnedAutoDetectBit() {
+  RegistrySandbox sandbox;
+  if (!sandbox.Initialize() || !SeedOwnedSettings() || !SeedJournal(false)) return false;
+  HKEY settings = nullptr, backup = nullptr;
+  if (!CreateKey(kInternetSettingsPath, &settings) || !CreateKey(kBackupPath, &backup)) return false;
+  bool ok = SetDword(settings, L"TestConnectionFlags", 3) &&
+      SetString(settings, L"ProxyOverride", L"company.example") &&
+      SetDword(backup, L"OriginalConnectionFlags", 9);
+  RegCloseKey(backup);
+  ok = ok && RestoreOwnedWindowsProxy();
+  DWORD flags = 0;
+  wchar_t bypass[128] = {}; DWORD bytes = sizeof(bypass), type = 0;
+  ok = ok && ReadDword(settings, L"TestConnectionFlags", &flags) && flags == 9 &&
+      RegQueryValueExW(settings, L"ProxyOverride", nullptr, &type,
+          reinterpret_cast<BYTE*>(bypass), &bytes) == ERROR_SUCCESS &&
+      std::wstring(bypass) == L"company.example";
+  RegCloseKey(settings);
+  return ok;
+}
+
 }  // namespace
 
 int wmain() {
+  // Validate the production directory resolver outside the registry sandbox.
+  const auto trusted = TrustedProxyLocalAppData();
+  if (trusted.empty()) return 1;
+  wchar_t previous[32768] = {};
+  GetEnvironmentVariableW(L"LOCALAPPDATA", previous, 32768);
+  SetEnvironmentVariableW(L"LOCALAPPDATA", L"C:\\unexpected-proxy-directory");
+  const bool rejected = TrustedProxyLocalAppData().empty();
+  SetEnvironmentVariableW(L"LOCALAPPDATA", previous);
+  if (!rejected || TrustedProxyLocalAppData() != trusted) {
+    std::wcerr << L"untrusted proxy recovery directory accepted\n";
+    return 1;
+  }
+  RecoveryFiles root_files;
+  if (!TestBypassEditStillRestoresOwnedAutoDetectBit()) {
+    std::wcerr << L"bypass edit lost auto-detect recovery\n";
+    return 1;
+  }
+  if (!TestFailedConnectionFlagsRestoreRetainsJournal()) {
+    std::wcerr << L"failed LAN restoration lost recovery state\n";
+    return 1;
+  }
+  if (!TestRecoveryWaitsForSurvivingCommand()) {
+    std::wcerr << L"surviving proxy command lock test failed\n";
+    return 1;
+  }
+  for (const bool changed : {false, true}) {
+    for (const bool legacy : {false, true}) {
+      if (!TestConnectionFlagsRecovery(changed, legacy)) {
+        std::wcerr << L"LAN connection flags recovery failed\n";
+        return 1;
+      }
+    }
+  }
   if (!TestSandboxLeavesApplicationNamespaceUnchanged()) {
     std::wcerr << L"registry sandbox modified the application namespace\n";
     return 1;

@@ -91,6 +91,7 @@ Set-ItemProperty -Path \$backupPath -Name HasAutoConfigURL -Type DWord -Value ${
 Set-ItemProperty -Path \$backupPath -Name OriginalAutoConfigURL -Type String -Value \$value
 Set-ItemProperty -Path \$backupPath -Name HasAutoDetect -Type DWord -Value ${snapshot.hasAutoDetect ? 1 : 0}
 Set-ItemProperty -Path \$backupPath -Name OriginalAutoDetect -Type DWord -Value ${snapshot.autoDetect}
+${snapshot.connectionFlags == null ? '' : 'Set-ItemProperty -Path \$backupPath -Name OriginalConnectionFlags -Type DWord -Value ${snapshot.connectionFlags}'}
 Set-ItemProperty -Path \$backupPath -Name OwnedProxyServer -Type String -Value '$ownedProxyServer'
 Set-ItemProperty -Path \$backupPath -Name OwnedProxyOverride -Type String -Value '${SystemProxyService._ownedProxyOverride}'
 Set-ItemProperty -Path \$backupPath -Name RestoreInProgress -Type DWord -Value 0

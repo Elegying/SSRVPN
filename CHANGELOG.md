@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- 优化稳定性，提升连接体验。
+
 ## [6.0.6] - 2026-10-28
 
 - 修复 Android 正常启动或切换节点后，诊断日志误提示 VPN 会话已变更或正在恢复的问题。
