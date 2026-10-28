@@ -17,6 +17,7 @@ class WindowsProxyTransactionLock final {
 
  private:
   void* file_handle_ = nullptr;
+  void* command_handle_ = nullptr;
 };
 
 // Synchronously restores the pre-SSRVPN WinINet settings, or confirms that no

@@ -448,6 +448,21 @@ WindowsProxyTransactionLock::WindowsProxyTransactionLock(bool wait) noexcept {
     CloseHandle(file);
     return;
   }
+  // A PowerShell writer may outlive Flutter and its transaction lock.
+  // Wait for that writer before inspecting or restoring the recovery journal.
+  HANDLE command = CreateFileW((lock_path + L".command").c_str(),
+      GENERIC_READ | GENERIC_WRITE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+      OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+  OVERLAPPED command_overlapped = {};
+  if (command == INVALID_HANDLE_VALUE ||
+      !LockFileEx(command, flags, 0, MAXDWORD, MAXDWORD, &command_overlapped)) {
+    if (command != INVALID_HANDLE_VALUE) CloseHandle(command);
+    UnlockFileEx(file, 0, MAXDWORD, MAXDWORD, &overlapped);
+    CloseHandle(file);
+    return;
+  }
+  command_handle_ = command;
   file_handle_ = file;
 }
 
@@ -455,6 +470,8 @@ WindowsProxyTransactionLock::~WindowsProxyTransactionLock() {
   if (file_handle_ == nullptr) return;
   HANDLE file = file_handle_;
   OVERLAPPED overlapped = {};
+  UnlockFileEx(command_handle_, 0, MAXDWORD, MAXDWORD, &overlapped);
+  CloseHandle(command_handle_);
   UnlockFileEx(file, 0, MAXDWORD, MAXDWORD, &overlapped);
   CloseHandle(file);
 }

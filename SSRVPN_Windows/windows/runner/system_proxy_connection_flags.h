@@ -68,6 +68,8 @@ inline bool WriteProxyConnectionFlags(HKEY settings, DWORD flags) {
   list.pOptions = &option;
   if (!InternetSetOptionW(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION,
                           &list, sizeof(list))) return false;
+  if (!InternetSetOptionW(nullptr, INTERNET_OPTION_SETTINGS_CHANGED, nullptr, 0) ||
+      !InternetSetOptionW(nullptr, INTERNET_OPTION_REFRESH, nullptr, 0)) return false;
   DWORD actual = 0;
   return ReadProxyConnectionFlags(settings, &actual) && actual == flags;
 #endif

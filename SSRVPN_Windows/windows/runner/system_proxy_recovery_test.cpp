@@ -341,9 +341,34 @@ bool TestConnectionFlagsRecovery(bool user_changed, bool legacy) {
   return ok && KeyIsMissing(kBackupPath);
 }
 
+bool TestRecoveryWaitsForSurvivingCommand() {
+  RecoveryFiles files;
+  const auto path = files.snapshot.parent_path() / L"system_proxy_transaction.lock.command";
+  HANDLE command = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (command == INVALID_HANDLE_VALUE) return false;
+  OVERLAPPED overlap{};
+  if (!LockFileEx(command, LOCKFILE_EXCLUSIVE_LOCK, 0, 1, 0, &overlap)) {
+    CloseHandle(command); return false;
+  }
+  bool blocked;
+  {
+    WindowsProxyTransactionLock recovery(false);
+    blocked = !recovery.acquired();
+  }
+  UnlockFileEx(command, 0, 1, 0, &overlap);
+  CloseHandle(command);
+  WindowsProxyTransactionLock retry(false);
+  return blocked && retry.acquired();
+}
+
 }  // namespace
 
 int wmain() {
+  if (!TestRecoveryWaitsForSurvivingCommand()) {
+    std::wcerr << L"surviving proxy command lock test failed\n";
+    return 1;
+  }
   for (const bool changed : {false, true}) {
     for (const bool legacy : {false, true}) {
       if (!TestConnectionFlagsRecovery(changed, legacy)) {

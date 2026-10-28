@@ -1613,6 +1613,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             ROOT / "SSRVPN_Windows" / "lib" / "services" /
             "system_proxy_service.dart"
         ).read_text(encoding="utf-8")
+        self.assertIn("part 'system_proxy_snapshot_reader.dart';", proxy_service)
+        proxy_service = (ROOT / "SSRVPN_Windows/lib/services/system_proxy_snapshot_reader.dart").read_text(encoding="utf-8")
         self.assertIn("GetValueKind('ProxyEnable')", proxy_service)
         self.assertIn("GetValueKind('AutoDetect')", proxy_service)
         self.assertIn("[Microsoft.Win32.RegistryValueKind]::DWord", proxy_service)

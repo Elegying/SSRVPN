@@ -28,6 +28,8 @@ public static class SsrvpnConnectionFlags {
   static extern bool Query(IntPtr handle, uint option, ref Options list, ref uint size);
   [DllImport("wininet.dll", EntryPoint="InternetSetOptionW", SetLastError=true)]
   static extern bool Set(IntPtr handle, uint option, ref Options list, uint size);
+  [DllImport("wininet.dll", EntryPoint="InternetSetOptionW", SetLastError=true)]
+  static extern bool Notify(IntPtr handle, uint option, IntPtr buffer, uint length);
   static uint Access(bool write, uint flags) {
     var item = new Option { Id = write ? 1u : 10u, Data = new Value { Number = flags } };
     IntPtr memory = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(Option)));
@@ -57,6 +59,8 @@ public static class SsrvpnConnectionFlags {
     }
     if (flags > 15) throw new ArgumentOutOfRangeException("flags");
     Access(true, flags);
+    if (!Notify(IntPtr.Zero, 39, IntPtr.Zero, 0) || !Notify(IntPtr.Zero, 37, IntPtr.Zero, 0))
+      throw new Win32Exception(Marshal.GetLastWin32Error());
     if (Read() != flags) throw new InvalidOperationException("WinINet flags were not restored");
   }
 }

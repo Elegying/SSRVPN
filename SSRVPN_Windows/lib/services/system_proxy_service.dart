@@ -7,6 +7,8 @@ import 'package:path/path.dart' as p;
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_windows/src/services/system_proxy_ownership.dart';
 import 'package:ssrvpn_windows/src/services/windows_powershell.dart';
+import '../src/services/windows_core_process_query.dart';
+import '../src/services/windows_proxy_command.dart';
 
 part 'system_proxy_models.dart';
 part 'system_proxy_cancellation.dart';
@@ -1215,7 +1217,18 @@ if (Test-Path -LiteralPath \$runOncePath) {
     String script, {
     Future<void>? cancellation,
   }) {
-    final utf8Script = windowsPowerShellUtf8Script(script);
+    final lockPath = _transactionLockPath;
+    final protectedScript = _scriptRunner != null || lockPath == null
+        ? script
+        : windowsProxyCommandScript(
+            script: script,
+            transactionLockPath: lockPath,
+            parentPid: pid,
+            parentCreationTime:
+                queryWindowsCoreIdentity(pid, Platform.resolvedExecutable)
+                    .creationTimeUtcFileTime,
+          );
+    final utf8Script = windowsPowerShellUtf8Script(protectedScript);
     final override = _scriptRunner;
     if (override != null) {
       final operation = override(utf8Script);
