@@ -1,25 +1,5 @@
 part of 'system_proxy_service.dart';
 
-class _SystemProxyAcquisitionCancelled implements Exception {
-  const _SystemProxyAcquisitionCancelled();
-}
-
-class _SystemProxyAcquisitionCancellation {
-  _SystemProxyAcquisitionCancellation(this.future) {
-    future?.then<void>(
-      (_) => _cancelled = true,
-      onError: (_, __) => _cancelled = true,
-    );
-  }
-
-  final Future<void>? future;
-  bool _cancelled = false;
-
-  void throwIfRequested() {
-    if (_cancelled) throw const _SystemProxyAcquisitionCancelled();
-  }
-}
-
 enum _ProxyRecoveryAction { restoreFull, restoreEndpoint, discard, unavailable }
 
 class _ProxySnapshot {
@@ -34,6 +14,7 @@ class _ProxySnapshot {
     required this.autoConfigUrl,
     required this.hasAutoDetect,
     required this.autoDetect,
+    this.connectionFlags,
   });
 
   final bool hasProxyEnable;
@@ -46,6 +27,7 @@ class _ProxySnapshot {
   final String autoConfigUrl;
   final bool hasAutoDetect;
   final int autoDetect;
+  final int? connectionFlags;
 
   factory _ProxySnapshot.fromJson(Map<String, dynamic> json) {
     bool requiredBool(String key) {
@@ -78,6 +60,10 @@ class _ProxySnapshot {
         'Windows proxy field hasProxyEnable is invalid',
       );
     }
+    final flags = json['connectionFlags'];
+    if (flags != null && (flags is! int || flags < 0 || flags > 15)) {
+      throw const FormatException('Invalid WinINet connection flags');
+    }
     return _ProxySnapshot(
       // v4.0.1 and older recovery files did not persist this presence bit.
       // Keep that one compatibility default while validating every value that
@@ -92,6 +78,7 @@ class _ProxySnapshot {
       autoConfigUrl: requiredString('autoConfigUrl'),
       hasAutoDetect: requiredBool('hasAutoDetect'),
       autoDetect: requiredDword('autoDetect'),
+      connectionFlags: flags as int?,
     );
   }
 
@@ -106,6 +93,7 @@ class _ProxySnapshot {
         'autoConfigUrl': autoConfigUrl,
         'hasAutoDetect': hasAutoDetect,
         'autoDetect': autoDetect,
+        if (connectionFlags != null) 'connectionFlags': connectionFlags,
       };
 
   WindowsProxyState toWindowsProxyState() => WindowsProxyState(

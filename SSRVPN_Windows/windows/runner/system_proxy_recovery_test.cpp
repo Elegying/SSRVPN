@@ -321,9 +321,37 @@ bool TestApplicationRecovery(int scenario) {
          NamedValueIsMissing(kRunOncePath, kRecoveryRunOnceName);
 }
 
+bool TestConnectionFlagsRecovery(bool user_changed, bool legacy) {
+  RegistrySandbox sandbox;
+  if (!sandbox.Initialize() || !SeedOwnedSettings() || !SeedJournal(false)) return false;
+  HKEY settings = nullptr, backup = nullptr;
+  if (!CreateKey(kInternetSettingsPath, &settings) || !CreateKey(kBackupPath, &backup)) return false;
+  // The UI changed, but the legacy AutoDetect DWORD remains zero.
+  const DWORD live = user_changed ? 11 : 3;
+  bool ok = SetDword(settings, L"TestConnectionFlags", live);
+  if (!legacy) ok = ok && SetDword(backup, L"OriginalConnectionFlags", 9);
+  RegCloseKey(settings);
+  RegCloseKey(backup);
+  if (!ok || !RestoreOwnedWindowsProxy()) return false;
+  if (!CreateKey(kInternetSettingsPath, &settings)) return false;
+  DWORD actual = 0;
+  ok = ReadDword(settings, L"TestConnectionFlags", &actual) &&
+       actual == (user_changed || !legacy ? 9u : 1u);
+  RegCloseKey(settings);
+  return ok && KeyIsMissing(kBackupPath);
+}
+
 }  // namespace
 
 int wmain() {
+  for (const bool changed : {false, true}) {
+    for (const bool legacy : {false, true}) {
+      if (!TestConnectionFlagsRecovery(changed, legacy)) {
+        std::wcerr << L"LAN connection flags recovery failed\n";
+        return 1;
+      }
+    }
+  }
   if (!TestSandboxLeavesApplicationNamespaceUnchanged()) {
     std::wcerr << L"registry sandbox modified the application namespace\n";
     return 1;

@@ -1,4 +1,5 @@
 #include "system_proxy_recovery.h"
+#include "system_proxy_connection_flags.h"
 
 #include <windows.h>
 #include <wininet.h>
@@ -302,19 +303,21 @@ bool IsEndpointRestorePrefix(const ProxyStateSnapshot& current,
 
 bool DisableOwnedProxyEndpoint(HKEY settings,
                                const std::wstring& owned_server) {
-  DWORD proxy_enable = 0;
+  DWORD proxy_enable = 0, flags = 0;
   std::wstring proxy_server;
   return ReadDword(settings, L"ProxyEnable", &proxy_enable) &&
          proxy_enable == 1 &&
          ReadString(settings, L"ProxyServer", &proxy_server) &&
          proxy_server == owned_server &&
-         SetDword(settings, L"ProxyEnable", 0);
+         ReadProxyConnectionFlags(settings, &flags) &&
+         SetDword(settings, L"ProxyEnable", 0) &&
+         WriteProxyConnectionFlags(settings, flags & ~PROXY_TYPE_PROXY);
 }
 
 bool DisableOwnedProxyFingerprint(HKEY settings,
                                   const std::wstring& owned_server,
                                   const std::wstring& owned_override) {
-  DWORD proxy_enable = 0;
+  DWORD proxy_enable = 0, flags = 0;
   std::wstring proxy_server;
   std::wstring proxy_override;
   return ReadDword(settings, L"ProxyEnable", &proxy_enable) &&
@@ -325,7 +328,9 @@ bool DisableOwnedProxyFingerprint(HKEY settings,
          proxy_override == owned_override &&
          IsDwordZeroOrAbsent(settings, L"AutoDetect") &&
          !ValueExists(settings, L"AutoConfigURL") &&
-         SetDword(settings, L"ProxyEnable", 0);
+         ReadProxyConnectionFlags(settings, &flags) &&
+         SetDword(settings, L"ProxyEnable", 0) &&
+         WriteProxyConnectionFlags(settings, flags & ~PROXY_TYPE_PROXY);
 }
 
 void NotifyWinInet() {
@@ -475,8 +480,11 @@ bool IsOwnedWindowsProxyEndpointSafeToStopUnlocked() noexcept {
       (proxy_enable_status == ERROR_SUCCESS &&
        proxy_enable_type == REG_DWORD &&
        proxy_enable_size == sizeof(proxy_enable) && proxy_enable == 0)) {
+    DWORD flags = 0;
+    const bool safe = ReadProxyConnectionFlags(settings, &flags) &&
+                      (flags & PROXY_TYPE_PROXY) == 0;
     RegCloseKey(settings);
-    return true;
+    return safe;
   }
   if (proxy_enable_status != ERROR_SUCCESS ||
       proxy_enable_type != REG_DWORD ||
@@ -615,7 +623,21 @@ bool RestoreOwnedWindowsProxyUnlocked() noexcept {
       proxy_enable == 1 &&
       ReadString(settings, L"ProxyServer", &proxy_server) &&
       proxy_server == owned_server;
-  const bool owned = endpoint_owned &&
+  DWORD connection_flags = 0;
+  DWORD original_flags = 0;
+  const bool flags_known = ReadProxyConnectionFlags(settings, &connection_flags);
+  const bool has_original_flags = ValueExists(backup, L"OriginalConnectionFlags");
+  if (!flags_known || (has_original_flags &&
+      (!ReadDword(backup, L"OriginalConnectionFlags", &original_flags) ||
+       original_flags > 15))) {
+    RegCloseKey(settings);
+    RegCloseKey(backup);
+    return false;
+  }
+  const bool flags_owned = connection_flags == 3;
+  const bool flags_reachable = flags_owned ||
+      (has_original_flags && connection_flags == original_flags);
+  const bool owned = flags_owned && endpoint_owned &&
                      ReadString(settings, L"ProxyOverride", &proxy_override) &&
                      proxy_override == owned_override &&
                      IsDwordZeroOrAbsent(settings, L"AutoDetect") &&
@@ -627,13 +649,13 @@ bool RestoreOwnedWindowsProxyUnlocked() noexcept {
   const bool current_valid = ReadCurrentProxyState(settings, &current);
   const ProxyStateSnapshot owned_state =
       OwnedProxyState(owned_server, owned_override);
-  const bool activation_prefix = snapshot_valid && current_valid &&
+  const bool activation_prefix = flags_reachable && snapshot_valid && current_valid &&
                                  activation_in_progress == 1 &&
                                  restore_in_progress == 0 &&
                                  endpoint_restore_in_progress == 0 &&
                                  IsActivationPrefix(current, original,
                                                     owned_state);
-  const bool full_restore_prefix = snapshot_valid && current_valid &&
+  const bool full_restore_prefix = flags_reachable && snapshot_valid && current_valid &&
                                    restore_in_progress == 1 &&
                                    endpoint_restore_in_progress == 0 &&
                                    IsFullRestorePrefix(current, original,
@@ -659,6 +681,9 @@ bool RestoreOwnedWindowsProxyUnlocked() noexcept {
              ? SetDword(settings, L"ProxyEnable",
                         original.proxy_enable.value)
              : DeleteValueIfPresent(settings, L"ProxyEnable"));
+    endpoint_restored = endpoint_restored && WriteProxyConnectionFlags(
+        settings, (connection_flags & ~PROXY_TYPE_PROXY) |
+            (original.proxy_enable.value == 1 ? PROXY_TYPE_PROXY : 0));
     const bool valid_terminal =
         endpoint_restored && SetDword(backup, L"Valid", 0);
     const bool restore_terminal =
@@ -713,6 +738,12 @@ bool RestoreOwnedWindowsProxyUnlocked() noexcept {
              ? SetDword(settings, L"ProxyEnable",
                         original.proxy_enable.value)
              : DeleteValueIfPresent(settings, L"ProxyEnable"));
+  }
+  if (settings_restored) {
+    const DWORD target_flags = has_original_flags ? original_flags :
+        (connection_flags & ~PROXY_TYPE_PROXY) |
+            (original.proxy_enable.value == 1 ? PROXY_TYPE_PROXY : 0);
+    settings_restored = WriteProxyConnectionFlags(settings, target_flags);
   }
   const bool valid_terminal =
       settings_restored && SetDword(backup, L"Valid", 0);
@@ -787,6 +818,12 @@ int RecoverWindowsProxyForApplication() noexcept {
                 ReadString(backup, L"OwnedProxyOverride", &bypass) &&
                 !ProxyStatesEqual(current, original) &&
                 !ProxyStatesEqual(current, OwnedProxyState(server, bypass));
+      DWORD flags = 0;
+      if (ReadProxyConnectionFlags(settings, &flags) && flags != 3) {
+        DWORD original_flags = 0;
+        changed |= !ReadDword(backup, L"OriginalConnectionFlags", &original_flags) ||
+                   flags != original_flags;
+      }
       RegCloseKey(settings);
     }
   }
