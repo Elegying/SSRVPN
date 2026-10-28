@@ -79,7 +79,7 @@ class WindowsWorkflowParallelismTest(unittest.TestCase):
 
     def test_release_runs_policy_in_parallel_and_publish_requires_both(self) -> None:
         workflow = RELEASE.read_text(encoding="utf-8")
-        policy = job(workflow, "windows-policy-tests", "build-windows")
+        policy = job(workflow, "windows-policy-tests", "windows-tests")
         build = job(workflow, "build-windows", "publish")
         publish = job(workflow, "publish")
 
@@ -90,9 +90,16 @@ class WindowsWorkflowParallelismTest(unittest.TestCase):
         self.assertIn("scripts\\test_windows_policy.ps1", policy)
         self.assertNotIn("test_windows_policy.ps1", build)
         self.assert_windows_build_gates(build, release=True)
+        tests = job(workflow, "windows-tests", "build-windows")
+        self.assertIn("needs: [validate-source, prepare-geoip]", tests)
+        self.assertIn("runs-on: windows-latest", tests)
+        self.assertIn("scripts/run-flutter-coverage.sh SSRVPN_Windows --concurrency=1", tests)
+        self.assertIn("scripts/check-coverage-thresholds.sh SSRVPN_Windows --windows-native", tests)
+        self.assertNotIn("run-flutter-coverage.sh SSRVPN_Windows", build)
 
         header = publish[: publish.index("    steps:\n")]
         self.assertIn("windows-policy-tests", header)
+        self.assertIn("windows-tests", header)
         self.assertIn("build-windows", header)
 
     def test_single_policy_runner_owns_all_independent_windows_tests(self) -> None:
@@ -134,8 +141,6 @@ class WindowsWorkflowParallelismTest(unittest.TestCase):
             with self.subTest(expected=expected, release=release):
                 self.assertIn(expected, build)
         if release:
-            self.assertIn("scripts/run-flutter-coverage.sh SSRVPN_Windows", build)
-            self.assertIn("scripts/check-coverage-thresholds.sh SSRVPN_Windows", build)
             self.assertIn("actions/attest@", build)
             self.assertIn("name: windows\n", build)
         else:

@@ -4,7 +4,8 @@ param(
   [string]$OutputDir,
   [string]$Version,
   [string]$InnoCompiler,
-  [switch]$IsolatedTestBuild
+  [switch]$IsolatedTestBuild,
+  [switch]$BenchmarkCompression
 )
 
 $ErrorActionPreference = 'Stop'
@@ -240,7 +241,11 @@ try {
     -ManifestPath $payloadManifestPath
   $smallest = $null
   $baselineSize = 0
-  foreach ($fastBytes in @(64, 273)) {
+  # v6.0.7 measured 273 at 35,203,284 bytes vs 35,267,624 for 64.
+  # Keep the smaller verified profile by default; compare both explicitly when
+  # benchmarking a new payload/toolchain instead of compressing every build twice.
+  $compressionProfiles = if ($BenchmarkCompression) { @(64, 273) } else { @(273) }
+  foreach ($fastBytes in $compressionProfiles) {
     $candidateDirectory = Join-Path $compressionRoot "$fastBytes"
     New-Item -ItemType Directory -Path $candidateDirectory -Force | Out-Null
     & $compiler `
@@ -261,7 +266,7 @@ try {
     if ($candidate.Length -le 1MB) {
       throw "Installer compression candidate is unexpectedly small"
     }
-    if ($fastBytes -eq 64) { $baselineSize = $candidate.Length }
+    if ($baselineSize -eq 0) { $baselineSize = $candidate.Length }
     if ($null -eq $smallest -or $candidate.Length -lt $smallest.Length) {
       $smallest = $candidate
     }
@@ -269,8 +274,8 @@ try {
   Copy-Item -LiteralPath $smallest.FullName `
     -Destination (Join-Path $OutputDir 'SSRVPN_Setup.exe') -Force
   Write-Host (
-    "Installer lossless compression: $baselineSize -> $($smallest.Length) bytes " +
-    "(saved $($baselineSize - $smallest.Length)); same payload manifest"
+    "Installer compression profiles [$($compressionProfiles -join ',')]: " +
+    "$baselineSize -> $($smallest.Length) bytes; verified payload manifest"
   )
 } finally {
   Remove-Item -LiteralPath $payloadManifestPath -Force `

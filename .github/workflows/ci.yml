@@ -301,6 +301,10 @@ jobs:
       - run: bash scripts/verify-core-assets.sh
       - run: flutter pub get --enforce-lockfile
 
+      - name: Native DMG background regression tests
+        timeout-minutes: 5
+        run: python3 -m unittest scripts.test_macos_dmg_layout
+
       - name: Run macOS native unit tests
         timeout-minutes: 15
         run: bash scripts/test-macos-native.sh

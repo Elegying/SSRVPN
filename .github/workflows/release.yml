@@ -371,6 +371,10 @@ jobs:
       - name: Test
         run: bash scripts/run-flutter-coverage.sh SSRVPN_MacOS
 
+      - name: Native DMG background regression tests
+        timeout-minutes: 5
+        run: python3 -m unittest scripts.test_macos_dmg_layout
+
       - name: macOS native unit tests
         timeout-minutes: 15
         run: bash scripts/test-macos-native.sh
@@ -458,6 +462,7 @@ jobs:
           test -f "$MOUNT_DIR/.background/background.png"
           test -f "$MOUNT_DIR/.DS_Store"
           grep -aFq "background.png" "$MOUNT_DIR/.DS_Store"
+          python3 scripts/macos_dmg_layout.py "$MOUNT_DIR" --verify-only
           test ! -e "$MOUNT_DIR/安装教程.txt"
           test ! -e "$MOUNT_DIR/使用教程.txt"
           test -f "$MOUNT_DIR/SSRVPN.app/Contents/Resources/third_party/THIRD_PARTY_NOTICES.md"
@@ -512,6 +517,40 @@ jobs:
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts\test_windows_policy.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+  windows-tests:
+    name: Windows Flutter tests
+    needs: [validate-source, prepare-geoip]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download verified core assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: core-assets
+          path: .
+      - name: Verify core assets
+        run: bash scripts/verify-core-assets.sh
+      - uses: ./.github/actions/setup-flutter
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Install locked dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Analyze
+        run: cd SSRVPN_Windows; flutter analyze
+
+      - name: Test
+        shell: bash
+        # Native fixtures launch Windows PowerShell. Keep their original
+        # production deadlines without competing test-file processes.
+        run: bash scripts/run-flutter-coverage.sh SSRVPN_Windows --concurrency=1
+
+      - name: Enforce coverage threshold
+        shell: bash
+        run: bash scripts/check-coverage-thresholds.sh SSRVPN_Windows --windows-native
+
   build-windows:
     name: Windows installer
     needs: [validate-source, prepare-geoip]
@@ -545,19 +584,6 @@ jobs:
 
       - name: Install locked dependencies
         run: flutter pub get --enforce-lockfile
-
-      - name: Analyze
-        run: cd SSRVPN_Windows; flutter analyze
-
-      - name: Test
-        shell: bash
-        # Native fixtures launch Windows PowerShell. Keep their original
-        # production deadlines without competing test-file processes.
-        run: bash scripts/run-flutter-coverage.sh SSRVPN_Windows --concurrency=1
-
-      - name: Enforce coverage threshold
-        shell: bash
-        run: bash scripts/check-coverage-thresholds.sh SSRVPN_Windows --windows-native
 
       - name: Verify imported protocol traffic
         shell: bash
@@ -628,7 +654,7 @@ jobs:
   publish:
     name: Publish Release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [validate-source, shared-test, build-android, macos-tests, build-macos, windows-policy-tests, build-windows]
+    needs: [validate-source, shared-test, build-android, macos-tests, build-macos, windows-policy-tests, windows-tests, build-windows]
     runs-on: ubuntu-latest
     environment: release
     permissions:

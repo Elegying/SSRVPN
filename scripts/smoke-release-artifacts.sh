@@ -132,6 +132,7 @@ check_dmg() {
   test -f "$MOUNT_DIR/.background/background.png"
   test -f "$MOUNT_DIR/.DS_Store"
   grep -aFq "background.png" "$MOUNT_DIR/.DS_Store"
+  python3 scripts/macos_dmg_layout.py "$MOUNT_DIR" --verify-only
   test ! -e "$MOUNT_DIR/安装教程.txt"
   test ! -e "$MOUNT_DIR/使用教程.txt"
   test -f "$MOUNT_DIR/SSRVPN.app/Contents/Resources/third_party/THIRD_PARTY_NOTICES.md"

@@ -128,7 +128,7 @@ class DependencySecurityTest(unittest.TestCase):
         check_action(ROOT / ".github/actions/setup-flutter")
 
     def test_all_flutter_workflow_steps_use_the_local_pinned_action(self) -> None:
-        for workflow, expected_count in (("ci.yml", 6), ("release.yml", 5)):
+        for workflow, expected_count in (("ci.yml", 6), ("release.yml", 6)):
             source = (ROOT / ".github/workflows" / workflow).read_text()
             self.assertEqual(
                 source.count("uses: ./.github/actions/setup-flutter"), expected_count
