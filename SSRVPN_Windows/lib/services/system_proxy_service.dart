@@ -1022,7 +1022,11 @@ if (${snapshot.hasProxyEnable ? r'$true' : r'$false'}) {
 } else {
   Remove-ItemProperty -Path \$regPath -Name ProxyEnable -ErrorAction SilentlyContinue
 }
-${windowsProxySetFlagsScript('(\$ssrvpnPreservedFlags -band 13) -bor ${snapshot.proxyEnable == 1 ? 2 : 0}', includeInterop: false)}
+\$ssrvpnEndpointFlags = (\$ssrvpnPreservedFlags -band 13) -bor ${snapshot.proxyEnable == 1 ? 2 : 0}
+if (\$ssrvpnPreservedFlags -eq 3) {
+  \$ssrvpnEndpointFlags = \$ssrvpnEndpointFlags -bor ${(snapshot.connectionFlags ?? 0) & 8}
+}
+${windowsProxySetFlagsScript(r'$ssrvpnEndpointFlags', includeInterop: false)}
 \$validTerminal = \$false
 try {
   Set-ItemProperty -Path \$backupPath -Name Valid -Type DWord -Value 0 -ErrorAction Stop

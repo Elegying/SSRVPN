@@ -41,8 +41,8 @@ try {
   [SsrvpnConnectionFlags]::Write($before)
   if ([SsrvpnConnectionFlags]::Read() -ne $before) { throw 'Disconnect did not restore flags' }
 } finally {
-  if ($hadAutoDetect) { $key.SetValue('AutoDetect', $autoDetect, $kind) }
-  else { $key.DeleteValue('AutoDetect', $false) }
+  if ($hadAutoDetect) { Set-ItemProperty -LiteralPath $path -Name AutoDetect -Value $autoDetect -Type $kind }
+  else { Remove-ItemProperty -LiteralPath $path -Name AutoDetect -ErrorAction SilentlyContinue }
   [SsrvpnConnectionFlags]::Write($original)
   $key.Dispose()
 }

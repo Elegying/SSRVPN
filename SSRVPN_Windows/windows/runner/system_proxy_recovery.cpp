@@ -700,7 +700,9 @@ bool RestoreOwnedWindowsProxyUnlocked() noexcept {
              : DeleteValueIfPresent(settings, L"ProxyEnable"));
     endpoint_restored = endpoint_restored && WriteProxyConnectionFlags(
         settings, (connection_flags & ~PROXY_TYPE_PROXY) |
-            (original.proxy_enable.value == 1 ? PROXY_TYPE_PROXY : 0));
+            (original.proxy_enable.value == 1 ? PROXY_TYPE_PROXY : 0) |
+            (flags_owned && has_original_flags
+                 ? original_flags & PROXY_TYPE_AUTO_DETECT : 0));
     const bool valid_terminal =
         endpoint_restored && SetDword(backup, L"Valid", 0);
     const bool restore_terminal =

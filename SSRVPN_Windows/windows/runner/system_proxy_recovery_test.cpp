@@ -378,9 +378,33 @@ bool TestFailedConnectionFlagsRestoreRetainsJournal() {
   return ok && RestoreOwnedWindowsProxy() && KeyIsMissing(kBackupPath);
 }
 
+bool TestBypassEditStillRestoresOwnedAutoDetectBit() {
+  RegistrySandbox sandbox;
+  if (!sandbox.Initialize() || !SeedOwnedSettings() || !SeedJournal(false)) return false;
+  HKEY settings = nullptr, backup = nullptr;
+  if (!CreateKey(kInternetSettingsPath, &settings) || !CreateKey(kBackupPath, &backup)) return false;
+  bool ok = SetDword(settings, L"TestConnectionFlags", 3) &&
+      SetString(settings, L"ProxyOverride", L"company.example") &&
+      SetDword(backup, L"OriginalConnectionFlags", 9);
+  RegCloseKey(backup);
+  ok = ok && RestoreOwnedWindowsProxy();
+  DWORD flags = 0;
+  wchar_t bypass[128] = {}; DWORD bytes = sizeof(bypass), type = 0;
+  ok = ok && ReadDword(settings, L"TestConnectionFlags", &flags) && flags == 9 &&
+      RegQueryValueExW(settings, L"ProxyOverride", nullptr, &type,
+          reinterpret_cast<BYTE*>(bypass), &bytes) == ERROR_SUCCESS &&
+      std::wstring(bypass) == L"company.example";
+  RegCloseKey(settings);
+  return ok;
+}
+
 }  // namespace
 
 int wmain() {
+  if (!TestBypassEditStillRestoresOwnedAutoDetectBit()) {
+    std::wcerr << L"bypass edit lost auto-detect recovery\n";
+    return 1;
+  }
   if (!TestFailedConnectionFlagsRestoreRetainsJournal()) {
     std::wcerr << L"failed LAN restoration lost recovery state\n";
     return 1;
