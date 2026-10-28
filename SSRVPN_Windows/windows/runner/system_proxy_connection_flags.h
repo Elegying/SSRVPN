@@ -43,6 +43,9 @@ inline bool ReadProxyConnectionFlags(HKEY settings, DWORD* flags) {
 inline bool WriteProxyConnectionFlags(HKEY settings, DWORD flags) {
   if (flags > 15) return false;
 #if defined(SSRVPN_SYSTEM_PROXY_RECOVERY_NO_WININET_NOTIFY)
+  DWORD fail = 0, size = sizeof(fail);
+  if (RegQueryValueExW(settings, L"TestFailFlagsWrite", nullptr, nullptr,
+      reinterpret_cast<BYTE*>(&fail), &size) == ERROR_SUCCESS && fail != 0) return false;
   return RegSetValueExW(settings, L"TestConnectionFlags", 0, REG_DWORD,
       reinterpret_cast<const BYTE*>(&flags), sizeof(flags)) == ERROR_SUCCESS;
 #else

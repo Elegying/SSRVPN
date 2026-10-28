@@ -108,6 +108,44 @@ void main() {
       });
     }
   }
+  test(
+      'failed LAN restore retains journal and core endpoint protection until retry',
+      () async {
+    final dir = await Directory.systemTemp.createTemp('ssrvpn-flags-retry-');
+    addTearDown(() => dir.delete(recursive: true));
+    var live = snapshot(flags: 9);
+    var fail = true;
+    final service = SystemProxyService.forTesting(
+        isWindows: true,
+        localAppData: dir.path,
+        scriptRunner: (script) async {
+          if (script.contains('ConvertTo-Json -Compress')) {
+            return ProcessResult(0, 0, jsonEncode(live), '');
+          }
+          if (script.contains("[Console]::Out.Write('TERMINAL')")) {
+            return ProcessResult(0, 0, 'FULL_RESTORE', '');
+          }
+          if (script.contains('[SsrvpnConnectionFlags]::Write([uint32](3))')) {
+            live = snapshot(flags: 3, owned: true);
+          }
+          if (script.contains('-Name RestoreInProgress -Type DWord -Value 1')) {
+            live = snapshot(flags: fail ? 3 : 9);
+            if (fail) return ProcessResult(0, 1, '', 'WinINet write denied');
+          }
+          return ProcessResult(0, 0, '', '');
+        });
+    await service.initialize(dir.path);
+    expect(await service.setSystemProxy('127.0.0.1', 7890), isTrue);
+    expect(await service.clearSystemProxy(), isFalse);
+    expect(service.recoveryPending, isTrue);
+    expect(service.endpointSafeWithPendingRecovery, isFalse);
+    final backup = File('${dir.path}/SSRVPN/runtime/system_proxy_backup.json');
+    expect(backup.existsSync(), isTrue);
+    fail = false;
+    expect(await service.clearSystemProxy(), isTrue);
+    expect(service.recoveryPending, isFalse);
+    expect(backup.existsSync(), isFalse);
+  });
   test('invalid flags stop acquisition before any network mutation', () async {
     final dir = await Directory.systemTemp.createTemp('ssrvpn-bad-flags-');
     addTearDown(() => dir.delete(recursive: true));

@@ -362,9 +362,29 @@ bool TestRecoveryWaitsForSurvivingCommand() {
   return blocked && retry.acquired();
 }
 
+bool TestFailedConnectionFlagsRestoreRetainsJournal() {
+  RegistrySandbox sandbox;
+  if (!sandbox.Initialize() || !SeedOwnedSettings() || !SeedJournal(false)) return false;
+  HKEY settings = nullptr, backup = nullptr;
+  if (!CreateKey(kInternetSettingsPath, &settings) || !CreateKey(kBackupPath, &backup)) return false;
+  bool ok = SetDword(settings, L"TestConnectionFlags", 3) &&
+      SetDword(settings, L"TestFailFlagsWrite", 1) &&
+      SetDword(backup, L"OriginalConnectionFlags", 9);
+  RegCloseKey(backup);
+  if (ok) ok = !RestoreOwnedWindowsProxy() && !KeyIsMissing(kBackupPath) &&
+               !IsOwnedWindowsProxySafeToStop();
+  ok = ok && SetDword(settings, L"TestFailFlagsWrite", 0);
+  RegCloseKey(settings);
+  return ok && RestoreOwnedWindowsProxy() && KeyIsMissing(kBackupPath);
+}
+
 }  // namespace
 
 int wmain() {
+  if (!TestFailedConnectionFlagsRestoreRetainsJournal()) {
+    std::wcerr << L"failed LAN restoration lost recovery state\n";
+    return 1;
+  }
   if (!TestRecoveryWaitsForSurvivingCommand()) {
     std::wcerr << L"surviving proxy command lock test failed\n";
     return 1;
