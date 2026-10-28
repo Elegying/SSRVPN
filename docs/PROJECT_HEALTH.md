@@ -1,8 +1,8 @@
 # SSRVPN 项目健康与发布状态
 
-最近更新：2026-10-27
+最近更新：2026-10-28
 
-当前应用版本：`v6.0.6`
+当前应用版本：`v6.0.7`
 
 最新正式版本：[GitHub Releases 当前正式版](https://github.com/Elegying/SSRVPN/releases/latest)
 
