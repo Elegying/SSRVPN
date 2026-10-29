@@ -3,6 +3,10 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:ffi/ffi.dart';
 
+class WindowsInstallerIntegrityFailure extends StateError {
+  WindowsInstallerIntegrityFailure() : super('安装包校验失败，未启动安装，请重新下载');
+}
+
 /// Ask the existing desktop shell to open the installer outside our process job.
 /// The installer owns process shutdown, proxy recovery and overwrite rollback.
 class WindowsUpdateInstaller {
@@ -12,13 +16,17 @@ class WindowsUpdateInstaller {
     String Function()? explorerPath,
     Future<void> Function(String, List<String>)? start,
   }) async {
-    if (expectedSha256 == null ||
-        !RegExp(r'^[a-fA-F0-9]{64}$').hasMatch(expectedSha256) ||
-        await FileSystemEntity.type(file.path, followLinks: false) !=
-            FileSystemEntityType.file ||
-        (await sha256.bind(file.openRead()).first).toString() !=
-            expectedSha256.toLowerCase()) {
-      throw StateError('安装包校验失败，未启动安装');
+    try {
+      if (expectedSha256 == null ||
+          !RegExp(r'^[a-fA-F0-9]{64}$').hasMatch(expectedSha256) ||
+          await FileSystemEntity.type(file.path, followLinks: false) !=
+              FileSystemEntityType.file ||
+          (await sha256.bind(file.openRead()).first).toString() !=
+              expectedSha256.toLowerCase()) {
+        throw WindowsInstallerIntegrityFailure();
+      }
+    } catch (_) {
+      throw WindowsInstallerIntegrityFailure();
     }
     final explorer = (explorerPath ?? _explorerPath)();
     await (start ?? _start)(explorer, [file.absolute.path]);

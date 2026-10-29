@@ -10,6 +10,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_windows/services/update_service.dart';
+import 'package:ssrvpn_windows/services/windows_update_installer.dart';
 import 'package:win32/win32.dart';
 
 void main() {
@@ -684,6 +685,40 @@ void main() {
       await UpdateService.matchingVerifiedInstallerMarker(reused, update),
       isNull,
     );
+  });
+
+  testWidgets(
+      'changed installer reports failure without offering manual execution',
+      (tester) async {
+    await tester.runAsync(() async {
+      final desktop = Directory.systemTemp.createTempSync('ssrvpn-integrity-');
+      addTearDown(() => desktop.deleteSync(recursive: true));
+      final bytes = utf8.encode('verified-installer');
+      late BuildContext context;
+      await tester.pumpWidget(MaterialApp(home: Builder(builder: (value) {
+        context = value;
+        return const SizedBox();
+      })));
+      final task = UpdateService.downloadUpdateToDesktop(
+          context,
+          AppUpdateInfo(
+              version: '9.9.9',
+              downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+              changelog: '',
+              sha256: sha256.convert(bytes).toString()),
+          desktopDirectory: desktop,
+          client: MockClient((_) async => http.Response.bytes(bytes, 200)),
+          filePublisher: (source, destination) async {
+            await source.copy(destination.path);
+          },
+          openInstaller: (_) async => throw WindowsInstallerIntegrityFailure());
+      await _pumpUntilFound(tester, find.text('更新失败'));
+      expect(find.text('下载完成'), findsNothing);
+      expect(find.textContaining('双击桌面安装包'), findsNothing);
+      await tester.tap(find.text('知道了'));
+      await tester.pumpAndSettle();
+      await task;
+    });
   });
 
   testWidgets('Windows update action downloads to Desktop without changing URL',

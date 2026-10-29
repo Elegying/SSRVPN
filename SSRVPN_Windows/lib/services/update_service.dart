@@ -145,6 +145,9 @@ class UpdateService {
           await (openInstaller ??
               (file) => WindowsUpdateInstaller.open(file, update.sha256))(file);
           launchRequested = true;
+        } on WindowsInstallerIntegrityFailure {
+          // A changed package is not a valid manual-install fallback.
+          rethrow;
         } catch (_) {
           // Keep the verified package and running app when Shell/UAC is unavailable.
         }
