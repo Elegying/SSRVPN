@@ -74,6 +74,17 @@ def trusted_run(repo, sha, run_id, now):
         required_names=CI.load_required_names(ROOT / ".github/main-branch-protection.json"),
     )
     if not passed:
+        # A successful scoped CI intentionally skips native jobs and emits no
+        # core archive. Implicit build-only lookup must rebuild pinned inputs,
+        # never treat that result as full acceptance or download its artifacts.
+        native = [job for job in jobs if job.get("name") == "macOS native unit tests"]
+        other_required = CI.load_required_names(ROOT / ".github/main-branch-protection.json")
+        other_required = [name for name in other_required if name != "macOS native unit tests"]
+        others_passed, _ = CI.required_jobs_succeeded(
+            jobs, run_id=run_id, sha=sha, required_names=other_required)
+        if (not explicitly_selected and others_passed and len(native) == 1 and
+                native[0].get("status") == "completed" and native[0].get("conclusion") == "skipped"):
+            return None
         raise CI.VerificationError(reason)
     return run
 

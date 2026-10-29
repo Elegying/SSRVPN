@@ -24,6 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       platform_required: ${{ steps.scope.outputs.platform_required }}
+      kind: ${{ steps.scope.outputs.kind }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -36,20 +37,22 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          platform_required="$(
-            python3 scripts/classify-ci-scope.py \
+          kind="$(
+            python3 scripts/classify-ci-scope.py --kind \
               --event "$EVENT_NAME" \
               --base "$BASE_SHA" \
               --head "$HEAD_SHA"
           )"
-          case "$platform_required" in
-            true|false) ;;
+          case "$kind" in
+            full) platform_required=true ;;
+            docs|release-tooling) platform_required=false ;;
             *)
-              echo "Invalid CI scope output: $platform_required" >&2
+              echo "Invalid CI scope output: $kind" >&2
               exit 1
               ;;
           esac
           echo "platform_required=$platform_required" >> "$GITHUB_OUTPUT"
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
 
   secret-scan:
     name: Full-history secret scan
@@ -192,9 +195,16 @@ jobs:
           name: coverage-shared
           path: packages/ssrvpn_shared/coverage
 
-      - name: Validate documentation-only change
+      - name: Validate scoped documentation and release tooling
         if: needs.changes.outputs.platform_required == 'false'
+        env:
+          CI_SCOPE_KIND: ${{ needs.changes.outputs.kind }}
         run: |
+          case "$CI_SCOPE_KIND" in
+            docs) ;;
+            release-tooling) bash scripts/test-release-tooling.sh ;;
+            *) echo "Invalid lightweight scope" >&2; exit 1 ;;
+          esac
           bash scripts/check-doc-consistency.sh
           python3 -m unittest scripts.test_third_party_licenses scripts.test_ci_docs_scope scripts.test_classify_ci_scope scripts.test_doc_consistency
 
@@ -368,9 +378,9 @@ jobs:
           echo "Invalid CI scope classification" >&2
           exit 1
 
-      - name: Skip platform build for documentation-only changes
+      - name: Skip platform build for scoped non-client changes
         if: needs.changes.outputs.platform_required == 'false'
-        run: echo "Documentation-only change; platform build is not required."
+        run: echo "Scoped documentation/release-tooling change; platform build is not required."
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         if: needs.changes.outputs.platform_required == 'true'
@@ -686,7 +696,7 @@ jobs:
             if [ "$POLICY_RESULT" != skipped ] ||
                [ "$TEST_RESULT" != skipped ] ||
                [ "$BUILD_RESULT" != skipped ]; then
-              echo "Unexpected docs-only Windows state: policy=$POLICY_RESULT tests=$TEST_RESULT build=$BUILD_RESULT" >&2
+              echo "Unexpected scoped Windows state: policy=$POLICY_RESULT tests=$TEST_RESULT build=$BUILD_RESULT" >&2
               exit 1
             fi
             exit 0
