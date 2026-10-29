@@ -61,7 +61,7 @@ class CiDocsScopeTest(unittest.TestCase):
             "runs-on: ${{ needs.changes.outputs.platform_required == 'true' && matrix.os || 'ubuntu-latest' }}",
             matrix,
         )
-        self.assertIn("Skip platform build for documentation-only changes", matrix)
+        self.assertIn("Skip platform build for scoped non-client changes", matrix)
         self.assertIn("Reject invalid CI scope", matrix)
         self.assertGreaterEqual(
             matrix.count("needs.changes.outputs.platform_required == 'true'"),
@@ -74,7 +74,7 @@ class CiDocsScopeTest(unittest.TestCase):
         for step in shared.split("      - ")[1:]:
             if "actions/checkout@" in step:
                 continue
-            if "Validate documentation-only change" in step:
+            if "Validate scoped documentation and release tooling" in step:
                 self.assertIn("platform_required == 'false'", step)
                 self.assertIn("scripts.test_third_party_licenses", step)
                 self.assertIn("check-doc-consistency.sh", step)
@@ -88,6 +88,25 @@ class CiDocsScopeTest(unittest.TestCase):
         for step in core.split("      - ")[1:]:
             if "bootstrap-core-assets.sh" in step or "uses:" in step:
                 self.assertIn("platform_required == 'true'", step)
+
+    def test_tooling_lane_runs_complete_release_regression_and_rejects_unknown_kind(self):
+        shared = job(CI.read_text(), "shared", "core-assets")
+        step = shared.split("      - name: Validate scoped documentation and release tooling", 1)[1]
+        script = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        self.assertIn("CI_SCOPE_KIND: ${{ needs.changes.outputs.kind }}", step)
+        for kind, expected, tooling in [("docs", 0, False), ("release-tooling", 0, True), ("", 1, False)]:
+            with tempfile.TemporaryDirectory() as directory:
+                trace = Path(directory) / "trace"
+                stub = 'bash() { echo "$*" >> "$TRACE"; return "${TOOL_RESULT:-0}"; }; python3() { return 0; };\n'
+                result = subprocess.run(["bash", "-e", "-c", stub + script],
+                                        env=dict(os.environ, CI_SCOPE_KIND=kind, TRACE=str(trace)), capture_output=True)
+                self.assertEqual(result.returncode, expected)
+                logged = trace.read_text() if trace.exists() else ""
+                self.assertEqual("scripts/test-release-tooling.sh" in logged, tooling)
+                if tooling:
+                    failed = subprocess.run(["bash", "-e", "-c", stub + script], env=dict(
+                        os.environ, CI_SCOPE_KIND=kind, TRACE=str(trace), TOOL_RESULT="9"), capture_output=True)
+                    self.assertEqual(failed.returncode, 9)
 
     def test_core_gate_rejects_failed_preflight_and_invalid_scope(self) -> None:
         core = job(CI.read_text(), "core-assets", "macos-native")
