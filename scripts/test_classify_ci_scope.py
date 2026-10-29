@@ -43,6 +43,8 @@ class ClassifyCiScopeTest(unittest.TestCase):
         publishing = original.replace("      - name: Generate release notes", "      - name: Generate reviewed release notes")
         self.assertEqual(baseline, classifier.release_workflow_surface(publishing))
         for modified in [original.replace("macos-15", "macos-99"),
+                         original.replace("    environment: release", "    environment: unprotected"),
+                         original.replace("needs: [validate-source, shared-test, build-android", "needs: [validate-source, build-android"),
                          original.replace("needs: [validate-source, prepare-geoip]", "needs: [validate-source]"),
                          original.replace("run: flutter analyze", "run: echo skipped"),
                          original.replace("run: python3 scripts/generate-release-notes.py --tag \"$GITHUB_REF_NAME\"", "run: echo changed"),
@@ -73,7 +75,9 @@ class ClassifyCiScopeTest(unittest.TestCase):
             base = git("rev-parse", "HEAD")
             for content, expected in [
                 (original.replace("Generate release notes", "Generate reviewed release notes"), "release-tooling"),
-                (original.replace("macos-15", "macos-99"), "full"),
+                (original.replace("macos-15", "macos-99"),
+                         original.replace("    environment: release", "    environment: unprotected"),
+                         original.replace("needs: [validate-source, shared-test, build-android", "needs: [validate-source, build-android"), "full"),
                 (None, "full"),
             ]:
                 if content is None:

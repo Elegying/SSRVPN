@@ -74,7 +74,12 @@ def release_workflow_surface(source: str) -> str:
         raise ValueError("unrecognized release publish job")
     i = publish[0]
     end = jobs[i + 1].start() if i + 1 < len(jobs) else len(source)
-    source = source[:jobs[i].start()] + source[end:]
+    publish_block = source[jobs[i].start():end]
+    if publish_block.count("    steps:\n") != 1:
+        raise ValueError("unrecognized release publish steps")
+    # Preserve publication dependencies, environment approval and permissions.
+    steps_start = jobs[i].start() + publish_block.index("    steps:\n") + len("    steps:\n")
+    source = source[:steps_start] + source[end:]
     notes_step = (
         "      - name: Validate concrete release notes before building\n"
         "        if: startsWith(github.ref, 'refs/tags/')\n"
