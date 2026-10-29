@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../utils/app_modal_coordinator.dart';
 import '../utils/node_import_policy.dart';
+import '../utils/panel_subscription_policy.dart';
 import 'ssrvpn_glass_dialog_route.dart';
 import 'ssrvpn_liquid_dialog.dart';
 
@@ -96,6 +97,7 @@ class _SsrvpnClipboardImportState extends State<SsrvpnClipboardImport>
         _failedFingerprint = null;
       }
       if (candidate == null || widget.alreadyImported(candidate)) return;
+      final subscription = PanelSubscriptionPolicy.isSubscription(candidate);
       if (_seen.contains(fingerprint)) return;
       // Do not retain node credentials in deduplication history.
       if (_seen.length >= 128) _seen.remove(_seen.first);
@@ -114,19 +116,19 @@ class _SsrvpnClipboardImportState extends State<SsrvpnClipboardImport>
           builder: (ctx) {
             _promptRoute = ModalRoute.of(ctx);
             return SsrvpnLiquidAlertDialog(
-              title: const Text('发现剪贴板节点'),
-              content: const Text('是否导入复制的节点？'),
+              title: Text(subscription ? '发现剪贴板订阅' : '发现剪贴板节点'),
+              content: Text(subscription ? '是否添加复制的订阅？' : '是否导入复制的节点？'),
               actions: [
                 TextButton(
                   onPressed: () {
                     declined = true;
                     dismissSsrvpnDialog(ctx, false);
                   },
-                  child: const Text('暂不导入'),
+                  child: Text(subscription ? '暂不添加' : '暂不导入'),
                 ),
                 FilledButton(
                   onPressed: () => dismissSsrvpnDialog(ctx, true),
-                  child: const Text('导入'),
+                  child: Text(subscription ? '添加订阅' : '导入'),
                 ),
               ],
             );
@@ -143,7 +145,7 @@ class _SsrvpnClipboardImportState extends State<SsrvpnClipboardImport>
         try {
           message = await widget.onImport(candidate);
         } catch (_) {
-          message = '导入失败，请检查节点代码后点击重试';
+          message = subscription ? '添加失败，请检查订阅地址后点击重试' : '导入失败，请检查节点代码后点击重试';
         } finally {
           if (!widget.alreadyImported(candidate)) {
             _failedFingerprint = fingerprint;
@@ -213,14 +215,21 @@ class SsrvpnServiceClipboardImport extends StatelessWidget {
         alreadyImported: (value) =>
             service.subscriptions.any((sub) => sub.url == value),
         onImport: (value) async {
+          final subscription = PanelSubscriptionPolicy.isSubscription(value);
           final result = await SubscriptionScreenController.fromService(
             service,
           ).addSubscription(value);
+          if (subscription &&
+              !result.isSuccess &&
+              result.status != SubscriptionAddStatus.duplicate &&
+              service.subscriptions.any((sub) => sub.url == value)) {
+            return '订阅已保存，暂未获取节点，请在订阅页面刷新';
+          }
           return result.isSuccess
-              ? '节点已导入'
+              ? (subscription ? '订阅已添加' : '节点已导入')
               : result.status == SubscriptionAddStatus.duplicate
-                  ? '节点已存在'
-                  : '导入失败，请检查节点代码后点击重试';
+                  ? (subscription ? '订阅已存在' : '节点已存在')
+                  : (subscription ? '添加失败，请检查订阅地址后点击重试' : '导入失败，请检查节点代码后点击重试');
         },
         child: child,
       );

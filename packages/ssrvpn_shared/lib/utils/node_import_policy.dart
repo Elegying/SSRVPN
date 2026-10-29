@@ -1,6 +1,7 @@
 import '../services/subscription_parser.dart';
 import '../utils/proxy_node_usage_policy.dart';
 import '../utils/subscription_url_policy.dart';
+import 'panel_subscription_policy.dart';
 
 /// No clipboard text is retained, logged, or imported without confirmation.
 class NodeImportPolicy {
@@ -18,7 +19,10 @@ class NodeImportPolicy {
         (uri.path.isNotEmpty && uri.path != '/' ||
             uri.hasQuery ||
             !uri.hasPort && uri.userInfo.isEmpty)) {
-      if (!allowSubscription) return null;
+      if (!allowSubscription &&
+          !PanelSubscriptionPolicy.isSubscription(value)) {
+        return null;
+      }
       try {
         SubscriptionUrlPolicy.parse(value);
         return value;

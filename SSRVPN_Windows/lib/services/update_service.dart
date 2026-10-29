@@ -14,6 +14,7 @@ import 'package:win32/win32.dart';
 
 import '../theme/app_theme.dart';
 import 'windows_desktop_directory.dart';
+import 'windows_update_installer.dart';
 
 /// 在线更新服务 - GitHub Releases。
 class UpdateService {
@@ -45,7 +46,8 @@ class UpdateService {
     http.Client? client,
     int? Function()? localProxyPort,
     VerifiedUpdateFilePublisher? filePublisher,
-    // Kept in the shared desktop API; Windows only downloads the installer.
+    // The installer owns shutdown; UAC cancellation must leave this app running.
+    VerifiedUpdateOpener? openInstaller,
     VerifiedUpdatePreparer? prepareForInstall,
   }) async {
     final update = AppUpdateInfo(
@@ -68,7 +70,7 @@ class UpdateService {
       textSecondary: AppTheme.textSecondary,
       lightTextPrimary: AppTheme.lightTextPrimary,
       lightTextSecondary: AppTheme.lightTextSecondary,
-      primaryActionLabel: '下载到桌面',
+      primaryActionLabel: '下载并打开安装包',
       openDownload: (url) => downloadUpdateToDesktop(
         context,
         SharedUpdateService.preferDownloadUrl(update, url),
@@ -76,6 +78,7 @@ class UpdateService {
         client: client,
         localProxyPort: localProxyPort,
         filePublisher: filePublisher,
+        openInstaller: openInstaller,
       ),
     );
   }
@@ -87,6 +90,7 @@ class UpdateService {
     http.Client? client,
     int? Function()? localProxyPort,
     VerifiedUpdateFilePublisher? filePublisher,
+    VerifiedUpdateOpener? openInstaller,
   }) async {
     late final Directory desktop;
     try {
@@ -119,7 +123,7 @@ class UpdateService {
               installerPublisher,
               () => publishedByThisDownload = true,
             ),
-      progressDescription: '下载并通过 SHA-256 校验后保存到桌面，不会自动启动；'
+      progressDescription: '下载并通过 SHA-256 校验后保存到桌面并自动打开；安装器将退出 SSRVPN 后覆盖安装；'
           '仅带有效专属标记的应用内安装包会在安装成功后自动清理；'
           '未带标记的已有文件会保留。',
       onVerified: (file) async {
@@ -136,11 +140,21 @@ class UpdateService {
         }
         marker ??= await matchingVerifiedInstallerMarker(file, update);
         if (!context.mounted) return;
+        var launchRequested = false;
+        try {
+          await (openInstaller ??
+              (file) => WindowsUpdateInstaller.open(file, update.sha256))(file);
+          launchRequested = true;
+        } catch (_) {
+          // Keep the verified package and running app when Shell/UAC is unavailable.
+        }
+        if (!context.mounted) return;
         await _showDesktopDownloadComplete(
           context,
           file,
           markedForAutomaticCleanup: marker != null,
           reusedExistingInstaller: !publishedByThisDownload,
+          launchRequested: launchRequested,
         );
       },
     );
@@ -558,16 +572,17 @@ class UpdateService {
     File file, {
     required bool markedForAutomaticCleanup,
     required bool reusedExistingInstaller,
+    required bool launchRequested,
   }) async {
     if (!context.mounted) return;
     final completionMessage = markedForAutomaticCleanup
-        ? '最新版安装包已下载到桌面并完成安全标记。请手动安装；'
+        ? '最新版安装包已下载到桌面并完成安全标记。'
             '安装成功后会自动清理，取消或失败时保留。'
         : reusedExistingInstaller
-            ? '桌面已有通过 SHA-256 校验的同版本安装包。请手动安装；'
+            ? '桌面已有通过 SHA-256 校验的同版本安装包。'
                 '该文件未由本次下载认领，安装后会保留。'
             : '安装包已下载到桌面并通过 SHA-256 校验，但安装后无法自动删除。'
-                '请手动安装；安装完成后请自行删除桌面安装包。';
+                '安装完成后请自行删除桌面安装包。';
     await showSsrvpnGlassDialog<void>(
       context: context,
       builder: (dialogContext) => SsrvpnLiquidAlertDialog(
@@ -577,6 +592,9 @@ class UpdateService {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Text(launchRequested
+                ? '已请求打开安装包，请在安装向导中继续。安装器会退出 SSRVPN 后覆盖安装；取消安装不会主动退出客户端。'
+                : '未能自动打开安装包，SSRVPN 保持运行。请双击桌面安装包重试。'),
             Text(completionMessage),
             const SizedBox(height: 8),
             SelectableText(
