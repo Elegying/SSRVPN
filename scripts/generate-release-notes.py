@@ -63,9 +63,29 @@ def extract_changelog_section(changelog: str, tag: str) -> str:
     return normalize_changelog_headings(section)
 
 
+def validate_release_notes(notes: str) -> None:
+    # Exact generic clauses only: concrete explanations containing these words
+    # are allowed. This rejects templates, not a substitute for source review.
+    generic = {
+        "优化稳定性", "提升稳定性", "提升连接体验", "优化连接体验",
+        "修复已知问题", "修复若干问题", "优化用户体验", "提升用户体验",
+        "性能优化", "优化性能", "修复bug", "bugfixes", "improvements",
+        "update", "待补充", "待完善", "todo", "tbd",
+    }
+    entries = re.findall(r"^\s*[-*+]\s+(.+)$", notes, re.MULTILINE)
+    if not entries:
+        raise SystemExit("release notes must list concrete changes")
+    for entry in entries:
+        plain = re.sub(r"[*_`\s]", "", entry).lower()
+        clauses = [part for part in re.split(r"[，,。.;；!！、]+", plain) if part]
+        if clauses and all(part in generic for part in clauses):
+            raise SystemExit("release notes contain generic placeholder text; describe the actual change and impact")
+
+
 def build_release_notes(changelog_path: Path, tag: str) -> str:
     changelog = changelog_path.read_text(encoding="utf-8")
     notes = extract_changelog_section(changelog, tag)
+    validate_release_notes(notes)
     return f"## SSRVPN {tag}\n\n{notes}\n\n{DOWNLOADS}"
 
 
