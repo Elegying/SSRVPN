@@ -113,6 +113,26 @@ class ReuseCiCoreAssetsTest(unittest.TestCase):
         self.run["created_at"] = "2026-09-07T10:59:59Z"
         self.assertFalse(self.restore())
 
+    def test_scoped_main_ci_rebuilds_and_never_reads_core_artifacts(self):
+        next(job for job in self.jobs if job["name"] == "macOS native unit tests")["conclusion"] = "skipped"
+        original_pages = self.pages
+        def no_artifacts(endpoint, collection, fields):
+            self.assertNotIn("/artifacts", endpoint)
+            return original_pages(endpoint, collection, fields)
+        with patch.object(self, "pages", side_effect=no_artifacts):
+            self.assertFalse(self.restore(run_id=None))
+        self.assertTrue(all(not (self.root / name).exists() for name in self.payloads))
+        with self.assertRaises(MODULE.CI.VerificationError):
+            self.restore(run_id=777)
+
+    def test_scoped_ci_with_another_missing_or_failed_gate_is_rejected(self):
+        next(job for job in self.jobs if job["name"] == "macOS native unit tests")["conclusion"] = "skipped"
+        target = next(job for job in self.jobs if job["name"] == "Workspace checks")
+        for conclusion in ["failure", "skipped", "cancelled"]:
+            target["conclusion"] = conclusion
+            with self.subTest(conclusion=conclusion), self.assertRaises(MODULE.CI.VerificationError):
+                self.restore(run_id=None)
+
     def test_active_exact_main_ci_rebuilds_without_reading_artifacts(self):
         for status in MODULE.CI.WAITABLE_STATUSES:
             with self.subTest(status=status):
