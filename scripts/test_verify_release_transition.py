@@ -194,7 +194,9 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
             workflow,
         )
         oss_publish = workflow.index("Publish immutable release to OSS")
-        github_finalize = workflow.index('gh release edit "$tag" --draft=false')
+        github_finalize = workflow.index(
+            'gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id"'
+        )
         self.assertLess(github_release, oss_publish)
         public_promote = workflow.index("Promote OSS public channel")
         self.assertLess(oss_publish, public_promote)
@@ -202,10 +204,14 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
         self.assertIn("scripts/promote-oss-public-channel.sh", workflow)
         self.assertIn("OSS_PRESERVE_BACKUP=1", workflow)
         self.assertIn('--restore "$backup_dir"', workflow)
-        self.assertIn("--prerelease=false --latest", workflow)
+        self.assertIn("-F draft=false -F prerelease=false -f make_latest=true", workflow)
+        self.assertNotIn("gh release edit", workflow)
         self.assertIn(
-            'gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/'
-            '$EXPECTED_RELEASE_RETRY_ID"',
+            'release_id="$(python3 -c ',
+            workflow,
+        )
+        self.assertIn(
+            'Resolved GitHub release $release_id is not the authorized retry',
             workflow,
         )
         self.assertIn("scripts/wait-for-github-release-public.sh", workflow)
