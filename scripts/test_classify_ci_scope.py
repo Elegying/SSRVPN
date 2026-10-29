@@ -75,9 +75,9 @@ class ClassifyCiScopeTest(unittest.TestCase):
             base = git("rev-parse", "HEAD")
             for content, expected in [
                 (original.replace("Generate release notes", "Generate reviewed release notes"), "release-tooling"),
-                (original.replace("macos-15", "macos-99"),
-                         original.replace("    environment: release", "    environment: unprotected"),
-                         original.replace("needs: [validate-source, shared-test, build-android", "needs: [validate-source, build-android"), "full"),
+                (original.replace("macos-15", "macos-99"), "full"),
+                (original.replace("    environment: release", "    environment: unprotected"), "full"),
+                (original.replace("needs: [validate-source, shared-test, build-android", "needs: [validate-source, build-android"), "full"),
                 (None, "full"),
             ]:
                 if content is None:
