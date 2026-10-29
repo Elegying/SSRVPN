@@ -199,6 +199,48 @@ function Test-ReachableProxyTransactionState {
   return $false
 }
 
+# Turns the Windows "Automatically detect settings" switch back on after a
+# proxy session ended without a replayable recovery record. The LAN checkbox
+# is stored twice: byte 8 of DefaultConnectionSettings (under the Connections
+# subkey, where the dialog keeps the per-connection flags) and the legacy
+# AutoDetect DWORD that WinINet reads back when it rebuilds those flags. Both
+# are written ahead of the caller's WinINet notification, because restoring
+# either one alone leaves the checkbox off.
+# This only ever turns the switch on: nothing except an explicit user action
+# may clear it, and the caller must already have proven the endpoint was ours.
+function Restore-AbandonedAutoDetect {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  $current = Get-ItemProperty -Path $Path
+  $autoDetect = $current.PSObject.Properties['AutoDetect']
+  $connectionsPath = Join-Path $Path 'Connections'
+  $blob = $null
+  if (Test-Path -LiteralPath $connectionsPath) {
+    $stored = Get-ItemProperty -LiteralPath $connectionsPath
+    $flags = $stored.PSObject.Properties['DefaultConnectionSettings']
+    if ($null -ne $flags -and $flags.Value -is [byte[]] -and
+        $flags.Value.Length -ge 9) {
+      $blob = $flags.Value
+    }
+  }
+  $flagsOn = $null -ne $blob -and ([int]$blob[8] -band 8) -ne 0
+  $dwordOn = $null -ne $autoDetect -and $autoDetect.Value -is [int] -and
+    [int]$autoDetect.Value -eq 1
+  if ($flagsOn -and $dwordOn) { return $false }
+
+  $updated = $null
+  if ($null -ne $blob) {
+    $updated = [byte[]]$blob.Clone()
+    $updated[8] = [byte]($updated[8] -bor 8)
+  }
+  Set-ItemProperty -Path $Path -Name AutoDetect -Type DWord -Value 1
+  if ($null -ne $updated) {
+    Set-ItemProperty -LiteralPath $connectionsPath `
+      -Name DefaultConnectionSettings -Type Binary -Value $updated
+  }
+  return $true
+}
+
 # Reports whether this installation holds any proxy recovery record. This is
 # a pure path probe with no dependency on process identity, so it lives with
 # the other proxy transaction state helpers rather than in the process

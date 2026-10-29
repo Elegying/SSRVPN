@@ -1335,6 +1335,33 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("ProxyEnable -Type DWord -Value 0", invalid_repair)
         self.assertIn("Remove-ProxyRecoveryState", invalid_repair)
         self.assertIn("$autoDetectDisabled", invalid_repair)
+        # An abandoned-but-owned session must also give the LAN
+        # "automatically detect settings" switch back; clearing ProxyEnable
+        # alone leaves the switch off with no record left to restore it.
+        self.assertIn("Restore-AbandonedAutoDetect -Path $regPath", invalid_repair)
+        self.assertLess(
+            invalid_repair.index("ProxyEnable -Type DWord -Value 0"),
+            invalid_repair.index("Restore-AbandonedAutoDetect -Path $regPath"),
+        )
+        self.assertLess(
+            invalid_repair.index("Restore-AbandonedAutoDetect -Path $regPath"),
+            invalid_repair.index("Notify-WinInetProxyChange"),
+        )
+        abandoned_restore = (
+            ROOT / "SSRVPN_Windows" / "installer" /
+            "proxy_transaction_state.ps1"
+        ).read_text(encoding="utf-8")
+        abandoned_restore = abandoned_restore.split(
+            "function Restore-AbandonedAutoDetect", 1
+        )[1].split("function Test-ProxyRecoveryStatePresent", 1)[0]
+        self.assertIn("DefaultConnectionSettings", abandoned_restore)
+        self.assertIn(
+            "$updated[8] = [byte]($updated[8] -bor 8)", abandoned_restore
+        )
+        self.assertIn("AutoDetect -Type DWord -Value 1", abandoned_restore)
+        self.assertIn("if ($flagsOn -and $dwordOn) { return $false }",
+                      abandoned_restore)
+        self.assertNotIn("-Value 0", abandoned_restore)
         restore = stopper.split("function Restore-OwnedSystemProxy", 1)[1]
         self.assertLess(
             restore.index("Repair-InvalidProxyRecoveryState"),

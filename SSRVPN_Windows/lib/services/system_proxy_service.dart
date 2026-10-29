@@ -969,17 +969,12 @@ if (${snapshot.hasAutoConfigUrl ? r'$true' : r'$false'}) {
 } else {
   Remove-ItemProperty -Path \$regPath -Name AutoConfigURL -ErrorAction SilentlyContinue
 }
-if (${snapshot.hasAutoDetect ? r'$true' : r'$false'}) {
-  Set-ItemProperty -Path \$regPath -Name AutoDetect -Type DWord -Value ${snapshot.autoDetect}
-} else {
-  Remove-ItemProperty -Path \$regPath -Name AutoDetect -ErrorAction SilentlyContinue
-}
 if (${snapshot.hasProxyEnable ? r'$true' : r'$false'}) {
   Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value ${snapshot.proxyEnable}
 } else {
   Remove-ItemProperty -Path \$regPath -Name ProxyEnable -ErrorAction SilentlyContinue
 }
-${windowsProxySetFlagsScript(snapshot.connectionFlags?.toString() ?? '(\$ssrvpnPreservedFlags -band 13) -bor ${snapshot.proxyEnable == 1 ? 2 : 0}', includeInterop: false)}
+${windowsProxyRestoreFlagsScript(snapshot.connectionFlags?.toString() ?? '(\$ssrvpnPreservedFlags -band 13) -bor ${snapshot.proxyEnable == 1 ? 2 : 0} -bor ${snapshot.hasAutoDetect && snapshot.autoDetect == 1 ? 8 : 0}', autoDetectWhenDisabled: snapshot.hasAutoDetect ? '  Set-ItemProperty -Path \$regPath -Name AutoDetect -Type DWord -Value ${snapshot.autoDetect}' : r'  Remove-ItemProperty -Path $regPath -Name AutoDetect -ErrorAction SilentlyContinue')}
 \$validTerminal = \$false
 try {
   Set-ItemProperty -Path \$backupPath -Name Valid -Type DWord -Value 0 -ErrorAction Stop
@@ -1023,10 +1018,10 @@ if (${snapshot.hasProxyEnable ? r'$true' : r'$false'}) {
   Remove-ItemProperty -Path \$regPath -Name ProxyEnable -ErrorAction SilentlyContinue
 }
 \$ssrvpnEndpointFlags = (\$ssrvpnPreservedFlags -band 13) -bor ${snapshot.proxyEnable == 1 ? 2 : 0}
-if (\$ssrvpnPreservedFlags -eq 3) {
+if ((\$ssrvpnPreservedFlags -band 8) -eq 0) {
   \$ssrvpnEndpointFlags = \$ssrvpnEndpointFlags -bor ${(snapshot.connectionFlags ?? 0) & 8}
 }
-${windowsProxySetFlagsScript(r'$ssrvpnEndpointFlags', includeInterop: false)}
+${windowsProxyRestoreFlagsScript(r'$ssrvpnEndpointFlags', autoDetectWhenDisabled: r'  Set-ItemProperty -Path $regPath -Name AutoDetect -Type DWord -Value 0')}
 \$validTerminal = \$false
 try {
   Set-ItemProperty -Path \$backupPath -Name Valid -Type DWord -Value 0 -ErrorAction Stop

@@ -916,10 +916,8 @@ function Repair-InvalidProxyRecoveryState {
   $hasAutoDetect = $null -ne $current.PSObject.Properties['AutoDetect']
   $hasAutoConfigUrl = $null -ne $current.PSObject.Properties['AutoConfigURL']
   $autoDetectDisabled = -not $hasAutoDetect -or
-    ((Test-DwordFlag -Value $current.AutoDetect) -and
-      [int]$current.AutoDetect -eq 0)
-  $proxyEnabled = (Test-DwordFlag -Value $current.ProxyEnable) -and
-    [int]$current.ProxyEnable -eq 1
+    ((Test-DwordFlag -Value $current.AutoDetect) -and [int]$current.AutoDetect -eq 0)
+  $proxyEnabled = (Test-DwordFlag -Value $current.ProxyEnable) -and [int]$current.ProxyEnable -eq 1
   $ownedFingerprint = $proxyEnabled -and
     $hasProxyServer -and
     (Test-OwnedProxyServer -Value ([string]$current.ProxyServer)) -and
@@ -929,6 +927,7 @@ function Repair-InvalidProxyRecoveryState {
     -not $hasAutoConfigUrl
   if ($ownedFingerprint) {
     Set-ItemProperty -Path $regPath -Name ProxyEnable -Type DWord -Value 0
+    Restore-AbandonedAutoDetect -Path $regPath | Out-Null
     Notify-WinInetProxyChange
   }
   Remove-ProxyRecoveryState
@@ -948,10 +947,8 @@ function Restore-OwnedSystemProxy {
   $hasAutoDetect = $null -ne $current.PSObject.Properties['AutoDetect']
   $hasAutoConfigUrl = $null -ne $current.PSObject.Properties['AutoConfigURL']
   $autoDetectDisabled = -not $hasAutoDetect -or
-    ((Test-DwordFlag -Value $current.AutoDetect) -and
-      [int]$current.AutoDetect -eq 0)
-  $proxyEnabled = (Test-DwordFlag -Value $current.ProxyEnable) -and
-    [int]$current.ProxyEnable -eq 1
+    ((Test-DwordFlag -Value $current.AutoDetect) -and [int]$current.AutoDetect -eq 0)
+  $proxyEnabled = (Test-DwordFlag -Value $current.ProxyEnable) -and [int]$current.ProxyEnable -eq 1
   $owned = $proxyEnabled -and
     $hasProxyServer -and [string]$current.ProxyServer -eq $backup.ownedProxyServer -and
     $hasProxyOverride -and [string]$current.ProxyOverride -eq $backup.ownedProxyOverride -and

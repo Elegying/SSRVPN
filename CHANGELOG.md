@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [6.0.10] - 2026-10-29
+
+- 修复 Windows 系统代理模式断开后“自动检测设置”未恢复勾选的问题；该开关在系统里有两处记录，恢复时一并还原，正常断开、意外退出后重新启动、以及安装或卸载时清理残留代理都会恢复，不再需要手动重新勾选。
 
 ## [6.0.9] - 2026-10-28
 
