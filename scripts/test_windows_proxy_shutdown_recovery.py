@@ -1613,13 +1613,14 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("现有进程未被终止", failure)
         self.assertIn("assigned_to_job = true", failure)
 
-    def test_in_app_update_never_launches_the_downloaded_installer(self) -> None:
+    def test_in_app_update_opens_verified_installer_without_early_app_shutdown(self) -> None:
         update_service = (
             ROOT / "SSRVPN_Windows" / "lib" / "services" / "update_service.dart"
         ).read_text(encoding="utf-8")
 
         self.assertIn("downloadUpdateToDesktop", update_service)
-        self.assertIn("下载到桌面", update_service)
+        self.assertIn("下载并打开安装包", update_service)
+        self.assertIn("WindowsUpdateInstaller.open(file, update.sha256)", update_service)
         self.assertNotIn("explorer.exe", update_service)
         self.assertNotIn("WindowsDetachedInstallerLauncher", update_service)
         self.assertNotIn("onInstallerHandoff", update_service)

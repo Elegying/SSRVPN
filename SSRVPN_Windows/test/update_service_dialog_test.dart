@@ -10,6 +10,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_windows/services/update_service.dart';
+import 'package:ssrvpn_windows/services/windows_update_installer.dart';
 import 'package:win32/win32.dart';
 
 void main() {
@@ -686,6 +687,40 @@ void main() {
     );
   });
 
+  testWidgets(
+      'changed installer reports failure without offering manual execution',
+      (tester) async {
+    await tester.runAsync(() async {
+      final desktop = Directory.systemTemp.createTempSync('ssrvpn-integrity-');
+      addTearDown(() => desktop.deleteSync(recursive: true));
+      final bytes = utf8.encode('verified-installer');
+      late BuildContext context;
+      await tester.pumpWidget(MaterialApp(home: Builder(builder: (value) {
+        context = value;
+        return const SizedBox();
+      })));
+      final task = UpdateService.downloadUpdateToDesktop(
+          context,
+          AppUpdateInfo(
+              version: '9.9.9',
+              downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+              changelog: '',
+              sha256: sha256.convert(bytes).toString()),
+          desktopDirectory: desktop,
+          client: MockClient((_) async => http.Response.bytes(bytes, 200)),
+          filePublisher: (source, destination) async {
+            await source.copy(destination.path);
+          },
+          openInstaller: (_) async => throw WindowsInstallerIntegrityFailure());
+      await _pumpUntilFound(tester, find.text('更新失败'));
+      expect(find.text('下载完成'), findsNothing);
+      expect(find.textContaining('双击桌面安装包'), findsNothing);
+      await tester.tap(find.text('知道了'));
+      await tester.pumpAndSettle();
+      await task;
+    });
+  });
+
   testWidgets('Windows update action downloads to Desktop without changing URL',
       (tester) async {
     await tester.runAsync(() async {
@@ -704,6 +739,7 @@ void main() {
       );
       final response = Completer<http.Response>();
       Uri? requestedUrl;
+      var installerLaunches = 0;
       addTearDown(() {
         if (!response.isCompleted) {
           response.completeError(StateError('test download cancelled'));
@@ -728,6 +764,10 @@ void main() {
         changelog: '修复 Windows 更新流程',
         sha256: sha256.convert(bytes).toString(),
         desktopDirectory: desktop,
+        openInstaller: (file) async {
+          expect(await file.readAsBytes(), bytes);
+          installerLaunches++;
+        },
         client: MockClient((request) {
           requestedUrl = request.url;
           return response.future;
@@ -738,12 +778,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('下载到桌面'), findsOneWidget);
+      expect(find.text('下载并打开安装包'), findsOneWidget);
       expect(find.text('立即更新'), findsNothing);
-      await tester.tap(find.text('下载到桌面'));
+      await tester.tap(find.text('下载并打开安装包'));
       await tester.pump();
       final progressDescription = find.text(
-        '下载并通过 SHA-256 校验后保存到桌面，不会自动启动；'
+        '下载并通过 SHA-256 校验后保存到桌面并自动打开；安装器将退出 SSRVPN 后覆盖安装；'
         '仅带有效专属标记的应用内安装包会在安装成功后自动清理；'
         '未带标记的已有文件会保留。',
       );
@@ -752,9 +792,10 @@ void main() {
       final showedDesktopProgress = progressDescription.evaluate().isNotEmpty;
       final stalePartSurvivedUntilDownloadStarted = stalePart.existsSync();
 
+      expect(installerLaunches, 0);
       response.complete(http.Response.bytes(bytes, HttpStatus.ok));
       final completionMessage = find.text(
-        '最新版安装包已下载到桌面并完成安全标记。请手动安装；'
+        '最新版安装包已下载到桌面并完成安全标记。'
         '安装成功后会自动清理，取消或失败时保留。',
       );
       await _pumpUntilFound(tester, completionMessage);
@@ -784,6 +825,7 @@ void main() {
       expect(showedDesktopProgress, isTrue);
       expect(stalePartSurvivedUntilDownloadStarted, isTrue);
       expect(showedCompletion, isTrue);
+      expect(installerLaunches, 1);
       expect(SharedUpdateService.isVerifiedDownloadInProgress, isFalse);
       expect(
         requestedUrl,
@@ -848,6 +890,7 @@ void main() {
           changelog: '',
           sha256: sha256.convert(bytes).toString(),
           desktopDirectory: desktop,
+          openInstaller: (_) async {},
           client: MockClient((_) async {
             throw StateError('matching existing installer must skip download');
           }),
@@ -857,10 +900,10 @@ void main() {
           },
         );
         await tester.pumpAndSettle();
-        await tester.tap(find.text('下载到桌面'));
+        await tester.tap(find.text('下载并打开安装包'));
         await tester.pump();
 
-        const retainedMessage = '桌面已有通过 SHA-256 校验的同版本安装包。请手动安装；'
+        const retainedMessage = '桌面已有通过 SHA-256 校验的同版本安装包。'
             '该文件未由本次下载认领，安装后会保留。';
         await _pumpUntilFound(tester, find.text(retainedMessage));
         expect(find.text(retainedMessage), findsOneWidget);
@@ -911,6 +954,8 @@ void main() {
             sha256: sha256.convert(bytes).toString(),
           ),
           desktopDirectory: desktop,
+          openInstaller: (_) async =>
+              throw StateError('synthetic launch failure'),
           client: MockClient(
             (_) => response.future,
           ),
@@ -928,10 +973,11 @@ void main() {
         await _pumpUntilFound(tester, find.text('下载完成'));
 
         const expectedMessage = '安装包已下载到桌面并通过 SHA-256 校验，但安装后无法自动删除。'
-            '请手动安装；安装完成后请自行删除桌面安装包。';
+            '安装完成后请自行删除桌面安装包。';
         final showedExpectedMessage =
             find.text(expectedMessage).evaluate().isNotEmpty;
         expect(find.text('下载完成'), findsOneWidget);
+        expect(find.textContaining('未能自动打开安装包'), findsOneWidget);
         await tester.tap(find.text('知道了').last);
         await tester.pumpAndSettle();
         await download;

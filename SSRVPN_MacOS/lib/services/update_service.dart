@@ -91,8 +91,8 @@ class UpdateService {
                   const SizedBox(height: 12),
                   const Text(
                     '下载并校验完成后会先安全断开当前连接，再打开 DMG。'
-                    '拖入“应用程序”文件夹替换旧版本前，请先彻底退出当前 SSRVPN，'
-                    '不要在旧进程仍运行时覆盖；替换完成后再重新启动 SSRVPN。',
+                    '拖入“应用程序”文件夹替换旧版本前，请先彻底退出当前 SSRVPN（菜单栏图标 → 退出），'
+                    '仅关闭窗口不会退出后台；退出后拖入并选择“替换”；替换完成后再重新启动 SSRVPN。',
                   ),
                   if (changelog.trim().isNotEmpty) ...[
                     const SizedBox(height: 16),

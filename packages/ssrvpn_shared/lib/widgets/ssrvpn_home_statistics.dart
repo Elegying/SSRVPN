@@ -88,7 +88,8 @@ class _StatisticsState extends State<SsrvpnHomeStatistics>
                   connected: widget.connected,
                   readSample: widget.readSample,
                   subscriptionUsage:
-                      PrivateNodeLatencyPolicy.appliesTo(widget.node)
+                      (PrivateNodeLatencyPolicy.appliesTo(widget.node) ||
+                              _account.statusMessage != null)
                           ? null
                           : widget.subscriptionUsage,
                   accountUsage: _account.displayValue,
@@ -100,7 +101,8 @@ class _StatisticsState extends State<SsrvpnHomeStatistics>
                           : _account.value == null
                               ? '暂未更新'
                               : '统计已更新')),
-          if (!PrivateNodeLatencyPolicy.appliesTo(widget.node))
+          if (!PrivateNodeLatencyPolicy.appliesTo(widget.node) &&
+              _account.statusMessage == null)
             SsrvpnSubscriptionExpiryNotice(
                 usage: widget.subscriptionUsage,
                 active: widget.active,

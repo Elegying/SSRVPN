@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:ssrvpn_shared/services/account_usage_provider.dart';
+import 'package:ssrvpn_shared/services/subscription_parser.dart';
 import 'dart:io';
 
 import 'package:ssrvpn_shared/services/subscription_service_base.dart';
@@ -9,6 +12,59 @@ import 'package:ssrvpn_shared/utils/bounded_yaml.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('refresh and cached parsing preserve dynamic account binding', () async {
+    final service = _FakeSubscriptionService();
+    addTearDown(service.dispose);
+    final providers = AccountUsageProviders.fromJson(jsonEncode([
+      {
+        'id': 'central',
+        'origin': 'https://panel.example.test:19998',
+        'nodes': [
+          {
+            'id': 'legacy',
+            'server': 'old.example.test',
+            'port': 443,
+            'protocol': 'hysteria2'
+          }
+        ],
+      }
+    ]));
+    String content(String server, int port) => jsonEncode({
+          'proxies': [
+            {
+              'name': '自定义名称',
+              'type': 'hysteria2',
+              'server': server,
+              'port': port,
+              'password': 'synthetic-secret',
+              'ssrvpn-account-usage': {
+                'version': 1,
+                'origin': 'https://panel.example.test:19998'
+              },
+            }
+          ]
+        });
+    service.response = content('hk.changed.example', 19999);
+    await service.addSubscription(
+        'Regions', 'https://panel.example.test:19998/sub/fixed');
+    await service.refreshAllSubscriptions();
+    final before = providers.resolve(service.allNodes.single)!;
+    final url = service.subscriptions.single.url;
+    service.response = content('jp.changed.example', 8443);
+    await service.refreshAllSubscriptions();
+    final after = providers.resolve(service.allNodes.single)!;
+    expect(service.subscriptions.single.url, url);
+    expect(before.retryKey, after.retryKey);
+    expect(after.nodePort, 8443);
+    final restored =
+        SubscriptionParser.parseYaml(service.cachedYaml!).nodes.single;
+    expect(providers.resolve(restored)!.key, after.key);
+    service.failCacheWrites = true;
+    service.response = content('failed.changed.example', 12345);
+    await expectLater(
+        service.refreshAllSubscriptions(), throwsA(isA<FileSystemException>()));
+    expect(providers.resolve(service.allNodes.single)!.key, after.key);
+  });
   test('default-port proxies do not turn subscription URLs into node links',
       () {
     final service = _FakeSubscriptionService();

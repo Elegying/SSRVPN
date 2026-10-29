@@ -54,6 +54,7 @@ void main() {
         sha256: sha256.convert(bytes).toString(),
       ),
       desktopDirectory: desktop,
+      openInstaller: (_) async {},
       client: MockClient(
         (_) async => http.Response.bytes(bytes, HttpStatus.ok),
       ),

@@ -1,18 +1,23 @@
 import '../utils/private_node_latency_policy.dart';
+import '../utils/panel_subscription_policy.dart';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import '../models/proxy_node.dart';
 
-/// Compiled/operator configuration only. Never populated from a node's extra fields.
+/// Operator configuration pins trusted HTTPS origins. Subscriptions may bind
+/// changing node addresses only to those existing trusted origins.
 class AccountUsageProviders {
-  AccountUsageProviders._(this._members);
+  AccountUsageProviders._(this._members, {this.includePanel = false});
   final List<_Membership> _members;
+  final bool includePanel;
 
   static final configured = AccountUsageProviders.fromJson(
       const String.fromEnvironment('SSRVPN_USAGE_PROVIDERS',
-          defaultValue: '[]'));
+          defaultValue: '[]'),
+      includePanel: true);
 
-  factory AccountUsageProviders.fromJson(String source) {
+  factory AccountUsageProviders.fromJson(String source,
+      {bool includePanel = false}) {
     try {
       final json = jsonDecode(source);
       if (json is! List<dynamic> || json.length > 32) {
@@ -72,7 +77,8 @@ class AccountUsageProviders {
               name as String?));
         }
       }
-      return AccountUsageProviders._(List.unmodifiable(members));
+      return AccountUsageProviders._(List.unmodifiable(members),
+          includePanel: includePanel);
     } catch (_) {
       // Invalid trust configuration fails closed, without logging its contents.
       return AccountUsageProviders._(const []);
@@ -81,7 +87,6 @@ class AccountUsageProviders {
 
   UsageIdentity? resolve(ProxyNode? node) {
     if (node == null ||
-        !PrivateNodeLatencyPolicy.appliesTo(node) ||
         !const {'hysteria2', 'hy2'}.contains(node.type.toLowerCase())) {
       return null;
     }
@@ -98,6 +103,44 @@ class AccountUsageProviders {
     } catch (_) {
       return null;
     }
+    if (node.extra.containsKey('ssrvpn-account-usage')) {
+      final binding = node.extra['ssrvpn-account-usage'];
+      if (binding is! Map ||
+          binding.length != 2 ||
+          binding['version'] != 1 ||
+          binding['version'] is! int ||
+          binding['origin'] is! String ||
+          node.port < 1 ||
+          node.port > 65535) {
+        return null;
+      }
+      final origin = binding['origin'] as String;
+      if (includePanel && origin == PanelSubscriptionPolicy.origin) {
+        return UsageIdentity._(
+            _Membership(
+                'ssrvpn-panel',
+                'subscription',
+                Uri.parse(
+                    '${PanelSubscriptionPolicy.origin}/api/v1/user/usage'),
+                server,
+                node.port,
+                null),
+            password);
+      }
+      // Exact match only: no redirects, paths, userinfo, suffix matching or
+      // subscription-controlled endpoint. The destination comes from the
+      // operator configuration, never from the supplied string.
+      for (final member in _members) {
+        if (origin == member.endpoint.origin) {
+          return UsageIdentity._(
+              _Membership(member.provider, 'subscription', member.endpoint,
+                  server, node.port, null),
+              password);
+        }
+      }
+      return null;
+    }
+    if (!PrivateNodeLatencyPolicy.appliesTo(node)) return null;
     final managed = PrivateNodeLatencyPolicy.isManagedHost(server);
     final named = _members.any((member) => member.nodeName == node.name);
     for (final member in _members) {
