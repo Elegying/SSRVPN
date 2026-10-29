@@ -635,6 +635,29 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
             r"(?m)^\s*python3 scripts/sync-geoip-metadb\.py\s*$",
         )
 
+    def test_publish_resolves_hidden_draft_by_id_before_promoting_oss(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(
+            encoding="utf-8"
+        )
+        promote = workflow.split(
+            "Promote OSS public channel and finalize GitHub Release", 1
+        )[1].split("Verify published GitHub and OSS channels", 1)[0]
+
+        # GitHub hides drafts from the tag lookup, so the publish path must not
+        # depend on that lookup alone and must finalize by numeric ID.
+        self.assertNotIn("gh release edit", promote)
+        self.assertIn("--paginate --slurp", promote)
+        self.assertIn('releases/$release_id"', promote)
+        self.assertIn('poll_release_id="$release_id"', promote)
+        self.assertIn(
+            "Resolved GitHub release $release_id is not the authorized retry",
+            promote,
+        )
+        self.assertLess(
+            promote.index("--paginate --slurp"),
+            promote.index("bash scripts/promote-oss-public-channel.sh"),
+        )
+
     def test_upstream_geoip_change_does_not_mutate_release_source(self) -> None:
         result, commands, output, summary = self._run_preparer(
             geoip_changed=True
