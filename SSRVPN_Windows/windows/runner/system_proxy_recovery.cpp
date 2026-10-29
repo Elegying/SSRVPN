@@ -692,6 +692,20 @@ bool RestoreOwnedWindowsProxyUnlocked() noexcept {
   const bool restore_endpoint =
       (!restore_full && endpoint_owned) || endpoint_restore_prefix;
   if (restore_endpoint) {
+    // This path only runs once something other than SSRVPN edited the support
+    // values, so the exact owned fingerprint is gone. The auto-detect bit is
+    // therefore only ever restored, never cleared: SSRVPN cleared it on
+    // acquisition, and a third party can only have turned it back on. Gating
+    // the restore on the exact owned flags dropped the user's checkbox
+    // silently whenever anything else touched the connection flags.
+    const DWORD restored_flags =
+        (connection_flags & ~PROXY_TYPE_PROXY) |
+        (original.proxy_enable.value == 1 ? PROXY_TYPE_PROXY : 0) |
+        ((connection_flags & PROXY_TYPE_AUTO_DETECT) == 0 &&
+                 has_original_flags &&
+                 (original_flags & PROXY_TYPE_AUTO_DETECT) != 0
+             ? PROXY_TYPE_AUTO_DETECT
+             : 0);
     bool endpoint_restored =
         snapshot_valid &&
         (endpoint_restore_in_progress == 1 ||
@@ -705,11 +719,10 @@ bool RestoreOwnedWindowsProxyUnlocked() noexcept {
              ? SetDword(settings, L"ProxyEnable",
                         original.proxy_enable.value)
              : DeleteValueIfPresent(settings, L"ProxyEnable"));
-    endpoint_restored = endpoint_restored && WriteProxyConnectionFlags(
-        settings, (connection_flags & ~PROXY_TYPE_PROXY) |
-            (original.proxy_enable.value == 1 ? PROXY_TYPE_PROXY : 0) |
-            (flags_owned && has_original_flags
-                 ? original_flags & PROXY_TYPE_AUTO_DETECT : 0));
+    endpoint_restored = endpoint_restored &&
+        SetProxyAutoDetectDword(
+            settings, (restored_flags & PROXY_TYPE_AUTO_DETECT) != 0) &&
+        WriteProxyConnectionFlags(settings, restored_flags);
     const bool valid_terminal =
         endpoint_restored && SetDword(backup, L"Valid", 0);
     const bool restore_terminal =
@@ -768,8 +781,18 @@ bool RestoreOwnedWindowsProxyUnlocked() noexcept {
   if (settings_restored) {
     const DWORD target_flags = has_original_flags ? original_flags :
         (connection_flags & ~PROXY_TYPE_PROXY) |
-            (original.proxy_enable.value == 1 ? PROXY_TYPE_PROXY : 0);
-    settings_restored = WriteProxyConnectionFlags(settings, target_flags);
+            (original.proxy_enable.value == 1 ? PROXY_TYPE_PROXY : 0) |
+            ((original.auto_detect.present != 0 &&
+              original.auto_detect.value != 0)
+                 ? PROXY_TYPE_AUTO_DETECT
+                 : 0);
+    // WinINet rebuilds the per-connection flags from the registry values, so a
+    // restored auto-detect bit without the matching DWORD is undone on the next
+    // reload. Keep the pair consistent before writing the flags.
+    settings_restored =
+        ((target_flags & PROXY_TYPE_AUTO_DETECT) == 0 ||
+         SetProxyAutoDetectDword(settings, true)) &&
+        WriteProxyConnectionFlags(settings, target_flags);
   }
   const bool valid_terminal =
       settings_restored && SetDword(backup, L"Valid", 0);

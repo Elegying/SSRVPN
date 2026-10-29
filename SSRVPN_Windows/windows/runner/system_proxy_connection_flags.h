@@ -77,4 +77,15 @@ inline bool WriteProxyConnectionFlags(HKEY settings, DWORD flags) {
   return ReadProxyConnectionFlags(settings, &actual) && actual == flags;
 #endif
 }
+
+// The LAN "auto-detect settings" checkbox is stored twice: in the connection
+// flags handled above and in the legacy `AutoDetect` DWORD that WinINet reads
+// back when it rebuilds those flags. Restoring the flag alone leaves a machine
+// whose original state was "on, no AutoDetect value" with the checkbox off, so
+// every restore that re-enables auto-detection must also write the DWORD.
+inline bool SetProxyAutoDetectDword(HKEY settings, bool enabled) {
+  const DWORD value = enabled ? 1u : 0u;
+  return RegSetValueExW(settings, L"AutoDetect", 0, REG_DWORD,
+      reinterpret_cast<const BYTE*>(&value), sizeof(value)) == ERROR_SUCCESS;
+}
 #endif

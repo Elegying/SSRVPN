@@ -399,6 +399,39 @@ bool TestBypassEditStillRestoresOwnedAutoDetectBit() {
   return ok;
 }
 
+bool TestRestoredAutoDetectDwordMatchesFlags(bool original_enabled) {
+  RegistrySandbox sandbox;
+  if (!sandbox.Initialize() || !SeedOwnedSettings() || !SeedJournal(false)) {
+    return false;
+  }
+  HKEY settings = nullptr, backup = nullptr;
+  if (!CreateKey(kInternetSettingsPath, &settings) ||
+      !CreateKey(kBackupPath, &backup)) {
+    return false;
+  }
+  // A machine whose LAN dialog has auto-detect enabled can have no legacy
+  // DWORD at all; the restore must put both stores back, not just the flags.
+  bool ok = SetDword(settings, L"TestConnectionFlags", 3) &&
+            SetDword(settings, L"AutoDetect", 0) &&
+            SetDword(backup, L"HasAutoDetect", 0) &&
+            SetDword(backup, L"OriginalConnectionFlags",
+                     original_enabled ? 9u : 1u);
+  RegCloseKey(backup);
+  if (!ok || !RestoreOwnedWindowsProxy()) {
+    RegCloseKey(settings);
+    return false;
+  }
+  DWORD flags = 0, auto_detect = 0;
+  ok = ReadDword(settings, L"TestConnectionFlags", &flags) &&
+       flags == (original_enabled ? 9u : 1u);
+  ok = ok && (original_enabled
+                  ? ReadDword(settings, L"AutoDetect", &auto_detect) &&
+                        auto_detect == 1
+                  : ValueIsMissing(settings, L"AutoDetect"));
+  RegCloseKey(settings);
+  return ok;
+}
+
 }  // namespace
 
 int wmain() {
@@ -418,6 +451,12 @@ int wmain() {
   if (!TestBypassEditStillRestoresOwnedAutoDetectBit()) {
     std::wcerr << L"bypass edit lost auto-detect recovery\n";
     return 1;
+  }
+  for (const bool enabled : {false, true}) {
+    if (!TestRestoredAutoDetectDwordMatchesFlags(enabled)) {
+      std::wcerr << L"restored auto-detect left the LAN checkbox off\n";
+      return 1;
+    }
   }
   if (!TestFailedConnectionFlagsRestoreRetainsJournal()) {
     std::wcerr << L"failed LAN restoration lost recovery state\n";

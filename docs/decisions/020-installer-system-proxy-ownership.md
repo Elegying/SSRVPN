@@ -75,6 +75,15 @@ SSRVPN 的机器，这两条建议都不成立。Issue #256（Windows 10 22H2，
 > 原生恢复日志检查、自有端点与恢复记录指纹保护保留；新增隔离行为测试
 > `scripts/test_windows_proxy_ownership.ps1`，覆盖外来代理、损坏记录、未完成恢复和读取失败。
 
+> 2026-10-29 追记：决策 5 的「语义与顺序均不修改」按归属判定理解，不约束下述善后补全。
+> `Repair-InvalidProxyRecoveryState` 在**自有指纹成立**（即已用恢复记录证明归属）后，
+> 除把 `ProxyEnable` 关掉，还会调用 `Restore-AbandonedAutoDetect`
+> （`SSRVPN_Windows/installer/proxy_transaction_state.ps1`）把「自动检测设置」开关补开：
+> 同时写入 `DefaultConnectionSettings` 的 bit `0x08` 与旧式 `AutoDetect` DWORD，再通知 WinINet。
+> 原因是该分支意味着恢复记录已不可重放，SSRVPN 连接时关闭的这个开关在清理后没有第二处
+> 记录可以还原，用户会永久失去勾选。补全只做「补开」，不关闭该开关，也不读形状、不改归属
+> 判定；`Test-SystemProxySafeToStop` 与 `Disable-OwnedSystemProxyEndpoint` 的行为不变。
+
 ## 未采用的方案
 
 ### 以「安装成功最高优先」放开进程结束范围

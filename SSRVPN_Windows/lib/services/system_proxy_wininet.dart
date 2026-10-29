@@ -74,3 +74,28 @@ String windowsProxySetFlagsScript(String expression,
         {bool includeInterop = true}) =>
     '${includeInterop ? windowsProxyFlagsInterop : ''}\n'
     '[SsrvpnConnectionFlags]::Write([uint32]($expression))';
+
+/// Restores the LAN auto-detect switch in both places Windows keeps it.
+///
+/// The dialog reads the per-connection flags, but WinINet rebuilds them from
+/// the registry values (`AutoDetect`, `ProxyEnable`, `AutoConfigURL`) the next
+/// time it reloads. Restoring only the flags therefore leaves the legacy
+/// `AutoDetect` DWORD saying "off", which is the state in which the checkbox
+/// comes back unchecked - including on machines whose original state was
+/// "auto-detect on" with no `AutoDetect` value at all. `$regPath` must already
+/// point at Internet Settings and `autoDetectWhenDisabled` is the caller's
+/// faithful restore of the disabled state (delete the value when it was
+/// absent, so an untouched machine keeps its original shape).
+String windowsProxyRestoreFlagsScript(
+  String flagsExpression, {
+  required String autoDetectWhenDisabled,
+}) =>
+    '''
+\$ssrvpnRestoreFlags = [uint32]($flagsExpression)
+if ((\$ssrvpnRestoreFlags -band 8) -ne 0) {
+  Set-ItemProperty -Path \$regPath -Name AutoDetect -Type DWord -Value 1
+} else {
+$autoDetectWhenDisabled
+}
+[SsrvpnConnectionFlags]::Write(\$ssrvpnRestoreFlags)
+''';

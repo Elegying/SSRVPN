@@ -1,6 +1,6 @@
 # 门禁全表：改之前先看会不会撞墙
 
-> **核心警告：多个文件接近上限。** 当前 `desktop_connection_coordinator.dart` 188/188、`stop_ssrvpn_processes.ps1` 1350/1350 均无余量；订阅持久化 195/196、订阅事务 179/180、来源缓存 159/160、代理模型 129/130 各余 1 行。Windows 生命周期为 1485/1690（余 205），系统代理为 1307/1320（余 13）。
+> **核心警告：多个文件接近上限。** 当前 `desktop_connection_coordinator.dart` 188/188 无余量，`stop_ssrvpn_processes.ps1` 1347/1350 只剩 3 行；订阅持久化 195/196、订阅事务 179/180、来源缓存 159/160、代理模型 129/130 各余 1 行。Windows 生命周期为 1485/1690（余 205），系统代理为 1280/1320（余 40）。
 > 守卫脚本用 `raise SystemExit`，**遇错即停**：修好一处才暴露下一处。
 > 验证时一次性算完所有数值，别打地鼠。
 
@@ -109,11 +109,11 @@ macOS 与 Windows：`setSystemProxy` / `clearSystemProxy` **只能**出现在 `c
 | 文件 | 当前 | 上限 | 余量 |
 |---|---|---|---|
 | `desktop_connection_coordinator.dart` | 188 | 188 | 0 🚨零余量 |
-| Windows `system_proxy_service.dart` | 1307 | 1320 | 13 |
+| Windows `system_proxy_service.dart` | 1280 | 1320 | 40 |
 | Windows `system_proxy_recovery_journal.dart` | 140 | 155 | 15 |
 | `system_proxy_models.dart` | 129 | 130 | 1 ⚠️ |
 | `CoreProcessSupport.swift` | 238 | 240 | 2 ⚠️ |
-| `stop_ssrvpn_processes.ps1` | 1350 | 1350 | 0 🚨零余量 |
+| `stop_ssrvpn_processes.ps1` | 1347 | 1350 | 3 ⚠️ |
 | `launcher_main.cpp` | 1473 | 1500 | 27 |
 | `AppDelegate.swift` | 2009 | 2020 | 11 |
 | macOS `app_runtime_actions_part.dart` | 312 | 320 | 8 ⚠️ |
