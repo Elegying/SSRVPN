@@ -71,6 +71,13 @@ if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
 & $executable
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+# Read the real account's WinINet state without altering LAN or policy settings.
+& $cmake --build $build --config Release --target ssrvpn_system_proxy_snapshot_smoke
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$snapshotSmoke = Join-Path $build 'native-tests\ssrvpn_system_proxy_snapshot_smoke.exe'
+& $snapshotSmoke
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 & $cmake --build $build --config Release --target ssrvpn_physical_tcp_latency_test
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $latencyTest = Join-Path $build 'native-tests\ssrvpn_physical_tcp_latency_test.exe'

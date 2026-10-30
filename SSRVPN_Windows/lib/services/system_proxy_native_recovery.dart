@@ -40,8 +40,24 @@ extension _WindowsNativeProxyRecovery on SystemProxyService {
       });
 
   Future<bool> _isLauncherGuardianReady({Future<void>? cancellation}) async {
+    if (_scriptRunner == null || _nativeGuardian != null) {
+      return _readNativeGuardian(cancellation: cancellation);
+    }
     try {
-      final result = await _runPowerShell('''
+      final result = await _runPowerShell(_launcherGuardianScript,
+          cancellation: cancellation);
+      return result.exitCode == 0;
+    } on ProcessTerminationNotConfirmedException {
+      rethrow;
+    } catch (_) {
+      return false;
+    }
+  }
+}
+
+// Shared by the standalone readiness check and acquisition's read-only batch.
+const _launcherGuardianScript = '''
+try {
 \$guardian = [System.Threading.Mutex]::OpenExisting('${SystemProxyService._launcherGuardianMutexName}')
 try {
   \$acquired = \$false
@@ -57,12 +73,8 @@ try {
 } finally {
   \$guardian.Dispose()
 }
-''', cancellation: cancellation);
-      return result.exitCode == 0;
-    } on ProcessTerminationNotConfirmedException {
-      rethrow;
-    } catch (_) {
-      return false;
-    }
-  }
+} catch {
+  Write-Output 'SSRVPN_PROXY_GUARDIAN_NOT_READY'
+  exit 3
 }
+''';

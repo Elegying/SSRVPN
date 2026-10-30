@@ -1982,6 +1982,24 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertLess(endpoint_safe, safe_return)
         self.assertLess(safe_return, listener_start)
 
+    def test_real_native_proxy_snapshot_smoke_is_executed(self) -> None:
+        runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
+        cmake = (runner / "CMakeLists.txt").read_text(encoding="utf-8")
+        start = cmake.index("add_executable(ssrvpn_system_proxy_snapshot_smoke")
+        end = cmake.index("add_executable(ssrvpn_physical_tcp_latency_test", start)
+        target = cmake[start:end]
+        self.assertIn('"system_proxy_snapshot.cpp"', target)
+        self.assertIn('"system_proxy_snapshot_smoke.cpp"', target)
+        self.assertNotIn("SSRVPN_SYSTEM_PROXY_RECOVERY_NO_WININET_NOTIFY", target)
+        smoke = (runner / "system_proxy_snapshot_smoke.cpp").read_text(encoding="utf-8")
+        self.assertIn("ReadWindowsProxySnapshot(false)", smoke)
+        self.assertIn("#error", smoke)
+        self.assertNotIn("RegSetValue", smoke)
+        self.assertNotIn("RegOverridePredefKey", smoke)
+        gate = (ROOT / "scripts" / "test_windows_native_proxy_recovery.ps1").read_text(encoding="utf-8")
+        self.assertIn("--target ssrvpn_system_proxy_snapshot_smoke", gate)
+        self.assertIn("& $snapshotSmoke\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }", gate)
+
     def test_native_proxy_recovery_fault_harness_is_a_release_gate(self) -> None:
         cmake = (
             ROOT / "SSRVPN_Windows" / "windows" / "runner" / "CMakeLists.txt"

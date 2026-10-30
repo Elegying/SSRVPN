@@ -39,7 +39,13 @@ void main() {
       );
       await service.initialize(temp.path);
       expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
-      expect(service.lastError, contains('ProxySettingsPerUser'));
+      expect(
+          service.lastError,
+          contains(failure.exitCode == 2
+              ? 'ProxySettingsPerUser'
+              : failure.exitCode == 124
+                  ? '响应超时'
+                  : '读取 Windows 系统代理失败'));
       expect(service.isProxyEnabled, isFalse);
       expect(scripts, hasLength(1));
       expect(
@@ -1308,7 +1314,21 @@ void main() {
     expect(scripts[guardian], contains('AbandonedMutexException'));
     expect(scripts[guardian], contains(r'$guardian.ReleaseMutex()'));
     expect(nativeBackup, greaterThan(guardian));
-    expect(runOnce, greaterThan(nativeBackup));
+    expect(runOnce, nativeBackup);
+    expect(
+        scripts[nativeBackup].indexOf('-Name Valid -Type DWord -Value 1'),
+        lessThan(scripts[runOnce]
+            .indexOf("-Name 'SSRVPNProxyRecovery' -Type String")));
+    expect(scripts, hasLength(5));
+    expect(scripts[guardian].indexOf('ProxySettingsPerUser'),
+        lessThan(scripts[guardian].indexOf('Mutex]::OpenExisting')));
+    expect(scripts[guardian].indexOf(r'$guardian.Dispose()'),
+        lessThan(scripts[guardian].indexOf(r'$key = Get-Item')));
+    expect(scripts.last, contains('ProxySettingsPerUser'));
+    expect(scripts.last, contains('ConvertTo-Json -Compress'));
+    expect(scripts[proxyEnable], isNot(contains('class SsrVpnWinInet')));
+    expect(scripts[proxyEnable], contains('Notify(IntPtr.Zero, 39'));
+    expect(scripts[proxyEnable], contains('Notify(IntPtr.Zero, 37'));
     expect(proxyEnable, greaterThan(runOnce));
     expect(scripts[runOnce], contains(base64Encode(utf8.encode(executable))));
     expect(
@@ -1331,7 +1351,7 @@ void main() {
         scriptRunner: (script) async {
           scripts.add(script);
           if (script.contains('SSRVPN_Windows_LauncherGuardian')) {
-            return ProcessResult(1, 1, '', 'mutex missing');
+            return ProcessResult(1, 3, 'SSRVPN_PROXY_GUARDIAN_NOT_READY', '');
           }
           return ProcessResult(1, 0, '', '');
         },
@@ -1340,12 +1360,12 @@ void main() {
       await service.initialize(temp.path);
       expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
 
-      expect(scripts, hasLength(2));
+      expect(scripts, hasLength(1));
       expect(scripts.first, contains('ProxySettingsPerUser'));
       expect(scripts.last, contains('SSRVPN_Windows_LauncherGuardian'));
       expect(scripts.last, isNot(contains('RuntimeProxyBackup')));
       expect(scripts.last, isNot(contains('SSRVPNProxyRecovery')));
-      expect(scripts.last, isNot(contains('ProxyEnable')));
+      expect(scripts.last, isNot(contains('Set-ItemProperty')));
       expect(service.lastError, '独立系统代理保护未就绪，请通过 ssrvpn_windows.exe 启动或重试');
       final backup = File(
         '${temp.path}${Platform.pathSeparator}SSRVPN'
