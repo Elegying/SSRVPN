@@ -21,7 +21,7 @@ dependencies:
   http: ^1.0.0
 
   # Shared preferences for settings persistence
-  shared_preferences: ^2.5.5
+  shared_preferences: ^2.5.6
 
   # App data directory (macOS)
   path_provider: ^2.1.6
@@ -34,7 +34,7 @@ dependencies:
   screen_retriever: ^0.2.1
 
   # Menu bar tray (macOS)
-  tray_manager: ^0.5.3
+  tray_manager: ^0.8.0
 
   # Shared code across all SSRVPN platforms
   ssrvpn_shared:
@@ -44,7 +44,7 @@ dependencies:
   uuid: '>=3.0.6 <5.0.0'
 
   # Asset integrity checks
-  crypto: ^3.0.7
+  crypto: ^3.0.8
 
 dev_dependencies:
   flutter_test:
