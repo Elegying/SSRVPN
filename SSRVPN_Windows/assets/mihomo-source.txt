@@ -3,17 +3,17 @@ Official asset: mihomo-windows-amd64-v1-go120-v1.19.27.zip
 Official asset URL: https://github.com/MetaCubeX/mihomo/releases/download/v1.19.27/mihomo-windows-amd64-v1-go120-v1.19.27.zip
 Official asset SHA256: e74f46b13d9876692a915a13d38b40b87205d5fb0c44f96b85a44d50a59bc5cc
 Executable member: mihomo-windows-amd64-v1-go120.exe
-Executable SHA256: a18b7d7fc58650ff721a596947ed819a50365e740db66666ead42ed71f68b6c7
+Executable SHA256: 13666c8276a86705b06193f23205b97000643ead8892a57153a9824510a50683
 Source: https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.27
 Source repository: https://github.com/MetaCubeX/mihomo.git
 Source commit: 5184081ac327394d9e15fa5d5f9f4a61e723fd94
 Source tree: 4ebc304d480b35389cd5432d6b283497ee976e43
 Go version: go1.20.14
-Traffic extension SHA256: 3d016bb081c8289d52aa3ebea9ace1a81b6788cc1dedc234a8160640351d9d9b
+Traffic extension SHA256: a69c4d325107fc814339baf703f0383de18445d2e86ddc6c99070dd75e3d517a
 Build recipe: scripts/build-desktop-core.sh
 Build tags: with_gvisor
 Target: windows/amd64/v1
 Mirror repo: Elegying/SSRVPN
-Mirror release tag: core-assets-v2
-Mirror asset name: mihomo-windows-a18b7d7fc58650ff721a596947ed819a50365e740db66666ead42ed71f68b6c7.exe
-Mirror URL: https://github.com/Elegying/SSRVPN/releases/download/core-assets-v2/mihomo-windows-a18b7d7fc58650ff721a596947ed819a50365e740db66666ead42ed71f68b6c7.exe
+Mirror release tag: core-assets-v3
+Mirror asset name: mihomo-windows-13666c8276a86705b06193f23205b97000643ead8892a57153a9824510a50683.exe
+Mirror URL: https://github.com/Elegying/SSRVPN/releases/download/core-assets-v3/mihomo-windows-13666c8276a86705b06193f23205b97000643ead8892a57153a9824510a50683.exe

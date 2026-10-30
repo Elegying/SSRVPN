@@ -63,6 +63,7 @@ func (s State) Apply(sample Sample, now time.Time) State {
 
 type Controller struct {
 	mu         sync.Mutex
+	persistMu  sync.Mutex
 	state      State
 	path       string
 	probe      func(context.Context) Sample
@@ -73,6 +74,7 @@ type Controller struct {
 	revision   uint64
 	force      bool
 	started    bool
+	observing  bool
 	closed     bool
 	lastUse    time.Time
 }
@@ -115,7 +117,25 @@ func (c *Controller) Close() {
 	c.cancel()
 }
 
-// Check is called before the first new flow; concurrent callers share one probe.
+// Observe returns the last diagnosis without delaying a business request. A
+// single controller-owned worker revalidates it independently of request lifetime.
+func (c *Controller) Observe() State {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lastUse = time.Now()
+	if !c.closed && !c.observing && (!c.started || c.force || c.revision != atomic.LoadUint64(&revision) || time.Since(c.state.CheckedAt) >= Interval) {
+		c.observing = true
+		go func() {
+			c.check(c.ctx)
+			c.mu.Lock()
+			c.observing = false
+			c.mu.Unlock()
+		}()
+	}
+	return c.state
+}
+
+// Check explicitly waits for revalidation; concurrent callers share one probe.
 // Cancellation never turns the result into a permanent capability declaration.
 func (c *Controller) Check(ctx context.Context) State {
 	c.mu.Lock()
@@ -190,15 +210,18 @@ func (c *Controller) check(ctx context.Context) State {
 		cancelled := probeCtx.Err() != nil
 		cancel()
 		c.mu.Lock()
-		if !c.closed && epoch == c.generation && currentRevision == atomic.LoadUint64(&revision) && !cancelled {
+		publish := !c.closed && epoch == c.generation && currentRevision == atomic.LoadUint64(&revision) && !cancelled
+		if publish {
 			c.state = c.state.Apply(sample, time.Now())
 			c.force = false
-			c.persistLocked()
 		}
 		close(flight)
 		c.flight = nil
 		s := c.state
 		c.mu.Unlock()
+		if publish {
+			c.persist(s, epoch, currentRevision)
+		}
 		return s
 	}
 }
@@ -226,10 +249,13 @@ func (c *Controller) loop() {
 	}
 }
 
-func (c *Controller) persistLocked() {
-	if c.path == "" || !c.state.Verified {
+func (c *Controller) persist(state State, epoch, rev uint64) {
+	if c.path == "" || !state.Verified {
 		return
 	}
+	// Slow directory/file IO never holds the state lock used by business flows.
+	c.persistMu.Lock()
+	defer c.persistMu.Unlock()
 	directory := filepath.Dir(c.path)
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return
@@ -243,7 +269,7 @@ func (c *Controller) persistLocked() {
 	if err != nil || len(entries) > 1024 {
 		return
 	}
-	data, err := json.Marshal(c.state)
+	data, err := json.Marshal(state)
 	if err != nil {
 		return
 	}
@@ -258,6 +284,10 @@ func (c *Controller) persistLocked() {
 	}
 	closeErr := f.Close()
 	if err == nil && closeErr == nil {
-		_ = os.Rename(name, c.path)
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if !c.closed && c.generation == epoch && atomic.LoadUint64(&revision) == rev && c.state.CheckedAt == state.CheckedAt {
+			_ = os.Rename(name, c.path)
+		}
 	}
 }

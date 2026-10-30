@@ -26,7 +26,7 @@
 | macOS | macOS 13+，仅支持 Apple M 系列芯片 | [下载 DMG](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.dmg) |
 | Windows | Windows 10/11，x64 | [下载安装器](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN_Setup.exe) |
 
-以上链接始终指向最新正式版。查看[更新记录](CHANGELOG.md)或打开 [Release 页面](https://github.com/Elegying/SSRVPN/releases/latest)获取 SHA-256 校验文件与构建来源证明。`core-assets-v1`、`core-assets-v2` 是构建资源记录，不是客户端安装包。
+以上链接始终指向最新正式版。查看[更新记录](CHANGELOG.md)或打开 [Release 页面](https://github.com/Elegying/SSRVPN/releases/latest)获取 SHA-256 校验文件与构建来源证明。`core-assets-v1`、`core-assets-v2`、`core-assets-v3` 是构建资源记录，不是客户端安装包。
 
 macOS 安装包采用 ad-hoc 签名、未经公证；Windows 安装器未签名。首次打开时可能出现 Gatekeeper 或 SmartScreen 提示，详情见[安装与使用指南](docs/USER_GUIDE.zh-CN.md)。
 
