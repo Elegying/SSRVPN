@@ -434,7 +434,13 @@ bool TestRestoredAutoDetectDwordMatchesFlags(bool original_enabled) {
 
 }  // namespace
 
+bool RunWindowsProxySnapshotTests();
+
 int wmain() {
+  if (!RunWindowsProxySnapshotTests()) {
+    std::wcerr << L"native read-only proxy snapshot tests failed\n";
+    return 1;
+  }
   // Validate the production directory resolver outside the registry sandbox.
   const auto trusted = TrustedProxyLocalAppData();
   if (trusted.empty()) return 1;

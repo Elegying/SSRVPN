@@ -36,7 +36,7 @@ func (h *Hysteria2) ssrvpnAdaptiveTarget(ctx context.Context, original *C.Metada
 	if h.option.SSRVPNEgress == "ipv4" {
 		return ssrvpnEgressTarget(ctx, original, "ipv4", udp, resolver.ResolveIPv4)
 	}
-	state := h.ssrvpnAdaptiveController().Check(ctx)
+	state := h.ssrvpnAdaptiveController().Observe()
 	if !state.Verified || !state.IPv4Only {
 		return original, nil
 	}

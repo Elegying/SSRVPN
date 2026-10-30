@@ -501,14 +501,18 @@ class SystemProxyService {
       },
     };
     for (final svc in services) {
-      final webState = await _readProxyState(svc, '-getwebproxy');
-      final secureWebState = await _readProxyState(svc, '-getsecurewebproxy');
-      final socksState = await _readProxyState(svc, '-getsocksfirewallproxy');
+      // Drain every read before publishing a snapshot or releasing the lease,
+      // including when one read fails. Mutations remain strictly sequential.
+      final proxyStates = await Future.wait([
+        _readProxyState(svc, '-getwebproxy'),
+        _readProxyState(svc, '-getsecurewebproxy'),
+        _readProxyState(svc, '-getsocksfirewallproxy'),
+      ], eagerError: false);
 
       states[svc] = {
-        'web': webState,
-        'secureWeb': secureWebState,
-        'socks': socksState,
+        'web': proxyStates[0],
+        'secureWeb': proxyStates[1],
+        'socks': proxyStates[2],
       };
     }
     await _writeStringAtomically(file, jsonEncode(states));

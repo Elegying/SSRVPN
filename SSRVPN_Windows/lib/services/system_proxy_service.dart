@@ -16,6 +16,8 @@ part 'system_proxy_wininet.dart';
 part 'system_proxy_snapshot_reader.dart';
 part 'system_proxy_recovery_journal.dart';
 part 'system_proxy_native_recovery.dart';
+part 'system_proxy_timing.dart';
+part 'system_proxy_native_snapshot.dart';
 
 typedef SystemProxyScriptRunner = Future<ProcessResult> Function(String script);
 
@@ -41,12 +43,16 @@ class SystemProxyService {
     String? localAppData,
     String? recoveryExecutable,
     Future<int> Function()? nativeRecovery,
+    Future<Object?> Function(bool)? nativeSnapshot,
+    Future<Object?> Function()? nativeGuardian,
     Duration pendingCommandExitTimeout = const Duration(seconds: 20),
   })  : _isWindows = isWindows ?? Platform.isWindows,
         _scriptRunner = scriptRunner,
         _localAppDataOverride = localAppData,
         _recoveryExecutableOverride = recoveryExecutable,
         _nativeRecovery = nativeRecovery,
+        _nativeSnapshot = nativeSnapshot,
+        _nativeGuardian = nativeGuardian,
         _pendingCommandExitTimeout = pendingCommandExitTimeout;
 
   factory SystemProxyService.forTesting({
@@ -55,6 +61,8 @@ class SystemProxyService {
     String localAppData = '',
     String? recoveryExecutable,
     Future<int> Function()? nativeRecovery,
+    Future<Object?> Function(bool)? nativeSnapshot,
+    Future<Object?> Function()? nativeGuardian,
     Duration pendingCommandExitTimeout = const Duration(seconds: 20),
   }) =>
       SystemProxyService._(
@@ -63,6 +71,8 @@ class SystemProxyService {
         localAppData: localAppData,
         recoveryExecutable: recoveryExecutable,
         nativeRecovery: nativeRecovery,
+        nativeSnapshot: nativeSnapshot,
+        nativeGuardian: nativeGuardian,
         pendingCommandExitTimeout: pendingCommandExitTimeout,
       );
 
@@ -72,6 +82,8 @@ class SystemProxyService {
   final String? _recoveryExecutableOverride;
   final Duration _pendingCommandExitTimeout;
   final Future<int> Function()? _nativeRecovery;
+  final Future<Object?> Function(bool)? _nativeSnapshot;
+  final Future<Object?> Function()? _nativeGuardian;
 
   bool _proxyEnabled = false;
   bool _ownsProxy = false;
@@ -89,6 +101,11 @@ class SystemProxyService {
   _ProxySnapshot? _previousProxy;
   String? _ownedProxyServer;
   String? _lastError;
+  _ProxyAcquisitionTimings? _activeAcquisitionTimings;
+  _ProxyAcquisitionTimings? _lastAcquisitionTimings;
+
+  /// Bounded step timings only; never scripts, snapshots or command output.
+  String get lastAcquisitionTiming => _lastAcquisitionTimings?.summary ?? '';
 
   bool get isProxyEnabled => _proxyEnabled;
   bool get recoveryPending => _recoveryPending;
@@ -310,13 +327,14 @@ class SystemProxyService {
       _lastError = 'SSRVPN 当前未持有 Windows 系统代理';
       return SystemProxyOwnershipStatus.unavailable;
     }
-    final supported = await _supportsPerUserProxy(cancellation: cancellation);
-    if (supported != true) {
-      return supported == false
+    final read =
+        await _readProxyState(cancellation: cancellation, checkPolicy: true);
+    if (read.policySupported != true) {
+      return read.policySupported == false
           ? SystemProxyOwnershipStatus.externallyChanged
           : SystemProxyOwnershipStatus.unavailable;
     }
-    final current = await _readCurrentProxy(cancellation: cancellation);
+    final current = read.snapshot;
     if (current == null) {
       _lastError ??= '无法读取当前 Windows 系统代理设置';
       return SystemProxyOwnershipStatus.unavailable;
@@ -350,6 +368,7 @@ class SystemProxyService {
   ) async {
     if (!_isWindows) return false;
     _lastError = null;
+    _lastAcquisitionTimings = _ProxyAcquisitionTimings();
     var preparedThisAttempt = false;
     var proxyMutationStarted = false;
     if (_recoveryPending) {
@@ -361,21 +380,20 @@ class SystemProxyService {
       return false;
     }
 
+    _activeAcquisitionTimings = _lastAcquisitionTimings;
     try {
       cancellation.throwIfRequested();
-      if (await _supportsPerUserProxy(cancellation: cancellation.future) !=
-          true) {
-        cancellation.throwIfRequested();
-        return false;
-      }
-      if (!await isLauncherGuardianReady(cancellation: cancellation.future)) {
-        cancellation.throwIfRequested();
-        _lastError = '独立系统代理保护未就绪，请通过 ssrvpn_windows.exe 启动或重试';
-        return false;
-      }
+      // Read-only batch: no journal or proxy writes before all checks pass.
+      final initialSnapshot = await _readCurrentProxy(
+          cancellation: cancellation.future,
+          checkPolicy: true,
+          checkGuardian: true);
       cancellation.throwIfRequested();
+      if (initialSnapshot == null) return false;
       final proxyServer = '$host:$port';
-      if (_ownsProxy && _ownedProxyServer != proxyServer) {
+      final releasingOldEndpoint =
+          _ownsProxy && _ownedProxyServer != proxyServer;
+      if (releasingOldEndpoint) {
         // Release the old endpoint before acquiring a different one so the
         // recovery record always names the proxy that is actually installed.
         if (!await _clearSystemProxyUnlocked()) return false;
@@ -383,9 +401,9 @@ class SystemProxyService {
         _lastError = null;
       }
       if (!_ownsProxy) {
-        final snapshot = await _readCurrentProxy(
-          cancellation: cancellation.future,
-        );
+        final snapshot = releasingOldEndpoint
+            ? await _readCurrentProxy(cancellation: cancellation.future)
+            : initialSnapshot;
         cancellation.throwIfRequested();
         if (snapshot == null) {
           _lastError ??= '无法读取当前 Windows 系统代理设置';
@@ -410,13 +428,13 @@ Set-ItemProperty -Path \$regPath -Name AutoDetect -Type DWord -Value 0
 Remove-ItemProperty -Path \$regPath -Name AutoConfigURL -ErrorAction SilentlyContinue
 Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value 1
 ${windowsProxySetFlagsScript('3')}
-${_notifyWinInetScript()}
 ''';
 
       // From this point onward the PowerShell command may have changed the
       // user's live proxy even if it later fails or is cancelled.
       proxyMutationStarted = true;
-      final result = await _runPowerShell(
+      final result = await _runTimedPowerShell(
+        _ProxyCommandPhase.apply,
         script,
         cancellation: cancellation.future,
       );
@@ -491,6 +509,8 @@ ${_notifyWinInetScript()}
       }
       _lastError = setError;
       return false;
+    } finally {
+      _activeAcquisitionTimings = null;
     }
   }
 
@@ -926,20 +946,6 @@ ${_notifyWinInetScript()}
     _ownedProxyServer = null;
   }
 
-  // Recovery still restores only our HKCU values. Never write HKLM or change
-  // an administrator's policy to make per-user proxy acquisition succeed.
-  Future<bool?> _supportsPerUserProxy({Future<void>? cancellation}) async {
-    final result = await _runPowerShell(windowsPerUserProxyPolicyScript,
-        cancellation: cancellation);
-    if (result.exitCode == 125) throw const _SystemProxyAcquisitionCancelled();
-    final supported = windowsPerUserProxyPolicyResult(result);
-    if (supported != true) {
-      _lastError =
-          'Windows 代理策略不允许或无法确认按用户设置代理。请联系管理员检查 ProxySettingsPerUser，或使用 TUN 模式';
-    }
-    return supported;
-  }
-
   Future<bool> _restoreSnapshot(_ProxySnapshot snapshot) async {
     final server = base64Encode(utf8.encode(snapshot.proxyServer));
     final override = base64Encode(utf8.encode(snapshot.proxyOverride));
@@ -1071,8 +1077,6 @@ ${_notifyWinInetScript()}
         cancellation: cancellation?.future,
       );
       cancellation?.throwIfRequested();
-      await _registerRunOnceRecovery(cancellation: cancellation?.future);
-      cancellation?.throwIfRequested();
     } on ProcessTerminationNotConfirmedException {
       // The interrupted command may still be mutating native journal state.
       // Keep every recovery artifact until its original process confirms exit.
@@ -1087,24 +1091,17 @@ ${_notifyWinInetScript()}
     }
   }
 
-  Future<void> _registerRunOnceRecovery({Future<void>? cancellation}) async {
+  String _runOnceRecoveryScript() {
     final executable =
         _recoveryExecutableOverride ?? Platform.resolvedExecutable;
     final encodedExecutable = base64Encode(utf8.encode(executable));
-    final result = await _runPowerShell('''
+    return '''
 \$runOncePath = '$_runOnceRegistryPath'
 \$executable = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encodedExecutable'))
 New-Item -Path \$runOncePath -Force | Out-Null
 Set-ItemProperty -Path \$runOncePath -Name '$_runOnceValueName' -Type String `
   -Value ('"' + \$executable + '" $_recoveryOnlyArgument')
-''', cancellation: cancellation);
-    if (result.exitCode == 125) {
-      throw const _SystemProxyAcquisitionCancelled();
-    }
-    if (result.exitCode != 0) {
-      throw StateError(
-          formatWindowsPowerShellError('注册 Windows 代理恢复任务失败', result));
-    }
+''';
   }
 
   Future<void> _deleteBackup() async {

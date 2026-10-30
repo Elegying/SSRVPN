@@ -14,6 +14,7 @@ add_executable(${BINARY_NAME} WIN32
   "main.cpp"
   "startup_diagnostics.cpp"
   "system_proxy_recovery.cpp"
+  "system_proxy_snapshot.cpp"
   "utils.cpp"
   "windows_user_identity.cpp"
   "win32_window.cpp"
@@ -95,6 +96,8 @@ target_link_options(${LAUNCHER_TARGET} PRIVATE "${SSRVPN_UAC_LINK_OPTION}")
 add_executable(ssrvpn_system_proxy_recovery_test EXCLUDE_FROM_ALL
   "system_proxy_recovery.cpp"
   "system_proxy_recovery_test.cpp"
+  "system_proxy_snapshot.cpp"
+  "system_proxy_snapshot_test.cpp"
 )
 apply_standard_settings(ssrvpn_system_proxy_recovery_test)
 set_target_properties(ssrvpn_system_proxy_recovery_test PROPERTIES
@@ -108,6 +111,18 @@ target_compile_definitions(ssrvpn_system_proxy_recovery_test PRIVATE
 target_link_libraries(ssrvpn_system_proxy_recovery_test PRIVATE "advapi32.lib")
 target_link_libraries(ssrvpn_system_proxy_recovery_test PRIVATE "wininet.lib")
 target_link_libraries(ssrvpn_system_proxy_recovery_test PRIVATE "shell32.lib" "ole32.lib")
+
+# Real WinINet read-only smoke: no registry redirection or flag substitutes.
+add_executable(ssrvpn_system_proxy_snapshot_smoke EXCLUDE_FROM_ALL
+  "system_proxy_snapshot.cpp"
+  "system_proxy_snapshot_smoke.cpp"
+)
+apply_standard_settings(ssrvpn_system_proxy_snapshot_smoke)
+set_target_properties(ssrvpn_system_proxy_snapshot_smoke PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/native-tests")
+target_compile_options(ssrvpn_system_proxy_snapshot_smoke PRIVATE "/utf-8")
+target_compile_definitions(ssrvpn_system_proxy_snapshot_smoke PRIVATE "NOMINMAX")
+target_link_libraries(ssrvpn_system_proxy_snapshot_smoke PRIVATE "advapi32.lib" "wininet.lib")
 
 add_executable(ssrvpn_physical_tcp_latency_test EXCLUDE_FROM_ALL
   "physical_tcp_latency_probe.cpp"

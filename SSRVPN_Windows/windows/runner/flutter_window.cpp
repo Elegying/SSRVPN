@@ -18,6 +18,7 @@
 
 #include "startup_diagnostics.h"
 #include "system_proxy_recovery.h"
+#include "system_proxy_snapshot.h"
 #include "windows_user_identity.h"
 
 namespace {
@@ -495,6 +496,39 @@ bool FlutterWindow::OnCreate() {
       [](const flutter::MethodCall<flutter::EncodableValue>& call,
          std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
              result) {
+        if (call.method_name() == "isProxyGuardianReady") {
+          result->Success(flutter::EncodableValue(IsWindowsProxyGuardianReady()));
+          return;
+        }
+        if (call.method_name() == "readSystemProxy") {
+          const auto* guardian = call.arguments()
+              ? std::get_if<bool>(call.arguments()) : nullptr;
+          if (guardian == nullptr) {
+            result->Error("invalid_arguments", "Expected guardian-check flag");
+            return;
+          }
+          const auto read = ReadWindowsProxySnapshot(*guardian);
+          using V = flutter::EncodableValue;
+          flutter::EncodableMap response{{V("status"), V(static_cast<int>(read.status))}};
+          if (read.status == ProxySnapshotStatus::ok) {
+            const auto& s = read.snapshot;
+            response[V("snapshot")] = V(flutter::EncodableMap{
+              {V("hasProxyEnable"), V(s.has_proxy_enable)},
+              {V("proxyEnable"), V(static_cast<int>(s.proxy_enable))},
+              {V("hasProxyServer"), V(s.has_proxy_server)},
+              {V("proxyServer"), V(WideToUtf8(s.proxy_server))},
+              {V("hasProxyOverride"), V(s.has_proxy_override)},
+              {V("proxyOverride"), V(WideToUtf8(s.proxy_override))},
+              {V("hasAutoConfigUrl"), V(s.has_auto_config_url)},
+              {V("autoConfigUrl"), V(WideToUtf8(s.auto_config_url))},
+              {V("hasAutoDetect"), V(s.has_auto_detect)},
+              {V("autoDetect"), V(static_cast<int>(s.auto_detect))},
+              {V("connectionFlags"), V(static_cast<int>(s.connection_flags))},
+            });
+          }
+          result->Success(V(response));
+          return;
+        }
         if (call.method_name() == "recoverSystemProxy") {
           result->Success(flutter::EncodableValue(
               RecoverWindowsProxyForApplication()));

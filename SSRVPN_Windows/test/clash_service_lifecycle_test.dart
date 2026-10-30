@@ -1325,6 +1325,9 @@ class _ControlledStopProxy implements SystemProxyService {
   bool get ownershipChangedSinceLastAcquisition => ownershipChanged;
 
   @override
+  String get lastAcquisitionTiming => '';
+
+  @override
   Future<SystemProxyOwnershipStatus> currentSystemProxyOwnershipStatus() =>
       ownership();
 

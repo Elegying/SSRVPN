@@ -829,6 +829,8 @@ mixin _WindowsCoreLifecycle on ClashServiceBase, _WindowsCoreValidation {
           cancellation: _startCancellation?.future,
         );
         _ensureStartCurrent(startToken);
+        final proxyTiming = _proxyService.lastAcquisitionTiming;
+        if (proxyTiming.isNotEmpty) log('系统代理步骤耗时：$proxyTiming');
         if (!proxySet) {
           setLastStartError(_proxyService.lastError ?? 'Windows 系统代理设置失败');
           log('❌ $lastStartError，连接已取消');

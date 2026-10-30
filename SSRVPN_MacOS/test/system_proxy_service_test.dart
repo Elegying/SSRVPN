@@ -44,6 +44,87 @@ void main() {
     });
   }
 
+  for (final failedRead in [null, 0, 1, 2]) {
+    test('snapshot reads overlap and drain before commit ($failedRead)',
+        () async {
+      final directory = await Directory.systemTemp.createTemp('proxy-reads-');
+      addTearDown(() => directory.delete(recursive: true));
+      final reads = List.generate(3, (_) => Completer<ProcessResult>());
+      final allStarted = Completer<void>();
+      final events = <String>[];
+      var started = 0;
+      final service = _testSystemProxyService(
+        networkSetupRunner: (arguments) async {
+          final index = const [
+            '-getwebproxy',
+            '-getsecurewebproxy',
+            '-getsocksfirewallproxy',
+          ].indexOf(arguments.first);
+          if (index >= 0) {
+            if (++started == 3) allStarted.complete();
+            return reads[index].future;
+          }
+          events.add('write');
+          return _successfulNetworkSetupRunner(arguments);
+        },
+        startProxyGuardian: (_, __) async {
+          events.add('guardian');
+          return true;
+        },
+        endProxyLifecycleTransaction: (_) async {
+          events.add('release');
+          return true;
+        },
+      );
+      await service.initialize(directory.path);
+      events.clear();
+      final operation = service.setSystemProxy('127.0.0.1', 7890);
+      var finished = false;
+      final completion = operation.then((result) {
+        finished = true;
+        return result;
+      });
+      final snapshot = File('${directory.path}/system_proxy.json');
+      try {
+        await allStarted.future.timeout(const Duration(seconds: 2));
+        expect(started, 3);
+        final first = failedRead ?? 0;
+        reads[first].complete(ProcessResult(
+          1,
+          failedRead == null ? 0 : 1,
+          'Enabled: No\nServer: \nPort: 0\n',
+          'read failed',
+        ));
+        await Future<void>.delayed(Duration.zero);
+        expect(finished, isFalse);
+        expect(events, isEmpty);
+        expect(await snapshot.exists(), isFalse);
+      } finally {
+        for (final read in reads) {
+          if (!read.isCompleted) {
+            read.complete(ProcessResult(
+              1,
+              0,
+              'Enabled: No\nServer: \nPort: 0\n',
+              '',
+            ));
+          }
+        }
+      }
+      expect(await completion, failedRead == null);
+      if (failedRead != null) {
+        expect(events, ['release']);
+        expect(await snapshot.exists(), isFalse);
+        expect(service.lastError, contains('read failed'));
+      } else {
+        expect(events, ['guardian', 'write', 'write', 'write', 'release']);
+        final saved = jsonDecode(await snapshot.readAsString()) as Map;
+        expect((saved['Wi-Fi'] as Map).keys,
+            unorderedEquals(['web', 'secureWeb', 'socks']));
+      }
+    });
+  }
+
   test(
       'inactive network location retains snapshot until original location returns',
       () async {

@@ -77,7 +77,7 @@ See [ADR-014](decisions/014-manual-only-geoip-updates.md), the [release checklis
 ## Public Release Retention
 
 The public download list keeps the current stable client release. The
-`core-assets-v1` and `core-assets-v2` prereleases are retained separately as required build infrastructure;
+`core-assets-v1`, `core-assets-v2` and `core-assets-v3` prereleases are retained separately as required build infrastructure;
 it is not a client download or an update candidate. Historical version tags and
 source history remain intact.
 

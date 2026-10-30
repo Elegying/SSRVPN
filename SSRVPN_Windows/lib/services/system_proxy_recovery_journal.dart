@@ -72,6 +72,8 @@ if ([int]\$item.EndpointRestoreInProgress -eq 1 -and
     Future<void>? cancellation,
   }) async {
     String encoded(String value) => base64Encode(utf8.encode(value));
+    // One child, ordered writes: Valid must precede RunOnce. The caller has
+    // already persisted JSON, and this batch never changes the live endpoint.
     final script = '''
 \$backupPath = '${SystemProxyService._nativeBackupRegistryPath}'
 if (Test-Path -LiteralPath \$backupPath) {
@@ -98,8 +100,10 @@ Set-ItemProperty -Path \$backupPath -Name RestoreInProgress -Type DWord -Value 0
 Set-ItemProperty -Path \$backupPath -Name EndpointRestoreInProgress -Type DWord -Value 0
 Set-ItemProperty -Path \$backupPath -Name ActivationInProgress -Type DWord -Value 1
 Set-ItemProperty -Path \$backupPath -Name Valid -Type DWord -Value 1
+${_runOnceRecoveryScript()}
 ''';
-    final result = await _runPowerShell(script, cancellation: cancellation);
+    final result = await _runTimedPowerShell(_ProxyCommandPhase.prepare, script,
+        cancellation: cancellation);
     if (result.exitCode == 125) {
       throw const _SystemProxyAcquisitionCancelled();
     }
@@ -113,10 +117,13 @@ Set-ItemProperty -Path \$backupPath -Name Valid -Type DWord -Value 1
     _SystemProxyAcquisitionCancellation? cancellation,
   }) async {
     cancellation?.throwIfRequested();
-    final result = await _runPowerShell('''
+    final result = await _runTimedPowerShell(
+        _ProxyCommandPhase.commit,
+        '''
 \$backupPath = '${SystemProxyService._nativeBackupRegistryPath}'
 Set-ItemProperty -Path \$backupPath -Name ActivationInProgress -Type DWord -Value 0
-''', cancellation: cancellation?.future);
+''',
+        cancellation: cancellation?.future);
     if (result.exitCode == 125) {
       throw const _SystemProxyAcquisitionCancelled();
     }
