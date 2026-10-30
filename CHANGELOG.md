@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- 修复 Windows 双屏切换、移除副屏或调整显示区域后，从托盘打开应用时窗口可能留在屏幕外的问题；自动将窗口恢复到当前可见区域。
+
 ## [6.0.12] - 2026-10-30
 
 - 优化连接稳定性，提升连接速度

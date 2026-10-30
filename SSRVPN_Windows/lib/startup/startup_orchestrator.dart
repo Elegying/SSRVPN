@@ -200,15 +200,7 @@ class StartupOrchestrator {
     }
 
     final tray = TrayManager();
-    tray.onShowApp = () async {
-      try {
-        await windowManager.show();
-        await windowManager.restore();
-        await windowManager.focus();
-      } catch (error, stack) {
-        StartupLogger.error('Tray show action failed', error, stack);
-      }
-    };
+    tray.onShowApp = showWindowFromTray;
     tray.onHideApp = () async {
       try {
         await windowManager.hide();
@@ -225,6 +217,42 @@ class StartupOrchestrator {
     final ok = await tray.init();
     if (!ok) {
       throw StateError('system tray plugin returned false');
+    }
+  }
+
+  Future<void>? _trayShowOperation;
+
+  Future<void> showWindowFromTray() =>
+      _trayShowOperation ??= _showWindowFromTray().whenComplete(() {
+        _trayShowOperation = null;
+      });
+
+  Future<void> _showWindowFromTray() async {
+    try {
+      // Restore first: minimized window coordinates need not be its normal bounds.
+      await windowManager.restore();
+      try {
+        final current = await windowManager.getBounds();
+        final visible = await _restoreVisibleBounds(current);
+        if (visible == null) {
+          await _setDefaultWindowBounds();
+        } else if (visible != current) {
+          await windowManager.setMinimumSize(visible.size);
+          await windowManager.setMaximumSize(visible.size);
+          await windowManager.setBounds(visible);
+        }
+      } catch (error, stack) {
+        StartupLogger.error('Tray window bounds recovery failed', error, stack);
+        // A bounds/plugin failure must not prevent the existing window opening.
+      }
+    } catch (error, stack) {
+      StartupLogger.error('Tray window restore failed', error, stack);
+    }
+    try {
+      await windowManager.show();
+      await windowManager.focus();
+    } catch (error, stack) {
+      StartupLogger.error('Tray show action failed', error, stack);
     }
   }
 
