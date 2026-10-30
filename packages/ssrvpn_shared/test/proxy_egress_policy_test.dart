@@ -79,22 +79,22 @@ void main() {
     }
   });
 
-  test('release operator declarations cover verified node without renaming it',
-      () {
+  test('release defaults allow automatic recovery without renaming nodes', () {
     final definitions = jsonDecode(
             File('../../config/ssrvpn-usage-defines.json').readAsStringSync())
         as Map;
     final policy =
         ProxyEgressPolicy.fromJson(definitions['SSRVPN_NODE_EGRESS'] as String);
     final node = <String, dynamic>{
-      'server': 'vpn.ssrvpn.vip',
+      'server': 'node.example.test',
       'port': 19999,
       'type': 'hysteria2',
       'name': 'existing-user-name',
       'password': 'synthetic'
     };
     policy.applyToRuntime(node);
-    expect(node['ssrvpn-egress'], 'ipv4');
+    expect(node, isNot(contains('ssrvpn-egress')));
+    expect(jsonDecode(definitions['SSRVPN_NODE_EGRESS'] as String), isEmpty);
     expect(node['name'], 'existing-user-name');
     expect(node['password'], 'synthetic');
   });
