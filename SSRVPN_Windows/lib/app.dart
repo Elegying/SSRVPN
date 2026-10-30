@@ -193,15 +193,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
   }
 
   void _configureTrayCallbacks() {
-    _trayManager.onShowApp = () async {
-      try {
-        await windowManager.show();
-        await windowManager.restore();
-        await windowManager.focus();
-      } catch (error, stack) {
-        StartupLogger.error('Show app from tray failed', error, stack);
-      }
-    };
+    // Keep the startup-installed show callback: it reconciles current displays.
     _trayManager.onHideApp = () async {
       try {
         await windowManager.hide();

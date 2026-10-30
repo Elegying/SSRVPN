@@ -39,7 +39,7 @@ before CI tests and release packaging.
 The Android core is source-rebuildable from the reviewed Mihomo commit and tree,
 the committed bridge and traffic extension, Go `1.25.11`, the pinned `x/mobile` revision, and Android
 NDK r28c. The published core is mirrored as a content-addressed asset in the
-`core-assets-v1` support release. Verification checks its SHA256, embedded Go
+`core-assets-v2` support release. Verification checks its SHA256, embedded Go
 build contract, six JNI exports, AArch64 target, and every ELF `LOAD` segment's
 16 KiB alignment before tests or packaging can proceed.
 
@@ -125,9 +125,10 @@ GitHub Actions artifacts.
 Windows executable verification is also performed by
 `SSRVPN_Windows/tool/package_windows.ps1` when preparing the installer payload.
 
-The `core-assets-v1` support release is build infrastructure, not an old client
-release. Retaining only the current client in the Release list must not delete
-this support release, its tag or any referenced content-addressed asset.
+The `core-assets-v1` (GeoIP and historical cores) and `core-assets-v2` (current
+custom cores) support releases are build infrastructure, not client releases.
+Retaining only the current client must not delete either support release, its
+tag or any referenced content-addressed asset. Published core assets stay immutable.
 
 ## Runtime rule providers
 

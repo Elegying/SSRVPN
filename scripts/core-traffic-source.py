@@ -12,8 +12,15 @@ ROOT = Path(__file__).resolve().parents[1]
 BUNDLE = ROOT / 'native/proxy_traffic'
 RUNTIME_FILES = ('sources.json', 'proxy_traffic.go', 'route.go',
                  'android.patch', 'macos.patch', 'windows.patch', 'target_address.go',
-                 'dns_resolution.go', 'direct_fallback.go', 'tun_startup.go', 'egress_policy.go')
+                 'dns_resolution.go', 'direct_fallback.go', 'tun_startup.go', 'egress_policy.go', 'adaptive_hysteria2.go',
+                 'adaptive/state.go', 'adaptive/probe.go')
 COPIES = {
+    'adaptive/state.go': 'component/adaptive/state.go',
+    'adaptive/probe.go': 'component/adaptive/probe.go',
+    'adaptive/state_test.go': 'component/adaptive/state_test.go',
+    'adaptive/probe_test.go': 'component/adaptive/probe_test.go',
+    'adaptive_hysteria2.go': 'adapter/outbound/ssrvpn_adaptive_hysteria2.go',
+    'adaptive_hysteria2_test.go': 'adapter/outbound/ssrvpn_adaptive_hysteria2_test.go',
     'egress_policy.go': 'adapter/outbound/ssrvpn_egress_policy.go',
     'egress_policy_test.go': 'adapter/outbound/ssrvpn_egress_policy_test.go',
     'version_test.go': 'constant/ssrvpn_version_test.go',
@@ -57,6 +64,7 @@ def apply(platform, directory):
         raise SystemExit('core traffic extension is already present')
     subprocess.run(['git', 'apply', str(patch)], cwd=directory, check=True)
     for name, target in copies.items():
+        (directory / target).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(BUNDLE / name, directory / target)
     if platform in ('android', 'windows'):
         # These pinned upstream versions use the unexported UDP constructor.

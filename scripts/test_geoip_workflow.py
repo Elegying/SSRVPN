@@ -96,11 +96,11 @@ def _write_bootstrap_fixture(root: Path, *, raw: bytes, gzipped: bytes) -> str:
         "\n".join(
             [
                 "Mirror repo: Elegying/SSRVPN",
-                "Mirror release tag: core-assets-v1",
+                "Mirror release tag: core-assets-v2",
                 f"Mirror asset name: libgojni-{_sha256(android)}.so",
                 (
                     "Mirror URL: https://github.com/Elegying/SSRVPN/releases/"
-                    f"download/core-assets-v1/libgojni-{_sha256(android)}.so"
+                    f"download/core-assets-v2/libgojni-{_sha256(android)}.so"
                 ),
                 f"Library SHA256: {_sha256(android)}",
                 "",
@@ -482,14 +482,14 @@ class GeoIpWorkflowTest(unittest.TestCase):
                 payload = f'extended {platform} core'.encode()
                 expected[asset] = payload
                 name = f'{prefix}{_sha256(payload)}{suffix}'
-                url = f'https://github.com/Elegying/SSRVPN/releases/download/core-assets-v1/{name}'
+                url = f'https://github.com/Elegying/SSRVPN/releases/download/core-assets-v2/{name}'
                 original = record.read_text()
                 original = '\n'.join(line for line in original.splitlines() if not line.startswith(field + ':'))
                 record.write_text(original + '\n' + '\n'.join([
                     f'{field}: {_sha256(payload)}',
                     'Traffic extension SHA256: test-extension',
                     'Mirror repo: Elegying/SSRVPN',
-                    'Mirror release tag: core-assets-v1',
+                    'Mirror release tag: core-assets-v2',
                     f'Mirror asset name: {name}', f'Mirror URL: {url}', '',
                 ]))
                 builds[platform.lower()] = payload.hex()

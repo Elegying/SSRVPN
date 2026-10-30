@@ -208,6 +208,7 @@ class CoreTrafficSourceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             bundle = Path(directory)
             for name in module.RUNTIME_FILES:
+                (bundle / name).parent.mkdir(parents=True, exist_ok=True)
                 (bundle / name).write_bytes((module.BUNDLE / name).read_bytes())
             with patch.object(module, 'BUNDLE', bundle):
                 before = module.digest()

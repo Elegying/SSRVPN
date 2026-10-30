@@ -232,6 +232,11 @@ for path in orchestrators:
         )
 
 windows_orchestrator = orchestrators[1].read_text(encoding="utf-8")
+if "tray.onShowApp = showWindowFromTray;" not in windows_orchestrator:
+    raise SystemExit("Windows tray show must use current-display recovery")
+if "_trayManager.onShowApp =" in Path("SSRVPN_Windows/lib/app.dart").read_text(encoding="utf-8"):
+    raise SystemExit("Windows app must retain the display-aware tray show callback")
+
 hidden_title_bar = "windowManager.setTitleBarStyle("
 if hidden_title_bar not in windows_orchestrator:
     raise SystemExit("Windows does not hide the native title bar")

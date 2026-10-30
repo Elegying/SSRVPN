@@ -99,7 +99,8 @@ class CoreContractRunnerTests(unittest.TestCase):
     def test_all_copied_contracts_are_required(self):
         expected = runner.contracts()
         packages = {package for package, _ in expected}
-        self.assertEqual(len(packages), 9)
+        self.assertEqual(len(packages), 10)
+        self.assertIn("github.com/metacubex/mihomo/component/adaptive", packages)
         for name in ('TestSSRVPNEgressPolicy', 'TestSSRVPNDualStackConfigVersionMatrix',
                      'TestProxyTrafficConcurrentWrites', 'TestSSRVPNCoreVersion'):
             self.assertTrue(any(test == name for _, test in expected), name)

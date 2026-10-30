@@ -1,5 +1,5 @@
 diff --git a/adapter/outbound/base.go b/adapter/outbound/base.go
-index bbac4e8..66cc5a4 100644
+index bbac4e80..66cc5a47 100644
 --- a/adapter/outbound/base.go
 +++ b/adapter/outbound/base.go
 @@ -223,6 +223,7 @@ func (b *BasicOption) NewTunnel() C.Tunnel {
@@ -52,8 +52,155 @@ index bbac4e8..66cc5a4 100644
 +
 +func (c *conn) IsProxy() bool       { return c.proxy }
 +func (c *packetConn) IsProxy() bool { return c.proxy }
+diff --git a/adapter/outbound/direct.go b/adapter/outbound/direct.go
+index 5741bf3f..3b060af6 100644
+--- a/adapter/outbound/direct.go
++++ b/adapter/outbound/direct.go
+@@ -3,6 +3,7 @@ package outbound
+ import (
+ 	"context"
+ 	"fmt"
++	"net/netip"
+ 
+ 	"github.com/metacubex/mihomo/component/dialer"
+ 	"github.com/metacubex/mihomo/component/loopback"
+@@ -26,8 +27,16 @@ func (d *Direct) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn,
+ 		return nil, err
+ 	}
+ 	opts := d.DialOptions()
+-	opts = append(opts, dialer.WithResolver(resolver.DirectHostResolver))
++	opts = append(opts, dialer.WithResolver(d.ssrvpnDirectResolver()))
+ 	c, err := dialer.DialContext(ctx, "tcp", metadata.RemoteAddress(), opts...)
++	if target := ssrvpnDirectFamilyFallback(ctx, metadata, err, func(ctx context.Context, host string) ([]netip.Addr, error) {
++		return resolver.LookupIPWithResolver(ctx, host, resolver.DirectHostResolver)
++	}); target != nil {
++		if loopErr := d.loopBack.CheckConn(target); loopErr != nil {
++			return nil, loopErr
++		}
++		c, err = dialer.DialContext(ctx, "tcp", target.RemoteAddress(), opts...)
++	}
+ 	if err != nil {
+ 		return nil, err
+ 	}
+@@ -51,7 +60,7 @@ func (d *Direct) ListenPacketContext(ctx context.Context, metadata *C.Metadata)
+ 
+ func (d *Direct) ResolveUDP(ctx context.Context, metadata *C.Metadata) error {
+ 	if (!metadata.Resolved() || resolver.DirectHostResolver != resolver.DefaultResolver) && metadata.Host != "" {
+-		ip, err := resolveIPWithResolver(ctx, metadata.Host, d.prefer, resolver.DirectHostResolver)
++		ip, err := resolveIPWithResolver(ctx, metadata.Host, d.prefer, d.ssrvpnDirectResolver())
+ 		if err != nil {
+ 			return fmt.Errorf("can't resolve ip: %w", err)
+ 		}
+diff --git a/adapter/outbound/hysteria2.go b/adapter/outbound/hysteria2.go
+index 350e50ea..a3546a1c 100644
+--- a/adapter/outbound/hysteria2.go
++++ b/adapter/outbound/hysteria2.go
+@@ -4,9 +4,11 @@ import (
+ 	"context"
+ 	"errors"
+ 	"fmt"
++	"github.com/metacubex/mihomo/component/adaptive"
+ 	"net"
+ 	"net/netip"
+ 	"strconv"
++	"sync"
+ 	"time"
+ 
+ 	N "github.com/metacubex/mihomo/common/net"
+@@ -30,6 +32,8 @@ const minHopInterval = 5
+ const defaultHopInterval = 30
+ 
+ type Hysteria2 struct {
++	egressOnce sync.Once
++	egress     *adaptive.Controller
+ 	*Base
+ 
+ 	option *Hysteria2Option
+@@ -37,6 +41,7 @@ type Hysteria2 struct {
+ }
+ 
+ type Hysteria2Option struct {
++	SSRVPNEgress string `proxy:"ssrvpn-egress,omitempty"`
+ 	BasicOption
+ 	Name              string     `proxy:"name"`
+ 	Server            string     `proxy:"server"`
+@@ -87,6 +92,10 @@ type Hysteria2RealmOption struct {
+ }
+ 
+ func (h *Hysteria2) DialContext(ctx context.Context, metadata *C.Metadata) (_ C.Conn, err error) {
++	metadata, err = h.ssrvpnAdaptiveTarget(ctx, metadata, false)
++	if err != nil {
++		return nil, err
++	}
+ 	c, err := h.client.DialConn(ctx, M.ParseSocksaddrHostPort(metadata.String(), metadata.DstPort))
+ 	if err != nil {
+ 		return nil, err
+@@ -94,6 +103,17 @@ func (h *Hysteria2) DialContext(ctx context.Context, metadata *C.Metadata) (_ C.
+ 	return NewConn(c, h), nil
+ }
+ 
++// Enforce the declaration for both the initial UDP flow and reused packet
++// connections, whose ResolveUDP callback is retained by the core wrapper.
++func (h *Hysteria2) ResolveUDP(ctx context.Context, metadata *C.Metadata) error {
++	target, err := h.ssrvpnAdaptiveTarget(ctx, metadata, true)
++	if err != nil {
++		return err
++	}
++	metadata.DstIP = target.DstIP
++	return h.Base.ResolveUDP(ctx, metadata)
++}
++
+ func (h *Hysteria2) ListenPacketContext(ctx context.Context, metadata *C.Metadata) (_ C.PacketConn, err error) {
+ 	if err = h.ResolveUDP(ctx, metadata); err != nil {
+ 		return nil, err
+@@ -110,6 +130,7 @@ func (h *Hysteria2) ListenPacketContext(ctx context.Context, metadata *C.Metadat
+ 
+ // Close implements C.ProxyAdapter
+ func (h *Hysteria2) Close() error {
++	h.ssrvpnAdaptiveController().Close()
+ 	if h.client != nil {
+ 		return h.client.CloseWithError(errors.New("proxy removed"))
+ 	}
+@@ -124,6 +145,9 @@ func (h *Hysteria2) ProxyInfo() C.ProxyInfo {
+ }
+ 
+ func NewHysteria2(option Hysteria2Option) (*Hysteria2, error) {
++	if option.SSRVPNEgress != "" && option.SSRVPNEgress != "auto" && option.SSRVPNEgress != "ipv4" {
++		return nil, fmt.Errorf("invalid ssrvpn-egress: expected auto or ipv4")
++	}
+ 	addr := net.JoinHostPort(option.Server, strconv.Itoa(option.Port))
+ 	outbound := &Hysteria2{
+ 		Base: NewBase(BaseOption{
+diff --git a/adapter/outboundgroup/selector.go b/adapter/outboundgroup/selector.go
+index 7845d617..f396a516 100644
+--- a/adapter/outboundgroup/selector.go
++++ b/adapter/outboundgroup/selector.go
+@@ -4,6 +4,7 @@ import (
+ 	"context"
+ 	"encoding/json"
+ 	"errors"
++	"github.com/metacubex/mihomo/component/adaptive"
+ 
+ 	C "github.com/metacubex/mihomo/constant"
+ 	P "github.com/metacubex/mihomo/constant/provider"
+@@ -79,6 +80,7 @@ func (s *Selector) Now() string {
+ func (s *Selector) Set(name string) error {
+ 	for _, proxy := range s.GetProxies(false) {
+ 		if proxy.Name() == name {
++			adaptive.InvalidateAll()
+ 			s.selected = name
+ 			return nil
+ 		}
+@@ -88,6 +90,7 @@ func (s *Selector) Set(name string) error {
+ }
+ 
+ func (s *Selector) ForceSet(name string) {
++	adaptive.InvalidateAll()
+ 	s.selected = name
+ }
+ 
 diff --git a/component/resolver/relay.go b/component/resolver/relay.go
-index ca7b32b..7d42023 100644
+index ca7b32b9..7d420235 100644
 --- a/component/resolver/relay.go
 +++ b/component/resolver/relay.go
 @@ -94,7 +94,17 @@ func relayDnsPacket(ctx context.Context, payload []byte, target []byte, maxSize
@@ -76,7 +223,7 @@ index ca7b32b..7d42023 100644
  
  // RelayDnsPacket will truncate udp message up to SafeDnsPacketSize
 diff --git a/config/config.go b/config/config.go
-index 9cb1acf..c0363b2 100644
+index 9cb1acf8..c0363b2b 100644
 --- a/config/config.go
 +++ b/config/config.go
 @@ -1648,7 +1648,16 @@ func parseAuthentication(rawRecords []string) []auth.AuthUser {
@@ -98,7 +245,7 @@ index 9cb1acf..c0363b2 100644
  		rawCfg.Tun.Inet6Address = nil
  	}
 diff --git a/constant/adapters.go b/constant/adapters.go
-index 37d8af6..42afbc1 100644
+index 37d8af66..42afbc1e 100644
 --- a/constant/adapters.go
 +++ b/constant/adapters.go
 @@ -64,6 +64,8 @@ const (
@@ -110,8 +257,85 @@ index 37d8af6..42afbc1 100644
  	Chains() Chain
  	ProviderChains() Chain
  	AppendToChains(adapter ProxyAdapter)
+diff --git a/dns/resolver.go b/dns/resolver.go
+index 73a22997..d2482af2 100644
+--- a/dns/resolver.go
++++ b/dns/resolver.go
+@@ -74,36 +74,7 @@ func (r *Resolver) LookupIPPrimaryIPv4(ctx context.Context, host string) (ips []
+ }
+ 
+ func (r *Resolver) LookupIP(ctx context.Context, host string) (ips []netip.Addr, err error) {
+-	ch := make(chan []netip.Addr, 1)
+-	go func() {
+-		defer close(ch)
+-		ip, err := r.lookupIP(ctx, host, D.TypeAAAA)
+-		if err != nil {
+-			return
+-		}
+-
+-		ch <- ip
+-	}()
+-
+-	ips, err = r.lookupIP(ctx, host, D.TypeA)
+-	var waitIPv6 *time.Timer
+-	if r != nil && r.ipv6Timeout > 0 {
+-		waitIPv6 = time.NewTimer(r.ipv6Timeout)
+-	} else {
+-		waitIPv6 = time.NewTimer(100 * time.Millisecond)
+-	}
+-	defer waitIPv6.Stop()
+-	select {
+-	case ipv6s, open := <-ch:
+-		if !open && err != nil {
+-			return nil, resolver.ErrIPNotFound
+-		}
+-		ips = append(ips, ipv6s...)
+-	case <-waitIPv6.C:
+-		// wait ipv6 result
+-	}
+-
+-	return ips, nil
++	return r.ssrvpnLookupIP(ctx, host)
+ }
+ 
+ // LookupIPv4 request with TypeA
+diff --git a/hub/executor/executor.go b/hub/executor/executor.go
+index 8e0d09e6..7ff791b0 100644
+--- a/hub/executor/executor.go
++++ b/hub/executor/executor.go
+@@ -105,18 +105,28 @@ func ApplyConfig(cfg *config.Config, force bool) {
+ 	updateNTP(cfg.NTP)
+ 	updateDNS(cfg.DNS, cfg.General.IPv6)
+ 	updateListeners(cfg.General, cfg.Listeners, force)
+-	updateTun(cfg.General) // tun should not care "force"
+ 	updateIPTables(cfg)
+ 	updateTunnels(cfg.Tunnels)
+ 
+ 	tunnel.OnInnerLoading()
+ 
+ 	initInnerTcp()
+-	loadProvider(cfg.Providers)
++	providers, deferredProviders := ssrvpnStartupProviders(cfg.Providers, cfg.General.Tun.Enable)
++	loadProvider(providers)
+ 	updateProfile(cfg)
+ 	loadProvider(cfg.RuleProviders)
++	// Commit capture only after core and rule preparation has finished.
++	if !cfg.General.Tun.Enable || ssrvpnTunRulesReady(cfg.RuleProviders) {
++		updateTun(cfg.General)
++		if cfg.General.Tun.Enable && listener.GetTunConf().Enable {
++			log.Infoln("SSRVPN_TUN_COMMITTED")
++		}
++	} else {
++		log.Errorln("SSRVPN: TUN capture withheld because routing rules are not ready")
++	}
+ 	runtime.GC()
+ 	tunnel.OnRunning()
++	loadProvider(deferredProviders)
+ 	updateUpdater(cfg)
+ 
+ 	resolver.ResetConnection()
 diff --git a/hub/route/server.go b/hub/route/server.go
-index 7b8562c..4fcee16 100644
+index 7b8562ca..4fcee166 100644
 --- a/hub/route/server.go
 +++ b/hub/route/server.go
 @@ -121,6 +121,7 @@ func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
@@ -123,7 +347,7 @@ index 7b8562c..4fcee16 100644
  		r.Get("/version", version)
  		r.Mount("/configs", configRouter())
 diff --git a/tunnel/statistic/tracker.go b/tunnel/statistic/tracker.go
-index 2fbb1cf..f336d04 100644
+index 2fbb1cf9..f336d04e 100644
 --- a/tunnel/statistic/tracker.go
 +++ b/tunnel/statistic/tracker.go
 @@ -34,7 +34,8 @@ type TrackerInfo struct {
@@ -391,164 +615,3 @@ index 470f7299..add1972c 100644
  	if errors.Is(err, resolver.ErrIPNotFound) {
  		return true
  	}
-diff --git a/dns/resolver.go b/dns/resolver.go
-index 73a22997..d2482af2 100644
---- a/dns/resolver.go
-+++ b/dns/resolver.go
-@@ -74,36 +74,7 @@ func (r *Resolver) LookupIPPrimaryIPv4(ctx context.Context, host string) (ips []
- }
- 
- func (r *Resolver) LookupIP(ctx context.Context, host string) (ips []netip.Addr, err error) {
--	ch := make(chan []netip.Addr, 1)
--	go func() {
--		defer close(ch)
--		ip, err := r.lookupIP(ctx, host, D.TypeAAAA)
--		if err != nil {
--			return
--		}
--
--		ch <- ip
--	}()
--
--	ips, err = r.lookupIP(ctx, host, D.TypeA)
--	var waitIPv6 *time.Timer
--	if r != nil && r.ipv6Timeout > 0 {
--		waitIPv6 = time.NewTimer(r.ipv6Timeout)
--	} else {
--		waitIPv6 = time.NewTimer(100 * time.Millisecond)
--	}
--	defer waitIPv6.Stop()
--	select {
--	case ipv6s, open := <-ch:
--		if !open && err != nil {
--			return nil, resolver.ErrIPNotFound
--		}
--		ips = append(ips, ipv6s...)
--	case <-waitIPv6.C:
--		// wait ipv6 result
--	}
--
--	return ips, nil
-+	return r.ssrvpnLookupIP(ctx, host)
- }
- 
- // LookupIPv4 request with TypeA
-diff --git a/adapter/outbound/direct.go b/adapter/outbound/direct.go
-index 5741bf3f..7414e01e 100644
---- a/adapter/outbound/direct.go
-+++ b/adapter/outbound/direct.go
-@@ -3,6 +3,7 @@ package outbound
- import (
- 	"context"
- 	"fmt"
-+	"net/netip"
- 
- 	"github.com/metacubex/mihomo/component/dialer"
- 	"github.com/metacubex/mihomo/component/loopback"
-@@ -28,6 +29,14 @@ func (d *Direct) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn,
- 	opts := d.DialOptions()
--	opts = append(opts, dialer.WithResolver(resolver.DirectHostResolver))
-+	opts = append(opts, dialer.WithResolver(d.ssrvpnDirectResolver()))
- 	c, err := dialer.DialContext(ctx, "tcp", metadata.RemoteAddress(), opts...)
-+	if target := ssrvpnDirectFamilyFallback(ctx, metadata, err, func(ctx context.Context, host string) ([]netip.Addr, error) {
-+		return resolver.LookupIPWithResolver(ctx, host, resolver.DirectHostResolver)
-+	}); target != nil {
-+		if loopErr := d.loopBack.CheckConn(target); loopErr != nil {
-+			return nil, loopErr
-+		}
-+		c, err = dialer.DialContext(ctx, "tcp", target.RemoteAddress(), opts...)
-+	}
- 	if err != nil {
- 		return nil, err
- 	}
-@@ -57,7 +66,7 @@ func (d *Direct) ResolveUDP(ctx context.Context, metadata *C.Metadata) error {
- 	if (!metadata.Resolved() || resolver.DirectHostResolver != resolver.DefaultResolver) && metadata.Host != "" {
--		ip, err := resolveIPWithResolver(ctx, metadata.Host, d.prefer, resolver.DirectHostResolver)
-+		ip, err := resolveIPWithResolver(ctx, metadata.Host, d.prefer, d.ssrvpnDirectResolver())
- 		if err != nil {
- 			return fmt.Errorf("can't resolve ip: %w", err)
- 		}
- 		metadata.DstIP = ip
- 	}
-diff --git a/hub/executor/executor.go b/hub/executor/executor.go
---- a/hub/executor/executor.go
-+++ b/hub/executor/executor.go
-@@ -105,18 +105,28 @@
- 	updateNTP(cfg.NTP)
- 	updateDNS(cfg.DNS, cfg.General.IPv6)
- 	updateListeners(cfg.General, cfg.Listeners, force)
--	updateTun(cfg.General) // tun should not care "force"
- 	updateIPTables(cfg)
- 	updateTunnels(cfg.Tunnels)
- 
- 	tunnel.OnInnerLoading()
- 
- 	initInnerTcp()
--	loadProvider(cfg.Providers)
-+	providers, deferredProviders := ssrvpnStartupProviders(cfg.Providers, cfg.General.Tun.Enable)
-+	loadProvider(providers)
- 	updateProfile(cfg)
- 	loadProvider(cfg.RuleProviders)
-+	// Commit capture only after core and rule preparation has finished.
-+	if !cfg.General.Tun.Enable || ssrvpnTunRulesReady(cfg.RuleProviders) {
-+		updateTun(cfg.General)
-+		if cfg.General.Tun.Enable && listener.GetTunConf().Enable {
-+			log.Infoln("SSRVPN_TUN_COMMITTED")
-+		}
-+	} else {
-+		log.Errorln("SSRVPN: TUN capture withheld because routing rules are not ready")
-+	}
- 	runtime.GC()
- 	tunnel.OnRunning()
-+	loadProvider(deferredProviders)
- 	updateUpdater(cfg)
- 
- 	resolver.ResetConnection()
-diff --git a/adapter/outbound/hysteria2.go b/adapter/outbound/hysteria2.go
---- a/adapter/outbound/hysteria2.go
-+++ b/adapter/outbound/hysteria2.go
-@@ -37,6 +37,7 @@
- }
- 
- type Hysteria2Option struct {
-+	SSRVPNEgress string `proxy:"ssrvpn-egress,omitempty"`
- 	BasicOption
- 	Name              string     `proxy:"name"`
- 	Server            string     `proxy:"server"`
-@@ -87,11 +88,26 @@
- }
- 
- func (h *Hysteria2) DialContext(ctx context.Context, metadata *C.Metadata) (_ C.Conn, err error) {
-+	metadata, err = ssrvpnEgressTarget(ctx, metadata, h.option.SSRVPNEgress, false, resolver.ResolveIPv4)
-+	if err != nil {
-+		return nil, err
-+	}
- 	c, err := h.client.DialConn(ctx, M.ParseSocksaddrHostPort(metadata.String(), metadata.DstPort))
- 	if err != nil {
- 		return nil, err
- 	}
- 	return NewConn(c, h), nil
-+}
-+
-+// Enforce the declaration for both the initial UDP flow and reused packet
-+// connections, whose ResolveUDP callback is retained by the core wrapper.
-+func (h *Hysteria2) ResolveUDP(ctx context.Context, metadata *C.Metadata) error {
-+	target, err := ssrvpnEgressTarget(ctx, metadata, h.option.SSRVPNEgress, true, resolver.ResolveIPv4)
-+	if err != nil {
-+		return err
-+	}
-+	metadata.DstIP = target.DstIP
-+	return h.Base.ResolveUDP(ctx, metadata)
- }
- 
- func (h *Hysteria2) ListenPacketContext(ctx context.Context, metadata *C.Metadata) (_ C.PacketConn, err error) {
-@@ -124,6 +140,9 @@
- }
- 
- func NewHysteria2(option Hysteria2Option) (*Hysteria2, error) {
-+	if option.SSRVPNEgress != "" && option.SSRVPNEgress != "auto" && option.SSRVPNEgress != "ipv4" {
-+		return nil, fmt.Errorf("invalid ssrvpn-egress: expected auto or ipv4")
-+	}
- 	addr := net.JoinHostPort(option.Server, strconv.Itoa(option.Port))
- 	outbound := &Hysteria2{
- 		Base: NewBase(BaseOption{

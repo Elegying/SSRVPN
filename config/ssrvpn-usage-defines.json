@@ -1,4 +1,4 @@
 {
   "SSRVPN_USAGE_PROVIDERS": "[]",
-  "SSRVPN_NODE_EGRESS": "[{\"server\":\"vpn.ssrvpn.vip\",\"port\":19999,\"protocol\":\"hysteria2\",\"egress\":\"ipv4\"},{\"server\":\"155.103.116.206\",\"port\":19999,\"protocol\":\"hysteria2\",\"egress\":\"ipv4\"},{\"server\":\"154.9.234.123\",\"port\":19999,\"protocol\":\"hysteria2\",\"egress\":\"ipv4\"}]"
+  "SSRVPN_NODE_EGRESS": "[]"
 }
