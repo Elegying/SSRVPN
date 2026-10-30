@@ -18,8 +18,8 @@ Link flags: -s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=7031
 Android API: 24
 NDK version: 28.2.13676358 (r28c)
 Mirror repo: Elegying/SSRVPN
-Mirror release tag: core-assets-v1
-Mirror asset name: libgojni-6b5009b74896c4de35b8882878c1b1bfd636dbeb5aa622e07972e721b2914659.so
-Mirror URL: https://github.com/Elegying/SSRVPN/releases/download/core-assets-v1/libgojni-6b5009b74896c4de35b8882878c1b1bfd636dbeb5aa622e07972e721b2914659.so
-Library SHA256: 6b5009b74896c4de35b8882878c1b1bfd636dbeb5aa622e07972e721b2914659
-Traffic extension SHA256: f7414215ded848b537432d86823e8fb10ab3c3bbe85c3c80e3c2418a92578175
+Mirror release tag: core-assets-v2
+Mirror asset name: libgojni-ea67d73cc98841d78685ef9da075bf22cfc0bf22034ef8cfe825ce04b1704198.so
+Mirror URL: https://github.com/Elegying/SSRVPN/releases/download/core-assets-v2/libgojni-ea67d73cc98841d78685ef9da075bf22cfc0bf22034ef8cfe825ce04b1704198.so
+Library SHA256: ea67d73cc98841d78685ef9da075bf22cfc0bf22034ef8cfe825ce04b1704198
+Traffic extension SHA256: 3d016bb081c8289d52aa3ebea9ace1a81b6788cc1dedc234a8160640351d9d9b

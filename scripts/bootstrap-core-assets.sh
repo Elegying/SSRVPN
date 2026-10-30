@@ -42,9 +42,9 @@ asset_matches() {
 # upstream archives as a supported source for records without an extension.
 core_mirror_url() {
   local record="$1" name="$2"
-  local expected="https://github.com/Elegying/SSRVPN/releases/download/core-assets-v1/$name"
+  local expected="https://github.com/Elegying/SSRVPN/releases/download/core-assets-v2/$name"
   test "$(require_field "$record" 'Mirror repo')" = Elegying/SSRVPN || fail "invalid core mirror repo"
-  test "$(require_field "$record" 'Mirror release tag')" = core-assets-v1 || fail "invalid core mirror tag"
+  test "$(require_field "$record" 'Mirror release tag')" = core-assets-v2 || fail "invalid core mirror tag"
   test "$(require_field "$record" 'Mirror asset name')" = "$name" || fail "core mirror name is not content-addressed"
   test "$(require_field "$record" 'Mirror URL')" = "$expected" || fail "invalid core mirror URL"
   printf '%s' "$expected"
@@ -208,11 +208,11 @@ android_mirror_name="$(require_field "$android_source" 'Mirror asset name')"
 android_url="$(require_field "$android_source" 'Mirror URL')"
 android_hash="$(require_field "$android_source" 'Library SHA256')"
 expected_android_name="libgojni-${android_hash}.so"
-expected_android_url="https://github.com/Elegying/SSRVPN/releases/download/core-assets-v1/${expected_android_name}"
+expected_android_url="https://github.com/Elegying/SSRVPN/releases/download/core-assets-v2/${expected_android_name}"
 test "$android_mirror_repo" = "Elegying/SSRVPN" ||
   fail "Android core mirror repo must be Elegying/SSRVPN"
-test "$android_mirror_tag" = "core-assets-v1" ||
-  fail "Android core mirror release tag must be core-assets-v1"
+test "$android_mirror_tag" = "core-assets-v2" ||
+  fail "Android core mirror release tag must be core-assets-v2"
 test "$android_mirror_name" = "$expected_android_name" ||
   fail "Android core mirror asset must be content-addressed as $expected_android_name"
 test "$android_url" = "$expected_android_url" ||
