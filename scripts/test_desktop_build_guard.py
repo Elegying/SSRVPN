@@ -17,6 +17,26 @@ spec.loader.exec_module(guard)
 
 
 class DesktopBuildGuardTest(unittest.TestCase):
+    @unittest.skipIf(os.name == 'nt', 'POSIX build entrypoint')
+    def test_macos_entrypoint_stops_before_build_when_resource_guard_fails(self):
+        scripts = self.root / 'scripts'
+        scripts.mkdir()
+        entry = scripts / 'build-macos-local.sh'
+        shutil.copyfile(ROOT / 'scripts/build-macos-local.sh', entry)
+        for name, code in [('check-flutter-version.sh', 0),
+                           ('check-macos-core-privileges.sh', 31)]:
+            path = scripts / name
+            path.write_text(f'#!/usr/bin/env bash\nexit {code}\n', encoding='utf-8')
+            path.chmod(0o700)
+        marker = self.root / 'build-started'
+        (scripts / 'desktop_build_guard.py').write_text(
+            f'from pathlib import Path\nPath({str(marker)!r}).touch()\n',
+            encoding='utf-8')
+        result = subprocess.run(['bash', str(entry)], cwd=self.root,
+                                capture_output=True, check=False)
+        self.assertEqual(result.returncode, 31, result.stderr)
+        self.assertFalse(marker.exists())
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='guard space 中文 ')
         self.addCleanup(self.tmp.cleanup)
