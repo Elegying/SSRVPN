@@ -1,11 +1,10 @@
-Source repository: zeyugao/mihomo
-Source commit: 7031b7569831677a8d89ad8a8a3347db116ba1a8
-Source tree: 023ddee8f965c54a263a16df68580585aa12c0f8
-Source corroboration: gunzi-666/Clash.Meta has the same commit and tree
+Source repository: https://github.com/MetaCubeX/mihomo.git
+Source commit: e26714a181ac0e2fa803453c0a8e9a9ce94e31cb
+Source tree: 2487680d2def055568f3b50fcc61f931d70f6fa6
 Bridge source: SSRVPN_Android/native/bridge/bridge.go
 Bridge SHA256: 28efb399f083359ed991755ef895dd5b8e679646664022e52b84c8f7de4378dd
 Build recipe: scripts/build-android-core.sh
-Go version: go1.25.11
+Go version: go1.26.5
 Go mobile version: v0.0.0-20260602190626-68735029466e
 Go module: github.com/metacubex/mihomo
 Go module version: v0.0.0-00010101000000-000000000000
@@ -13,13 +12,13 @@ Build mode: c-shared
 Build tags: with_gvisor,cmfa
 Target: android/arm64
 Trim path: true
-Core version: 7031b7569831677a8d89ad8a8a3347db116ba1a8-ssrvpn.1
-Link flags: -s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=7031b7569831677a8d89ad8a8a3347db116ba1a8-ssrvpn.1
+Core version: v1.19.29-ssrvpn.1
+Link flags: -s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=v1.19.29-ssrvpn.1
 Android API: 24
 NDK version: 28.2.13676358 (r28c)
 Mirror repo: Elegying/SSRVPN
 Mirror release tag: core-assets-v3
-Mirror asset name: libgojni-807d61b88ebef13dcf1a9793cd3f3b5884411f64015601c4a000c49d82c9756e.so
-Mirror URL: https://github.com/Elegying/SSRVPN/releases/download/core-assets-v3/libgojni-807d61b88ebef13dcf1a9793cd3f3b5884411f64015601c4a000c49d82c9756e.so
-Library SHA256: 807d61b88ebef13dcf1a9793cd3f3b5884411f64015601c4a000c49d82c9756e
-Traffic extension SHA256: a69c4d325107fc814339baf703f0383de18445d2e86ddc6c99070dd75e3d517a
+Mirror asset name: libgojni-4597163330cda23655781feaffe47ac31932aab08db16a2fafb392b263b245c9.so
+Mirror URL: https://github.com/Elegying/SSRVPN/releases/download/core-assets-v3/libgojni-4597163330cda23655781feaffe47ac31932aab08db16a2fafb392b263b245c9.so
+Library SHA256: 4597163330cda23655781feaffe47ac31932aab08db16a2fafb392b263b245c9
+Traffic extension SHA256: 9d93d989d1f9e73683ff375788090b85c1f59da8a436103a8f44ab84ec4ebefd

@@ -15,15 +15,19 @@ class SubscriptionAutoUpdater extends ChangeNotifier {
       required this.isRemote,
       required this.refresh,
       required this.write,
+      bool Function()? proxyReady,
       DateTime Function()? now,
       this.pollInterval = const Duration(seconds: 30)})
-      : _now = now ?? DateTime.now;
+      : _now = now ?? DateTime.now,
+        _proxyReady = proxyReady ?? _alwaysReady;
+  static bool _alwaysReady() => true;
   final List<Subscription> Function() subscriptions;
   final bool Function(Subscription) isRemote;
   final Future<SubscriptionBatchRefreshResult> Function(
       Set<String>, SubscriptionRefreshCancellation) refresh;
   final Future<void> Function(File, String) write;
   final DateTime Function() _now;
+  final bool Function() _proxyReady;
   final Duration pollInterval;
   SubscriptionUpdateSchedule? _schedule;
   SubscriptionUpdateSchedule? get schedule => _schedule;
@@ -36,6 +40,7 @@ class SubscriptionAutoUpdater extends ChangeNotifier {
   int _epoch = 0;
   Future<void> _tail = Future.value();
   SubscriptionRefreshCancellation? _cancellation;
+  Set<String> _pendingProxyIds = {};
   List<Subscription> get remoteSubscriptions =>
       subscriptions().where(isRemote).toList();
 
@@ -61,24 +66,39 @@ class SubscriptionAutoUpdater extends ChangeNotifier {
         }
         lastResult =
             json['lastResult'] is String ? json['lastResult'] as String : null;
+        final pending = json['pendingProxyIds'];
+        if (pending != null) {
+          if (pending is! List || pending.any((id) => id is! String)) {
+            throw const FormatException('自动更新等待记录无效');
+          }
+          _pendingProxyIds = pending.cast<String>().toSet();
+          if (_pendingProxyIds.isNotEmpty &&
+              (_schedule == null ||
+                  !_schedule!.subscriptionIds.containsAll(_pendingProxyIds))) {
+            throw const FormatException('自动更新等待记录无效');
+          }
+        }
       }
     } catch (_) {
       lastResult = '自动更新设置读取失败，请重新保存计划';
       _schedule = null;
       lastAttempt = null;
+      _pendingProxyIds = {};
     }
     _arm();
   }
 
-  Future<void> _persist(SubscriptionUpdateSchedule? schedule, DateTime? attempt,
-      String? result) async {
+  Future<void> _persist(
+      SubscriptionUpdateSchedule? schedule, DateTime? attempt, String? result,
+      {Set<String> pendingProxyIds = const {}}) async {
     if (_file == null) throw StateError('订阅存储尚未初始化');
     await write(
         _file!,
         jsonEncode({
           'schedule': schedule?.toJson(),
           'lastAttempt': attempt?.toUtc().toIso8601String(),
-          'lastResult': result
+          'lastResult': result,
+          'pendingProxyIds': pendingProxyIds.toList(),
         }));
   }
 
@@ -100,6 +120,7 @@ class SubscriptionAutoUpdater extends ChangeNotifier {
         _epoch++;
         _cancellation?.cancel();
         _schedule = candidate;
+        _pendingProxyIds = {};
         lastAttempt = null;
         lastResult = null;
         _arm();
@@ -123,14 +144,25 @@ class SubscriptionAutoUpdater extends ChangeNotifier {
         if (_disposed || epoch != _epoch) return;
         final plan = _schedule;
         final now = _now();
-        if (plan == null || plan.dueAt(now, lastAttempt) == null) return;
-        ids = remoteSubscriptions
+        if (plan == null) return;
+        final due = plan.dueAt(now, lastAttempt) != null;
+        if (!due && (_pendingProxyIds.isEmpty || !_proxyReady())) return;
+        final eligible = remoteSubscriptions
             .where((s) => s.enabled && plan.subscriptionIds.contains(s.id))
-            .map((s) => s.id)
-            .toSet();
+            .toList();
+        final selected = due
+            ? eligible
+            : eligible.where((s) => _pendingProxyIds.contains(s.id)).toList();
+        final waiting = _proxyReady()
+            ? <String>{}
+            : selected.where((s) => s.refreshViaProxy).map((s) => s.id).toSet();
+        ids = selected.map((s) => s.id).toSet().difference(waiting);
         // Persist admission before network I/O, preventing duplicate catch-up on restart.
-        await _persist(plan, now, '上次自动更新未完成，可手动更新订阅');
-        lastAttempt = now;
+        final attempt = due ? now : lastAttempt;
+        await _persist(plan, attempt, '上次自动更新未完成，可手动更新订阅',
+            pendingProxyIds: waiting);
+        lastAttempt = attempt;
+        _pendingProxyIds = waiting;
         lastResult = '正在自动更新订阅…';
       });
       if (ids == null || _disposed || epoch != _epoch) return;
@@ -139,7 +171,8 @@ class SubscriptionAutoUpdater extends ChangeNotifier {
       String result;
       try {
         if (ids!.isEmpty) {
-          result = '本次没有启用且被勾选的订阅';
+          result =
+              _pendingProxyIds.isNotEmpty ? '等待节点连接后自动更新订阅' : '本次没有启用且被勾选的订阅';
         } else {
           final outcome = await refresh(ids!, _cancellation!);
           result = outcome.failures.isEmpty
@@ -157,7 +190,11 @@ class SubscriptionAutoUpdater extends ChangeNotifier {
       }
       await _serialize(() async {
         if (_disposed || epoch != _epoch) return;
-        await _persist(_schedule, lastAttempt, result);
+        if (_pendingProxyIds.isNotEmpty && ids!.isNotEmpty) {
+          result = '$result；其余订阅等待节点连接后自动更新';
+        }
+        await _persist(_schedule, lastAttempt, result,
+            pendingProxyIds: _pendingProxyIds);
         lastResult = result;
       });
     } catch (_) {

@@ -11,7 +11,7 @@ VMess defaults, `alter-id`, `socks`, and endpoint normalization, which require c
 generated configuration using the real packaged core, with a healthy sibling
 that must survive rejection of a malformed node.
 
-The decoder and common option layouts were compared at these exact revisions:
+The historical decoder and common option layouts were compared at these exact revisions:
 
 - Windows: MetaCubeX/mihomo `5184081ac327394d9e15fa5d5f9f4a61e723fd94`
 - Android: zeyugao/mihomo `7031b7569831677a8d89ad8a8a3347db116ba1a8`
@@ -22,3 +22,5 @@ Relevant upstream paths: `common/structure/structure.go`, `adapter/outbound`,
 `transport/vless/encryption`. Update both the decoder schema and independently
 verified fixtures when changing a core pin. Unknown optional keys are retained;
 the schema covers the shared option layout, not every platform-specific extension.
+The later unified core pin is recorded in `native/proxy_traffic/sources.json`;
+these historical verdicts alone do not establish Windows-native validation of it.

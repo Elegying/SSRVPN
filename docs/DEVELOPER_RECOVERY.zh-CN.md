@@ -33,12 +33,12 @@ Linux、macOS、Windows 运行器构建，不依赖旧电脑、旧安装包或�
 brew install git gh mise python age shellcheck cocoapods
 mise install flutter@3.44.1
 mise install java@temurin-17
-mise install go@1.20.14 go@1.25.11 go@1.26.5
+mise install go@1.26.5
 gh auth login
 ```
 
 Flutter 必须使用 `.fvmrc` 固定的 **3.44.1**。JDK 使用 **17**。
-三个 Go 版本分别用于重建仓库固定的不同平台核心，不用默认最新版替代。
+三端核心使用同一固定 Go 版本，不用默认最新版替代。
 Python 使用 3.12 或更高版本。
 
 安装 Android Studio，通过 SDK Manager 安装 Android SDK Command-line Tools。

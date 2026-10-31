@@ -3,13 +3,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT="${1:-}"
-SOURCE_REPO="https://github.com/zeyugao/mihomo.git"
-SOURCE_COMMIT="7031b7569831677a8d89ad8a8a3347db116ba1a8"
-SOURCE_TREE="023ddee8f965c54a263a16df68580585aa12c0f8"
-GO_VERSION="go1.25.11"
+SOURCE_REPO="https://github.com/MetaCubeX/mihomo.git"
+SOURCE_COMMIT="e26714a181ac0e2fa803453c0a8e9a9ce94e31cb"
+SOURCE_TREE="2487680d2def055568f3b50fcc61f931d70f6fa6"
+GO_VERSION="go1.26.5"
 MOBILE_VERSION="v0.0.0-20260602190626-68735029466e"
 NDK_VERSION="28.2.13676358"
-CORE_VERSION="${SOURCE_COMMIT}-ssrvpn.1"
+CORE_VERSION="v1.19.29-ssrvpn.1"
 CORE_LDFLAGS="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$CORE_VERSION"
 
 fail() {

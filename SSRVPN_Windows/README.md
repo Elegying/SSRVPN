@@ -75,8 +75,8 @@ CI 在 Windows runner 上验证 PowerShell 5.1 兼容、安装器结构、静默
 
 ## Mihomo 核心
 
-安装器载荷包含带 SSRVPN 流量统计扩展的 `mihomo.exe`，基于 Mihomo `v1.19.27`，
-使用 Go 1.20.14 / amd64 v1 构建。固定来源、补丁和 SHA-256 记录在
+安装器载荷包含带 SSRVPN 流量统计扩展的 `mihomo.exe`，基于 Mihomo `v1.19.29`，
+使用 Go 1.26.5 / amd64 v1 构建。固定来源、补丁和 SHA-256 记录在
 [`assets/mihomo-source.txt`](assets/mihomo-source.txt)。不能以缺少统计接口的上游原版替换；
 更新流程见[核心资产说明](../docs/CORE_ASSETS.md)。
 

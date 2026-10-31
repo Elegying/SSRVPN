@@ -679,6 +679,14 @@ print("macOS native core support boundary guard passed.")
 windows_proxy = Path("SSRVPN_Windows/lib/services/system_proxy_service.dart")
 windows_proxy_models = windows_proxy.with_name("system_proxy_models.dart")
 windows_proxy_source = windows_proxy.read_text(encoding="utf-8")
+windows_ownership = windows_proxy.with_name("system_proxy_ownership_helpers.dart")
+if "part 'system_proxy_ownership_helpers.dart';" not in windows_proxy_source:
+    raise SystemExit(f"{windows_proxy}: missing proxy ownership helper boundary")
+ownership_source = windows_ownership.read_text(encoding="utf-8")
+for declaration in ("bool _isOwnedProxy(", "bool _isOwnedEndpoint(",
+                    "WindowsProxyState? _ownedProxyState("):
+    if declaration in windows_proxy_source or declaration not in ownership_source:
+        raise SystemExit(f"{windows_ownership}: missing ownership predicate {declaration}")
 if len(windows_proxy_source.splitlines()) > 1320:
     raise SystemExit(
         f"{windows_proxy}: proxy transaction orchestration grew beyond its "
@@ -733,6 +741,15 @@ print("Windows QR image picker registration guard passed.")
 # The Windows lifecycle part also carries the PowerShell 5.1-compatible,
 # handle-based process identity verifier. Keep a small audited headroom without
 # forcing security-sensitive native code into an opaque generated asset.
+windows_core = Path("SSRVPN_Windows/lib/services/clash_service.dart").read_text(encoding="utf-8")
+windows_lifecycle = Path("SSRVPN_Windows/lib/services/clash_service_lifecycle.dart").read_text(encoding="utf-8")
+windows_exit = Path("SSRVPN_Windows/lib/services/clash_service_unexpected_exit.dart").read_text(encoding="utf-8")
+if "part 'clash_service_unexpected_exit.dart';" not in windows_core:
+    raise SystemExit("Windows unexpected-exit scheduling boundary is not linked")
+for declaration in ("void _scheduleUnexpectedExitRecovery(",
+                    "Future<DesktopUnexpectedExitProxyCleanupResult>\n      _prepareUnexpectedExitProxyCleanup("):
+    if declaration in windows_lifecycle or declaration not in windows_exit:
+        raise SystemExit(f"Windows unexpected-exit scheduling boundary is missing {declaration}")
 hotspot_limits = {
     Path("SSRVPN_MacOS/lib/services/system_proxy_service.dart"): 1100,
     Path("SSRVPN_Windows/lib/services/clash_service_lifecycle.dart"): 1800,

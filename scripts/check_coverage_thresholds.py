@@ -36,12 +36,17 @@ CRITICAL_FILE_THRESHOLDS = {
     },
     "SSRVPN_MacOS": {
         "lib/services/clash_service_lifecycle.dart": 75.0,
+        "lib/services/clash_service_lifecycle_models.dart": 95.0,
+        "lib/services/clash_service_core_watch.dart": 85.0,
         "lib/services/system_proxy_service.dart": 85.0,
+        "lib/services/system_proxy_state_file.dart": 85.0,
         "lib/services/system_proxy_snapshot.dart": 90.0,
         "lib/services/macos_start_transaction.dart": 95.0,
     },
     "SSRVPN_Windows": {
         "lib/services/clash_service_lifecycle.dart": 58.0,
+        "lib/services/clash_service_unexpected_exit.dart": 45.0,
+        "lib/services/system_proxy_ownership_helpers.dart": 95.0,
         "lib/services/clash_service_process_support.dart": 90.0,
         "lib/services/clash_service_config_validation.dart": 90.0,
         "lib/services/windows_start_transaction.dart": 95.0,
@@ -54,6 +59,7 @@ CRITICAL_FILE_THRESHOLDS = {
 WINDOWS_NATIVE_TOTAL_THRESHOLD = 74.0
 WINDOWS_NATIVE_CRITICAL_THRESHOLDS = {
     "lib/services/clash_service_lifecycle.dart": 77.0,
+    "lib/services/clash_service_unexpected_exit.dart": 90.0,
 }
 
 

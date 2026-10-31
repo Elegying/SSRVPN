@@ -44,7 +44,7 @@ TCP、UDP、缓冲区及快速拷贝沿用核心原有字节计数路径；计�
 Android 使用固定临时源码路径以及 `-s -w -buildid=` 链接参数，避免 gomobile 本地
 模块替换路径、NDK 调试路径及构建标识造成无关机器差异。源码、JNI 导出和 ELF 对齐
 验证不受调试段移除影响。
-三端版本身份均以 `-ssrvpn.1` 结尾；Android 以锁定的源码提交加该后缀作为版本，
+三端版本身份均以 `-ssrvpn.1` 结尾；Android 与桌面端均以锁定的上游版本加该后缀作为版本，
 通过 `-X github.com/metacubex/mihomo/constant.Version` 注入。构建时的 Go 行为测试、
 Android 二进制嵌入身份检查及桌面真实 `/version` 检查共同防止丢失该标识。
 这些身份检查补充既有二进制 SHA-256 验证，不能替代它；重建后必须记录真实的新摘要。

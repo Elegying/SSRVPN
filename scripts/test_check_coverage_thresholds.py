@@ -58,10 +58,12 @@ class CheckCoverageThresholdsTests(unittest.TestCase):
         target = root / "SSRVPN_Windows"
         counts = {
             "lib/services/clash_service_lifecycle.dart": (100, lifecycle_hit),
+            "lib/services/clash_service_unexpected_exit.dart": (100, 95),
+            "lib/services/system_proxy_ownership_helpers.dart": (100, 95),
             "lib/services/clash_service_process_support.dart": (100, 95),
             "lib/services/clash_service_config_validation.dart": (100, 95),
             "lib/services/windows_start_transaction.dart": (100, 95),
-            "lib/other.dart": (600, total_hit - lifecycle_hit - 285),
+            "lib/other.dart": (400, total_hit - lifecycle_hit - 475),
         }
         records = []
         for source, (found, hit) in counts.items():

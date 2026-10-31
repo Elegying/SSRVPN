@@ -8,7 +8,7 @@ runtime resources in `Bridge.stop()`.
 
 ## Source build
 
-`scripts/build-android-core.sh` accepts only Go `1.25.11`, checks the fixed
+`scripts/build-android-core.sh` accepts only Go `1.26.5`, checks the fixed
 Mihomo commit and tree, overlays the committed bridge, pins `x/mobile`, and uses
 NDK r28c. The bridge calls Mihomo's existing `ReCreateMixed(0, nil)`,
 `ReCreateSocks(0, nil)`, and `executor.Shutdown()` functions. The resulting

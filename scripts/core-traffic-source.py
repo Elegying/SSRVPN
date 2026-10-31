@@ -51,7 +51,9 @@ def digest():
 
 
 def apply(platform, directory):
-    source = json.loads((BUNDLE / 'sources.json').read_text())[platform]
+    sources = json.loads((BUNDLE / 'sources.json').read_text())
+    require_unified_sources(sources)
+    source = sources[platform]
     for ref, expected in [('HEAD', source['commit']), ('HEAD^{tree}', source['tree'])]:
         actual = subprocess.check_output(['git', 'rev-parse', ref], cwd=directory, text=True).strip()
         if actual != expected:
@@ -66,15 +68,20 @@ def apply(platform, directory):
     for name, target in copies.items():
         (directory / target).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(BUNDLE / name, directory / target)
-    if platform in ('android', 'windows'):
-        # These pinned upstream versions use the unexported UDP constructor.
-        target = directory / COPIES['outbound_test.go']
-        target.write_text(target.read_text().replace('NewPacketConn(', 'newPacketConn('))
     print(f'Applied {platform} proxy traffic extension {digest()}')
+
+
+def require_unified_sources(sources):
+    fields = ('repository', 'commit', 'tree', 'go', 'version')
+    expected = set(('android', 'macos', 'windows'))
+    if set(sources) != expected or len({tuple(sources[p][field] for field in fields)
+                                        for p in expected}) != 1:
+        raise ValueError('Three-platform core source and Go versions must match')
 
 
 def verify():
     sources = json.loads((BUNDLE / 'sources.json').read_text())
+    require_unified_sources(sources)
     for platform, record in [('android', 'SSRVPN_Android/assets/libgojni-source.txt'),
                              ('macos', 'SSRVPN_MacOS/assets/AtlasCore-source.txt'),
                              ('windows', 'SSRVPN_Windows/assets/mihomo-source.txt')]:

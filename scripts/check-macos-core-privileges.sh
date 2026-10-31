@@ -6,6 +6,8 @@ cd "$(dirname "$0")/.."
 runtime=(
   "SSRVPN_MacOS/lib/services/clash_service.dart"
   "SSRVPN_MacOS/lib/services/clash_service_lifecycle.dart"
+  "SSRVPN_MacOS/lib/services/clash_service_lifecycle_models.dart"
+  "SSRVPN_MacOS/lib/services/clash_service_core_watch.dart"
   "SSRVPN_MacOS/lib/services/macos_tun_session.dart"
 )
 native="SSRVPN_MacOS/macos/Runner"
@@ -44,7 +46,19 @@ path = Path("SSRVPN_MacOS/lib/services/clash_service.dart")
 lifecycle_path = Path("SSRVPN_MacOS/lib/services/clash_service_lifecycle.dart")
 main_source = path.read_text(encoding="utf-8")
 lifecycle_source = lifecycle_path.read_text(encoding="utf-8")
-source = f"{main_source}\n{lifecycle_source}"
+models_path = Path("SSRVPN_MacOS/lib/services/clash_service_lifecycle_models.dart")
+if "part 'clash_service_lifecycle_models.dart';" not in main_source:
+    raise SystemExit(f"{path}: missing core identity model boundary")
+models_source = models_path.read_text(encoding="utf-8")
+if "contents == 'v2 $recordedPid $startSeconds $startMicroseconds\\n'" not in models_source:
+    raise SystemExit(f"{models_path}: missing canonical PID record validation")
+watch_path = Path("SSRVPN_MacOS/lib/services/clash_service_core_watch.dart")
+if "part 'clash_service_core_watch.dart';" not in main_source:
+    raise SystemExit(f"{path}: missing core process watcher boundary")
+watch_source = watch_path.read_text(encoding="utf-8")
+if "'ownedCoreStatus'" not in watch_source:
+    raise SystemExit(f"{watch_path}: missing owned core status query")
+source = f"{main_source}\n{lifecycle_source}\n{watch_source}\n{models_source}"
 if re.search(r'''['"][2467][0-7]{3}['"]|[ug]\+s''', source):
     raise SystemExit(f"{path}: found a privileged chmod mode")
 
@@ -91,13 +105,12 @@ for forbidden in (
     "'persistOwnedCoreRecord'",
     "writeAsString('$corePid\\n'",
 ):
-    if forbidden in lifecycle_source:
+    if forbidden in f"{lifecycle_source}\n{watch_source}\n{models_source}":
         raise SystemExit(f"{lifecycle_path}: obsolete PID-only lifecycle remains: {forbidden}")
 
 required_lifecycle = (
     "MethodChannel('ssrvpn/core_process')",
     "'launchOwnedCore'",
-    "'ownedCoreStatus'",
     "'terminateOwnedCore'",
     "'terminateOwnedCoreRecord'",
     "'removeOwnedCorePidRecord'",
@@ -107,7 +120,6 @@ required_lifecycle = (
     "await _terminateOrphanedCores()",
     "_proxyService.recoveryPending",
     "expectedContents': expectedRecord",
-    "contents == 'v2 $recordedPid $startSeconds $startMicroseconds\\n'",
 )
 missing_lifecycle = [
     token for token in required_lifecycle if token not in lifecycle_source
@@ -342,14 +354,26 @@ proxy_service = Path(
 ).read_text(encoding="utf-8")
 if "part 'system_proxy_snapshot.dart';" not in proxy_service:
     raise SystemExit("macOS proxy snapshot validation is not linked")
+if "part 'system_proxy_state_file.dart';" not in proxy_service:
+    raise SystemExit("macOS proxy recovery file safety checks are not linked")
+proxy_state_file = Path(
+    "SSRVPN_MacOS/lib/services/system_proxy_state_file.dart"
+).read_text(encoding="utf-8")
+required_state_guards = (
+    "FileSystemEntity.type(\n        file.path,\n        followLinks: false",
+    "stat.size > SystemProxyService._maxStateFileBytes",
+    "stat.mode & SystemProxyService._groupOrOtherWriteMask != 0",
+    "currentContents != expectedContents",
+)
+missing_state_guards = [token for token in required_state_guards if token not in proxy_state_file]
+if missing_state_guards:
+    raise SystemExit("system_proxy_state_file.dart: missing fail-closed proxy guard(s): "
+                     + ", ".join(missing_state_guards))
 proxy_service += Path("SSRVPN_MacOS/lib/services/system_proxy_snapshot.dart").read_text(encoding="utf-8")
 required_proxy_guards = (
     "Future<bool>? _clearSystemProxyInFlight",
     "return _clearSystemProxyInFlight ??= _runClearSystemProxy()",
     "_clearSystemProxyInFlight = null",
-    "FileSystemEntity.type(\n        file.path,\n        followLinks: false",
-    "stat.size > _maxStateFileBytes",
-    "stat.mode & _groupOrOtherWriteMask != 0",
     "无法确认代理归属，已保留恢复快照并阻止核心清理",
     "_runWithNativeProxyLifecycleLease(",
     "_startNativeProxyGuardian(statePath, guardianNonce)",
@@ -360,7 +384,6 @@ required_proxy_guards = (
     "_validatedSavedServiceStates(",
     "hasStableIdentities: hasStableIdentities",
     "_deleteStateFileIfUnchanged(file, originalContents)",
-    "currentContents != expectedContents",
     "_isValidProxyState(value['web'])",
 )
 missing_proxy_guards = [

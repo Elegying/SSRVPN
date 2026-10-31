@@ -23,6 +23,7 @@ part 'clash_service_diagnostics.dart';
 part 'clash_service_identity.dart';
 part 'clash_service_recovery_policy.dart';
 part 'clash_service_lifecycle.dart';
+part 'clash_service_unexpected_exit.dart';
 part 'clash_service_process_support.dart';
 part 'clash_service_start_preparation.dart';
 part 'clash_service_tun_recovery.dart';
@@ -139,11 +140,12 @@ class ClashService extends ClashServiceBase
 
     // 验证核心文件
     final coreFile = File(_corePath);
+    var shouldPrewarmCore = false;
     if (await coreFile.exists()) {
       final size = await coreFile.length();
       log('✅ 核心文件存在: ${(size / 1024 / 1024).toStringAsFixed(1)} MB');
       if (!skipCoreProbes) {
-        await logCoreVersion();
+        shouldPrewarmCore = true;
       }
     } else {
       log('❌ 核心文件不存在: $_corePath');
@@ -152,7 +154,10 @@ class ClashService extends ClashServiceBase
 
     // 预下载 MMDB 文件
     if (!skipCoreProbes) {
-      await _ensureMMDB();
+      await prepareAssetsWithCorePrewarm(
+        prepareAssets: _ensureMMDB,
+        prewarmCore: shouldPrewarmCore ? logCoreVersion : null,
+      );
     }
   }
 

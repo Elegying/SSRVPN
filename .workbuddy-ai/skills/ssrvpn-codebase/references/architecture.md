@@ -78,17 +78,15 @@ part of desktop_home_screen;          // ← 反向挂回平台库
 - `macos/Runner` 之外同理：`SSRVPN_MacOS/lib/widgets/glass_container.dart` 用 `part 'package:ssrvpn_shared/desktop_ui/widgets/glass_container_part.dart'`，`SSRVPN_MacOS/lib/app.dart` 挂 `desktop_app_shell_part.dart`。
 - 守卫 `check-desktop-startup-guards.sh` 会检查两端 `home_screen.dart` 是否引用了全部 4 个 desktop home part（runtime_actions / initial_subscription / background_tasks / public_ip）。
 
-## 3. 上游分歧（补丁漂移的根因）
+## 3. 三端核心上游与补丁
 
-`native/proxy_traffic/sources.json` 里**三个平台用了三个不同上游**：
+`native/proxy_traffic/sources.json` 锁定三端相同的 MetaCubeX/mihomo
+`e26714a`（v1.19.29）与 Go 1.26.5。`core-traffic-source.py` 校验源码、
+树、工具链和版本必须三端一致；CI 对每个平台补丁分别运行全部核心契约。
 
-| 平台 | 上游 | 版本 | Go |
-|---|---|---|---|
-| macOS | MetaCubeX/mihomo @ `e26714a` | v1.19.29 | go1.26.5 |
-| Windows | MetaCubeX/mihomo @ `5184081` | v1.19.27 | go1.20.14 |
-| Android | **zeyugao/mihomo fork** @ `7031b75` | — | go1.25.11 |
-
-结果：`android.patch` 相对上游缺 `ssrvpnStartupProviders`（0 vs 1）和 `loadProvider`（2 vs 4）的同步。**动补丁前先确认对应上游的基线**，别拿 macOS 的上下文去改 Android 的 patch。
+三端仍有各自的补丁和构建标签；Android 通过 JNI 桥及 `cmfa` 标签构建。
+统一提交不能证明平台行为完全相同，尤其修改规则提供器启动路径时必须核对
+每份补丁和对应平台的测试。
 
 ## 4. 安全信任链（改任何一环都要重看整条）
 

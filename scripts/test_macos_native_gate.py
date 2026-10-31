@@ -680,7 +680,9 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
             "removeOwnedCorePidRecord",
         ):
             self.assertIn(f'case "{method}"', main_window)
-            self.assertIn(f"'{method}'", lifecycle)
+            call_source = (self.read("SSRVPN_MacOS/lib/services/clash_service_core_watch.dart")
+                           if method == "ownedCoreStatus" else lifecycle)
+            self.assertIn(f"'{method}'", call_source)
             method_start = main_window.index(f'case "{method}"')
             next_case = main_window.find("\n      case ", method_start + 1)
             default_case = main_window.find("\n      default:", method_start + 1)
@@ -802,14 +804,19 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
             "SSRVPN_MacOS/lib/services/system_proxy_service.dart"
         )
         self.assertIn("part 'system_proxy_snapshot.dart';", source)
+        self.assertIn("part 'system_proxy_state_file.dart';", source)
         source += self.read("SSRVPN_MacOS/lib/services/system_proxy_snapshot.dart")
+        state_file = self.read("SSRVPN_MacOS/lib/services/system_proxy_state_file.dart")
+        for token in (
+            "followLinks: false",
+            "stat.size > SystemProxyService._maxStateFileBytes",
+            "stat.mode & SystemProxyService._groupOrOtherWriteMask != 0",
+        ):
+            self.assertIn(token, state_file)
         for token in (
             "Future<bool>? _clearSystemProxyInFlight",
             "return _clearSystemProxyInFlight ??= _runClearSystemProxy()",
             "_clearSystemProxyInFlight = null",
-            "followLinks: false",
-            "stat.size > _maxStateFileBytes",
-            "stat.mode & _groupOrOtherWriteMask != 0",
             "无法确认代理归属，已保留恢复快照并阻止核心清理",
             "_runWithNativeProxyLifecycleLease(",
             "'beginProxyLifecycleTransaction'",

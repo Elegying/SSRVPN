@@ -10,7 +10,7 @@ Source repository: https://github.com/MetaCubeX/mihomo.git
 Source commit: e26714a181ac0e2fa803453c0a8e9a9ce94e31cb
 Source tree: 2487680d2def055568f3b50fcc61f931d70f6fa6
 Go version: go1.26.5
-Traffic extension SHA256: a69c4d325107fc814339baf703f0383de18445d2e86ddc6c99070dd75e3d517a
+Traffic extension SHA256: 9d93d989d1f9e73683ff375788090b85c1f59da8a436103a8f44ab84ec4ebefd
 Build recipe: scripts/build-desktop-core.sh
 Build tags: with_gvisor
 Target: darwin/arm64

@@ -25,7 +25,7 @@ def _uvarint(value: int) -> bytes:
 
 
 def _binary(module_lines: list[str], *, flags: int = 2) -> bytes:
-    version = b"go1.25.11"
+    version = b"go1.26.5"
     module = (
         BUILD_INFO_START
         + "\n".join(module_lines).encode()
@@ -108,7 +108,7 @@ class AndroidCoreBuildInfoTest(unittest.TestCase):
             )
         )
 
-        self.assertEqual(info.go_version, "go1.25.11")
+        self.assertEqual(info.go_version, "go1.26.5")
         self.assertEqual(
             info.dependencies["github.com/metacubex/mihomo"],
             "v0.0.0-00010101000000-000000000000",

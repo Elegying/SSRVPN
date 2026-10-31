@@ -48,6 +48,10 @@ void main() {
 import 'dart:async';
 import 'dart:io';
 Future<void> main(List<String> args) async {
+  if (args.contains('-v')) {
+    await Future<void>.delayed(const Duration(minutes: 1));
+    return;
+  }
   if (!args.contains('-t')) {
     File('${args.last}.spawned').writeAsStringSync('$pid');
     stdout.writeln('fixture runtime stdout');
@@ -110,6 +114,17 @@ Future<void> main(List<String> args) async {
       });
       return core;
     }
+
+    test('stalled core version probe times out without starting a connection',
+        () async {
+      final core = service();
+      final stopwatch = Stopwatch()..start();
+      await core.probeCoreVersion();
+      expect(stopwatch.elapsed, lessThan(const Duration(seconds: 10)));
+      expect(core.recentLogs, contains('核心版本检查超时'));
+      expect(core.isRunning, isFalse);
+      expect(core.lastStartError, isNull);
+    });
 
     test('identity capture failure stops only the held uncommitted child',
         () async {
@@ -1173,6 +1188,30 @@ Future<void> main(List<String> args) async {
     await service.flushLogs();
     final logs = await File(service.logPath).readAsString();
     expect(logs, allOf(contains('核心版本检查失败'), contains('退出码')));
+  });
+  test('missing core version probe records the failure without changing state',
+      () async {
+    final temp =
+        await Directory.systemTemp.createTemp('ssrvpn-version-missing-');
+    final service = _InspectableLifecycleClashService(
+      systemProxyService: SystemProxyService.forTesting(
+        isWindows: false,
+        scriptRunner: (_) async => ProcessResult(0, 0, '', ''),
+      ),
+    );
+    addTearDown(() async {
+      await service.flushLogs();
+      service.dispose();
+      await temp.delete(recursive: true);
+    });
+    await service.init(AppSettings(), dataDir: temp.path, skipCoreProbes: true);
+    service
+        .setCorePath('${temp.path}${Platform.pathSeparator}missing-core.exe');
+    await service.probeCoreVersion();
+    expect(service.isRunning, isFalse);
+    expect(service.lastStartError, isNull);
+    await service.flushLogs();
+    expect(await File(service.logPath).readAsString(), contains('核心无法执行'));
   });
 }
 

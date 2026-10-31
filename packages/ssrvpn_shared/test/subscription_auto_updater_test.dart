@@ -53,6 +53,7 @@ void main() {
   Completer<SubscriptionBatchRefreshResult>? pending;
   SubscriptionRefreshCancellation? cancellation;
   var failWrite = false;
+  var proxyReady = true;
   const success = SubscriptionBatchRefreshResult(
       status: SubscriptionBatchRefreshStatus.success,
       yaml: '',
@@ -60,6 +61,7 @@ void main() {
   SubscriptionAutoUpdater make() => SubscriptionAutoUpdater(
       subscriptions: () => subs,
       isRemote: (s) => s.url.startsWith('https://'),
+      proxyReady: () => proxyReady,
       now: () => now,
       pollInterval: const Duration(days: 1),
       write: (file, text) async {
@@ -85,6 +87,7 @@ void main() {
     pending = null;
     cancellation = null;
     failWrite = false;
+    proxyReady = true;
     updater = make();
     await updater.load(dir.path);
   });
@@ -102,6 +105,76 @@ void main() {
     // Let the immediate admission check finish before moving the clock.
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }
+
+  test('deferred proxy subscriptions survive restart and run once when ready',
+      () async {
+    subs[0].refreshViaProxy = true;
+    subs[1].enabled = true;
+    proxyReady = false;
+    await save();
+    now = DateTime(2026, 10, 7, 10);
+    await updater.checkDue();
+    expect(calls, [
+      {'b'}
+    ]);
+    expect(updater.lastResult, contains('等待节点连接'));
+    updater.dispose();
+    updater = make();
+    await updater.load(dir.path);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(calls, hasLength(1));
+    proxyReady = true;
+    await updater.checkDue();
+    await updater.checkDue();
+    expect(calls, [
+      {'b'},
+      {'a'}
+    ]);
+  });
+
+  test('disabling a plan discards deferred subscriptions', () async {
+    subs[0].refreshViaProxy = true;
+    proxyReady = false;
+    await save();
+    now = DateTime(2026, 10, 7, 10);
+    await updater.checkDue();
+    expect(calls, isEmpty);
+    await updater.save(null);
+    proxyReady = true;
+    await updater.checkDue();
+    expect(calls, isEmpty);
+    updater.dispose();
+    updater = make();
+    await updater.load(dir.path);
+    expect(updater.schedule, isNull);
+    expect(updater.lastResult, isNull);
+  });
+
+  test('a failed deferred refresh is not retried repeatedly', () async {
+    subs[0].refreshViaProxy = true;
+    proxyReady = false;
+    await save();
+    now = DateTime(2026, 10, 7, 10);
+    await updater.checkDue();
+    expect(calls, isEmpty);
+    proxyReady = true;
+    pending = Completer<SubscriptionBatchRefreshResult>();
+    final retry = updater.checkDue();
+    while (calls.isEmpty) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+    }
+    pending!.completeError(StateError('network failure'));
+    await retry;
+    expect(updater.lastResult, contains('失败'));
+    await updater.checkDue();
+    expect(calls, hasLength(1));
+    updater.dispose();
+    pending = null;
+    updater = make();
+    await updater.load(dir.path);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(calls, hasLength(1));
+  });
 
   test(
       'opt in, excludes local/deleted/disabled and survives restart without duplicate',

@@ -21,10 +21,8 @@ class ThirdPartyLicenseDistributionTest(unittest.TestCase):
 
         for required in (
             "MetaCubeX/mihomo",
-            "v1.19.27",
             "v1.19.29",
-            "zeyugao/mihomo",
-            "7031b7569831677a8d89ad8a8a3347db116ba1a8",
+            "e26714a181ac0e2fa803453c0a8e9a9ce94e31cb",
             "MetaCubeX/meta-rules-dat",
             "GPL-3.0",
             "scripts/build-android-core.sh",
