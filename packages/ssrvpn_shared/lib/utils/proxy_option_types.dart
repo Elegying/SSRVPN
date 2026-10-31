@@ -145,8 +145,8 @@ class ProxyOptionTypes {
   }
 }
 
-// Common option layouts: Windows 5184081a, Android 7031b756. macOS
-// e26714a1 retains these fields with the same types. Update with core pins.
+// Historical option layouts were compared across the earlier core pins; macOS
+// e26714a1 retained these fields. Revalidate the schema when core pins change.
 const _coreOptionFields = <String, Map<String, String>>{
   'AnyTLSOption': {
     'name': 'string',

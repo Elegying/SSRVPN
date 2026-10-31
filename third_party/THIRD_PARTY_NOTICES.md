@@ -33,17 +33,17 @@ The links above identify the Microsoft redistribution information applied by
 the packaging controls. This notice records the engineering provenance and
 does not independently grant redistribution rights.
 
-## Windows: MetaCubeX/mihomo v1.19.27
+## Windows: MetaCubeX/mihomo v1.19.29
 
 - Component: `MetaCubeX/mihomo`
 - Bundled object: `SSRVPN_Windows/assets/mihomo.exe`
 - License: GNU GPL version 3 (`GPL-3.0`)
-- Exact source: <https://github.com/MetaCubeX/mihomo/tree/v1.19.27>
-- Source archive: <https://github.com/MetaCubeX/mihomo/archive/refs/tags/v1.19.27.tar.gz>
+- Exact source: <https://github.com/MetaCubeX/mihomo/tree/v1.19.29>
+- Source archive: <https://github.com/MetaCubeX/mihomo/archive/refs/tags/v1.19.29.tar.gz>
 - Object-code record: `SSRVPN_Windows/assets/mihomo-source.txt`
 - SSRVPN modification notice: SSRVPN applies the proxy-only traffic extension
   in `native/proxy_traffic` and builds the fixed upstream commit using
-  `scripts/build-desktop-core.sh` with the original Go 1.20.14 compatibility target.
+  `scripts/build-desktop-core.sh` with Go 1.26.5 and the Windows amd64 v1 target.
 
 ## macOS: MetaCubeX/mihomo v1.19.29
 
@@ -57,13 +57,13 @@ does not independently grant redistribution rights.
   in `native/proxy_traffic` and builds the fixed upstream commit using
   `scripts/build-desktop-core.sh` with Go 1.26.5 and the Apple arm64 target.
 
-## Android: zeyugao/mihomo commit 7031b756
+## Android: MetaCubeX/mihomo v1.19.29
 
-- Component: `zeyugao/mihomo`
+- Component: `MetaCubeX/mihomo`
 - Bundled object: `SSRVPN_Android/android/app/src/main/jniLibs/arm64-v8a/libgojni.so`
 - License: GNU GPL version 3 (`GPL-3.0`)
-- Exact source commit: <https://github.com/zeyugao/mihomo/tree/7031b7569831677a8d89ad8a8a3347db116ba1a8>
-- Source archive: <https://github.com/zeyugao/mihomo/archive/7031b7569831677a8d89ad8a8a3347db116ba1a8.tar.gz>
+- Exact source commit: <https://github.com/MetaCubeX/mihomo/tree/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb>
+- Source archive: <https://github.com/MetaCubeX/mihomo/archive/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb.tar.gz>
 - SSRVPN bridge source: `SSRVPN_Android/native/bridge/bridge.go`
 - Reproducible build recipe: `scripts/build-android-core.sh`
 - Object-code record: `SSRVPN_Android/assets/libgojni-source.txt`

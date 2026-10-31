@@ -201,7 +201,7 @@ CI/Release 的 macOS runner 是 `macos-15`；当前最低支持 macOS **13.0**�
 ## 7. 三端内核差异持续回归
 
 `python3 scripts/test-core-contracts.py all --report-dir /tmp/ssrvpn-core-contracts`
-独立检出三端固定 commit/tree，应用同一扩展复制清单并运行全部共享 Go 契约。Go 版本各自钉死，
+独立检出三端统一的固定 commit/tree，分别应用平台补丁与同一扩展复制清单并运行全部共享 Go 契约。Go 版本统一钉死，
 测试结果不走缓存；缺失、跳过或失败即失败。CI 的必需 core-assets job 在二进制缓存前运行，
 始终上传 core-contracts 结果。该步骤不修改随包内核，不替代真实 JNI、TUN 或系统恢复验收。
 

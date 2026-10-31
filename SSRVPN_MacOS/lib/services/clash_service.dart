@@ -16,6 +16,8 @@ import 'system_proxy_service.dart';
 
 part 'clash_service_config.dart';
 part 'clash_service_lifecycle.dart';
+part 'clash_service_core_watch.dart';
+part 'clash_service_lifecycle_models.dart';
 
 /// macOS Clash Meta 核心管理服务
 ///
@@ -153,11 +155,15 @@ class ClashService extends ClashServiceBase
       // 必须先用旧路径确认并终止遗留代际；替换 executable 会破坏 proc_pidpath 证据。
       await _terminateOrphanedCores();
       await _installCoreAsset('assets/AtlasCore.gz', _corePath);
-      await _installAsset(
-        'assets/geoip.metadb.gz',
-        '$configDir${Platform.pathSeparator}geoip.metadb',
+      await prepareAssetsWithCorePrewarm(
+        prepareAssets: () => _installAsset(
+          'assets/geoip.metadb.gz',
+          '$configDir${Platform.pathSeparator}geoip.metadb',
+        ),
+        prewarmCore: runVersionProbe ? _logCoreVersion : null,
       );
       _coreAssetsPrepared = true;
+      return;
     }
     if (runVersionProbe) {
       await _logCoreVersion();

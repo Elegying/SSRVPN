@@ -15,8 +15,8 @@ SSRVPN MIT texts.
 - Geo database: `SSRVPN_Windows/assets/geoip.metadb.gz`
 - Source record: `SSRVPN_Windows/assets/mihomo-source.txt`
 - Geo source record: `docs/GEOIP_SOURCE.txt`
-- Upstream base: MetaCubeX/mihomo `v1.19.27`
-- Bundled build: `v1.19.27-ssrvpn.1`, Windows / amd64 v1, Go `1.20.14`
+- Upstream base: MetaCubeX/mihomo `v1.19.29`
+- Bundled build: `v1.19.29-ssrvpn.1`, Windows / amd64 v1, Go `1.26.5`
 - Build recipe: `scripts/build-desktop-core.sh`
 
 The bundled executable includes the reviewed `native/proxy_traffic/` extension.
@@ -37,9 +37,10 @@ The Android native library is loaded by the VPN service, so it must be verified
 before CI tests and release packaging.
 
 The Android core is source-rebuildable from the reviewed Mihomo commit and tree,
-the committed bridge and traffic extension, Go `1.25.11`, the pinned `x/mobile` revision, and Android
-NDK r28c. The published core is mirrored as a content-addressed asset in the
-`core-assets-v3` support release. Verification checks its SHA256, embedded Go
+the committed bridge and traffic extension, Go `1.26.5`, the pinned `x/mobile` revision, and Android
+NDK r28c. The source record reserves a content-addressed name in the
+`core-assets-v3` support release; a new build need not have been published
+there yet. Verification checks its SHA256, embedded Go
 build contract, six JNI exports, AArch64 target, and every ELF `LOAD` segment's
 16 KiB alignment before tests or packaging can proceed.
 

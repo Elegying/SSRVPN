@@ -61,6 +61,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
         const {'http', 'https'}.contains(Uri.tryParse(sub.url)?.scheme),
     refresh: (ids, cancellation) => refreshAllSubscriptionsDetailed(
         onlyIds: ids, cancellation: cancellation),
+    proxyReady: () => connectedProxyPort?.call() != null,
     write: writeStringAtomically,
   );
 

@@ -39,7 +39,7 @@ Flutter 单仓（`ssrvpn_workspace`）跨平台 Mihomo(Clash Meta) 客户端，�
 ## 4. 已知技术债（别当新发现）
 
 - YAML 根段落提取现统一委托 `utils/yaml_section.dart`；运行时 `proxies` 继续通过 `buildProxiesText` 执行可运行节点过滤与规范化。引号、嵌套键、CRLF 和多行文本由共享回归覆盖，不再保留四份扫描器。
-- Android 补丁相对上游缺 `ssrvpnStartupProviders`/`loadProvider` 同步，根因是三端用三个不同上游（见 architecture.md）。
+- Android 与桌面仍使用各自补丁；修改规则提供器启动路径时应对照上游及三平台补丁，不能仅凭统一提交推断行为一致。
 - Windows `launcher_main.cpp` 的 `MakeSafeDisconnectVisible` 跨进程 `WM_SETTEXT` 依赖窗口标题，脆弱。
 
 ## 5. 改完之后

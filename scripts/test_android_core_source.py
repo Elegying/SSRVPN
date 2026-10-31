@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -45,7 +46,8 @@ class AndroidCoreSourceTests(unittest.TestCase):
     def test_release_link_removes_host_specific_debug_paths(self) -> None:
         self.assertIn('CORE_LDFLAGS="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$CORE_VERSION"', self.build_recipe)
         self.assertIn('-ldflags="$CORE_LDFLAGS"', self.build_recipe)
-        self.assertIn('CORE_VERSION="${SOURCE_COMMIT}-ssrvpn.1"', self.build_recipe)
+        sources = json.loads((ROOT / 'native/proxy_traffic/sources.json').read_text())
+        self.assertIn(f'CORE_VERSION="{sources["android"]["version"]}-ssrvpn.1"', self.build_recipe)
         self.assertIn('-run TestSSRVPNCoreVersion ./constant', self.build_recipe)
         self.assertIn('BUILD_ROOT="/tmp/ssrvpn-android-core-build-v1"', self.build_recipe)
 

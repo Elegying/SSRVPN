@@ -64,7 +64,8 @@ SSRVPN/
 - 原生侧：`android/app/src/main/kotlin/`（守卫脚本 `check-android-native-bridge-guards.sh`、`check-android-built-in-kotlin.sh`）
 
 ### macOS（`SSRVPN_MacOS/`）
-- 系统代理：`lib/services/system_proxy_service.dart`、`system_proxy_snapshot.dart`（**覆盖率门槛分别为 85% / 90%，别降**）
+- 系统代理：`lib/services/system_proxy_service.dart`、`system_proxy_state_file.dart`、`system_proxy_snapshot.dart`（**覆盖率门槛分别为 85% / 85% / 90%，别降**）
+- 核心生命周期：`clash_service_lifecycle.dart`、`clash_service_lifecycle_models.dart`、`clash_service_core_watch.dart`；进程身份校验和监视代际必须一起审查。
 - TUN / 权限：`macos_tun_session.dart`、`macos_tun_request_store.dart`、`macos_tun_rule_staging.dart`
 - 启动事务：`macos_start_transaction.dart`、`app_shutdown.dart`
 - 私有文件存储：`macos_private_file_store.dart`（`settings_service.dart` 的 part）
@@ -80,6 +81,7 @@ SSRVPN/
 - 配置校验：`clash_service_config_validation.dart`（同库私有 mixin，进程退出/取消回归先于拆分）
 - 生命周期：`clash_service_lifecycle.dart`（**遗留热点，新职责别往里加**；`setSystemProxy`/`clearSystemProxy` 只能在这里）
 - 恢复策略：`clash_service_recovery_policy.dart`、`clash_service_tun_recovery.dart`、`clash_service_start_preparation.dart`
+- 异常退出调度：`clash_service_unexpected_exit.dart`；系统代理归属纯判断：`system_proxy_ownership_helpers.dart`。两者有独立覆盖率门槛。
 - 原生侧：`windows/runner/launcher_main.cpp`（守卫 `check-windows-launcher-security.sh`）、安装器 `installer/program_files_transaction.ps1`
 
 ### 桌面共享 UI（`packages/ssrvpn_shared/lib/desktop_ui/`）
@@ -102,8 +104,8 @@ macOS 与 Windows **共用**这套 UI，不是各自一份（`home_screen.dart` 
 | `dns_resolution.go` | DNS 解析与并发 |
 | `tun_startup.go` / `route.go` | TUN 启动与路由 |
 | `macos.patch` / `windows.patch` / `android.patch` | 打进各上游的补丁 |
-| `sources.json` | **三端上游来源清单**（三端用三个不同上游，见 architecture.md） |
-| `toolchains.json` | 各端 Go 工具链版本 |
+| `sources.json` | **三端统一上游与工具链来源清单**（平台补丁保留差异，见 architecture.md） |
+| `toolchains.json` | 统一 Go 工具链归档摘要与长度 |
 
 ⚠️ `direct_fallback.go:95` 的 `if r == nil || !r.Invalid() { r = resolver.SystemResolver }` **是对的**——mihomo 的 `resolver.Invalid()` 语义是**反直觉的**：`Invalid()==true` 表示 resolver **可用**。已对照上游 5 处调用点 + 项目自带测试夹具验证。别"顺手修正"。
 

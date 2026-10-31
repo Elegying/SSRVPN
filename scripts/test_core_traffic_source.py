@@ -29,6 +29,15 @@ egress_spec.loader.exec_module(egress)
 
 
 class CoreTrafficReadinessTests(unittest.TestCase):
+    def test_core_source_and_toolchain_must_change_in_lockstep(self):
+        sources = json.loads((ROOT / 'native/proxy_traffic/sources.json').read_text())
+        module.require_unified_sources(sources)
+        for field in ('repository', 'commit', 'tree', 'go', 'version'):
+            changed = json.loads(json.dumps(sources))
+            changed['windows'][field] += '-mismatch'
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                module.require_unified_sources(changed)
+
     def test_ipv4_probe_uses_the_tcp_and_udp_checked_port(self):
         with tempfile.TemporaryDirectory() as directory, \
                 patch.object(egress.traffic, 'free_port', return_value=45678) as reserve, \

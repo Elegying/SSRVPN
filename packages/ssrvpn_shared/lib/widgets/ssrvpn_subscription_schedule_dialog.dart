@@ -193,7 +193,7 @@ class _ScheduleDialogState extends State<_ScheduleDialog> {
                                                         }
                                                       }),
                                             const Text(
-                                                '按设备本地时间执行。应用运行时自动更新；退出或系统暂停期间错过的计划，下次运行时补一次。失败来源保留原数据，可在订阅页手动重试。',
+                                                '按设备本地时间执行。应用运行时自动更新；退出或系统暂停期间错过的计划，下次运行时补一次。需要节点更新的订阅会等待节点连接；失败来源保留原数据，可在订阅页手动重试。',
                                                 style: TextStyle(
                                                     fontSize: 12, height: 1.5)),
                                             if (_error != null)

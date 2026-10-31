@@ -90,6 +90,7 @@ export 'widgets/ssrvpn_home_text.dart';
 export 'widgets/ssrvpn_home_shell.dart';
 
 export 'utils/account_usage_format.dart';
+export 'utils/core_prewarm.dart';
 
 export 'widgets/ssrvpn_liquid_glass.dart';
 export 'widgets/ssrvpn_liquid_dialog.dart';
