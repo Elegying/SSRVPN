@@ -432,6 +432,20 @@ Future<void> main(List<String> args) async {
       expect(core.isRunning, isTrue);
     });
 
+    test('transient reuse failure keeps the existing connection', () async {
+      final core = _TransientReuseLifecycleClashService(
+        systemProxyService: _ControlledStopProxy(),
+      )
+        ..setCorePath(validator.path)
+        ..setPaths(configDir: fixture.path, configPath: config.path)
+        ..setRunning(true)
+        ..requestConnectionIntent(true);
+      addTearDown(core.dispose);
+      expect(await core.start(), isTrue);
+      expect(core.isRunning, isTrue);
+      expect(core.connectionDesired, isTrue);
+    });
+
     test('stderr takes precedence over stdout for an unknown failure',
         () async {
       final core = service();
@@ -1248,6 +1262,16 @@ class _HealthyReuseLifecycleClashService
 
   @override
   Future<bool> healthCheck() async => true;
+}
+
+class _TransientReuseLifecycleClashService
+    extends _InspectableLifecycleClashService {
+  _TransientReuseLifecycleClashService({required super.systemProxyService});
+  @override
+  Future<bool> healthCheck() async {
+    setLastHealthCheckError('CORE_API_UNAVAILABLE: temporary');
+    return false;
+  }
 }
 
 // Keep production spawn, identity persistence, rollback and verified termination.

@@ -12,7 +12,7 @@ class _DesktopAppShell extends StatelessWidget {
   final bool safeMode;
   final List<String> startupFailureMessages;
   final RuntimeNotice? runtimeNotice;
-  final int currentIndex;
+  final ValueListenable<int> currentIndex;
   final ValueChanged<int> onIndexChanged;
 
   Future<void> _openAvailableUpdate(
@@ -54,7 +54,12 @@ class _DesktopAppShell extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ValueListenableBuilder<int>(
+        valueListenable: currentIndex,
+        builder: (context, index, _) => _buildContents(context, index),
+      );
+
+  Widget _buildContents(BuildContext context, int currentIndex) {
     final availableUpdate =
         context.watch<UpdateAvailabilityController>().availableUpdate;
     final (runtimeNoticeIcon, runtimeNoticeColor, runtimeNoticeTitle) =

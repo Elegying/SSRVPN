@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ssrvpn_android/app.dart' show AndroidMainScreen;
 import 'package:ssrvpn_android/screens/home_screen.dart';
 import 'package:ssrvpn_android/services/clash_service.dart';
 import 'package:ssrvpn_android/services/settings_service.dart';
@@ -17,6 +18,7 @@ import 'package:ssrvpn_android/services/subscription_service.dart';
 import 'package:ssrvpn_android/theme/app_theme.dart';
 import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_appearance.dart';
 
 const _nodeYaml = '''
 proxies:
@@ -47,6 +49,107 @@ double _contrastRatio(Color foreground, Color background) {
 }
 
 void main() {
+  for (final variant in [
+    ...SsrvpnTheme.selectionOrder,
+    ...SsrvpnTheme.solidVariants,
+  ]) {
+    testWidgets('tab switching stays isolated for ${variant.name}',
+        (tester) async {
+      final fixture = (await tester.runAsync(
+          () => _AndroidHomeFixture.create(_RecordingAndroidClashService())))!;
+      addTearDown(fixture.dispose);
+      final indices = <int>[];
+      var ancestorBuilds = 0;
+      await tester.pumpWidget(fixture.build(
+        home: ChangeNotifierProvider(
+          create: (_) => UpdateAvailabilityController(),
+          child: SsrvpnAppearanceScope(
+            settings: AppSettings(themeVariant: variant),
+            child: Builder(builder: (context) {
+              ancestorBuilds++;
+              return AndroidMainScreen(
+                onIndexChanged: indices.add,
+                openAvailableUpdate: (_) async {},
+              );
+            }),
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+      final initialBuilds = ancestorBuilds;
+      Future<void> tapTab(int index) async {
+        final rect =
+            tester.getRect(find.byKey(const Key('ssrvpn-bottom-navigation')));
+        await tester.tapAt(
+            Offset(rect.left + rect.width * (index + .5) / 3, rect.center.dy));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+
+      await tapTab(2);
+      await tapTab(0);
+      expect(indices, [2, 0]);
+      expect(ancestorBuilds, initialBuilds);
+      expect(find.byType(PageView), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
+  testWidgets(
+      'tab navigation preserves the ancestor and skips intermediate tabs',
+      (tester) async {
+    final fixture = (await tester.runAsync(
+        () => _AndroidHomeFixture.create(_RecordingAndroidClashService())))!;
+    addTearDown(fixture.dispose);
+    final indices = <int>[];
+    var ancestorBuilds = 0;
+    await tester.pumpWidget(fixture.build(
+      home: ChangeNotifierProvider(
+        create: (_) => UpdateAvailabilityController(),
+        child: Builder(builder: (context) {
+          ancestorBuilds++;
+          return AndroidMainScreen(
+            onIndexChanged: indices.add,
+            openAvailableUpdate: (_) async {},
+          );
+        }),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    final initialBuilds = ancestorBuilds;
+    Future<void> tapTab(int index) async {
+      final rect =
+          tester.getRect(find.byKey(const Key('ssrvpn-bottom-navigation')));
+      await tester.tapAt(
+          Offset(rect.left + rect.width * (index + .5) / 3, rect.center.dy));
+    }
+
+    await tapTab(2);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pumpAndSettle();
+    expect(indices, [2]);
+    expect(ancestorBuilds, initialBuilds);
+    await tapTab(0);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pumpAndSettle();
+    expect(indices, [2, 0]);
+    expect(ancestorBuilds, initialBuilds);
+    await tester.drag(find.byType(PageView), const Offset(-600, 0));
+    await tester.pumpAndSettle();
+    expect(indices, [2, 0, 1]);
+    await tapTab(2);
+    await tester.pump(const Duration(milliseconds: 40));
+    await tapTab(0);
+    await tester.pumpAndSettle();
+    expect(indices, [2, 0, 1, 2, 0]);
+    expect(ancestorBuilds, initialBuilds);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('manual About update failures stay visible and retryable',
       (tester) async {
     final fixture = (await tester.runAsync(
@@ -1548,6 +1651,7 @@ class _AndroidHomeFixture {
   Widget build({
     double textScaleFactor = 1,
     ClashService? clashOverride,
+    Widget? home,
   }) {
     return MultiProvider(
       providers: [
@@ -1564,7 +1668,7 @@ class _AndroidHomeFixture {
         ),
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
-        home: const HomeScreen(),
+        home: home ?? const HomeScreen(),
       ),
     );
   }

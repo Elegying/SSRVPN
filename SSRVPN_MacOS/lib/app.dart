@@ -8,6 +8,7 @@ import 'package:ssrvpn_shared/widgets/ssrvpn_scroll_behavior.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/controllers/home_node_controller.dart';
@@ -85,6 +86,7 @@ class _SSRVpnAppState extends State<SSRVpnApp>
 
   @override
   void dispose() {
+    _currentIndex.dispose();
     StartupStatus.instance.removeListener(_handleStartupStatusChanged);
     _updateAvailability.dispose();
     _runtimeNoticeAutoClearTimer?.cancel();
@@ -297,7 +299,7 @@ class _SSRVpnAppState extends State<SSRVpnApp>
         home: CrashReportPrompt(
           enabled: false,
           child: SsrvpnServiceClipboardImport(
-              shouldShowNotice: () => _currentIndex != 0,
+              shouldShowNotice: () => _currentIndex.value != 0,
               onDiagnostic: (message) =>
                   _clashService?.log(message, event: 'clipboard_import'),
               service: _subscriptionService!,
@@ -308,8 +310,7 @@ class _SSRVpnAppState extends State<SSRVpnApp>
                     .toList(growable: false),
                 runtimeNotice: _runtimeNotice,
                 currentIndex: _currentIndex,
-                onIndexChanged: (index) =>
-                    setState(() => _currentIndex = index),
+                onIndexChanged: (index) => _currentIndex.value = index,
               )),
         ),
       ),

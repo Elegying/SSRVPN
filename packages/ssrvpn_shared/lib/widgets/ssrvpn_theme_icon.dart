@@ -31,7 +31,8 @@ class SsrvpnThemeIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = SsrvpnTheme.of(context);
     Widget glyph() => Icon(fallback, size: size, color: color);
-    if ((!theme.isIllustrated &&
+    if (theme.isSolid ||
+        (!theme.isIllustrated &&
             const {'public-ip', 'system-proxy', 'tun'}.contains(name)) ||
         (theme.isDefault && name != 'subscription-header') ||
         MediaQuery.highContrastOf(context)) {

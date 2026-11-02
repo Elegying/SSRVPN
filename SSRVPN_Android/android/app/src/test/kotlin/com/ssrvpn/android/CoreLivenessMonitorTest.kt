@@ -372,6 +372,136 @@ class CoreLivenessMonitorTest {
     }
 
     @Test
+    fun `inconclusive socket probe cannot trigger early recovery`() {
+        var now = 0L
+        var running = true
+        val result = CoreLivenessMonitor.waitForUnexpectedExit(
+            startToken = 7, currentGeneration = { 7 }, isRunning = { running },
+            isBridgeRunning = { true }, isApiHealthy = { false },
+            isApiPortReachable = { null }, monotonicMillis = { now },
+            sleep = { now += it; if (now >= 27_000L) running = false }
+        )
+        assertFalse(result.unexpectedExit)
+    }
+
+    @Test
+    fun `persistent inconclusive socket probe has bounded recovery`() {
+        var now = 0L
+        val result = CoreLivenessMonitor.waitForUnexpectedExit(
+            startToken = 7, currentGeneration = { 7 }, isRunning = { true },
+            isBridgeRunning = { true }, isApiHealthy = { false },
+            isApiPortReachable = { null }, monotonicMillis = { now },
+            sleep = { now += it }
+        )
+        assertTrue(result.unexpectedExit)
+        assertEquals(30_000L, now)
+    }
+
+    @Test
+    fun `slow checks do not masquerade as a suspension`() {
+        var now = 0L
+        var checks = 0
+        val result = CoreLivenessMonitor.waitForUnexpectedExit(
+            startToken = 7, currentGeneration = { 7 }, isRunning = { true },
+            isBridgeRunning = { now += 8_000L; true },
+            isApiHealthy = { checks++; now += 4_000L; false },
+            isApiPortReachable = { true }, monotonicMillis = { now },
+            sleep = { now += it }
+        )
+        assertTrue(result.unexpectedExit)
+        assertEquals(3, checks)
+    }
+
+    @Test
+    fun `suspension between API and port samples resets failure grace`() {
+        var now = 0L
+        var checks = 0
+        var clockReadsAfterApi = 0
+        var running = true
+        val result = CoreLivenessMonitor.waitForUnexpectedExit(
+            startToken = 7, currentGeneration = { 7 }, isRunning = { running },
+            isBridgeRunning = { true }, isApiHealthy = {
+                checks++
+                clockReadsAfterApi = 0
+                false
+            }, isApiPortReachable = { true }, monotonicMillis = {
+                clockReadsAfterApi++
+                if (checks == 3 && clockReadsAfterApi == 3) now += 20_000L
+                now
+            }, sleep = { now += it; if (checks == 4) running = false }
+        )
+        assertFalse(result.unexpectedExit)
+        assertEquals(4, checks)
+    }
+
+    @Test
+    fun `suspension inside a port probe does not consume failure grace`() {
+        var now = 0L
+        var running = true
+        var checks = 0
+        val result = CoreLivenessMonitor.waitForUnexpectedExit(
+            startToken = 7, currentGeneration = { 7 }, isRunning = { running },
+            isBridgeRunning = { true }, isApiHealthy = { checks++; false },
+            isApiPortReachable = { now += 20_000L; true },
+            monotonicMillis = { now },
+            sleep = { now += it; if (checks == 4) running = false }
+        )
+        assertFalse(result.unexpectedExit)
+        assertEquals(4, checks)
+    }
+
+    @Test
+    fun `suspension inside an API probe does not consume failure grace`() {
+        var now = 0L
+        var running = true
+        var checks = 0
+        val result = CoreLivenessMonitor.waitForUnexpectedExit(
+            startToken = 7, currentGeneration = { 7 }, isRunning = { running },
+            isBridgeRunning = { true }, isApiHealthy = {
+                checks++
+                if (checks == 3) now += 20_000L
+                false
+            }, isApiPortReachable = { true }, monotonicMillis = { now },
+            sleep = { now += it; if (checks == 4) running = false }
+        )
+        assertFalse(result.unexpectedExit)
+        assertEquals(4, checks)
+    }
+
+    @Test
+    fun `short suspend resets the API failure window`() {
+        var now = 0L
+        var running = true
+        var checks = 0
+        val result = CoreLivenessMonitor.waitForUnexpectedExit(
+            startToken = 7, currentGeneration = { 7 }, isRunning = { running },
+            isBridgeRunning = { true }, isApiHealthy = { checks++; false },
+            isApiPortReachable = { true }, monotonicMillis = { now },
+            sleep = {
+                now += if (checks == 2) 20_000L else it
+                if (checks == 4) running = false
+            }
+        )
+        assertFalse(result.unexpectedExit)
+        assertEquals(4, checks)
+    }
+
+    @Test
+    fun `unreachable API port still requires a continuous grace window`() {
+        var now = 0L
+        var running = true
+        var checks = 0
+        val result = CoreLivenessMonitor.waitForUnexpectedExit(
+            startToken = 7, currentGeneration = { 7 }, isRunning = { running },
+            isBridgeRunning = { true }, isApiHealthy = { checks++; false },
+            isApiPortReachable = { false }, monotonicMillis = { now },
+            sleep = { now += it; if (now >= 12_000L) running = false }
+        )
+        assertFalse(result.unexpectedExit)
+        assertEquals(4, checks)
+    }
+
+    @Test
     fun `suspend does not spend the remaining API grace window`() {
         var now = 0L
         var running = true

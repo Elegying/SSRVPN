@@ -99,8 +99,13 @@ void main() {
     ));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byTooltip('删除订阅'));
+    final view = tester
+        .widget<SsrvpnSubscriptionView>(find.byType(SsrvpnSubscriptionView));
     await tester.tap(find.byTooltip('删除订阅'));
+    // A stale accessibility action can arrive before the first rebuild.
+    view.onDelete(service.subscriptions.single.id);
     await tester.pumpAndSettle();
+    expect(find.text('确认删除'), findsOneWidget);
     await tester.binding.setSurfaceSize(const Size(320, 568));
     tester.platformDispatcher.textScaleFactorTestValue = 3.2;
     await tester.pumpAndSettle();
@@ -109,6 +114,11 @@ void main() {
     await tester.tap(find.widgetWithText(TextButton, '取消'));
     await tester.pumpAndSettle();
     expect(service.subscriptions, hasLength(1));
+    expect(
+        tester
+            .widget<SsrvpnSubscriptionView>(find.byType(SsrvpnSubscriptionView))
+            .isBusy,
+        isFalse);
     expect(tester.takeException(), isNull);
   });
 

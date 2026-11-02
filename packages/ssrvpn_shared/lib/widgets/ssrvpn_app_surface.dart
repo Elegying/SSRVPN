@@ -85,7 +85,9 @@ class SsrvpnAppBackdrop extends StatelessWidget {
                 child: SsrvpnGlassBackgroundSource(
           child: ColoredBox(
               color: theme.background,
-              child: (theme.variant == AppThemeVariant.cloud || theme.isSoft)
+              child: (theme.variant == AppThemeVariant.cloud ||
+                      theme.isSoft ||
+                      theme.isSolid)
                   ? ColoredBox(color: theme.background)
                   : Image.asset(
                       theme.wallpaper,

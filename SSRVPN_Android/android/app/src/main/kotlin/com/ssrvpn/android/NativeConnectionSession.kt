@@ -37,6 +37,12 @@ internal object NativeConnectionSession {
     private var stopping = false
 
     private var manuallyStopped = false
+    private var stopReason: String? = null
+
+    @Synchronized
+    fun noteStopReason(reason: String) {
+        if (stopReason == null) stopReason = reason
+    }
 
     @Synchronized
     fun beginStarting(claimId: String?): Boolean {
@@ -44,6 +50,7 @@ internal object NativeConnectionSession {
         if (pendingClaimId != null && pendingClaimId != claimId) return false
         if (pendingClaimId == null && claimId != null) return false
         manuallyStopped = false
+        stopReason = null
         starting = true
         startingConfigPath = pendingStartConfigPath
         pendingStartClaimId = null
@@ -212,6 +219,7 @@ internal object NativeConnectionSession {
             "running" to running,
             "transitioning" to isTransitioning(),
             "manuallyStopped" to (!running && manuallyStopped),
+            "stopReason" to stopReason.takeIf { !running },
             "protectedConfigPath" to protectedConfigPath(running),
             "protectedConfigTrusted" to (protectedConfigPath(running) != null),
             "sessionGeneration" to sessionGeneration.takeIf { running }

@@ -8,14 +8,10 @@ internal data class CoreLivenessOutcome(
 internal object CoreLivenessMonitor {
     private const val MAX_CONSECUTIVE_API_FAILURES = 3
 
-    // The port probe is itself a single 100 ms sample (see
-    // CorePortReleaseVerifier.canConnect, socket.connect(..., 100)), so a
-    // scheduling hiccup or a doze wake-up can produce a false timeout. A single
-    // miss is therefore not enough to declare the core dead; two consecutive
-    // misses are required. Because the probe only runs once the API failure
-    // threshold is already reached, the hard-fail path now costs about four
-    // polls (~9s) instead of three (~6s) before restarting.
+    // A short socket sample is not proof of a dead core. Both the API
+    // failure window and repeated port misses must elapse before recovery.
     private const val PORT_MISSES_BEFORE_RESTART = 2
+    private const val MAX_OBSERVATION_GAP_MILLIS = 10_000L
     private const val POLL_INTERVAL_MILLIS = 3_000L
 
     // Keep observation outside the generation lock; only its lifecycle effects
@@ -45,7 +41,7 @@ internal object CoreLivenessMonitor {
         isBridgeRunning: () -> Boolean?,
         isProtectMonitorRunning: () -> Boolean = { true },
         isApiHealthy: () -> Boolean = { true },
-        isApiPortReachable: () -> Boolean = { true },
+        isApiPortReachable: () -> Boolean? = { true },
         monotonicMillis: () -> Long = { System.nanoTime() / 1_000_000L },
         apiFailureGraceMillis: Long = 15_000L,
         sleep: (Long) -> Unit = Thread::sleep
@@ -56,6 +52,7 @@ internal object CoreLivenessMonitor {
         var firstApiFailure: Long? = null
         var lastObservation: Long? = null
         while (startToken == currentGeneration() && isRunning()) {
+            val observationStart = monotonicMillis()
             val bridgeRunning = isBridgeRunning()
             if (startToken != currentGeneration()) {
                 return CoreLivenessOutcome(false, recoveryBudget.attempt)
@@ -69,27 +66,28 @@ internal object CoreLivenessMonitor {
 
             val now = monotonicMillis()
             val previous = lastObservation
-            if (previous != null && (now < previous || now - previous > 30_000L)) {
-                // A device suspend or a clock rollback makes the observation
-                // window non-contiguous, so the failure streak starts over.
-                //
-                // The 30_000L here is now exactly twice the default
-                // apiFailureGraceMillis (15_000L). That 2x is a side effect of
-                // narrowing the grace, not a chosen value: both constants were
-                // 30_000L before. It means a 15-30s sleep with a genuinely
-                // failing API skips this reset, so the first observation after
-                // wake can already satisfy the grace and restart. That is
-                // acceptable -- the API did fail for the whole window, and a
-                // core that recovered during the sleep reports healthy and
-                // resets the streak instead. But the two constants are
-                // independent, so changing either one alone changes which
-                // sleep windows can trip a restart.
+            if ((previous != null &&
+                    (observationStart < previous ||
+                        observationStart - previous > MAX_OBSERVATION_GAP_MILLIS)) ||
+                now < observationStart || now - observationStart > MAX_OBSERVATION_GAP_MILLIS
+            ) {
+                // Sleep and scheduling gaps are not evidence of API failure.
                 consecutiveApiFailures = 0
                 consecutivePortMisses = 0
                 firstApiFailure = null
             }
-            lastObservation = now
             val apiHealthy = isApiHealthy()
+            val apiFinished = monotonicMillis()
+            if (apiFinished < now || apiFinished - now > MAX_OBSERVATION_GAP_MILLIS) {
+                // A suspension inside the probe is not continuous failure evidence.
+                consecutiveApiFailures = 0
+                consecutivePortMisses = 0
+                firstApiFailure = null
+                recoveryBudget.observeHealth(null, apiFinished)
+                lastObservation = apiFinished
+                sleep(POLL_INTERVAL_MILLIS)
+                continue
+            }
             recoveryBudget.observeHealth(
                 bridgeRunning == true && protectMonitorRunning && apiHealthy,
                 monotonicMillis()
@@ -105,27 +103,44 @@ internal object CoreLivenessMonitor {
                 // website reachability. Two independent conditions can end the
                 // wait, both gated on repeated failures:
                 if (consecutiveApiFailures >= MAX_CONSECUTIVE_API_FAILURES) {
-                    if (!isApiPortReachable()) {
-                        // A closed API port is the hard evidence that the core
-                        // process is already gone. The probe is only a single
-                        // 100 ms sample, so one miss can be a transient
-                        // scheduling hiccup; require two in a row before
-                        // treating the port as genuinely dead.
-                        consecutivePortMisses++
-                        if (consecutivePortMisses >= PORT_MISSES_BEFORE_RESTART) break
-                    } else {
-                        // The core still owns the port but is not answering.
-                        // Treat it as a bounded stall so a transient freeze
-                        // does not cost a full restart, yet do not wait out the
-                        // old 30s window.
+                    val portStarted = monotonicMillis()
+                    val portReachable = isApiPortReachable()
+                    val portFinished = monotonicMillis()
+                    if (portStarted < apiFinished ||
+                        portStarted - apiFinished > MAX_OBSERVATION_GAP_MILLIS ||
+                        portFinished < portStarted ||
+                        portFinished - portStarted > MAX_OBSERVATION_GAP_MILLIS) {
+                        consecutiveApiFailures = 0
                         consecutivePortMisses = 0
-                        if (now - firstApiFailure!! >= apiFailureGraceMillis) break
+                        firstApiFailure = null
+                        recoveryBudget.observeHealth(null, portFinished)
+                        lastObservation = portFinished
+                        sleep(POLL_INTERVAL_MILLIS)
+                        continue
+                    }
+                    when (portReachable) {
+                        false -> {
+                            consecutivePortMisses++
+                            if (consecutivePortMisses >= PORT_MISSES_BEFORE_RESTART &&
+                                now - firstApiFailure!! >= apiFailureGraceMillis) break
+                        }
+                        true -> {
+                            consecutivePortMisses = 0
+                            if (now - firstApiFailure!! >= apiFailureGraceMillis) break
+                        }
+                        null -> {
+                            // Timeouts and local socket errors are inconclusive.
+                            // A persistent API stall still has a bounded recovery.
+                            consecutivePortMisses = 0
+                            if (now - firstApiFailure!! >= apiFailureGraceMillis * 2) break
+                        }
                     }
                 }
             }
             if (startToken != currentGeneration() || !isRunning()) {
                 return CoreLivenessOutcome(false, recoveryBudget.attempt)
             }
+            lastObservation = monotonicMillis()
             sleep(POLL_INTERVAL_MILLIS)
         }
         return CoreLivenessOutcome(

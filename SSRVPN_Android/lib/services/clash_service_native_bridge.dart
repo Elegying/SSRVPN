@@ -79,6 +79,7 @@ typedef _NativeConnectionState = ({
   bool running,
   bool transitioning,
   bool manuallyStopped,
+  String? stopReason,
   String? protectedConfigPath,
   int? sessionGeneration,
   bool? underlyingNetworkAvailable,
@@ -512,6 +513,9 @@ extension AndroidNativeBridge on ClashService {
     }
 
     if (statusChanged || transitionChanged) {
+      if (!state.running && state.stopReason != null) {
+        log('原生停止原因: cause=${state.stopReason}');
+      }
       if (state.running) {
         log('$source: VPN 已连接');
       } else if (state.transitioning) {
@@ -790,6 +794,10 @@ extension AndroidNativeBridge on ClashService {
       log('原生 VPN 返回了无效的手动停止状态');
       return null;
     }
+    final rawStopReason = value['stopReason'];
+    final stopReason = const {'core_liveness_failure'}.contains(rawStopReason)
+        ? rawStopReason as String
+        : null;
     final manuallyStopped = rawManuallyStopped == true;
     if (running && manuallyStopped) {
       log('原生 VPN 的运行状态与手动停止状态不一致');
@@ -836,6 +844,7 @@ extension AndroidNativeBridge on ClashService {
         running: running,
         transitioning: transitioning,
         manuallyStopped: manuallyStopped,
+        stopReason: stopReason,
         protectedConfigPath: null,
         sessionGeneration: sessionGeneration,
         underlyingNetworkAvailable: underlyingNetworkAvailable,
@@ -857,6 +866,7 @@ extension AndroidNativeBridge on ClashService {
         running: running,
         transitioning: transitioning,
         manuallyStopped: manuallyStopped,
+        stopReason: stopReason,
         protectedConfigPath: null,
         sessionGeneration: sessionGeneration,
         underlyingNetworkAvailable: underlyingNetworkAvailable,
@@ -868,6 +878,7 @@ extension AndroidNativeBridge on ClashService {
       running: running,
       transitioning: transitioning,
       manuallyStopped: manuallyStopped,
+      stopReason: stopReason,
       protectedConfigPath: file.path,
       sessionGeneration: sessionGeneration,
       underlyingNetworkAvailable: underlyingNetworkAvailable,

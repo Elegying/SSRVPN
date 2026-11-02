@@ -90,8 +90,11 @@ extension _ThemedHome on _HomeOverviewState {
                                             fit: BoxFit.contain,
                                             child: SsrvpnPowerButton(
                                                 statusText: _statusText,
-                                                size: (width * .64)
-                                                    .clamp(160.0, 280.0),
+                                                size: colors.isSolid
+                                                    ? (width * .50)
+                                                        .clamp(120.0, 220.0)
+                                                    : (width * .64)
+                                                        .clamp(160.0, 280.0),
                                                 isConnected: widget.isConnected,
                                                 isConnecting:
                                                     widget.isConnecting,

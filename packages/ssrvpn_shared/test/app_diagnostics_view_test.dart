@@ -8,8 +8,7 @@ import 'package:ssrvpn_shared/models/app_diagnostics.dart';
 import 'package:ssrvpn_shared/widgets/app_diagnostics_view.dart';
 
 void main() {
-  testWidgets(
-      'copy retains every stored entry beyond 20 records and 8192 chars',
+  testWidgets('copy bounds logs while preserving error evidence',
       (tester) async {
     String? clipboard;
     tester.binding.defaultBinaryMessenger
@@ -39,10 +38,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('复制报告'));
     await tester.pumpAndSettle();
-    expect(clipboard!.length, greaterThan(8192));
-    for (var i = 0; i < 30; i++) {
-      expect(clipboard, contains('record-$i '));
-    }
+    expect(clipboard!.length, lessThan(7000));
+    expect(clipboard, contains('record-0 '));
+    expect(clipboard, isNot(contains('record-29 ')));
     expect(clipboard, contains('FINAL_ERROR'));
     expect(clipboard, isNot(contains('private-value')));
     expect(clipboard, isNot(contains('报告已截断')));

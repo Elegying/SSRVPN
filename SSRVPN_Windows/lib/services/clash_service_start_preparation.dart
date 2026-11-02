@@ -22,11 +22,14 @@ extension _WindowsStartPreparationSupport on _WindowsCoreLifecycle {
   ) async {
     createConnectionProgressReporter()('正在检查上次运行资源…');
     if (isRunning) {
+      var healthy = false;
       try {
-        if (await healthCheck()) {
-          return _WindowsExistingRuntimePreparation.alreadyHealthy;
-        }
+        healthy = await healthCheck();
       } catch (_) {}
+      _ensureStartCurrent(startToken);
+      if (retainRunningAfterProbe(healthy)) {
+        return _WindowsExistingRuntimePreparation.alreadyHealthy;
+      }
       _ensureStartCurrent(startToken);
       final stoppedSafely = await _stopInternal();
       _ensureStartCurrent(startToken);

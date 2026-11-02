@@ -10,6 +10,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/controllers/home_node_controller.dart';
 import 'package:ssrvpn_shared/runtime_notice.dart';
@@ -75,7 +76,7 @@ class SSRVpnApp extends StatefulWidget {
 class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
   final TrayManager _trayManager = TrayManager();
 
-  int _currentIndex = 0;
+  final _currentIndex = ValueNotifier<int>(0);
   bool _isQuitting = false;
   RuntimeNotice? _runtimeNotice;
   bool _lastObservedCoreRunning = false;
@@ -102,6 +103,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
 
   @override
   void dispose() {
+    _currentIndex.dispose();
     StartupStatus.instance.removeListener(_handleStartupStatusChanged);
     _updateAvailability.dispose();
     _runtimeNoticeAutoClearTimer?.cancel();
@@ -231,7 +233,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
     if (mounted) {
       setState(() {
         _runtimeNotice = notice;
-        _currentIndex = 0;
+        _currentIndex.value = 0;
       });
       _runtimeNoticeAutoClearTimer = scheduleSuccessfulRuntimeNoticeClear(
         notice: notice,
@@ -478,7 +480,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
     final desktopShell = CrashReportPrompt(
       enabled: false,
       child: SsrvpnServiceClipboardImport(
-          shouldShowNotice: () => _currentIndex != 0,
+          shouldShowNotice: () => _currentIndex.value != 0,
           onDiagnostic: (message) =>
               _clashService?.log(message, event: 'clipboard_import'),
           service: _subscriptionService!,
@@ -489,7 +491,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
                 .toList(growable: false),
             runtimeNotice: _runtimeNotice,
             currentIndex: _currentIndex,
-            onIndexChanged: (index) => setState(() => _currentIndex = index),
+            onIndexChanged: (index) => _currentIndex.value = index,
           )),
     );
 

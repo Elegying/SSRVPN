@@ -160,128 +160,132 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
 
   Future<void> _deleteSubscription(String id) async {
     if (!mounted || _isBusy) return;
-    final confirmed = await showSsrvpnGlassDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        scrollable: true,
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        contentPadding: EdgeInsets.zero,
-        content: SsrvpnModalGlassPanel(
-          padding: EdgeInsets.all(24),
-          borderRadius: 20,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(ctx).size.width * 0.82,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.warning_amber_rounded,
-                  size: 48,
-                  color: SsrvpnTheme.of(context).warning,
-                ),
-                SizedBox(height: 16),
-                Text(
-                  '确认删除',
-                  style: TextStyle(
-                      fontSize: Responsive.sp(18), fontWeight: FontWeight.w600),
-                ),
-                SizedBox(height: 8),
-                Text(
-                  '删除后将无法恢复，确定要删除吗？',
-                  style: TextStyle(
-                    fontSize: Responsive.sp(13),
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.white.withValues(alpha: 120 / 255)
-                        : SsrvpnTheme.of(context).textSecondary,
+    setState(() => _isDeleting = true);
+    try {
+      final confirmed = await showSsrvpnGlassDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          scrollable: true,
+          elevation: 0,
+          backgroundColor: Colors.transparent,
+          contentPadding: EdgeInsets.zero,
+          content: SsrvpnModalGlassPanel(
+            padding: EdgeInsets.all(24),
+            borderRadius: 20,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(ctx).size.width * 0.82,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    size: 48,
+                    color: SsrvpnTheme.of(context).warning,
                   ),
-                ),
-                SizedBox(height: 24),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextButton(
-                        onPressed: () => dismissSsrvpnDialog<bool>(ctx, false),
-                        child: Text('取消'),
-                      ),
+                  SizedBox(height: 16),
+                  Text(
+                    '确认删除',
+                    style: TextStyle(
+                        fontSize: Responsive.sp(18),
+                        fontWeight: FontWeight.w600),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    '删除后将无法恢复，确定要删除吗？',
+                    style: TextStyle(
+                      fontSize: Responsive.sp(13),
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? Colors.white.withValues(alpha: 120 / 255)
+                          : SsrvpnTheme.of(context).textSecondary,
                     ),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => dismissSsrvpnDialog<bool>(ctx, true),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: SsrvpnTheme.of(context).error,
-                          foregroundColor:
-                              ssrvpnForegroundOn(SsrvpnTheme.of(context).error),
+                  ),
+                  SizedBox(height: 24),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () =>
+                              dismissSsrvpnDialog<bool>(ctx, false),
+                          child: Text('取消'),
                         ),
-                        child: Text('删除'),
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => dismissSsrvpnDialog<bool>(ctx, true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: SsrvpnTheme.of(context).error,
+                            foregroundColor: ssrvpnForegroundOn(
+                                SsrvpnTheme.of(context).error),
+                          ),
+                          child: Text('删除'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
-      ),
-    );
+      );
 
-    if (confirmed == true) {
-      if (!mounted || _isBusy) return;
-      setState(() => _isDeleting = true);
-      final subService = context.read<SubscriptionService>();
-      final clashService = context.read<ClashService>();
-      late final SubscriptionDeleteResult result;
-      try {
-        result = await _subscriptionController(subService).deleteSubscription(
-          id,
-          stopClash: () async {
-            final wasRunning = clashService.isRunning ||
-                clashService.connectionDesired ||
-                clashService.nativeConnectionTransitioning;
-            clashService.requestConnectionIntent(false);
-            await clashService.stop();
-            return wasRunning;
-          },
-          onNoRunnableNodes: () async {
-            await clashService.clearNativeConnectionSnapshot();
-          },
-        );
-      } catch (e) {
-        if (mounted) {
-          final displayError = SubscriptionDeleteResult(
-            removed: false,
-            error: e,
-          ).displayError;
+      if (confirmed == true) {
+        if (!mounted) return;
+        final subService = context.read<SubscriptionService>();
+        final clashService = context.read<ClashService>();
+        late final SubscriptionDeleteResult result;
+        try {
+          result = await _subscriptionController(subService).deleteSubscription(
+            id,
+            stopClash: () async {
+              final wasRunning = clashService.isRunning ||
+                  clashService.connectionDesired ||
+                  clashService.nativeConnectionTransitioning;
+              clashService.requestConnectionIntent(false);
+              await clashService.stopWithReason('subscription_deleted');
+              return wasRunning;
+            },
+            onNoRunnableNodes: () async {
+              await clashService.clearNativeConnectionSnapshot();
+            },
+          );
+        } catch (e) {
+          if (mounted) {
+            final displayError = SubscriptionDeleteResult(
+              removed: false,
+              error: e,
+            ).displayError;
+            _showSnack(
+              '删除失败：$displayError',
+              SsrvpnTheme.of(context).error,
+            );
+          }
+          return;
+        }
+
+        if (!mounted) return;
+
+        if (!result.removed) {
           _showSnack(
-            '删除失败：$displayError',
+            '删除失败：${result.displayError}',
             SsrvpnTheme.of(context).error,
           );
+        } else if (result.error != null) {
+          _showSnack(
+            '订阅已删除，但断开 VPN 失败：${result.displayError}',
+            SsrvpnTheme.of(context).warning,
+          );
+        } else if (result.stoppedClash) {
+          _showSnack('订阅已删除，VPN 已断开', SsrvpnTheme.of(context).warning);
+        } else {
+          _showSnack('订阅已删除', SsrvpnTheme.of(context).success);
         }
-        return;
-      } finally {
-        if (mounted) setState(() => _isDeleting = false);
       }
-
-      if (!mounted) return;
-
-      if (!result.removed) {
-        _showSnack(
-          '删除失败：${result.displayError}',
-          SsrvpnTheme.of(context).error,
-        );
-      } else if (result.error != null) {
-        _showSnack(
-          '订阅已删除，但断开 VPN 失败：${result.displayError}',
-          SsrvpnTheme.of(context).warning,
-        );
-      } else if (result.stoppedClash) {
-        _showSnack('订阅已删除，VPN 已断开', SsrvpnTheme.of(context).warning);
-      } else {
-        _showSnack('订阅已删除', SsrvpnTheme.of(context).success);
-      }
+    } finally {
+      if (mounted) setState(() => _isDeleting = false);
     }
   }
 

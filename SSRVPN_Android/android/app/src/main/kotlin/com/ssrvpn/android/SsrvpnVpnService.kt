@@ -75,7 +75,6 @@ class SsrvpnVpnService : VpnService() {
             intent.setPackage(context.packageName)
             context.sendBroadcast(intent)
         }
-
         private const val BRIDGE_STOP_TIMEOUT_MS = 5_000L
         private const val BRIDGE_IS_RUNNING_TIMEOUT_MS = 2_000L
         private const val PROTECT_MONITOR_STOP_TIMEOUT_MS = 1_000L
@@ -696,11 +695,12 @@ class SsrvpnVpnService : VpnService() {
                         VpnRuntimeHealth.hasProtectMonitor(protectMonitor?.thread)
                     },
                     isApiHealthy = { VpnRuntimeHealth.isApiHealthy(request.apiPort, request.apiSecret) },
-                    isApiPortReachable = { CorePortReleaseVerifier.isPortListening(request.apiPort) },
+                    isApiPortReachable = { CorePortReleaseVerifier.probePort(request.apiPort) },
                     monotonicMillis = SystemClock::elapsedRealtime
                 )
             },
             onUnexpectedExit = { liveness ->
+                NativeConnectionSession.noteStopReason("core_liveness_failure")
                 Log.e(TAG, "Mihomo stopped unexpectedly")
                 CoreRecoveryCoordinator.recoverFromUnexpectedCoreExit(
                     this,

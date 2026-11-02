@@ -456,6 +456,19 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
         return false;
       }
+      if (ownershipStatus == SystemProxyOwnershipStatus.unavailable) {
+        // A transient controller outage can clear during the ownership retry.
+        // Recheck the full runtime without changing or reacquiring the proxy.
+        final recovered = await boundedHealthCheck(
+          runDiagnosticInSession(healthCheck),
+          () =>
+              isConnectionIntentCurrent(connectionGeneration, connected: true),
+        );
+        if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
+          return false;
+        }
+        if (recovered) return true;
+      }
       if (ownershipStatus != SystemProxyOwnershipStatus.owned) {
         final externallyChanged =
             ownershipStatus == SystemProxyOwnershipStatus.externallyChanged;
@@ -671,9 +684,12 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
     if (isRunning || _clashProcess != null) {
       if (isRunning) {
+        var healthy = false;
         try {
-          if (await healthCheck()) return true;
+          healthy = await healthCheck();
         } catch (_) {}
+        _ensureStartCurrent(startToken);
+        if (retainRunningAfterProbe(healthy)) return true;
       }
       _ensureStartCurrent(startToken);
       final stoppedSafely = await _stopInternal();

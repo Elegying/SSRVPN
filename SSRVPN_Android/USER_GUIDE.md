@@ -6,7 +6,7 @@
 ## 支持范围
 
 - 当前 APK 仅支持 `arm64-v8a` 设备。
-- Android 通过系统 VPN 服务接管 IPv4 流量，不使用桌面系统代理模式。IPv6 会被 VPN 捕获并拒绝，不能通过 SSRVPN 访问 IPv6-only 目标。
+- Android 通过系统 VPN 服务接管流量，不使用桌面系统代理模式。IPv6 流量进入 VPN 后按分流规则处理；访问需要代理的 IPv6-only 目标时，所选节点必须具有可用的 IPv6 出口。
 
 ## 安装
 

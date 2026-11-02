@@ -984,8 +984,7 @@ class AppDiagnosticReport {
     return '本次已完成的检查未发现异常';
   }
 
-  /// Clipboard exports include every retained log entry. Only the bounded
-  /// history store explicitly requests a shortened snapshot.
+  /// Clipboard exports retain a bounded selection of recent diagnostic evidence.
   String toText({int? maxLength}) {
     if (maxLength != null && maxLength <= 0) {
       throw ArgumentError.value(maxLength, 'maxLength');
@@ -1028,12 +1027,31 @@ class AppDiagnosticReport {
       }
     }
     if (maxLength == null) {
-      final logs = sanitizedDiagnosticLogs(recentLogs);
-      if (logs.isNotEmpty) {
+      final lines = sanitizedDiagnosticLogs(recentLogs).split('\n');
+      final selected = <int>[];
+      var size = 0;
+      var probes = 0;
+      // Preserve stop/recovery and error evidence before filling with recent logs.
+      for (final priority in [true, false]) {
+        for (var i = 0; i < lines.length; i++) {
+          final line = lines[i];
+          final important = line.contains('停止请求:') ||
+              line.contains('原生停止原因:') ||
+              line.contains('[ERROR]') ||
+              line.contains('[health_recovery]');
+          if (important != priority || line.trim().isEmpty) continue;
+          if (line.contains('[data_plane_probe]') && ++probes > 3) continue;
+          if (selected.length >= 30 || size + line.length > 6000) continue;
+          selected.add(i);
+          size += line.length;
+        }
+      }
+      selected.sort();
+      if (selected.isNotEmpty) {
         buffer
           ..writeln()
-          ..writeln('运行日志（当前保留的完整记录，已脱敏）')
-          ..writeln(logs);
+          ..writeln('最近运行记录（最多 30 条，已脱敏；重复探测已精简）')
+          ..writeln(selected.map((i) => lines[i]).join('\n'));
       }
       return buffer.toString();
     }

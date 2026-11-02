@@ -75,7 +75,6 @@ class SSRVpnApp extends StatefulWidget {
 
 class _SSRVpnAppState extends State<SSRVpnApp> {
   int _currentIndex = 0;
-  late final PageController _pageController;
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   bool _appInitialized = false;
   bool _initError = false;
@@ -94,22 +93,19 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
   clash.ClashService? get clashService => _clashService;
   SubscriptionService? get subscriptionService => _subscriptionService;
 
-  /// HomeScreen key，用于页面切换时触发节点刷新
-  final _homeKey = GlobalKey<HomeScreenState>();
-
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
     unawaited(_initApp());
   }
 
   @override
   void dispose() {
     _updateAvailability.dispose();
-    _pageController.dispose();
     final clashService = _clashService;
-    if (clashService != null) unawaited(clashService.stop());
+    if (clashService != null) {
+      unawaited(clashService.stopWithReason('app_shutdown'));
+    }
     super.dispose();
   }
 
@@ -322,13 +318,86 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
                   .read<clash.ClashService>()
                   .log(message, event: 'clipboard_import'),
               service: _subscriptionService!,
-              child: _InitialSubscriptionPrompt(child: _buildMainScreen())),
+              child: _InitialSubscriptionPrompt(
+                  child: AndroidMainScreen(
+                onIndexChanged: (index) => _currentIndex = index,
+                openAvailableUpdate: _openAvailableUpdate,
+              ))),
         ),
       ),
     );
   }
+}
 
-  Widget _buildMainScreen() {
+@visibleForTesting
+class AndroidMainScreen extends StatefulWidget {
+  const AndroidMainScreen({
+    super.key,
+    required this.onIndexChanged,
+    required this.openAvailableUpdate,
+  });
+
+  final ValueChanged<int> onIndexChanged;
+  final Future<void> Function(BuildContext) openAvailableUpdate;
+
+  @override
+  State<AndroidMainScreen> createState() => _AndroidMainScreenState();
+}
+
+class _AndroidMainScreenState extends State<AndroidMainScreen> {
+  int _currentIndex = 0;
+  int? _animatedTabTarget;
+  int _tabAnimationGeneration = 0;
+  final _pageController = PageController();
+  final _homeKey = GlobalKey<HomeScreenState>();
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _setCurrentTab(BuildContext context, int index) {
+    if (!mounted || index == _currentIndex) return;
+    if (index == 0) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).removeCurrentSnackBar();
+      _homeKey.currentState?.refreshNodes();
+    }
+    setState(() => _currentIndex = index);
+    widget.onIndexChanged(index);
+  }
+
+  void _selectTab(BuildContext context, int index) {
+    if (!_pageController.hasClients) return;
+    if (index == _currentIndex && _animatedTabTarget == null) return;
+    final generation = ++_tabAnimationGeneration;
+    _animatedTabTarget = index;
+    _setCurrentTab(context, index);
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _pageController.jumpToPage(index);
+      _animatedTabTarget = null;
+      return;
+    }
+    unawaited(_pageController
+        .animateToPage(index,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic)
+        .then((_) {
+      if (!mounted ||
+          !context.mounted ||
+          generation != _tabAnimationGeneration) {
+        return;
+      }
+      _animatedTabTarget = null;
+      if (_pageController.hasClients) {
+        _setCurrentTab(context, _pageController.page?.round() ?? index);
+      }
+    }));
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Builder(
       builder: (context) {
         Responsive.init(context);
@@ -340,40 +409,51 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
             readable: _currentIndex != 0,
             child: SsrvpnHomeShell(
               extendBehindNavigation: true,
-              body: PageView(
-                controller: _pageController,
-                onPageChanged: (i) {
-                  if (i == _currentIndex) return;
-                  if (i == 0) {
-                    ScaffoldMessenger.of(context).clearSnackBars();
-                    ScaffoldMessenger.of(context).removeCurrentSnackBar();
+              body: NotificationListener<ScrollNotification>(
+                onNotification: (notification) {
+                  if (notification.depth != 0) return false;
+                  if (notification is ScrollStartNotification &&
+                      notification.dragDetails != null) {
+                    _tabAnimationGeneration++;
+                    _animatedTabTarget = null;
+                  } else if (notification is ScrollEndNotification &&
+                      _animatedTabTarget == null &&
+                      _pageController.hasClients) {
+                    _setCurrentTab(context,
+                        _pageController.page?.round() ?? _currentIndex);
                   }
-                  setState(() => _currentIndex = i);
-                  if (i == 0) _homeKey.currentState?.refreshNodes();
+                  return false;
                 },
-                children: <Widget>[
-                  SsrvpnPageActivity(
-                    active: _currentIndex == 0,
-                    child: Builder(builder: (pageContext) {
-                      final media = MediaQuery.of(pageContext);
-                      return Padding(
-                        padding: EdgeInsets.only(bottom: media.padding.bottom),
-                        child: MediaQuery(
-                          data: media.copyWith(
-                              padding: MediaQuery.paddingOf(context)),
-                          child: home,
-                        ),
-                      );
-                    }),
-                  ),
-                  SsrvpnPageActivity(
-                    active: _currentIndex == 1,
-                    child: const SubscriptionScreen(),
-                  ),
-                  SsrvpnPageActivity(
-                      active: _currentIndex == 2,
-                      child: Builder(builder: _buildSettingsPage)),
-                ],
+                child: PageView(
+                  controller: _pageController,
+                  onPageChanged: (i) {
+                    if (_animatedTabTarget == null) _setCurrentTab(context, i);
+                  },
+                  children: <Widget>[
+                    SsrvpnPageActivity(
+                      active: _currentIndex == 0,
+                      child: Builder(builder: (pageContext) {
+                        final media = MediaQuery.of(pageContext);
+                        return Padding(
+                          padding:
+                              EdgeInsets.only(bottom: media.padding.bottom),
+                          child: MediaQuery(
+                            data: media.copyWith(
+                                padding: MediaQuery.paddingOf(context)),
+                            child: home,
+                          ),
+                        );
+                      }),
+                    ),
+                    SsrvpnPageActivity(
+                      active: _currentIndex == 1,
+                      child: const SubscriptionScreen(),
+                    ),
+                    SsrvpnPageActivity(
+                        active: _currentIndex == 2,
+                        child: Builder(builder: _buildSettingsPage)),
+                  ],
+                ),
               ),
               navigation: Consumer<UpdateAvailabilityController>(
                 builder: (context, availability, _) {
@@ -384,24 +464,8 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
                     availableVersion: update?.version,
                     onUpdateTap: update == null
                         ? null
-                        : () => unawaited(_openAvailableUpdate(context)),
-                    onTap: (i) {
-                      if (i == 0) _homeKey.currentState?.refreshNodes();
-                      if (i == 0) {
-                        ScaffoldMessenger.of(context).clearSnackBars();
-                        ScaffoldMessenger.of(context).removeCurrentSnackBar();
-                      }
-                      setState(() => _currentIndex = i);
-                      if (MediaQuery.disableAnimationsOf(context)) {
-                        _pageController.jumpToPage(i);
-                      } else {
-                        _pageController.animateToPage(
-                          i,
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeOutCubic,
-                        );
-                      }
-                    },
+                        : () => unawaited(widget.openAvailableUpdate(context)),
+                    onTap: (i) => _selectTab(context, i),
                   );
                 },
               ),

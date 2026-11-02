@@ -553,6 +553,85 @@ void main() {
   });
 
   group('ClashServiceBase health log safety', () {
+    test('stalled control probe is isolated and reports local response',
+        () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final service = _ApiClashService();
+      service.updateSettings(AppSettings(apiPort: server.port));
+      addTearDown(service.dispose);
+      var status = HttpStatus.ok;
+      server.listen((request) async {
+        request.response.statusCode = status;
+        await request.response.close();
+      });
+      expect(await service.testStalledControlApi(), isTrue);
+      status = HttpStatus.serviceUnavailable;
+      expect(await service.testStalledControlApi(), isFalse);
+      await server.close(force: true);
+      expect(await service.testStalledControlApi(), isFalse);
+    });
+
+    test('diagnostic rule result survives another probe completing', () async {
+      var ruleCalls = 0;
+      final client = MockClient((request) async {
+        if (request.url.path != '/providers/rules') {
+          return http.Response('{}', 200);
+        }
+        if (++ruleCalls == 1) return http.Response('', 503);
+        return http.Response(
+            jsonEncode({
+              'providers': {
+                for (final name in AppConstants.smartRuleProviderFiles.keys)
+                  name: {'ruleCount': 1},
+              }
+            }),
+            200);
+      });
+      final service = _HealthProbeClashService(client)
+        ..useSmartRuleVersionForFutureConfigs('1.0.0')
+        ..requestConnectionIntent(true)
+        ..setRunning(true);
+      addTearDown(service.dispose);
+      addTearDown(client.close);
+      final captured = Completer<void>();
+      final release = Completer<void>();
+      final first = service.runDiagnosticInSession(() async {
+        expect(await service.healthCheck(), isTrue);
+        captured.complete();
+        await release.future;
+        return service.ruleStatusUnverified;
+      });
+      await captured.future;
+      expect(await service.healthCheck(), isTrue);
+      expect(service.ruleStatusUnverified, isFalse);
+      release.complete();
+      expect(await first, isTrue);
+    });
+
+    test('reuse preserves only inconclusive running state', () {
+      final service = _ApiClashService()..setRunning(true);
+      addTearDown(service.dispose);
+      for (final error in [
+        null,
+        'CORE_API_UNAVAILABLE: temporary',
+        'LOCAL_PROXY_LISTENER_UNAVAILABLE: temporary'
+      ]) {
+        service.setHealthErrorForTest(error);
+        expect(service.canRetainRuntimeAfterProbeFailure, isTrue);
+      }
+      for (final error in [
+        'CORE_API_UNAVAILABLE: 分流规则尚未就绪',
+        'SYSTEM_PROXY_OWNERSHIP_LOST: changed',
+        'TUN_SERVICE_LOST: exited'
+      ]) {
+        service.setHealthErrorForTest(error);
+        expect(service.canRetainRuntimeAfterProbeFailure, isFalse);
+      }
+      service.setRunning(false);
+      service.setHealthErrorForTest(null);
+      expect(service.canRetainRuntimeAfterProbeFailure, isFalse);
+    });
+
     for (final stalledPath in ['/version', '/providers/rules']) {
       test('health timeout aborts the pending $stalledPath request', () async {
         final client = _HangingHealthClient(stalledPath);
@@ -603,6 +682,16 @@ void main() {
       });
       expect(await service.healthCheck(), isFalse);
       expect(service.lastHealthCheckError, contains('规则状态接口暂时不可用'));
+      service.setRunning(true);
+      expect(await service.healthCheck(), isTrue,
+          reason:
+              'An unavailable rule status endpoint must not restart a live core');
+      expect(service.lastHealthCheckError, isNull);
+      final report = await service.runDiagnostics();
+      final runtime =
+          report.checks.singleWhere((check) => check.id == 'runtime');
+      expect(runtime.status, AppDiagnosticStatus.warning);
+      expect(runtime.summary, contains('规则状态暂无法确认'));
       status = HttpStatus.ok;
       expect(await service.healthCheck(), isFalse);
       expect(service.lastHealthCheckError, contains('分流规则尚未就绪'));
@@ -866,6 +955,37 @@ void main() {
       } finally {
         client.close(force: true);
       }
+    });
+
+    test('preparing a live connection retains its runtime identity', () async {
+      final service = _PlannedPortClashService({32000, 32100, 32200});
+      addTearDown(service.dispose);
+      final runtime = AppSettings(
+        proxyPort: 32000,
+        socksPort: 32100,
+        apiPort: 32200,
+        apiSecret: 'runtime-secret',
+        enableTun: false,
+      );
+      service.updateSettings(runtime);
+      service.setRunning(true);
+      final preferred = runtime.copyWith(
+        proxyPort: 33000,
+        socksPort: 33100,
+        apiPort: 33200,
+        apiSecret: 'pending-secret',
+        enableTun: true,
+      );
+      final prepared = await service.prepareForStart(preferred);
+      expect(prepared.proxyPort, 32000);
+      expect(prepared.socksPort, 32100);
+      expect(prepared.apiPort, 32200);
+      expect(prepared.apiSecret, 'runtime-secret');
+      expect(prepared.enableTun, isFalse);
+      expect(service.runtimeApiPort, 32200);
+      expect(service.desiredApiPort, 33200);
+      expect(preferred.apiPort, 33200);
+      expect(identical(prepared, service.settings), isFalse);
     });
 
     test('live rule edits retain listener identity until the next start',
@@ -3216,13 +3336,79 @@ proxies:
       expect(service.isRunning, isTrue);
       expect(service.recentLogs, contains('运行状态检查超时'));
       expect(service.periodicHealthResults, [false]);
+      expect(service.healthProbeStalled, isTrue);
+      expect(service.fallbackProbeCalls, greaterThan(0));
+      expect(service.stalledControlApiHealthy, isFalse);
 
       service.firstHealthCheck.complete(true);
       await service.nextHealthCheck.future.timeout(const Duration(seconds: 1));
       expect(service.healthCalls, 2);
+      expect(service.healthProbeStalled, isFalse);
       expect(service.isRunning, isTrue);
     },
   );
+
+  test('a stalled observation breaks the preceding failure streak', () async {
+    final service = _InterruptedFailureStreakClashService();
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+    service.startStatusMonitor();
+    await service.thirdStarted.future.timeout(const Duration(seconds: 1));
+    await service.firstTimeout.future.timeout(const Duration(seconds: 1));
+    service.thirdHealth.complete(false);
+    await service.fourthFinished.future.timeout(const Duration(seconds: 1));
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    expect(service.stopCalls, 0);
+    expect(service.isRunning, isTrue);
+    service.stopStatusMonitor();
+    service.fifthHealth.complete(true);
+  });
+
+  test('late fallback cannot affect a later check in the same session',
+      () async {
+    final service = _ConsecutiveStalledClashService();
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+    service.startStatusMonitor();
+    await service.firstFallbackStarted.future
+        .timeout(const Duration(seconds: 1));
+    service.firstHealthCheck.complete(true);
+    await service.nextHealthCheck.future.timeout(const Duration(seconds: 1));
+    await service.secondFallbackStarted.future
+        .timeout(const Duration(seconds: 1));
+    service.firstFallback.complete(false);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(service.healthProbeStalled, isTrue);
+    expect(service.stalledControlApiHealthy, isNull);
+    service.secondFallback.complete(true);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(service.stalledControlApiHealthy, isTrue);
+    service.secondHealth.complete(true);
+    service.stopStatusMonitor();
+  });
+
+  test('late stalled-control probe cannot affect a new session', () async {
+    final service = _LateStalledFallbackClashService();
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+    service.startStatusMonitor();
+    await service.fallbackStarted.future.timeout(const Duration(seconds: 1));
+    service.stopStatusMonitor();
+    service.setRunning(false);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+    service.startStatusMonitor();
+    await service.nextHealthCheck.future.timeout(const Duration(seconds: 1));
+    service.fallback.complete(false);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(service.healthProbeStalled, isFalse);
+    expect(service.stalledControlApiHealthy, isNull);
+    expect(service.recentLogs, isNot(contains('本地控制接口暂无法确认')));
+    service.firstHealthCheck.complete(false);
+  });
 
   test(
       'new connection intent suppresses a pending old health result before stop',
@@ -3241,6 +3427,26 @@ proxies:
     expect(service.recentLogs, isNot(contains('运行状态检查失败')));
     expect(service.healthCalls, 1);
     service.stopStatusMonitor();
+  });
+
+  test('reusing a running connection rebinds its monitor to the new intent',
+      () async {
+    final service = _SessionHealthClashService();
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+    service.startStatusMonitor();
+    await service.firstHealthStarted.future.timeout(const Duration(seconds: 1));
+    service.requestConnectionIntent(true);
+    expect(service.retainRunningAfterProbe(true), isTrue);
+    await service.secondHealthStarted.future
+        .timeout(const Duration(seconds: 1));
+    service.firstHealth.complete(false);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(service.isRunning, isTrue);
+    expect(service.lastHealthCheckError, isNull);
+    service.stopStatusMonitor();
+    service.secondHealth.complete(true);
   });
 
   test('a stale health check cannot block or fail a newer session', () async {
@@ -4430,6 +4636,9 @@ Future<String> _ruleVersionDescriptor(String version, String manifest) async {
 
 class _ApiClashService extends ClashServiceBase
     with _ExplicitTestDiagnosticCapability {
+  Future<bool?> testStalledControlApi() => probeStalledControlApi();
+  void setHealthErrorForTest(String? error) => setLastHealthCheckError(error);
+
   @override
   String get ruleSigningPublicKey => _testPublicKey;
 
@@ -4856,6 +5065,16 @@ class _SlowHealthClashService extends ClashServiceBase
   final Completer<void> nextHealthCheck = Completer<void>();
   final List<bool> periodicHealthResults = <bool>[];
   int healthCalls = 0;
+  int fallbackProbeCalls = 0;
+
+  @override
+  Duration get stalledHealthProbeInterval => const Duration(milliseconds: 10);
+
+  @override
+  Future<bool?> probeStalledControlApi() async {
+    fallbackProbeCalls++;
+    return false;
+  }
 
   @override
   Duration get statusMonitorInterval => const Duration(milliseconds: 1);
@@ -4893,6 +5112,80 @@ class _SlowHealthClashService extends ClashServiceBase
 
   @override
   Future<void> onStopRequired() async => setRunning(false);
+}
+
+class _InterruptedFailureStreakClashService extends _SlowHealthClashService {
+  final Completer<void> thirdStarted = Completer<void>();
+  final Completer<void> fourthFinished = Completer<void>();
+  final Completer<bool> thirdHealth = Completer<bool>();
+  final Completer<bool> fifthHealth = Completer<bool>();
+  int stopCalls = 0;
+
+  @override
+  Duration get healthFailureGrace => Duration.zero;
+
+  @override
+  Future<bool> healthCheck() {
+    healthCalls++;
+    if (healthCalls <= 2) return Future<bool>.value(false);
+    if (healthCalls == 3) {
+      thirdStarted.complete();
+      return thirdHealth.future;
+    }
+    if (healthCalls == 4) {
+      fourthFinished.complete();
+      return Future<bool>.value(false);
+    }
+    return fifthHealth.future;
+  }
+
+  @override
+  Future<void> onStopRequired() async {
+    stopCalls++;
+    setRunning(false);
+  }
+}
+
+class _ConsecutiveStalledClashService extends _SlowHealthClashService {
+  final Completer<bool> secondHealth = Completer<bool>();
+  final Completer<void> firstFallbackStarted = Completer<void>();
+  final Completer<void> secondFallbackStarted = Completer<void>();
+  final Completer<bool?> firstFallback = Completer<bool?>();
+  final Completer<bool?> secondFallback = Completer<bool?>();
+  int fallbackCount = 0;
+
+  @override
+  Future<bool> healthCheck() {
+    healthCalls++;
+    if (healthCalls == 1) return firstHealthCheck.future;
+    if (healthCalls == 2) {
+      nextHealthCheck.complete();
+      return secondHealth.future;
+    }
+    return Future<bool>.value(true);
+  }
+
+  @override
+  Future<bool?> probeStalledControlApi() {
+    fallbackCount++;
+    if (fallbackCount == 1) {
+      firstFallbackStarted.complete();
+      return firstFallback.future;
+    }
+    if (!secondFallbackStarted.isCompleted) secondFallbackStarted.complete();
+    return secondFallback.future;
+  }
+}
+
+class _LateStalledFallbackClashService extends _SlowHealthClashService {
+  final Completer<void> fallbackStarted = Completer<void>();
+  final Completer<bool?> fallback = Completer<bool?>();
+
+  @override
+  Future<bool?> probeStalledControlApi() {
+    if (!fallbackStarted.isCompleted) fallbackStarted.complete();
+    return fallback.future;
+  }
 }
 
 class _SessionHealthClashService extends _TestClashService {

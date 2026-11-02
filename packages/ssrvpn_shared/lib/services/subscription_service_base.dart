@@ -101,6 +101,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
       _transactionSnapshot?.displayRevision ?? _displayRevision;
   List<ProxyNode> get allNodes =>
       List.unmodifiable(_transactionSnapshot?.nodes ?? _allNodes);
+  int get nodeCount => (_transactionSnapshot?.nodes ?? _allNodes).length;
   List<ProxyGroup> get allGroups =>
       List.unmodifiable(_transactionSnapshot?.groups ?? _allGroups);
   @visibleForTesting
@@ -389,6 +390,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
         AppLogger.warning(
             'Subscription', '${diagnosis.summary} [${diagnosis.code}]');
         failures.add(SubscriptionRefreshFailure(
+          subscriptionId: sub.id,
           subscriptionName: sub.name,
           message: diagnosis.summary,
           diagnosticCode: diagnosis.code,

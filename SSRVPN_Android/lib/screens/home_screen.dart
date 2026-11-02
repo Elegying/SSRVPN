@@ -88,6 +88,8 @@ class HomeScreenState extends State<HomeScreen>
   Timer? _updateCheckTimer;
   bool _updateCheckInProgress = false;
   int _lastRevision = -1;
+  int _lastSourceNodeCount = -1;
+  int _lastRunnableNodeCount = -1;
   int _lastDisplayRevision = -1;
   int _publicIpGeneration = 0;
   // Invalidates mutations only when the service lifecycle/session changes.
@@ -176,10 +178,18 @@ class HomeScreenState extends State<HomeScreen>
   void refreshNodes() {
     if (_disposed || !mounted) return;
     final subService = context.read<SubscriptionService>();
+    final revision = subService.revision;
+    final sourceNodeCount = subService.nodeCount;
+    if (revision == _lastRevision &&
+        sourceNodeCount == _lastSourceNodeCount &&
+        _nodes.length == _lastRunnableNodeCount) {
+      return;
+    }
     final latestNodes = HomeNodeController.runnableNodesFrom(
       subService.allNodes,
     );
-    final revision = subService.revision;
+    _lastSourceNodeCount = sourceNodeCount;
+    _lastRunnableNodeCount = latestNodes.length;
     if (revision != _lastRevision || _nodes.length != latestNodes.length) {
       _cancelSingleLatencyTest();
       _cancelLatencyBatch();
