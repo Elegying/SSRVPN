@@ -39,7 +39,7 @@ dependencies:
   path: ^1.9.0
 
   # Asset integrity checks
-  crypto: ^3.0.7
+  crypto: ^3.0.8
 
 dev_dependencies:
   flutter_test:
