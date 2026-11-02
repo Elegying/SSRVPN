@@ -74,7 +74,7 @@ class SsrvpnThemedPowerButton extends StatelessWidget {
                             active: isConnected &&
                                 !isConnecting &&
                                 !hasConnectionError))
-                  else if (!highContrast && !cloud)
+                  else if (!highContrast && !cloud && !theme.isSolid)
                     Positioned.fill(
                         child: SsrvpnConnectionArtwork(
                             variant: theme.variant,

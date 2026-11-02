@@ -16,7 +16,7 @@ void main() {
         File('lib/screens/subscription_screen.dart').readAsStringSync();
     final stopStart = source.indexOf('stopClash: () async {');
     final snapshotStart = source.indexOf('onNoRunnableNodes: () async {');
-    final callEnd = source.indexOf('\n        );', snapshotStart);
+    final callEnd = source.indexOf(RegExp(r'\n\s*\);'), snapshotStart);
 
     expect(stopStart, greaterThanOrEqualTo(0));
     expect(snapshotStart, greaterThan(stopStart));
@@ -24,7 +24,9 @@ void main() {
 
     final stopTransaction = source.substring(stopStart, snapshotStart);
     expect(stopTransaction, contains('requestConnectionIntent(false)'));
-    expect(RegExp(r'await clashService\.stop\(\)').allMatches(stopTransaction),
+    expect(
+        RegExp(r"await clashService\.stopWithReason\('subscription_deleted'\)")
+            .allMatches(stopTransaction),
         hasLength(1));
 
     final snapshotTransaction = source.substring(snapshotStart, callEnd);

@@ -34,8 +34,10 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
     );
     if (!sync.changed) {
       if (_lastDisplayRevision == subService.displayRevision) return false;
+      _lastSourceNodeCount = subService.nodeCount;
       _lastDisplayRevision = subService.displayRevision;
       _nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
+      _lastRunnableNodeCount = _nodes.length;
       return true;
     }
     final observedRevision = subService.revision;
@@ -48,11 +50,13 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
       _retainedRuntimeNodes ??= List<ProxyNode>.from(_nodes);
     }
     _lastDisplayRevision = subService.displayRevision;
+    _lastSourceNodeCount = subService.nodeCount;
     _cancelSingleLatencyTest();
     _cancelLatencyBatch();
     _latencyController.clear();
     _lastRevision = controller.lastRevision;
     _nodes = controller.nodes;
+    _lastRunnableNodeCount = _nodes.length;
     if (sync.shouldPromptForImport) return true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _disposed || subService.revision != observedRevision) {

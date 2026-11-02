@@ -50,6 +50,7 @@ mixin _ClashRuntimeSupport {
   void updateSettings(AppSettings settings);
   Future<void> applyPendingSmartRules();
   AppSettings get settings;
+  bool get isRunning;
   @protected
   String get runtimeApiSecret =>
       RuntimeConfigNamePolicy.canonicalApiSecret(settings.apiSecret);
@@ -100,8 +101,13 @@ mixin _ClashRuntimeSupport {
 
   /// Resolves transient port conflicts without changing saved preferences.
   Future<AppSettings> prepareForStart(AppSettings preferred) async {
-    await applyPendingSmartRules();
     _desiredApiPort = preferred.apiPort;
+    if (isRunning) {
+      // The active core owns its listeners and controller credentials. A new
+      // attempt may reuse that session; port probing would collide with it.
+      return settings.copyWith();
+    }
+    await applyPendingSmartRules();
     final reserved = <int>{};
     final proxyPort = await findAvailableTcpUdpPort(
       preferred.proxyPort,

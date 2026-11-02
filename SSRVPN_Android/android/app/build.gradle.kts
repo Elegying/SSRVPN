@@ -75,6 +75,15 @@ android {
             manifestPlaceholders["appLabel"] = "SSRVPN Debug"
         }
 
+        getByName("profile") {
+            // Keep local frame profiling isolated from installed user data.
+            if (providers.gradleProperty("ssrvpnPerf").orNull == "true") {
+                applicationIdSuffix = ".perf"
+                versionNameSuffix = "-perf"
+                manifestPlaceholders["appLabel"] = "SSRVPN 性能测试"
+            }
+        }
+
         release {
             // Opt-in local acceptance build; installed production data stays separate.
             if (providers.gradleProperty("ssrvpnPreview").orNull == "true") {

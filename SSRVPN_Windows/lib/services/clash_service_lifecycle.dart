@@ -325,6 +325,19 @@ mixin _WindowsCoreLifecycle on ClashServiceBase, _WindowsCoreValidation {
       if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
         return false;
       }
+      if (ownershipStatus == SystemProxyOwnershipStatus.unavailable) {
+        // A transient controller outage can clear during the ownership retry.
+        // Recheck the full runtime without changing or reacquiring the proxy.
+        final recovered = await boundedHealthCheck(
+          runDiagnosticInSession(healthCheck),
+          () =>
+              isConnectionIntentCurrent(connectionGeneration, connected: true),
+        );
+        if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
+          return false;
+        }
+        if (recovered) return true;
+      }
       if (ownershipStatus != SystemProxyOwnershipStatus.owned) {
         final externallyChanged =
             ownershipStatus == SystemProxyOwnershipStatus.externallyChanged;

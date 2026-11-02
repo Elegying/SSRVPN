@@ -401,6 +401,24 @@ void main() {
       expect(service.isRunning, isTrue);
     });
 
+    test('transient reuse failure keeps the existing connection', () async {
+      final dir = await Directory.systemTemp.createTemp('ssrvpn_reuse_');
+      final service = _TransientReuseClashService();
+      addTearDown(() async {
+        await service.flushLogs();
+        service.dispose();
+        await dir.delete(recursive: true);
+      });
+      await service.init(AppSettings(),
+          dataDir: dir.path, skipCoreProbes: true);
+      service
+        ..setRunning(true)
+        ..requestConnectionIntent(true);
+      expect(await service.start(), isTrue);
+      expect(service.isRunning, isTrue);
+      expect(service.connectionDesired, isTrue);
+    });
+
     test('运行时配置仅允许当前用户读写', () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'ssrvpn_macos_private_config_',
@@ -2457,6 +2475,19 @@ void main() {
       );
     });
 
+    test('recovered runtime is retained when proxy ownership is unavailable',
+        () async {
+      final service = _TransientRuntimeRecoveryClashService();
+      addTearDown(service.dispose);
+      final generation = service.requestConnectionIntent(true);
+      service.setRunning(true);
+      expect(await service.recoverAfterHealthCheckFailure(generation), isTrue);
+      expect(service.healthCalls, 2);
+      expect(service.stopCalls, 0);
+      expect(service.isRunning, isTrue);
+      expect(service.connectionDesired, isTrue);
+    });
+
     test('persistent unavailable proxy ownership remains fail-closed',
         () async {
       final notices = <RuntimeNotice>[];
@@ -2910,6 +2941,14 @@ class _UnavailableProxyOwnershipRecoveryClashService
   Future<void> waitBeforeProxyOwnershipRecoveryRecheck() async {}
 }
 
+class _TransientRuntimeRecoveryClashService
+    extends _UnavailableProxyOwnershipRecoveryClashService {
+  int healthCalls = 0;
+
+  @override
+  Future<bool> healthCheck() async => ++healthCalls > 1;
+}
+
 class _SequencedProxyOwnershipRecoveryClashService
     extends _ExternalProxyTakeoverRecoveryClashService {
   _SequencedProxyOwnershipRecoveryClashService(
@@ -3017,6 +3056,14 @@ class _PlannedHealthRecoveryClashService extends ClashService {
 class _HealthyReuseClashService extends ClashService {
   @override
   Future<bool> healthCheck() async => true;
+}
+
+class _TransientReuseClashService extends ClashService {
+  @override
+  Future<bool> healthCheck() async {
+    setLastHealthCheckError('CORE_API_UNAVAILABLE: temporary');
+    return false;
+  }
 }
 
 class _ApiHealthyClashService extends ClashService {

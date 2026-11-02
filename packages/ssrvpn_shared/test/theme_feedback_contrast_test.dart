@@ -3,6 +3,33 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
+  test('solid palettes have distinct backgrounds and readable text', () {
+    final backgrounds = <Color>{};
+    double contrast(Color a, Color b) {
+      final x = a.computeLuminance(), y = b.computeLuminance();
+      return x > y ? (x + .05) / (y + .05) : (y + .05) / (x + .05);
+    }
+
+    for (final variant in SsrvpnTheme.solidVariants) {
+      final theme = SsrvpnTheme(variant);
+      backgrounds.add(theme.background);
+      for (final fill in [
+        theme.background,
+        theme.surface,
+        theme.surfaceStrong
+      ]) {
+        expect(contrast(theme.textPrimary, fill), greaterThanOrEqualTo(4.5),
+            reason: '$variant primary text');
+        expect(contrast(theme.textSecondary, fill), greaterThanOrEqualTo(4.5),
+            reason: '$variant secondary text');
+        expect(contrast(theme.primary, fill), greaterThanOrEqualTo(4.5),
+            reason: '$variant accent text');
+      }
+    }
+    expect(backgrounds.length, 8);
+    expect(SsrvpnTheme(AppThemeVariant.solidBlack).isLight, isFalse);
+  });
+
   for (final variant in AppThemeVariant.values) {
     testWidgets('$variant version badge is opaque, compact and readable',
         (tester) async {

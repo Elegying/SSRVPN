@@ -55,7 +55,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
             _selectedNode?.name ??
             settings.lastSelectedNodeName,
       );
-      await clashService.stop();
+      await clashService.stopWithReason('configuration_reload');
       if (!clashService.isConnectionIntentCurrent(
         connectionGeneration,
         connected: true,
@@ -160,7 +160,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
     if (_isConnecting) {
       clashService.requestConnectionIntent(false);
       try {
-        await clashService.stop();
+        await clashService.stopWithReason('user_cancel');
       } catch (e) {
         if (mounted && !_disposed) {
           _updateHomeState(() {
@@ -192,7 +192,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
         _errorMessage = null;
       });
       try {
-        await clashService.stop();
+        await clashService.stopWithReason('user_disconnect');
         if (!mounted || _disposed) return;
         _updateHomeState(() {
           _isConnected = false;

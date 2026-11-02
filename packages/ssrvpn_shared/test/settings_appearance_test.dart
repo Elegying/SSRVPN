@@ -140,6 +140,20 @@ void main() {
     expect(find.text('自定义'), findsNothing);
     expect(find.text('液态玻璃特效'), findsNothing);
     for (final theme in AppThemeVariant.values) {
+      if (SsrvpnTheme.solidVariants.contains(theme)) {
+        await tester.ensureVisible(find.byKey(const ValueKey('theme-solid')));
+        await tester.tap(find.byKey(const ValueKey('theme-solid')));
+        await tester.pumpAndSettle();
+        final first =
+            tester.getRect(find.byKey(const ValueKey('theme-solidBlue')));
+        final fourth =
+            tester.getRect(find.byKey(const ValueKey('theme-solidPurple')));
+        final fifth =
+            tester.getRect(find.byKey(const ValueKey('theme-solidPink')));
+        expect(first.top, fourth.top);
+        expect(fifth.top, greaterThan(first.top));
+        expect(fifth.left, first.left);
+      }
       final finder = find.byKey(ValueKey('theme-${theme.name}'));
       await tester.ensureVisible(finder);
       await tester.pumpAndSettle();

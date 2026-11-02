@@ -82,6 +82,7 @@ void main() {
         startupFlags: StartupFlags.parse(const ['--safe-mode'])));
     await tester.pumpAndSettle();
     final home = tester.state(find.byType(HomeScreen));
+    final application = tester.widget<MaterialApp>(find.byType(MaterialApp));
     expect(find.byType(SubscriptionScreen, skipOffstage: false), findsNothing);
     expect(find.byType(SsrvpnSettingsPage, skipOffstage: false), findsNothing);
     Future<void> select(int index) async {
@@ -89,6 +90,10 @@ void main() {
           .widget<SsrvpnBottomNavigation>(find.byType(SsrvpnBottomNavigation))
           .onTap(index);
       await tester.pumpAndSettle();
+      expect(
+          identical(tester.widget<MaterialApp>(find.byType(MaterialApp)),
+              application),
+          isTrue);
     }
 
     await select(2);
@@ -110,6 +115,13 @@ void main() {
         isTrue);
     expect(fixture.clash.isRunning, isTrue);
     expect(fixture.clash.startCalls, 0);
+    fixture.clash.onRuntimeNotice?.call(const RuntimeNotice.error('测试运行提示'));
+    await tester.pump();
+    expect(
+        tester
+            .widget<SsrvpnBottomNavigation>(find.byType(SsrvpnBottomNavigation))
+            .currentIndex,
+        0);
     await tester.pumpWidget(const SizedBox());
     expect(tester.takeException(), isNull);
   });

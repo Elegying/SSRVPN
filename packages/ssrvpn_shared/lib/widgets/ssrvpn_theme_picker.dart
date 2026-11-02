@@ -7,6 +7,59 @@ class SsrvpnThemePicker extends StatelessWidget {
       {super.key, required this.selected, required this.onChanged});
   final AppThemeVariant selected;
   final ValueChanged<AppThemeVariant>? onChanged;
+  Future<void> _chooseSolid(BuildContext context) async {
+    final choice = await showDialog<AppThemeVariant>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('选择主题颜色'),
+        content: SizedBox(
+          width: 320,
+          child: GridView.count(
+            crossAxisCount: 4,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            shrinkWrap: true,
+            children: [
+              for (final variant in SsrvpnTheme.solidVariants)
+                Semantics(
+                  button: true,
+                  selected: selected == variant,
+                  label: '纯色${const [
+                    '蓝',
+                    '青',
+                    '绿',
+                    '紫',
+                    '粉',
+                    '橙',
+                    '灰',
+                    '黑'
+                  ][SsrvpnTheme.solidVariants.indexOf(variant)]}',
+                  child: InkWell(
+                    key: ValueKey('theme-${variant.name}'),
+                    onTap: () => Navigator.pop(context, variant),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Ink(
+                      decoration: BoxDecoration(
+                          color: SsrvpnTheme(variant).solidColor,
+                          borderRadius: BorderRadius.circular(12)),
+                      child: selected == variant
+                          ? const Icon(Icons.check, color: Colors.white)
+                          : null,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context), child: const Text('取消'))
+        ],
+      ),
+    );
+    if (choice != null && choice != selected) onChanged?.call(choice);
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = SsrvpnTheme.of(context);
@@ -96,6 +149,36 @@ class SsrvpnThemePicker extends StatelessWidget {
                         ),
                       )),
                 )),
+          SizedBox(
+            width: width,
+            child: InkWell(
+              key: const ValueKey('theme-solid'),
+              borderRadius: BorderRadius.circular(16),
+              onTap: onChanged == null ? null : () => _chooseSolid(context),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 8),
+                child: Column(children: [
+                  Container(
+                    width: (width - 6).clamp(0.0, 60.0),
+                    height: (width - 6).clamp(0.0, 60.0),
+                    decoration: BoxDecoration(
+                      color: SsrvpnTheme(selected).isSolid
+                          ? SsrvpnTheme(selected).solidColor
+                          : const Color(0xFF2055A4),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: SsrvpnTheme(selected).isSolid
+                        ? const Icon(Icons.check, color: Colors.white)
+                        : null,
+                  ),
+                  const SizedBox(height: 8),
+                  const Text('纯色',
+                      style:
+                          TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                ]),
+              ),
+            ),
+          ),
         ]);
       }),
     ]);

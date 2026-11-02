@@ -78,13 +78,13 @@ class SsrvpnLiquidSurface extends StatelessWidget {
         child: content,
       );
     }
-    if (highContrast || ssrvpnGlassDisabled(context)) {
+    if (theme.isSolid || highContrast || ssrvpnGlassDisabled(context)) {
       return DecoratedBox(
           decoration: BoxDecoration(
               color: highContrast
                   ? theme.surface
                   : (tint == null
-                      ? theme.surface.withValues(alpha: .94)
+                      ? theme.surface.withValues(alpha: theme.isSolid ? 1 : .94)
                       : Color.alphaBlend(
                           tint!.withValues(alpha: tintOpacity ?? .09),
                           theme.surface)),

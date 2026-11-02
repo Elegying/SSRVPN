@@ -176,6 +176,68 @@ void main() {
     expect(calls, hasLength(1));
   });
 
+  test('proxy loss during admission is deferred and retried after reconnect',
+      () async {
+    subs[0].refreshViaProxy = true;
+    await save();
+    now = DateTime(2026, 10, 7, 10);
+    pending = Completer<SubscriptionBatchRefreshResult>();
+    final first = updater.checkDue();
+    while (calls.isEmpty) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+    }
+    proxyReady = false;
+    pending!.completeError(SubscriptionBatchRefreshException(const [
+      SubscriptionRefreshFailure(
+          subscriptionId: 'a',
+          subscriptionName: 'A',
+          message: 'offline',
+          diagnosticCode: 'SUB_PROXY_REQUIRED')
+    ]));
+    await first;
+    updater.dispose();
+    pending = null;
+    updater = make();
+    await updater.load(dir.path);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(calls, hasLength(1));
+    proxyReady = true;
+    await updater.checkDue();
+    await updater.checkDue();
+    expect(calls, [
+      {'a'},
+      {'a'}
+    ]);
+  });
+
+  test('proxy-unavailable results cannot cause endless deferred retries',
+      () async {
+    subs[0].refreshViaProxy = true;
+    await save();
+    now = DateTime(2026, 10, 7, 10);
+    pending = Completer<SubscriptionBatchRefreshResult>();
+    final first = updater.checkDue();
+    while (calls.isEmpty) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+    }
+    const failure = SubscriptionRefreshFailure(
+        subscriptionId: 'a',
+        subscriptionName: 'A',
+        message: 'offline',
+        diagnosticCode: 'SUB_PROXY_REQUIRED');
+    pending!.completeError(SubscriptionBatchRefreshException([failure]));
+    await first;
+    pending = Completer<SubscriptionBatchRefreshResult>();
+    final retry = updater.checkDue();
+    while (calls.length < 2) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+    }
+    pending!.completeError(SubscriptionBatchRefreshException([failure]));
+    await retry;
+    await updater.checkDue();
+    expect(calls, hasLength(2));
+  });
+
   test(
       'opt in, excludes local/deleted/disabled and survives restart without duplicate',
       () async {

@@ -140,12 +140,14 @@ class SubscriptionAutoUpdater extends ChangeNotifier {
     final epoch = _epoch;
     try {
       Set<String>? ids;
+      var deferredRetry = false;
       await _serialize(() async {
         if (_disposed || epoch != _epoch) return;
         final plan = _schedule;
         final now = _now();
         if (plan == null) return;
         final due = plan.dueAt(now, lastAttempt) != null;
+        deferredRetry = !due;
         if (!due && (_pendingProxyIds.isEmpty || !_proxyReady())) return;
         final eligible = remoteSubscriptions
             .where((s) => s.enabled && plan.subscriptionIds.contains(s.id))
@@ -169,32 +171,49 @@ class SubscriptionAutoUpdater extends ChangeNotifier {
       _cancellation = SubscriptionRefreshCancellation();
       notifyListeners();
       String result;
+      final proxyFailures = <String>{};
+      void collectProxyFailures(List<SubscriptionRefreshFailure> failures) {
+        for (final failure in failures) {
+          final id = failure.subscriptionId;
+          if (failure.diagnosticCode == 'SUB_PROXY_REQUIRED' &&
+              id != null &&
+              ids!.contains(id)) {
+            proxyFailures.add(id);
+          }
+        }
+      }
+
       try {
         if (ids!.isEmpty) {
           result =
               _pendingProxyIds.isNotEmpty ? '等待节点连接后自动更新订阅' : '本次没有启用且被勾选的订阅';
         } else {
           final outcome = await refresh(ids!, _cancellation!);
+          collectProxyFailures(outcome.failures);
           result = outcome.failures.isEmpty
               ? '已更新 ${outcome.successfulSubscriptionIds.length} 个订阅'
               : '${outcome.successfulSubscriptionIds.length} 个成功，${outcome.failures.length} 个失败；失败来源保留原数据，可手动重试';
         }
       } on SubscriptionBatchRefreshException catch (error) {
+        collectProxyFailures(error.failures);
         result = error.failures.isNotEmpty &&
                 error.failures
                     .every((f) => f.diagnosticCode == 'SUB_PROXY_REQUIRED')
-            ? '自动更新需要已连接的节点；请连接后在订阅页重试'
+            ? '自动更新需要已连接的节点'
             : '自动更新失败，原数据已保留；请在订阅页重试并查看原因';
       } catch (_) {
         result = '自动更新失败，原数据已保留；请检查网络后手动更新订阅';
       }
       await _serialize(() async {
         if (_disposed || epoch != _epoch) return;
-        if (_pendingProxyIds.isNotEmpty && ids!.isNotEmpty) {
+        final waiting = {..._pendingProxyIds};
+        if (!deferredRetry || !_proxyReady()) waiting.addAll(proxyFailures);
+        if (waiting.isNotEmpty && ids!.isNotEmpty) {
           result = '$result；其余订阅等待节点连接后自动更新';
         }
         await _persist(_schedule, lastAttempt, result,
-            pendingProxyIds: _pendingProxyIds);
+            pendingProxyIds: waiting);
+        _pendingProxyIds = waiting;
         lastResult = result;
       });
     } catch (_) {

@@ -3,7 +3,7 @@ part of 'app.dart';
 mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
   final TrayManager _trayManager = TrayManager();
 
-  int _currentIndex = 0;
+  final _currentIndex = ValueNotifier<int>(0);
   bool _isQuitting = false;
   RuntimeNotice? _runtimeNotice;
   bool _lastObservedCoreRunning = false;
@@ -218,7 +218,7 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
       setState(() {
         _runtimeNotice = notice;
         _runtimeNoticeTracksPendingRecovery = tracksPendingRecovery;
-        _currentIndex = 0;
+        _currentIndex.value = 0;
       });
       _runtimeNoticeAutoClearTimer = scheduleSuccessfulRuntimeNoticeClear(
         notice: notice,

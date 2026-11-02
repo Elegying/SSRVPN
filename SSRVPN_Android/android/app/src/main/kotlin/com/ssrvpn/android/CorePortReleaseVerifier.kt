@@ -1,5 +1,6 @@
 package com.ssrvpn.android
 
+import java.net.ConnectException
 import java.net.InetSocketAddress
 import java.net.Socket
 
@@ -61,6 +62,18 @@ internal object CorePortReleaseVerifier {
         } catch (_: Exception) {
             false
         }
+
+    /** A timeout or local socket error cannot establish that a port is closed. */
+    fun probePort(port: Int): Boolean? = try {
+        Socket().use { socket ->
+            socket.connect(InetSocketAddress("127.0.0.1", port), 100)
+        }
+        true
+    } catch (_: ConnectException) {
+        false
+    } catch (_: Exception) {
+        null
+    }
 
     /** 端口是否仍有人监听（与 [waitUntilReleased] 语义相反）。 */
     fun isPortListening(port: Int): Boolean = canConnect(port)

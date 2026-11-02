@@ -18,6 +18,28 @@ class SsrvpnTheme extends ThemeExtension<SsrvpnTheme> {
     AppThemeVariant.orbital,
     AppThemeVariant.pixel
   ];
+  static const solidVariants = [
+    AppThemeVariant.solidBlue,
+    AppThemeVariant.solidTeal,
+    AppThemeVariant.solidGreen,
+    AppThemeVariant.solidPurple,
+    AppThemeVariant.solidPink,
+    AppThemeVariant.solidOrange,
+    AppThemeVariant.solidSlate,
+    AppThemeVariant.solidBlack,
+  ];
+  bool get isSolid => solidVariants.contains(variant);
+  bool get isSolidDark => variant == AppThemeVariant.solidBlack;
+  Color get solidColor => switch (variant) {
+        AppThemeVariant.solidBlue => const Color(0xFF2055A4),
+        AppThemeVariant.solidTeal => const Color(0xFF006D70),
+        AppThemeVariant.solidGreen => const Color(0xFF316839),
+        AppThemeVariant.solidPurple => const Color(0xFF67469A),
+        AppThemeVariant.solidPink => const Color(0xFF9D3A68),
+        AppThemeVariant.solidOrange => const Color(0xFF995010),
+        AppThemeVariant.solidSlate => const Color(0xFF495E73),
+        _ => const Color(0xFF242930),
+      };
   String get selectionLabel =>
       variant == AppThemeVariant.cloud ? '$name（默认）' : name;
   static SsrvpnTheme of(BuildContext context) =>
@@ -33,6 +55,7 @@ class SsrvpnTheme extends ThemeExtension<SsrvpnTheme> {
       }.contains(variant);
   bool get isLight =>
       (isIllustrated && variant != AppThemeVariant.pixel) ||
+      (isSolid && !isSolidDark) ||
       isSoft ||
       variant == AppThemeVariant.sakura ||
       variant == AppThemeVariant.cloud;
@@ -47,90 +70,119 @@ class SsrvpnTheme extends ThemeExtension<SsrvpnTheme> {
         AppThemeVariant.cloud => '云朵游乐场',
         AppThemeVariant.dusk => '暮色山境',
         AppThemeVariant.soft => 'Soft 新拟态',
+        _ => '纯色',
       };
-  String get assetName => isDefault ? 'default' : variant.name;
+  String get assetName =>
+      isSolid ? 'cloud' : (isDefault ? 'default' : variant.name);
   String get icon => 'assets/themes/$assetName-icon.webp';
   String get wallpaper => isDefault
       ? 'assets/backgrounds/network-glass-deep.webp'
-      : variant == AppThemeVariant.cloud
+      : (variant == AppThemeVariant.cloud || isSolid)
           ? 'assets/themes/cloud-hero.webp'
           : 'assets/themes/$assetName.webp';
-  Color get background => switch (variant) {
-        AppThemeVariant.ocean => const Color(0xFFD4F2EE),
-        AppThemeVariant.journal => const Color(0xFFF2E7D3),
-        AppThemeVariant.orbital => const Color(0xFFF0E5CF),
-        AppThemeVariant.pixel => const Color(0xFF102E27),
-        AppThemeVariant.defaultTheme => const Color(0xFF0A1020),
-        AppThemeVariant.aurora => const Color(0xFF050B17),
-        AppThemeVariant.sakura => const Color(0xFFFFF8FA),
-        AppThemeVariant.cloud => const Color(0xFFFFF8E9),
-        AppThemeVariant.dusk => const Color(0xFF21192F),
-        AppThemeVariant.soft => const Color(0xFFE4E9EF),
-      };
-  Color get surface => switch (variant) {
-        AppThemeVariant.ocean => const Color(0xFFE6FAF7),
-        AppThemeVariant.journal => const Color(0xFFFFF5E4),
-        AppThemeVariant.orbital => const Color(0xFFF8F0DF),
-        AppThemeVariant.pixel => const Color(0xFF183A30),
-        AppThemeVariant.defaultTheme => const Color(0xFF242641),
-        AppThemeVariant.aurora => const Color(0xFF111D30),
-        AppThemeVariant.sakura => const Color(0xFFFFFDFE),
-        AppThemeVariant.cloud => const Color(0xFFFFFEFA),
-        AppThemeVariant.dusk => const Color(0xFF392B45),
-        AppThemeVariant.soft => const Color(0xFFE4E9EF),
-      };
+  Color get background => isSolid
+      ? switch (variant) {
+          AppThemeVariant.solidBlue => const Color(0xFFDCEBFA),
+          AppThemeVariant.solidTeal => const Color(0xFFD8F0EC),
+          AppThemeVariant.solidGreen => const Color(0xFFE1EFDD),
+          AppThemeVariant.solidPurple => const Color(0xFFECE4F6),
+          AppThemeVariant.solidPink => const Color(0xFFF8E3EB),
+          AppThemeVariant.solidOrange => const Color(0xFFF9E8D7),
+          AppThemeVariant.solidSlate => const Color(0xFFE0E8EF),
+          _ => const Color(0xFF171C23),
+        }
+      : switch (variant) {
+          AppThemeVariant.ocean => const Color(0xFFD4F2EE),
+          AppThemeVariant.journal => const Color(0xFFF2E7D3),
+          AppThemeVariant.orbital => const Color(0xFFF0E5CF),
+          AppThemeVariant.pixel => const Color(0xFF102E27),
+          AppThemeVariant.defaultTheme => const Color(0xFF0A1020),
+          AppThemeVariant.aurora => const Color(0xFF050B17),
+          AppThemeVariant.sakura => const Color(0xFFFFF8FA),
+          AppThemeVariant.cloud => const Color(0xFFFFF8E9),
+          AppThemeVariant.dusk => const Color(0xFF21192F),
+          AppThemeVariant.soft => const Color(0xFFE4E9EF),
+          _ => Colors.transparent,
+        };
+  Color get surface => isSolid
+      ? (isSolidDark
+          ? const Color(0xFF272E38)
+          : Color.alphaBlend(solidColor.withValues(alpha: .035), Colors.white))
+      : switch (variant) {
+          AppThemeVariant.ocean => const Color(0xFFE6FAF7),
+          AppThemeVariant.journal => const Color(0xFFFFF5E4),
+          AppThemeVariant.orbital => const Color(0xFFF8F0DF),
+          AppThemeVariant.pixel => const Color(0xFF183A30),
+          AppThemeVariant.defaultTheme => const Color(0xFF242641),
+          AppThemeVariant.aurora => const Color(0xFF111D30),
+          AppThemeVariant.sakura => const Color(0xFFFFFDFE),
+          AppThemeVariant.cloud => const Color(0xFFFFFEFA),
+          AppThemeVariant.dusk => const Color(0xFF392B45),
+          AppThemeVariant.soft => const Color(0xFFE4E9EF),
+          _ => Colors.transparent,
+        };
   Color get backgroundRaised => isDefault ? const Color(0xFF14152F) : surface;
   Color get surfaceStrong => isDefault
       ? const Color(0xFF2C2E4B)
       : Color.alphaBlend(primary.withValues(alpha: .08), surface);
-  Color get primary => switch (variant) {
-        AppThemeVariant.ocean => const Color(0xFF006C88),
-        AppThemeVariant.journal => const Color(0xFF626D32),
-        AppThemeVariant.orbital => const Color(0xFFAD400D),
-        AppThemeVariant.pixel => const Color(0xFFA5E3AC),
-        AppThemeVariant.defaultTheme => const Color(0xFF8A84FF),
-        AppThemeVariant.aurora => const Color(0xFF48E7CF),
-        AppThemeVariant.sakura => const Color(0xFFB83570),
-        AppThemeVariant.cloud => const Color(0xFF176BC2),
-        AppThemeVariant.dusk => const Color(0xFFFFB58D),
-        AppThemeVariant.soft => const Color(0xFF287E8C),
-      };
+  Color get primary => isSolid
+      ? (isSolidDark ? const Color(0xFFC2D5E8) : solidColor)
+      : switch (variant) {
+          AppThemeVariant.ocean => const Color(0xFF006C88),
+          AppThemeVariant.journal => const Color(0xFF626D32),
+          AppThemeVariant.orbital => const Color(0xFFAD400D),
+          AppThemeVariant.pixel => const Color(0xFFA5E3AC),
+          AppThemeVariant.defaultTheme => const Color(0xFF8A84FF),
+          AppThemeVariant.aurora => const Color(0xFF48E7CF),
+          AppThemeVariant.sakura => const Color(0xFFB83570),
+          AppThemeVariant.cloud => const Color(0xFF176BC2),
+          AppThemeVariant.dusk => const Color(0xFFFFB58D),
+          AppThemeVariant.soft => const Color(0xFF287E8C),
+          _ => Colors.transparent,
+        };
   Color get primaryBlue => isDefault ? const Color(0xFF3675FF) : primary;
-  Color get accent => switch (variant) {
-        AppThemeVariant.ocean => const Color(0xFF17656E),
-        AppThemeVariant.journal => const Color(0xFF855B2D),
-        AppThemeVariant.orbital => const Color(0xFF23506A),
-        AppThemeVariant.pixel => const Color(0xFFFFC475),
-        AppThemeVariant.defaultTheme => const Color(0xFF20C8B4),
-        AppThemeVariant.aurora => const Color(0xFF86AEFF),
-        AppThemeVariant.sakura => const Color(0xFF8354B3),
-        AppThemeVariant.cloud => const Color(0xFFB06A08),
-        AppThemeVariant.dusk => const Color(0xFFD5B5E6),
-        AppThemeVariant.soft => const Color(0xFF586FAD),
-      };
-  Color get textPrimary => switch (variant) {
-        AppThemeVariant.ocean => const Color(0xFF123E56),
-        AppThemeVariant.journal => const Color(0xFF3C2B1C),
-        AppThemeVariant.orbital => const Color(0xFF202F3A),
-        AppThemeVariant.pixel => const Color(0xFFFFF1D5),
-        AppThemeVariant.sakura => const Color(0xFF432039),
-        AppThemeVariant.cloud => const Color(0xFF172D5B),
-        AppThemeVariant.dusk => const Color(0xFFFFF3DA),
-        AppThemeVariant.soft => const Color(0xFF27313D),
-        _ => const Color(0xFFF5F7FF),
-      };
-  Color get textSecondary => switch (variant) {
-        AppThemeVariant.ocean => const Color(0xFF365E6C),
-        AppThemeVariant.journal => const Color(0xFF6D593F),
-        AppThemeVariant.orbital => const Color(0xFF58616A),
-        AppThemeVariant.pixel => const Color(0xFFBDD4BC),
-        AppThemeVariant.defaultTheme => const Color(0xFFA7AFC2),
-        AppThemeVariant.sakura => const Color(0xFF78586F),
-        AppThemeVariant.cloud => const Color(0xFF506584),
-        AppThemeVariant.dusk => const Color(0xFFC8BBD1),
-        AppThemeVariant.soft => const Color(0xFF56616D),
-        _ => const Color(0xFFAFBBD0),
-      };
+  Color get accent => isSolid
+      ? primary
+      : switch (variant) {
+          AppThemeVariant.ocean => const Color(0xFF17656E),
+          AppThemeVariant.journal => const Color(0xFF855B2D),
+          AppThemeVariant.orbital => const Color(0xFF23506A),
+          AppThemeVariant.pixel => const Color(0xFFFFC475),
+          AppThemeVariant.defaultTheme => const Color(0xFF20C8B4),
+          AppThemeVariant.aurora => const Color(0xFF86AEFF),
+          AppThemeVariant.sakura => const Color(0xFF8354B3),
+          AppThemeVariant.cloud => const Color(0xFFB06A08),
+          AppThemeVariant.dusk => const Color(0xFFD5B5E6),
+          AppThemeVariant.soft => const Color(0xFF586FAD),
+          _ => Colors.transparent,
+        };
+  Color get textPrimary => isSolid
+      ? (isSolidDark ? const Color(0xFFF2F5F9) : const Color(0xFF202631))
+      : switch (variant) {
+          AppThemeVariant.ocean => const Color(0xFF123E56),
+          AppThemeVariant.journal => const Color(0xFF3C2B1C),
+          AppThemeVariant.orbital => const Color(0xFF202F3A),
+          AppThemeVariant.pixel => const Color(0xFFFFF1D5),
+          AppThemeVariant.sakura => const Color(0xFF432039),
+          AppThemeVariant.cloud => const Color(0xFF172D5B),
+          AppThemeVariant.dusk => const Color(0xFFFFF3DA),
+          AppThemeVariant.soft => const Color(0xFF27313D),
+          _ => const Color(0xFFF5F7FF),
+        };
+  Color get textSecondary => isSolid
+      ? (isSolidDark ? const Color(0xFFBDC9D6) : const Color(0xFF525E6D))
+      : switch (variant) {
+          AppThemeVariant.ocean => const Color(0xFF365E6C),
+          AppThemeVariant.journal => const Color(0xFF6D593F),
+          AppThemeVariant.orbital => const Color(0xFF58616A),
+          AppThemeVariant.pixel => const Color(0xFFBDD4BC),
+          AppThemeVariant.defaultTheme => const Color(0xFFA7AFC2),
+          AppThemeVariant.sakura => const Color(0xFF78586F),
+          AppThemeVariant.cloud => const Color(0xFF506584),
+          AppThemeVariant.dusk => const Color(0xFFC8BBD1),
+          AppThemeVariant.soft => const Color(0xFF56616D),
+          _ => const Color(0xFFAFBBD0),
+        };
   Color get textTertiary => isDefault ? const Color(0xFF929BB1) : textSecondary;
   Color get border => isSoft
       ? const Color(0xFFD3DCE3)

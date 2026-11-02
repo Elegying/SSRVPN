@@ -60,6 +60,9 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
   String? get _connectionProgress;
   String? get connectionTimingSummary;
   String? get lastHealthCheckError;
+  bool get ruleStatusUnverified;
+  bool get healthProbeStalled;
+  bool? get stalledControlApiHealthy;
   String? get lastRuntimePortAdjustmentMessage;
   String? get connectivityWarning;
   String? get dataPlaneConnectivityWarning;
@@ -281,8 +284,9 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
         ),
       );
     } else {
-      final healthy =
-          await _runDiagnosticCheck('runtime', healthCheck) ?? false;
+      final healthy = healthProbeStalled
+          ? false
+          : await _runDiagnosticCheck('runtime', healthCheck) ?? false;
       final healthFailure = healthy
           ? null
           : AppFailure.fromMessage(
@@ -292,11 +296,23 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
         AppDiagnosticCheck(
           id: 'runtime',
           title: '运行状态',
-          status:
-              healthy ? AppDiagnosticStatus.passed : AppDiagnosticStatus.failed,
-          summary:
-              healthy ? '本地核心 API、运行配置与必要监听响应正常' : healthFailure!.userMessage,
-          errorCode: healthFailure?.code,
+          status: healthProbeStalled
+              ? AppDiagnosticStatus.warning
+              : !healthy
+                  ? AppDiagnosticStatus.failed
+                  : ruleStatusUnverified
+                      ? AppDiagnosticStatus.warning
+                      : AppDiagnosticStatus.passed,
+          summary: healthProbeStalled
+              ? (stalledControlApiHealthy == true
+                  ? '运行状态检查未完成；本地控制接口仍可访问，连接已保留'
+                  : '运行状态检查未完成；本地控制接口暂无法确认，连接已保留')
+              : !healthy
+                  ? healthFailure!.userMessage
+                  : ruleStatusUnverified
+                      ? '本地运行状态正常，规则状态暂无法确认；连接已保留'
+                      : '本地核心 API、运行配置与必要监听响应正常',
+          errorCode: healthProbeStalled ? null : healthFailure?.code,
         ),
       );
     }

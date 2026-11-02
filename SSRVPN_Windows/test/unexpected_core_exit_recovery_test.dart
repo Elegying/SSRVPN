@@ -414,6 +414,19 @@ void main() {
     );
   });
 
+  test('recovered runtime is retained when proxy ownership is unavailable',
+      () async {
+    final service = _TransientRuntimeRecoveryClashService();
+    addTearDown(service.dispose);
+    final generation = service.requestConnectionIntent(true);
+    service.setRunning(true);
+    expect(await service.recoverAfterHealthCheckFailure(generation), isTrue);
+    expect(service.healthCalls, 2);
+    expect(service.stopCalls, 0);
+    expect(service.isRunning, isTrue);
+    expect(service.connectionDesired, isTrue);
+  });
+
   test('persistent unavailable proxy ownership remains fail-closed', () async {
     final notices = <RuntimeNotice>[];
     final service = _UnavailableProxyOwnershipRecoveryClashService()
@@ -810,6 +823,14 @@ class _UnavailableProxyOwnershipRecoveryClashService
 
   @override
   Future<void> waitBeforeProxyOwnershipRecoveryRecheck() async {}
+}
+
+class _TransientRuntimeRecoveryClashService
+    extends _UnavailableProxyOwnershipRecoveryClashService {
+  int healthCalls = 0;
+
+  @override
+  Future<bool> healthCheck() async => ++healthCalls > 1;
 }
 
 class _SequencedProxyOwnershipRecoveryClashService

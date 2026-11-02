@@ -178,9 +178,8 @@ class ClashService extends ClashServiceBase
       );
 
   // ── onStopRequired ──
-
   @override
-  Future<void> onStopRequired() => stop();
+  Future<void> onStopRequired() => stopWithReason('health_recovery');
 
   @override
   void dispose() {
@@ -397,9 +396,12 @@ class ClashService extends ClashServiceBase
     _ensureStartCurrent(startToken);
     setLastStartError(null);
     if (isRunning) {
+      var healthy = false;
       try {
-        if (await healthCheck()) return true;
+        healthy = await healthCheck();
       } catch (_) {}
+      _ensureStartCurrent(startToken);
+      if (retainRunningAfterProbe(healthy)) return true;
       setRunning(false);
       stopStatusMonitor();
     }
@@ -508,6 +510,11 @@ class ClashService extends ClashServiceBase
       setLastStartError(safeUserFacingFailureMessage(e));
       return false;
     }
+  }
+
+  Future<void> stopWithReason(String reason) {
+    log('停止请求: cause=$reason');
+    return stop();
   }
 
   @override

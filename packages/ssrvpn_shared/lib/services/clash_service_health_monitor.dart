@@ -2,10 +2,64 @@ part of 'clash_service_base.dart';
 
 final Object _healthMonitorEpochZoneKey = Object();
 final Object _healthIntentZoneKey = Object();
+final Object _ruleObservationZoneKey = Object();
+
+class _RuleHealthObservation {
+  bool? unverified;
+}
 
 mixin _ClashHealthSupport {
   int _healthMonitorEpoch = 0;
   int? _activeHealthCheckEpoch;
+  bool _ruleProbeUnavailableLogged = false;
+  bool _healthProbeStalled = false;
+  int _healthObservationSerial = 0;
+  int? _stalledProbeSerial;
+  Duration _nextStalledProbe = Duration.zero;
+  bool? _stalledControlApiHealthy;
+  bool get healthProbeStalled => _healthProbeStalled;
+  bool? get stalledControlApiHealthy => _stalledControlApiHealthy;
+  @protected
+  Duration get stalledHealthProbeInterval => const Duration(seconds: 15);
+
+  @protected
+  Future<bool?> probeStalledControlApi() async {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 2)
+      ..findProxy = (_) => 'DIRECT';
+    try {
+      return await (() async {
+        final request = await client.getUrl(Uri.parse(_apiUrl('/version')));
+        request.followRedirects = false;
+        apiHeaders().forEach(request.headers.set);
+        final response = await request.close();
+        await response.drain<void>();
+        return response.statusCode == 200;
+      })()
+          .timeout(const Duration(seconds: 2));
+    } catch (_) {
+      return false;
+    } finally {
+      // A timed-out fallback must not leave sockets behind on each retry.
+      client.close(force: true);
+    }
+  }
+
+  bool get ruleStatusUnverified =>
+      (Zone.current[_ruleObservationZoneKey] as _RuleHealthObservation?)
+          ?.unverified ??
+      _ruleProbeUnavailableLogged;
+
+  /// Keep an already owned runtime after an inconclusive reuse probe. The
+  /// ordinary monitor remains responsible for sustained failures.
+  bool get canRetainRuntimeAfterProbeFailure {
+    final error = lastHealthCheckError;
+    return isRunning &&
+        (error == null ||
+            (error.startsWith('CORE_API_UNAVAILABLE:') &&
+                !error.contains('分流规则尚未就绪')) ||
+            error.startsWith('LOCAL_PROXY_LISTENER_UNAVAILABLE:'));
+  }
 
   int? captureAutomaticRestartIntent();
   int get _dataPlaneObservationEpoch;
@@ -15,10 +69,13 @@ mixin _ClashHealthSupport {
         _healthMonitorEpochZoneKey: _healthMonitorEpoch,
         _healthIntentZoneKey: captureAutomaticRestartIntent() ?? -1,
         _dataPlaneObservationEpochZoneKey: _dataPlaneObservationEpoch,
+        _ruleObservationZoneKey: _RuleHealthObservation(),
       });
   http.Client? get apiClient;
   bool get hasLocalSmartRules;
   AppSettings get settings;
+  bool get isRunning;
+  String? get lastHealthCheckError;
   String _apiUrl(String path);
   Map<String, String> apiHeaders({bool json = false});
   void log(
@@ -98,25 +155,38 @@ mixin _ClashHealthSupport {
             }
             final bytes = BytesBuilder(copy: false);
             await for (final chunk in reply.stream) {
-              if (bytes.length + chunk.length > 64 * 1024) return false;
+              if (bytes.length + chunk.length > 64 * 1024) return null;
               bytes.add(chunk);
             }
             final data = jsonDecode(utf8.decode(bytes.takeBytes()));
             final providers = data is Map ? data['providers'] : null;
-            return providers is Map &&
-                AppConstants.smartRuleProviderFiles.keys.every((name) {
-                  final entry = providers[name];
-                  return entry is Map &&
-                      entry['ruleCount'] is int &&
-                      (entry['ruleCount'] as int) > 0;
-                });
+            if (providers is! Map) return null;
+            return AppConstants.smartRuleProviderFiles.keys.every((name) {
+              final entry = providers[name];
+              return entry is Map &&
+                  entry['ruleCount'] is int &&
+                  (entry['ruleCount'] as int) > 0;
+            });
           })()
-              .timeout(const Duration(seconds: 2));
-          if (ready != true) {
+              .timeout(const Duration(seconds: 2))
+              .onError((Object _, StackTrace __) => null);
+          final observation =
+              Zone.current[_ruleObservationZoneKey] as _RuleHealthObservation?;
+          if (observation != null) observation.unverified = ready == null;
+          if (ready == null && isRunning) {
+            // A transient rule-status failure does not prove a live core died.
+            if (_canPublishHealthCheckResult && !_ruleProbeUnavailableLogged) {
+              _ruleProbeUnavailableLogged = true;
+              log('规则状态暂不可用，本地核心仍在运行，稍后复查', event: 'rule_health');
+            }
+          } else if (ready != true) {
             setLastHealthCheckError(ready == false
                 ? 'CORE_API_UNAVAILABLE: 分流规则尚未就绪'
                 : 'CORE_API_UNAVAILABLE: 规则状态接口暂时不可用');
             return false;
+          }
+          if (ready == true && _canPublishHealthCheckResult) {
+            _ruleProbeUnavailableLogged = false;
           }
         }
         setLastHealthCheckError(null);
@@ -175,10 +245,25 @@ mixin _ClashHealthSupport {
 
   void _invalidateHealthMonitorSession() {
     _healthMonitorEpoch++;
+    _healthObservationSerial++;
+    _ruleProbeUnavailableLogged = false;
+    _healthProbeStalled = false;
+    _stalledControlApiHealthy = null;
+    _nextStalledProbe = Duration.zero;
   }
 }
 
 extension ClashServiceHealthMonitor on ClashServiceBase {
+  /// Rebind monitoring to the current connection intent after reuse.
+  bool retainRunningAfterProbe(bool healthy) {
+    if (!isRunning || (!healthy && !canRetainRuntimeAfterProbeFailure)) {
+      return false;
+    }
+    stopStatusMonitor();
+    startStatusMonitor();
+    return true;
+  }
+
   void startStatusMonitor() {
     _statusTimer?.cancel();
     _scheduleRuleProviderRefreshOnce();
@@ -193,11 +278,56 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
     _statusTimer = Timer.periodic(statusMonitorInterval, (_) async {
       if (!_isRunning ||
           monitorEpoch != _healthMonitorEpoch ||
-          monitorIntent != captureAutomaticRestartIntent() ||
-          _activeHealthCheckEpoch == monitorEpoch) {
+          monitorIntent != captureAutomaticRestartIntent()) {
+        return;
+      }
+      if (_activeHealthCheckEpoch == monitorEpoch) {
+        if (_healthProbeStalled &&
+            _stalledProbeSerial != _healthObservationSerial &&
+            _healthClock.elapsed >= _nextStalledProbe) {
+          final probeSerial = _healthObservationSerial;
+          _stalledProbeSerial = probeSerial;
+          _nextStalledProbe = _healthClock.elapsed + stalledHealthProbeInterval;
+          unawaited(() async {
+            try {
+              final bool? result;
+              try {
+                result = await probeStalledControlApi()
+                    .timeout(const Duration(seconds: 3));
+              } catch (_) {
+                return;
+              }
+              if (monitorEpoch != _healthMonitorEpoch ||
+                  probeSerial != _healthObservationSerial ||
+                  !_isRunning ||
+                  monitorIntent != captureAutomaticRestartIntent() ||
+                  !_healthProbeStalled) {
+                return;
+              }
+              if (_stalledControlApiHealthy != result) {
+                _stalledControlApiHealthy = result;
+                this.log(
+                    result == true
+                        ? '运行状态检查未完成，本地控制接口仍可访问'
+                        : '运行状态检查未完成，本地控制接口暂无法确认',
+                    level: RuntimeLogLevel.warning,
+                    event: 'health_check');
+                _notifyStatusChanged();
+              }
+            } catch (_) {
+              // Advisory observation must never fail the connection.
+            } finally {
+              if (_stalledProbeSerial == probeSerial) {
+                _stalledProbeSerial = null;
+              }
+            }
+          }());
+        }
         return;
       }
       final checkIntent = captureAutomaticRestartIntent();
+      _healthObservationSerial++;
+      _nextStalledProbe = Duration.zero;
       _activeHealthCheckEpoch = monitorEpoch;
       var sourceSettled = false;
       final source = runZoned<Future<bool>>(
@@ -213,12 +343,28 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
             sourceSettled = true;
             if (_activeHealthCheckEpoch == monitorEpoch) {
               _activeHealthCheckEpoch = null;
+              final wasStalled = _healthProbeStalled;
+              _healthProbeStalled = false;
+              _stalledControlApiHealthy = null;
+              if (wasStalled) {
+                try {
+                  _notifyStatusChanged();
+                } catch (_) {}
+              }
             }
           },
           onError: (Object _, StackTrace __) {
             sourceSettled = true;
             if (_activeHealthCheckEpoch == monitorEpoch) {
               _activeHealthCheckEpoch = null;
+              final wasStalled = _healthProbeStalled;
+              _healthProbeStalled = false;
+              _stalledControlApiHealthy = null;
+              if (wasStalled) {
+                try {
+                  _notifyStatusChanged();
+                } catch (_) {}
+              }
             }
           },
         ),
@@ -236,6 +382,9 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
         return;
       }
       if (!sourceSettled) {
+        _healthProbeStalled = true;
+        // An unobserved interval breaks a consecutive-failure streak.
+        _healthFailures.reset();
         // An unknown interval is not a stable healthy interval. Platforms may
         // use this hook to restart a recovery-budget cooldown without treating
         // the observation timeout itself as a lifecycle failure.

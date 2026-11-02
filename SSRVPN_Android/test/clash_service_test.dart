@@ -34,6 +34,14 @@ class _HealthyReuseClashService extends ClashService {
   Future<bool> healthCheck() async => true;
 }
 
+class _TransientReuseClashService extends ClashService {
+  @override
+  Future<bool> healthCheck() async {
+    setLastHealthCheckError('CORE_API_UNAVAILABLE: temporary');
+    return false;
+  }
+}
+
 class _SnapshotWriteObservationService extends ClashService {
   void Function(String)? onConfigWritten;
 
@@ -2230,6 +2238,16 @@ secret: rejected-test-secret
     expect(service.isRunning, isTrue);
     expect(service.connectionDesired, isTrue);
     expect(service.recentLogs, contains('outcome=localReady'));
+  });
+
+  test('a transient reuse failure keeps the native connection', () async {
+    final service = _TransientReuseClashService()
+      ..setRunning(true)
+      ..requestConnectionIntent(true);
+    addTearDown(service.dispose);
+    expect(await service.start(), isTrue);
+    expect(service.isRunning, isTrue);
+    expect(service.connectionDesired, isTrue);
   });
 
   test('native timings stay diagnostic and reject invalid or secret fields',

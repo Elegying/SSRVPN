@@ -209,7 +209,7 @@ class ConnectionOrchestrator {
           // finished releasing the bridge, VPN fd, and operation lease. Wait
           // for that cleanup barrier before regenerating ports; an immediate
           // retry would otherwise be rejected as CORE_BUSY.
-          await clashService.stop();
+          await clashService.stopWithReason('port_retry_cleanup');
           if (!_isCurrent(connectionGeneration)) {
             return const AndroidConnectionOutcome();
           }
@@ -315,7 +315,7 @@ class ConnectionOrchestrator {
     clashService.requestConnectionIntent(false);
     if (clashService.isRunning) {
       try {
-        await clashService.stop();
+        await clashService.stopWithReason('subscription_changed');
       } catch (_) {
         return '订阅已更新，但旧连接断开失败，请手动断开后重试';
       }

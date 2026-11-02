@@ -12,7 +12,15 @@ enum AppThemeVariant {
   ocean,
   journal,
   orbital,
-  pixel
+  pixel,
+  solidBlue,
+  solidTeal,
+  solidGreen,
+  solidPurple,
+  solidPink,
+  solidOrange,
+  solidSlate,
+  solidBlack
 }
 
 /// 应用设置数据模型 — 跨平台共享

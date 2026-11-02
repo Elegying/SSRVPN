@@ -100,7 +100,8 @@ void main() {
                   const AssetImage(
                       'assets/themes/default-subscription-header.webp',
                       package: 'ssrvpn_shared'),
-                if (variant != AppThemeVariant.defaultTheme)
+                if (variant != AppThemeVariant.defaultTheme &&
+                    !SsrvpnTheme(variant).isSolid)
                   for (final name in SsrvpnThemeIcon.names)
                     AssetImage('assets/themes/${variant.name}-$name.webp',
                         package: 'ssrvpn_shared'),
@@ -118,11 +119,8 @@ void main() {
                   ])
                     AssetImage('assets/themes/cloud-$name.webp',
                         package: 'ssrvpn_shared'),
-                if (variant != AppThemeVariant.defaultTheme &&
-                    variant != AppThemeVariant.cloud &&
-                    variant != AppThemeVariant.aurora &&
-                    variant != AppThemeVariant.dusk &&
-                    variant != AppThemeVariant.soft)
+                if (SsrvpnTheme(variant).isIllustrated ||
+                    variant == AppThemeVariant.sakura)
                   AssetImage('assets/themes/${variant.name}-control.webp',
                       package: 'ssrvpn_shared'),
                 if (SsrvpnTheme(variant).isIllustrated)
@@ -198,6 +196,10 @@ void main() {
           expect(powerRect.center.dx, closeTo(viewport.width / 2, .5),
               reason:
                   'Connection button must stay centered independently of scenery');
+          if (SsrvpnTheme(variant).isSolid) {
+            expect(powerRect.width, lessThanOrEqualTo(220));
+            expect(powerRect.width, greaterThanOrEqualTo(48));
+          }
           if (variant == AppThemeVariant.cloud) {
             final scene = tester.getRect(find.byType(SsrvpnCloudHero));
             expect(scene.width, closeTo(viewport.width, .5),

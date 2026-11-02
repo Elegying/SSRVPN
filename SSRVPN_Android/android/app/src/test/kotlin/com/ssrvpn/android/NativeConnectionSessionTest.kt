@@ -8,6 +8,20 @@ import org.junit.Test
 
 class NativeConnectionSessionTest {
     @Test
+    fun `stop reason is scoped to the active start`() {
+        NativeConnectionSession.clearStarting()
+        NativeConnectionSession.clearRunning()
+        assertTrue(NativeConnectionSession.beginStarting(null))
+        NativeConnectionSession.noteStopReason("core_liveness_failure")
+        assertEquals("core_liveness_failure", NativeConnectionSession.snapshot(false, 1)["stopReason"])
+        assertNull(NativeConnectionSession.snapshot(true, 1)["stopReason"])
+        NativeConnectionSession.clearStarting()
+        assertTrue(NativeConnectionSession.beginStarting(null))
+        assertNull(NativeConnectionSession.snapshot(false, 2)["stopReason"])
+        NativeConnectionSession.clearStarting()
+    }
+
+    @Test
     fun `tile start cannot interleave with retention reference capture`() {
         val gate = StartGenerationGate()
         val config = java.nio.file.Files.createTempFile("ssrvpn-rule-tile", ".yaml").toFile()
