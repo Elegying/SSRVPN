@@ -26,6 +26,7 @@ foreach ($relativePath in @(
     'scripts\test_windows_powershell51_compatibility.ps1',
     'scripts\test_windows_proxy_ownership.ps1',
     'scripts\test_windows_installer_force_proxy.ps1',
+    'scripts\test_windows_installer_service_scope.ps1',
     'scripts\test_windows_installer_native_proxy.ps1',
     'scripts\test_windows_installer_process_enumeration.ps1',
     'scripts\test_windows_installer_runtime.ps1',

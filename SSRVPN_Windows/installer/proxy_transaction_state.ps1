@@ -391,9 +391,9 @@ function Stop-InstallerProxyTools {
       $controller = $null
       try {
         $controller = Get-InstallerProxyServiceController -Name ([string]$service.Name)
-        $controller.Stop()
+        Stop-InstallerProxyService -Controller $controller
         $controller.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(8))
-      } catch { throw "Proxy service could not stop: $($service.Name); file=$executable" }
+      } catch { throw "Proxy service could not stop: $($service.Name); file=$executable; reason=$($_.Exception.GetBaseException().Message)" }
       finally { if ($null -ne $controller) { $controller.Dispose() } }
     }
   }
@@ -494,4 +494,32 @@ function Get-InstallerProxyServiceController {
   $controller = [System.ServiceProcess.ServiceController]::new()
   $controller.ServiceName = $Name
   return $controller
+}
+
+function Stop-InstallerProxyService {
+  param([Parameter(Mandatory = $true)]$Controller)
+  # ControlService rejects running dependents instead of stopping unrelated services.
+  if (-not ('SsrVpnInstallerServiceStop' -as [type])) {
+    Add-Type -TypeDefinition @"
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+public static class SsrVpnInstallerServiceStop {
+  [StructLayout(LayoutKind.Sequential)]
+  struct Status {
+    public uint Type, State, Accepted, Win32Exit, ServiceExit, Checkpoint, WaitHint;
+  }
+  [DllImport("advapi32.dll", SetLastError=true)]
+  static extern bool ControlService(SafeHandle service, uint control, out Status status);
+  public static void Stop(SafeHandle service) {
+    Status status;
+    if (!ControlService(service, 1, out status)) {
+      int error = Marshal.GetLastWin32Error();
+      if (error != 1062) throw new Win32Exception(error); // Already stopped is success.
+    }
+  }
+}
+"@
+  }
+  [SsrVpnInstallerServiceStop]::Stop($Controller.ServiceHandle)
 }

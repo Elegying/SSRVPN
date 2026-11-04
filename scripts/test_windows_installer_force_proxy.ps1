@@ -84,6 +84,7 @@ Write-Host 'Installer force-proxy reset: 14 configurations and 8 failures passed
 . (Join-Path $PSScriptRoot '..\SSRVPN_Windows\installer\proxy_transaction_state.ps1')
 $script:Killed = $false
 $script:ServiceStopped = $false
+$script:ServiceDenied = $false
 $script:Denied = $false
 $script:Restarted = $false
 $script:Replaced = $false
@@ -98,9 +99,14 @@ function Get-InstallerProxyServiceController {
   if ($Name -cne 'proxy[test]*') { throw 'Service identity changed' }
   $fake = [pscustomobject]@{}
   $fake | Add-Member ScriptMethod Dispose {}
-  $fake | Add-Member ScriptMethod Stop { $script:ServiceStopped = $true }
+  $fake | Add-Member ScriptMethod Stop { throw 'Recursive service stop must never be used' }
   $fake | Add-Member ScriptMethod WaitForStatus { param($Status, $Timeout) }
   return $fake
+}
+function Stop-InstallerProxyService {
+  param($Controller)
+  if ($script:ServiceDenied) { throw 'Dependent service is still running (1051)' }
+  $script:ServiceStopped = $true
 }
 function Get-InstallerProxyProcessImage {
   param($Handle)
@@ -129,6 +135,13 @@ function Get-Process {
 }
 Stop-InstallerProxyTools
 if (-not $script:Killed -or -not $script:ServiceStopped) { throw 'Known tools survived' }
+$script:ServiceDenied = $true
+$script:Killed = $false
+try { Stop-InstallerProxyTools; throw 'Expected dependent service failure' } catch {
+  if ($_.Exception.Message -notmatch 'proxy\[test\]\*.*sing-box.exe.*1051') { throw }
+}
+if ($script:Killed) { throw 'Process cleanup continued after service failure' }
+$script:ServiceDenied = $false
 $script:Killed = $false
 $script:Denied = $true
 try { Stop-InstallerProxyTools; throw 'Expected PID failure' } catch {
