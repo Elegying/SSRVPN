@@ -90,12 +90,14 @@ $script:Replaced = $false
 $script:ExitedBeforeOpen = $false
 function Get-CimInstance {
   param($ClassName, $ErrorAction)
-  return [pscustomobject]@{ Name = 'proxy-test';
+  return [pscustomobject]@{ Name = 'proxy[test]*';
     PathName = '"C:\test\sing-box.exe" run'; State = 'Running' }
 }
-function Get-Service {
-  param($Name, $ErrorAction)
+function Get-InstallerProxyServiceController {
+  param($Name)
+  if ($Name -cne 'proxy[test]*') { throw 'Service identity changed' }
   $fake = [pscustomobject]@{}
+  $fake | Add-Member ScriptMethod Dispose {}
   $fake | Add-Member ScriptMethod Stop { $script:ServiceStopped = $true }
   $fake | Add-Member ScriptMethod WaitForStatus { param($Status, $Timeout) }
   return $fake
@@ -170,3 +172,11 @@ try {
   }
 } finally { $self.Dispose() }
 Write-Host 'Held-handle image lookup, PID replacement and already-exited process verified.'
+
+$controller = Get-InstallerProxyServiceController -Name 'ssrvpn-test[literal]*'
+try {
+  if ($controller.ServiceName -cne 'ssrvpn-test[literal]*') {
+    throw 'Service controller expanded a wildcard name'
+  }
+} finally { $controller.Dispose() }
+Write-Host 'Service names remain literal; no wildcard service expansion.'

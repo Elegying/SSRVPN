@@ -388,11 +388,13 @@ function Stop-InstallerProxyTools {
     if ($executable -and
         @($names + 'mihomo') -contains [IO.Path]::GetFileNameWithoutExtension($executable) -and
         $service.State -ne 'Stopped') {
+      $controller = $null
       try {
-        $controller = Get-Service -Name $service.Name -ErrorAction Stop
+        $controller = Get-InstallerProxyServiceController -Name ([string]$service.Name)
         $controller.Stop()
         $controller.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(8))
       } catch { throw "Proxy service could not stop: $($service.Name); file=$executable" }
+      finally { if ($null -ne $controller) { $controller.Dispose() } }
     }
   }
   foreach ($process in @(Get-Process -ErrorAction Stop)) {
@@ -483,4 +485,10 @@ public static class SsrVpnInstallerProcessImage {
 "@
   }
   return [SsrVpnInstallerProcessImage]::Read($Handle)
+}
+
+function Get-InstallerProxyServiceController {
+  param([Parameter(Mandatory = $true)][string]$Name)
+  # Service names are literal SCM identifiers, never PowerShell wildcard patterns.
+  return [System.ServiceProcess.ServiceController]::new($Name)
 }
