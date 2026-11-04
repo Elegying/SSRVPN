@@ -86,6 +86,8 @@ $script:Killed = $false
 $script:ServiceStopped = $false
 $script:Denied = $false
 $script:Restarted = $false
+$script:Replaced = $false
+$script:ExitedBeforeOpen = $false
 function Get-CimInstance {
   param($ClassName, $ErrorAction)
   return [pscustomobject]@{ Name = 'proxy-test';
@@ -98,12 +100,23 @@ function Get-Service {
   $fake | Add-Member ScriptMethod WaitForStatus { param($Status, $Timeout) }
   return $fake
 }
+function Get-InstallerProxyProcessImage {
+  param($Handle)
+  if ($script:Replaced) { return 'C:\test\browser.exe' }
+  return 'C:\test\sing-box.exe'
+}
 function Get-Process {
   param($ErrorAction)
   $foreign = [pscustomobject]@{ ProcessName = 'browser'; Id = 50 }
   if ($script:Killed -and -not $script:Restarted) { return $foreign }
   $fake = [pscustomobject]@{ ProcessName = 'sing-box'; Id = 51;
     Handle = 1; HasExited = $false }
+  if ($script:ExitedBeforeOpen) {
+    $fake.HasExited = $true
+    $fake.PSObject.Properties.Remove('Handle')
+    $fake | Add-Member ScriptProperty Handle { throw 'Already exited' }
+    $script:Killed = $true
+  }
   $fake | Add-Member ScriptMethod Kill {
     if ($script:Denied) { throw 'Access denied' }
     $script:Killed = $true
@@ -124,6 +137,16 @@ $script:Restarted = $true
 try { Stop-InstallerProxyTools; throw 'Expected restart failure' } catch {
   if ($_.Exception.Message -notmatch 'restarted.*sing-box PID=51') { throw }
 }
+$script:Restarted = $false
+$script:Killed = $false
+$script:Replaced = $true
+try { Stop-InstallerProxyTools; throw 'Expected identity failure' } catch {
+  if ($_.Exception.Message -notmatch 'sing-box PID=51') { throw }
+}
+if ($script:Killed) { throw 'Reused PID was killed' }
+$script:Replaced = $false
+$script:ExitedBeforeOpen = $true
+Stop-InstallerProxyTools
 Write-Host 'Proxy tool cleanup: known service/process, unrelated process, denial and restart passed.'
 
 # Compile the exact native declaration without changing this host's proxy.
@@ -137,3 +160,13 @@ if ([Runtime.InteropServices.Marshal]::SizeOf([Activator]::CreateInstance($optio
   throw 'WinINet option union has incorrect architecture alignment'
 }
 Write-Host 'WinINet interop declaration compiled and native option layout verified.'
+
+. (Join-Path $PSScriptRoot '..\SSRVPN_Windows\installer\proxy_transaction_state.ps1')
+$self = [Diagnostics.Process]::GetCurrentProcess()
+try {
+  $image = Get-InstallerProxyProcessImage -Handle $self.Handle
+  if ([IO.Path]::GetFileName($image) -ine [IO.Path]::GetFileName($self.MainModule.FileName)) {
+    throw 'Held process handle did not identify its executable'
+  }
+} finally { $self.Dispose() }
+Write-Host 'Held-handle image lookup, PID replacement and already-exited process verified.'

@@ -400,12 +400,20 @@ function Stop-InstallerProxyTools {
     $label = "$($process.ProcessName) PID=$($process.Id)"
     try {
       # Acquire the handle before terminating, so PID reuse cannot select a new process.
-      $null = $process.Handle
+      $handle = $process.Handle
+      $actualImage = Get-InstallerProxyProcessImage -Handle $handle
+      if ($names -notcontains [IO.Path]::GetFileNameWithoutExtension($actualImage)) {
+        throw 'Process identity changed before termination'
+      }
       if (-not $process.HasExited) {
         $process.Kill()
         if (-not $process.WaitForExit(5000)) { throw 'Timed out' }
       }
-    } catch { throw "Proxy process could not stop: $label" }
+    } catch {
+      $exited = $false
+      try { $exited = $process.HasExited } catch {}
+      if (-not $exited) { throw "Proxy process could not stop: $label" }
+    }
     finally { $process.Dispose() }
   }
   $remaining = @(Get-Process -ErrorAction Stop |
@@ -450,4 +458,29 @@ function Clear-InstallerProxyRegistry {
 
 function Test-InstallerWinInetDirect {
   [SsrVpnInstallerDirect]::Verify()
+}
+
+function Get-InstallerProxyProcessImage {
+  param([Parameter(Mandatory = $true)][IntPtr]$Handle)
+  if (-not ('SsrVpnInstallerProcessImage' -as [type])) {
+    Add-Type -TypeDefinition @"
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class SsrVpnInstallerProcessImage {
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+  static extern bool QueryFullProcessImageName(IntPtr process, int flags,
+    StringBuilder path, ref int size);
+  public static string Read(IntPtr process) {
+    int size = 32768;
+    var path = new StringBuilder(size);
+    if (!QueryFullProcessImageName(process, 0, path, ref size))
+      throw new Win32Exception(Marshal.GetLastWin32Error());
+    return path.ToString();
+  }
+}
+"@
+  }
+  return [SsrVpnInstallerProcessImage]::Read($Handle)
 }
