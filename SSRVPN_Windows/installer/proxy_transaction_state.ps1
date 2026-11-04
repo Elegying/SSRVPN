@@ -254,3 +254,244 @@ function Test-ProxyRecoveryStatePresent {
     'SSRVPN\runtime\system_proxy_backup.json'
   return Test-Path -LiteralPath $jsonPath -PathType Leaf
 }
+
+# Installation explicitly resets the current user's proxy, regardless of origin.
+# Called only while both the transaction lock and app-instance gate are held.
+function Clear-InstallerSystemProxy {
+  $script:InstallerResetStep = 'Proxy process/service cleanup'
+  Stop-InstallerProxyTools
+  $script:InstallerResetStep = 'WinHTTP / proxy environment reset'
+  Clear-InstallerMachineProxy
+  $script:InstallerResetStep = 'Current-user Internet Settings reset'
+  $path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
+  Clear-InstallerProxyRegistry -Path $path
+  $script:InstallerResetStep = 'WinINet connection flags reset'
+  Set-InstallerWinInetDirect
+  $script:InstallerResetStep = 'SSRVPN recovery record cleanup'
+  Remove-ProxyRecoveryState
+  Notify-WinInetProxyChange
+  $script:InstallerResetStep = 'Proxy reset verification'
+  Test-InstallerWinInetDirect
+  $current = Get-ItemProperty -Path $path -ErrorAction Stop
+  $remaining = @()
+  foreach ($name in @('ProxyEnable', 'AutoDetect')) {
+    $property = $current.PSObject.Properties[$name]
+    if ($null -ne $property -and $property.Value -ne 0) { $remaining += $name }
+  }
+  foreach ($name in @('ProxyServer', 'AutoConfigURL')) {
+    $property = $current.PSObject.Properties[$name]
+    if ($null -ne $property -and
+        -not [string]::IsNullOrEmpty([string]$property.Value)) { $remaining += $name }
+  }
+  if ($remaining.Count -gt 0) {
+    throw ('Proxy settings were rewritten or not cleared: ' + ($remaining -join ', '))
+  }
+}
+
+function Set-InstallerWinInetDirect {
+  if (-not ('SsrVpnInstallerDirect' -as [type])) {
+    Add-Type -TypeDefinition @"
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+public static class SsrVpnInstallerDirect {
+  [StructLayout(LayoutKind.Explicit, Size=8)]
+  struct Value {
+    [FieldOffset(0)] public int Flags;
+    [FieldOffset(0)] public IntPtr Pointer;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  struct Option { public int Id; public Value Value; }
+  [StructLayout(LayoutKind.Sequential)]
+  struct Options {
+    public int Size; public IntPtr Connection; public int Count;
+    public int Error; public IntPtr Values;
+  }
+  [DllImport("wininet.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+  static extern bool InternetSetOptionW(IntPtr handle, int option,
+    ref Options values, int length);
+  [DllImport("wininet.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+  static extern bool InternetQueryOptionW(IntPtr handle, int option,
+    ref Options values, ref int length);
+  public static void Reset() {
+    int size = Marshal.SizeOf(typeof(Option));
+    var values = new Options { Size = Marshal.SizeOf(typeof(Options)), Count = 4 };
+    values.Values = Marshal.AllocHGlobal(size * 4);
+    IntPtr empty = Marshal.StringToHGlobalUni("");
+    try {
+      for (int i = 0; i < 4; i++) {
+        var option = new Option { Id = i + 1 };
+        if (i == 0) option.Value.Flags = 1;
+        else option.Value.Pointer = empty;
+        Marshal.StructureToPtr(option, IntPtr.Add(values.Values, size * i), false);
+      }
+      if (!InternetSetOptionW(IntPtr.Zero, 75, ref values, values.Size))
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+    } finally {
+      Marshal.FreeHGlobal(empty);
+      Marshal.FreeHGlobal(values.Values);
+    }
+  }
+  public static void Verify() {
+    var values = new Options { Size = Marshal.SizeOf(typeof(Options)), Count = 1 };
+    values.Values = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(Option)));
+    try {
+      Marshal.StructureToPtr(new Option { Id = 1 }, values.Values, false);
+      int length = values.Size;
+      if (!InternetQueryOptionW(IntPtr.Zero, 75, ref values, ref length))
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+      var actual = (Option)Marshal.PtrToStructure(values.Values, typeof(Option));
+      if ((actual.Value.Flags & 15) != 1)
+        throw new InvalidOperationException("WinINet proxy flags remain enabled: " + actual.Value.Flags);
+    } finally { Marshal.FreeHGlobal(values.Values); }
+  }
+}
+"@
+  }
+  [SsrVpnInstallerDirect]::Reset()
+}
+
+function Clear-InstallerMachineProxy {
+  # Installation is elevated; do not silently accept an unelevated partial reset.
+  $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+  $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+  if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw 'Administrator permission is required to reset machine proxy settings.'
+  }
+  Clear-InstallerProxyRegistry -Path `
+    'HKLM:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
+  $netsh = Join-Path $env:SystemRoot 'System32\netsh.exe'
+  & $netsh winhttp reset proxy | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "WinHTTP reset failed: exit=$LASTEXITCODE" }
+  foreach ($scope in @('Machine', 'User', 'Process')) {
+    foreach ($name in @('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'FTP_PROXY', 'NO_PROXY')) {
+      [Environment]::SetEnvironmentVariable($name, $null, $scope)
+      if ([Environment]::GetEnvironmentVariable($name, $scope)) {
+        throw "Proxy environment variable remained: scope=$scope name=$name"
+      }
+    }
+  }
+}
+
+function Stop-InstallerProxyTools {
+  # Exact known executable names only; never kill by a fuzzy window/title match.
+  $names = @('clash', 'clash-win64', 'clash-meta', 'clash-verge',
+    'Clash for Windows', 'v2rayN', 'v2ray', 'xray', 'sing-box',
+    'Shadowsocks', 'ShadowsocksR', 'ss-local', 'ssr-local', 'hysteria')
+  foreach ($service in @(Get-CimInstance Win32_Service -ErrorAction Stop)) {
+    $executable = ''
+    if ([string]$service.PathName -match '^\s*"([^"]+\.exe)"') {
+      $executable = $matches[1]
+    } elseif ([string]$service.PathName -match '^\s*(\S+\.exe)(?:\s|$)') {
+      $executable = $matches[1]
+    }
+    if ($executable -and
+        @($names + 'mihomo') -contains [IO.Path]::GetFileNameWithoutExtension($executable) -and
+        $service.State -ne 'Stopped') {
+      $controller = $null
+      try {
+        $controller = Get-InstallerProxyServiceController -Name ([string]$service.Name)
+        $controller.Stop()
+        $controller.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(8))
+      } catch { throw "Proxy service could not stop: $($service.Name); file=$executable" }
+      finally { if ($null -ne $controller) { $controller.Dispose() } }
+    }
+  }
+  foreach ($process in @(Get-Process -ErrorAction Stop)) {
+    if ($names -notcontains $process.ProcessName) { continue }
+    $label = "$($process.ProcessName) PID=$($process.Id)"
+    try {
+      # Acquire the handle before terminating, so PID reuse cannot select a new process.
+      $handle = $process.Handle
+      $actualImage = Get-InstallerProxyProcessImage -Handle $handle
+      if ($names -notcontains [IO.Path]::GetFileNameWithoutExtension($actualImage)) {
+        throw 'Process identity changed before termination'
+      }
+      if (-not $process.HasExited) {
+        $process.Kill()
+        if (-not $process.WaitForExit(5000)) { throw 'Timed out' }
+      }
+    } catch {
+      $exited = $false
+      try { $exited = $process.HasExited } catch {}
+      if (-not $exited) { throw "Proxy process could not stop: $label" }
+    }
+    finally { $process.Dispose() }
+  }
+  $remaining = @(Get-Process -ErrorAction Stop |
+    Where-Object { $names -contains $_.ProcessName })
+  if ($remaining.Count -gt 0) {
+    throw ('Proxy process restarted: ' + (($remaining | ForEach-Object {
+      "$($_.ProcessName) PID=$($_.Id)"
+    }) -join ', '))
+  }
+}
+
+function Invoke-InstallerProxyReset {
+  $script:InstallerResetStep = 'System proxy reset'
+  try { Clear-InstallerSystemProxy } catch {
+    Set-StopStatus -Status 'PROXY_UNSAFE'
+    $detail = $script:InstallerResetStep + ': ' + $_.Exception.Message
+    if ($StatusPath) {
+      try {
+        [IO.File]::WriteAllText($StatusPath + '.detail', $detail,
+          [Text.UTF8Encoding]::new($false))
+      } catch {}
+    }
+    Write-Warning $detail
+    exit 3
+  }
+}
+
+function Clear-InstallerProxyRegistry {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  if (-not (Test-Path -LiteralPath $path -ErrorAction Stop)) {
+    New-Item -Path $path -ErrorAction Stop | Out-Null
+  }
+  Set-ItemProperty -Path $path -Name ProxyEnable -Type DWord -Value 0 -ErrorAction Stop
+  Set-ItemProperty -Path $path -Name AutoDetect -Type DWord -Value 0 -ErrorAction Stop
+  foreach ($name in @('ProxyServer', 'ProxyOverride', 'AutoConfigURL')) {
+    $current = Get-ItemProperty -Path $path -ErrorAction Stop
+    if ($null -ne $current.PSObject.Properties[$name]) {
+      Remove-ItemProperty -Path $path -Name $name -ErrorAction Stop
+    }
+  }
+}
+
+function Test-InstallerWinInetDirect {
+  [SsrVpnInstallerDirect]::Verify()
+}
+
+function Get-InstallerProxyProcessImage {
+  param([Parameter(Mandatory = $true)][IntPtr]$Handle)
+  if (-not ('SsrVpnInstallerProcessImage' -as [type])) {
+    Add-Type -TypeDefinition @"
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class SsrVpnInstallerProcessImage {
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+  static extern bool QueryFullProcessImageName(IntPtr process, int flags,
+    StringBuilder path, ref int size);
+  public static string Read(IntPtr process) {
+    int size = 32768;
+    var path = new StringBuilder(size);
+    if (!QueryFullProcessImageName(process, 0, path, ref size))
+      throw new Win32Exception(Marshal.GetLastWin32Error());
+    return path.ToString();
+  }
+}
+"@
+  }
+  return [SsrVpnInstallerProcessImage]::Read($Handle)
+}
+
+function Get-InstallerProxyServiceController {
+  param([Parameter(Mandatory = $true)][string]$Name)
+  # Service names are literal SCM identifiers, never PowerShell wildcard patterns.
+  Add-Type -AssemblyName System.ServiceProcess
+  $controller = [System.ServiceProcess.ServiceController]::new()
+  $controller.ServiceName = $Name
+  return $controller
+}

@@ -150,6 +150,7 @@ var
   VerifiedUpdateActualInstallerName: String;
   VerifiedUpdateCleanupRequested: Boolean;
   LastStopStatus: String;
+  LastStopDetail: String;
   ProgramFilesRecoveryPending: Boolean;
   ProgramFilesTransactionPrepared: Boolean;
   LastProgramFilesTransactionStatus: String;
@@ -401,6 +402,8 @@ end;
 function StopStatusDiagnostic: String;
 begin
   Result := '诊断阶段码：' + LastStopStatus + '。';
+  if LastStopDetail <> '' then
+    Result := Result + #13#10 + LastStopDetail;
 end;
 
 function RunStopSsrvpnProcesses(ScriptPath: String;
@@ -419,6 +422,7 @@ var
 begin
   ResultCode := -1;
   LastStopStatus := 'INTERNAL_ERROR';
+  LastStopDetail := '';
   PowerShellPath := ExpandConstant(
     '{sys}\WindowsPowerShell\v1.0\powershell.exe');
   InstalledAppPath := ExpandConstant('{app}\bin\ssrvpn_windows_app.exe');
@@ -440,7 +444,9 @@ begin
       ' -InstalledCorePidPath ' + AddQuotes(InstalledCorePidPath) +
       ' -StatusPath ' + AddQuotes(StatusPath);
     if RequireRecoveryCleanup then
-      Parameters := Parameters + ' -RequireRecoveryCleanup';
+      Parameters := Parameters + ' -RequireRecoveryCleanup'
+    else
+      Parameters := Parameters + ' -ForceProxyCleanup';
     Started := Exec(PowerShellPath, Parameters, '', SW_HIDE,
       ewWaitUntilTerminated, ResultCode);
     if Started then
@@ -452,9 +458,12 @@ begin
     if ((Result = 0) and (LastStopStatus <> 'OK')) or
       ((Result <> 0) and (LastStopStatus = 'OK')) then
       LastStopStatus := 'INTERNAL_ERROR';
+    if LoadStringFromFile(StatusPath + '.detail', RawStatus) then
+      LastStopDetail := Copy(UTF8Decode(RawStatus), 1, 2048);
     Log(Format('SSRVPN process cleanup exit=%d stage=%s', [Result, LastStopStatus]));
   finally
     DeleteFile(StatusPath);
+    DeleteFile(StatusPath + '.detail');
   end;
 end;
 

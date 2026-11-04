@@ -5,6 +5,7 @@ param(
   [string]$InstalledCorePidPath = '',
   [string]$StatusPath = '',
   [switch]$RequireRecoveryCleanup,
+  [switch]$ForceProxyCleanup,
   [ValidateRange(100, 8000)]
   [int]$TunTeardownTimeoutMilliseconds = 8000,
   [ValidateRange(100, 30000)]
@@ -1164,7 +1165,7 @@ try {
   }
   Write-Warning "Could not inspect stale SSRVPN TUN state: $($_.Exception.Message)"
 }
-$proxyBackup = Get-ProxyRecoveryState
+$proxyBackup = if ($ForceProxyCleanup) { $null } else { Get-ProxyRecoveryState }
 foreach ($app in $installedApps) {
   try {
     Stop-VerifiedProcess -ProcessId ([int]$app.ProcessId) `
@@ -1211,6 +1212,7 @@ try {
   exit 3
 }
 
+if ($ForceProxyCleanup) { Invoke-InstallerProxyReset }
 try {
   Restore-OwnedSystemProxy
 } catch {

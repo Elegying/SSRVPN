@@ -500,7 +500,9 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("旧独立副本文件不会被删除或修改", notice)
         self.assertIn("按进程名结束所有 SSRVPN 应用、启动器和 Mihomo 进程", notice)
         self.assertIn("包括其他目录或便携版副本", notice)
-        self.assertIn("也不会按 Clash、OpenVPN 等通用名称匹配", notice)
+        self.assertIn("会停止明确识别的第三方代理工具及服务", notice)
+        self.assertIn("WinHTTP", notice)
+        self.assertIn("清除代理环境变量", notice)
         self.assertIn("3 秒自行收尾", notice)
         self.assertNotIn("永久删除当前 Windows 用户的 SSRVPN 旧数据", notice)
         self.assertIn("ssrvpn_windows_app.exe", script)
@@ -1188,7 +1190,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertLess(lock_acquire, instance_gate)
         self.assertLess(instance_gate, stopper.index("$currentSessionId ="))
         self.assertLess(lock_acquire, stopper.index("$installedApps = @()"))
-        self.assertLess(lock_acquire, stopper.index("$proxyBackup = Get-ProxyRecoveryState"))
+        self.assertLess(lock_acquire, stopper.index("$proxyBackup = if ($ForceProxyCleanup)"))
         self.assertNotIn("function Enter-ProxyTransactionLock", stopper)
         self.assertIn("function Enter-ProxyTransactionLock", transaction_state)
         lock_function = transaction_state.split(
@@ -1309,7 +1311,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("remainingCores", stopper)
         self.assertIn("exit 2", stopper)
         self.assertIn("Restore-OwnedSystemProxy", stopper)
-        runtime_flow = stopper.split("$proxyBackup = Get-ProxyRecoveryState", 1)[1]
+        runtime_flow = stopper.split("$proxyBackup = if ($ForceProxyCleanup)", 1)[1]
         self.assertLess(
             runtime_flow.index(
                 "Stop-VerifiedProcess -ProcessId ([int]$app.ProcessId)"
@@ -1536,11 +1538,11 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertNotIn("$InstalledProcessRunning", safe_to_stop)
         self.assertNotIn("-InstalledProcessRunning", runtime_flow)
         enumeration = stopper.index("$installedApps = @()")
-        self.assertLess(enumeration, stopper.index("$proxyBackup = Get-ProxyRecoveryState"))
+        self.assertLess(enumeration, stopper.index("$proxyBackup = if ($ForceProxyCleanup)"))
         expected_path_gate = stopper.index(
             "$InstalledAppPath = Get-ValidatedExpectedPath"
         )
-        proxy_state_read = stopper.index("$proxyBackup = Get-ProxyRecoveryState")
+        proxy_state_read = stopper.index("$proxyBackup = if ($ForceProxyCleanup)")
         self.assertLess(
             expected_path_gate,
             stopper.index(
