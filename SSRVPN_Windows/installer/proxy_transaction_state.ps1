@@ -490,5 +490,8 @@ public static class SsrVpnInstallerProcessImage {
 function Get-InstallerProxyServiceController {
   param([Parameter(Mandatory = $true)][string]$Name)
   # Service names are literal SCM identifiers, never PowerShell wildcard patterns.
-  return [System.ServiceProcess.ServiceController]::new($Name)
+  Add-Type -AssemblyName System.ServiceProcess
+  $controller = [System.ServiceProcess.ServiceController]::new()
+  $controller.ServiceName = $Name
+  return $controller
 }
