@@ -159,8 +159,9 @@ function Pass([string]$Name) { [void]$results.Add([ordered]@{ case = $Name; resu
 try {
   . (Join-Path $PSScriptRoot 'test_windows_installer_copy_interruption.ps1')
 
-  foreach ($legacyCase in @('same-directory', 'malformed', 'missing-state')) {
-    $c = New-Case "legacy-preservation-$legacyCase"
+  foreach ($legacyScenario in @('same-directory:commit', 'same-directory:recover', 'malformed:commit', 'malformed:recover', 'missing-state:commit', 'missing-state:recover')) {
+    $legacyCase, $outcome = $legacyScenario.Split(':')
+    $c = New-Case "legacy-preservation-$legacyCase-$outcome"
     Write-FixtureFile (Join-Path $c.legacyRecovery 'program\personal.txt') 'legacy-recovery-data'
     if ($legacyCase -eq 'same-directory') {
       Write-FixtureFile (Join-Path $c.legacyRecovery 'state.json') (
@@ -175,11 +176,17 @@ try {
     Assert-File (Join-Path $c.legacyRecovery 'program\personal.txt') 'legacy-recovery-data'
     Invoke-Case $c Clear
     Invoke-Case $c Install
-    Invoke-Case $c Recover
-    Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
+    if ($outcome -eq 'commit') {
+      Seal-Case $c
+      Invoke-Case $c Commit
+      Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'new-ssrvpn_windows.exe'
+    } else {
+      Invoke-Case $c Recover
+      Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
+    }
     Assert-UserFiles $c
     Assert-File (Join-Path $archives[0].FullName 'program\personal.txt') 'legacy-recovery-data'
-    Pass "Legacy $legacyCase recovery materials preserved through upgrade rollback"
+    Pass "Legacy $legacyCase recovery materials preserved through upgrade $outcome"
   }
 
   $c = New-Case 'bootstrap-dependency-failure'

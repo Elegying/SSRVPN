@@ -284,6 +284,15 @@ try {
   }
   Pass 'MAX_PATH red: exact public 5.0.19 fails preparation with long paths disabled; old installation is intact'
   $candidate = Build-Candidate 'candidate'
+  $legacyRecoveryFixture = Join-Path $env:LOCALAPPDATA 'SSRVPN\installer-recovery'
+  if (Test-Path -LiteralPath $legacyRecoveryFixture) { throw 'Legacy recovery test root already exists.' }
+  Write-Text (Join-Path $legacyRecoveryFixture 'state.json') '{unparseable'
+  Write-Text (Join-Path $legacyRecoveryFixture 'program\personal.txt') 'legacy-personal-sentinel'
+  $legacyArchiveParent = [IO.Path]::GetDirectoryName((Get-RecoveryRoot $installDir))
+  $legacyArchivesBefore = @()
+  if (Test-Path -LiteralPath $legacyArchiveParent) {
+    $legacyArchivesBefore = @(Get-ChildItem -LiteralPath $legacyArchiveParent -Directory -Force | Where-Object Name -like 'l-*' | ForEach-Object FullName)
+  }
   $unknownLauncher = Join-Path $installDir 'ssrvpn_windows.exe'
   $append = [IO.File]::Open($unknownLauncher, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::None)
   try { $append.WriteByte(0x42) } finally { $append.Dispose() }
@@ -293,11 +302,21 @@ try {
   $after = Snapshot 'unknown-legacy-after'
   Assert-Recovered 'unknown-legacy-fault' $before $after
   Assert-UserFiles
+  $legacyArchives = @(Get-ChildItem -LiteralPath $legacyArchiveParent -Directory -Force | Where-Object { $_.Name -like 'l-*' -and $legacyArchivesBefore -notcontains $_.FullName })
+  if ($legacyArchives.Count -ne 1 -or [IO.File]::ReadAllText((Join-Path $legacyArchives[0].FullName 'program\personal.txt')) -cne 'legacy-personal-sentinel' -or
+      [IO.File]::ReadAllText((Join-Path $legacyRecoveryFixture 'program\personal.txt')) -cne 'legacy-personal-sentinel') {
+    throw 'Unauthenticated legacy recovery materials were not preserved through rollback.'
+  }
   Pass 'Unlisted legacy launcher survives a real pre-commit failure and recovery'
   if ((Run-Installer $candidate 'unknown-legacy-upgrade') -ne 0) { throw 'Unlisted legacy migration failed.' }
   Assert-Committed 'unknown-legacy-upgrade'
   Assert-UserFiles
+  if ([IO.File]::ReadAllText((Join-Path $legacyRecoveryFixture 'program\personal.txt')) -cne 'legacy-personal-sentinel' -or
+      [IO.File]::ReadAllText((Join-Path $legacyArchives[0].FullName 'program\personal.txt')) -cne 'legacy-personal-sentinel') {
+    throw 'Legacy recovery materials did not survive successful upgrade.'
+  }
   Pass 'Real installer upgrades an unlisted legacy launcher and preserves user data'
+  Remove-Item -LiteralPath $legacyRecoveryFixture -Recurse -Force
   # Restore the historical fixture for the separate catalogued migration case.
   Uninstall-Current 'unknown-legacy-uninstall'
   if ((Run-Installer $official 'restore-catalogued-baseline') -ne 0) { throw 'Could not restore catalogued baseline.' }
