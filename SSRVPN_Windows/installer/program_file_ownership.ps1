@@ -236,7 +236,7 @@ function Get-OldOwnedInventory {
   $launcher = Join-Path $script:installDir 'ssrvpn_windows.exe'
   if (-not (Test-Path -LiteralPath $launcher)) { return @() }
   if ([string]::IsNullOrWhiteSpace($LegacyCatalogPath)) {
-    throw 'A verified historical package catalog is required to migrate this installation.'
+    return @()
   }
   $catalog = Read-BoundedJsonDocument -Path $LegacyCatalogPath -Name 'Historical package catalog'
   Assert-ExactObjectSchema -Value $catalog -RequiredProperties @('schemaVersion', 'catalogs') -Name 'Historical package catalog'

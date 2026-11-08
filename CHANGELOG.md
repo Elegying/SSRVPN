@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- 修复 Windows 覆盖升级时部分旧版本无法识别而中止安装的问题；升级前备份需要替换的文件，失败时恢复，保留用户数据和其他文件。
+- 修复 Windows 覆盖升级时部分旧版本、已修改文件或同路径文件导致安装中止的问题；保留订阅和设置，并将需替换的未知文件另存，失败时恢复原文件。
 
 ## [6.0.15] - 2026-11-04
 

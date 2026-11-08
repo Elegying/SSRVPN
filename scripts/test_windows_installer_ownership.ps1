@@ -235,6 +235,10 @@ try {
       Assert-File (Join-Path $c.install 'bin\new-plugin.dll') 'existing-overlap'
     }
     Assert-File (Join-Path $c.install 'legacy\obsolete.dll') 'old-legacy\obsolete.dll'
+    $archives = @(Get-ChildItem -LiteralPath $c.root -Directory -Force | Where-Object Name -like 'p-*')
+    if ($archives.Count -ne 1) { throw 'Unverified overlapping files were not retained separately.' }
+    Assert-File (Join-Path $archives[0].FullName 'ssrvpn_windows.exe') 'unlisted-legacy-launcher'
+    Assert-File (Join-Path $archives[0].FullName 'bin\new-plugin.dll') 'existing-overlap'
     Assert-UserFiles $c
     Pass "Unlisted legacy upgrade $outcome preserves data and unrelated files"
   }
@@ -294,10 +298,16 @@ try {
 
   $c = New-Case 'new-target-conflict'
   Write-FixtureFile (Join-Path $c.install 'bin\new-plugin.dll') 'third-party'
-  Invoke-Case $c Begin -Failure
-  Assert-File (Join-Path $c.install 'bin\new-plugin.dll') 'third-party'
-  Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
-  Pass 'Unowned target conflict is rejected before clearing old files'
+  Invoke-Case $c Begin
+  Invoke-Case $c Clear
+  Invoke-Case $c Install
+  Seal-Case $c
+  Invoke-Case $c Commit
+  $archives = @(Get-ChildItem -LiteralPath $c.root -Directory -Force | Where-Object Name -like 'p-*')
+  if ($archives.Count -ne 1) { throw 'Conflicting file archive was not retained.' }
+  Assert-File (Join-Path $archives[0].FullName 'bin\new-plugin.dll') 'third-party'
+  Assert-UserFiles $c
+  Pass 'Unowned target is preserved separately during successful upgrade'
 
   $c = New-Case 'old-file-modified-after-begin'
   Invoke-Case $c Begin
@@ -448,9 +458,14 @@ try {
   $deep = Join-Path $c.install 'deep'
   for ($depth = 0; $depth -lt 65; $depth++) { $deep = Join-Path $deep 'd' }
   Write-FixtureFile (Join-Path $deep 'x') 'bounded'
-  Invoke-Case $c Begin -Failure
+  Invoke-Case $c Begin
+  Invoke-Case $c Clear
+  Invoke-Case $c Install
+  Seal-Case $c
+  Invoke-Case $c Commit
   Assert-UserFiles $c
-  Pass 'Oversized source depth is rejected before any old file is removed'
+  Assert-File (Join-Path $deep 'x') 'bounded'
+  Pass 'Unrelated deep directory does not block installation and remains intact'
 
   $c = New-Case 'oversized-state'
   Invoke-Case $c Begin
@@ -685,10 +700,26 @@ try {
   $foreign = Join-Path $c.root 'foreign'
   Write-FixtureFile (Join-Path $foreign 'keep.txt') 'unrelated-junction-target'
   New-Item -ItemType Junction -Path (Join-Path $c.install 'linked') -Target $foreign | Out-Null
-  Invoke-Case $c Begin -Failure
+  Invoke-Case $c Begin
+  Invoke-Case $c Clear
+  Invoke-Case $c Install
+  Seal-Case $c
+  Invoke-Case $c Commit
   Assert-File (Join-Path $foreign 'keep.txt') 'unrelated-junction-target'
   Assert-UserFiles $c
-  Pass 'Source junctions stop preparation and never touch their external target'
+  Pass 'Unrelated junctions do not block installation or alter their external target'
+
+  $c = New-Case 'target-junction'
+  $foreign = Join-Path $c.root 'foreign'
+  Write-FixtureFile (Join-Path $foreign 'new.dll') 'external-target'
+  New-Item -ItemType Junction -Path (Join-Path $c.install 'linked') -Target $foreign | Out-Null
+  Write-FixtureFile (Join-Path $c.payload 'linked\new.dll') 'new-target'
+  $entry = Get-FixtureEntry $c.payload 'linked\new.dll'
+  [IO.File]::AppendAllText($c.expected, "$($entry.sha256)  linked\new.dll`n", $utf8)
+  Invoke-Case $c Begin -Failure
+  Assert-File (Join-Path $foreign 'new.dll') 'external-target'
+  Assert-UserFiles $c
+  Pass 'A target junction is rejected without touching the external file'
 
   $c = New-Case 'recovery-parent-junction'
   $foreign = Join-Path $c.root 'foreign'

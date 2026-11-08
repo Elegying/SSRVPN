@@ -1183,18 +1183,39 @@ function Begin-ProgramFilesTransaction {
   try {
     New-Item -ItemType Directory -Path $stageProgramRoot -Force | Out-Null
     $newInventory = @(Get-PlannedPayload)
-    $existingInventory = @()
-    if ($null -ne $installItem) { $existingInventory = @(Get-ProgramInventory -Root $script:installDir -ExcludePreservedData) }
-    $sourceInventory = @(Get-ExistingOwnedFiles -Entries @(Get-OldOwnedInventory))
-    if ($sourceInventory.Count -eq 0 -and $null -eq (Get-OwnershipValue -Name 'Manifest') -and
-        (Test-Path -LiteralPath (Join-Path $script:installDir 'ssrvpn_windows.exe') -PathType Leaf)) {
-      # Unknown legacy installations: back up only paths the verified new
-      # payload needs to replace. Unrelated files and user data stay untouched.
-      $newPaths = @{}
-      foreach ($entry in $newInventory) { $newPaths[$entry.path] = $true }
-      $sourceInventory = @($existingInventory | Where-Object { $newPaths.ContainsKey($_.path) })
-      $sourceInventory = @(Get-ExistingOwnedFiles -Entries $sourceInventory)
+    $oldPaths = @{}
+    foreach ($entry in @(Get-OldOwnedInventory)) { $oldPaths[$entry.path] = $entry }
+    $newPaths = @{}
+    foreach ($entry in $newInventory) { $newPaths[$entry.path] = $true }
+    # Only inspect paths the transaction could replace or remove. Unrelated
+    # trees (including junctions) must not prevent an otherwise valid upgrade.
+    $candidatePaths = @{}
+    foreach ($path in @($oldPaths.Keys) + @($newPaths.Keys)) { $candidatePaths[$path] = $true }
+    if (-not ('SsrvpnInstaller.ProgramFile' -as [type])) {
+      Add-Type -Path (Join-Path $PSScriptRoot 'program_file_handles.cs')
     }
+    $existingInventory = @(foreach ($relative in @($candidatePaths.Keys | Sort-Object)) {
+      $path = Join-Path $script:installDir $relative
+      $item = Get-PathItem -Path $path
+      if ($null -eq $item) { continue }
+      if ($item.PSIsContainer -or (Test-ReparsePoint -Item $item) -or $item.Length -gt $script:maxProgramFileBytes) {
+        throw "Program target is not a bounded regular file: $relative"
+      }
+      $handle = [SsrvpnInstaller.ProgramFile]::Open($path, $false)
+      try {
+        [pscustomobject][ordered]@{ path = $relative; length = [long]$handle.Length; sha256 = [string]$handle.Sha256 }
+      } finally { $handle.Dispose() }
+    })
+    $existingInventory = @(Read-OwnedFileList -Entries $existingInventory)
+    $sourceInventory = @()
+    $unverifiedOverlap = @()
+    foreach ($entry in $existingInventory) {
+      $old = $oldPaths[$entry.path]
+      $verified = $null -ne $old -and $old.length -eq $entry.length -and $old.sha256 -ceq $entry.sha256
+      if ($verified -or $newPaths.ContainsKey($entry.path)) { $sourceInventory += $entry }
+      if (-not $verified -and $newPaths.ContainsKey($entry.path)) { $unverifiedOverlap += $entry }
+    }
+    $sourceInventory = @(Get-ExistingOwnedFiles -Entries $sourceInventory)
     Assert-NewTargetConflicts -Old $sourceInventory -New $newInventory
     [void](Get-TransactionAuthenticator -Create)
     $transactionId = [Guid]::NewGuid().ToString('N')
@@ -1222,6 +1243,19 @@ function Begin-ProgramFilesTransaction {
     if (-not (Test-InventoriesEqual -Expected $sourceInventory `
         -Actual $backupInventory)) {
       throw 'Program-file backup verification failed.'
+    }
+    if ($unverifiedOverlap.Count -gt 0) {
+      # Retain a separate copy even after a successful commit removes the
+      # rollback transaction. Never reuse or automatically delete this root.
+      $archiveRoot = Join-Path ([IO.Path]::GetDirectoryName($script:recoveryRoot)) `
+        ('p-' + $transactionId)
+      New-Item -ItemType Directory -Path $archiveRoot -ErrorAction Stop | Out-Null
+      Copy-OwnedFiles -SourceRoot $stageProgramRoot -DestinationRoot $archiveRoot -Entries $unverifiedOverlap
+      $archiveInventory = @(Get-ProgramInventory -Root $archiveRoot)
+      if (-not (Test-InventoriesEqual -Expected $unverifiedOverlap -Actual $archiveInventory)) {
+        throw 'Preserved overlapping files failed verification; installation was not started.'
+      }
+      Write-Warning "Existing files replaced by this upgrade were preserved at: $archiveRoot"
     }
     New-UninstallRegistrySnapshot -StageRoot $stageRoot
     New-ExternalFilesSnapshot -StageRoot $stageRoot

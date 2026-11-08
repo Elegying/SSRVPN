@@ -320,17 +320,19 @@ try {
   Pass 'Normal owned upgrade preserves every user sentinel'
 
   $modifiedPath = Join-Path $installDir 'bin\flutter_windows.dll'
-  $originalBytes = [IO.File]::ReadAllBytes($modifiedPath)
   $append = [IO.File]::Open($modifiedPath, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::None)
   try { $append.WriteByte(0x42) } finally { $append.Dispose() }
-  $before = Snapshot 'third-party-modified-before'
-  if ((Run-Installer $candidate 'third-party-modified-upgrade') -eq 0) { throw 'A modified owned DLL was accepted.' }
-  $after = Snapshot 'third-party-modified-after'
-  foreach ($part in @('files', 'registry', 'shortcuts')) {
-    if (($before[$part] | ConvertTo-Json -Depth 5 -Compress) -cne ($after[$part] | ConvertTo-Json -Depth 5 -Compress)) { throw 'Rejected modification changed installation state.' }
+  $modifiedHash = (Get-FileHash -LiteralPath $modifiedPath).Hash
+  $archiveParent = [IO.Path]::GetDirectoryName((Get-RecoveryRoot $installDir))
+  $archivesBefore = @(Get-ChildItem -LiteralPath $archiveParent -Directory -Force | Where-Object Name -like 'p-*' | ForEach-Object FullName)
+  if ((Run-Installer $candidate 'third-party-modified-upgrade') -ne 0) { throw 'Modified DLL upgrade failed.' }
+  Assert-Committed 'third-party-modified-upgrade'
+  $archives = @(Get-ChildItem -LiteralPath $archiveParent -Directory -Force | Where-Object { $_.Name -like 'p-*' -and $archivesBefore -notcontains $_.FullName })
+  if ($archives.Count -ne 1 -or (Get-FileHash -LiteralPath (Join-Path $archives[0].FullName 'bin\flutter_windows.dll')).Hash -cne $modifiedHash) {
+    throw 'Modified DLL was not retained in the preserved archive.'
   }
-  [IO.File]::WriteAllBytes($modifiedPath, $originalBytes)
-  Pass 'Real installer rejects a third-party modified DLL before any program or metadata changes'
+  Assert-UserFiles
+  Pass 'Real installer preserves a modified DLL separately and completes the upgrade'
 
   foreach ($bootstrapFault in @('dependency', 'parse')) {
     $name = 'bootstrap-' + $bootstrapFault
