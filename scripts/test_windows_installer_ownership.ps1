@@ -159,6 +159,33 @@ function Pass([string]$Name) { [void]$results.Add([ordered]@{ case = $Name; resu
 try {
   . (Join-Path $PSScriptRoot 'test_windows_installer_copy_interruption.ps1')
 
+  $c = New-Case 'authenticated-recovery-not-quarantined'
+  Invoke-Case $c Begin
+  Invoke-Case $c QuarantineInvalid -Failure
+  Invoke-Case $c Recover
+  Assert-UserFiles $c
+  Pass 'Authenticated pending recovery cannot be quarantined'
+
+  foreach ($outcome in @('commit', 'recover')) {
+    $c = New-Case "unauthenticated-current-$outcome"
+    Write-FixtureFile (Join-Path $c.recovery 'state.json') '{broken-state'
+    Write-FixtureFile (Join-Path $c.recovery 'program\personal.txt') 'pending-personal-data'
+    Invoke-Case $c Recover -Failure
+    Invoke-Case $c QuarantineInvalid
+    $archives = @(Get-ChildItem -LiteralPath $c.root -Directory -Force | Where-Object Name -like 'q-*')
+    if ($archives.Count -ne 1 -or (Test-Path -LiteralPath $c.recovery)) { throw 'Invalid recovery was not preserved separately.' }
+    Assert-File (Join-Path $archives[0].FullName 'state.json') '{broken-state'
+    Assert-File (Join-Path $archives[0].FullName 'program\personal.txt') 'pending-personal-data'
+    Invoke-Case $c Begin
+    Invoke-Case $c Clear
+    Invoke-Case $c Install
+    if ($outcome -eq 'commit') { Seal-Case $c; Invoke-Case $c Commit }
+    else { Invoke-Case $c Recover; Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'old-ssrvpn_windows.exe' }
+    Assert-UserFiles $c
+    Assert-File (Join-Path $archives[0].FullName 'program\personal.txt') 'pending-personal-data'
+    Pass "Unauthenticated recovery retained through upgrade $outcome"
+  }
+
   foreach ($legacyScenario in @('same-directory:commit', 'same-directory:recover', 'malformed:commit', 'malformed:recover', 'missing-state:commit', 'missing-state:recover')) {
     $legacyCase, $outcome = $legacyScenario.Split(':')
     $c = New-Case "legacy-preservation-$legacyCase-$outcome"

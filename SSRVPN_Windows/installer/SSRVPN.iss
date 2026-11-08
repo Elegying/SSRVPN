@@ -743,7 +743,8 @@ begin
   end;
   if StopResult = 0 then
   begin
-    if not RecoverPendingProgramFilesTransaction then
+    if (not RecoverPendingProgramFilesTransaction) and
+      (not RunProgramFilesTransaction('QuarantineInvalid', '')) then
     begin
       ReleaseInstallGates;
       Result := '检测到上次中断的覆盖安装，但无法完成程序文件恢复。' + #13#10 +

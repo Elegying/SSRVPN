@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet('Begin', 'Recover', 'Clear', 'Install', 'Validate', 'Seal', 'Commit', 'Discard', 'CheckUninstall', 'Uninstall')]
+  [ValidateSet('Begin', 'Recover', 'QuarantineInvalid', 'Clear', 'Install', 'Validate', 'Seal', 'Commit', 'Discard', 'CheckUninstall', 'Uninstall')]
   [string]$Action,
   [Parameter(Mandatory = $true)][string]$InstallDir,
   [Parameter(Mandatory = $true)][string]$RecoveryRoot,
@@ -1297,6 +1297,32 @@ function Begin-ProgramFilesTransaction {
   return 'PREPARED'
 }
 
+function Preserve-UnauthenticatedRecovery {
+  if (-not (Test-Path -LiteralPath $script:recoveryRoot -PathType Container)) { return 'NO_TRANSACTION' }
+  $statePath = Join-Path $script:recoveryRoot $script:stateFileName
+  $text = Read-BoundedUtf8Text -Path $statePath -MaxBytes $script:maxMetadataDocumentBytes -Name 'Recovery state'
+  $state = $null
+  try { $state = $text | ConvertFrom-Json -ErrorAction Stop } catch { $state = $null }
+  if ($null -ne $state -and $null -ne $state.PSObject.Properties['authentication']) {
+    $expected = $null
+    try { $expected = Get-StateAuthentication -State $state }
+    catch {
+      if ($_.Exception.Message -cne 'The protected transaction identity is missing or invalid; recovery material was retained.') { throw }
+    }
+    if ($null -ne $expected -and $state.authentication -is [string] -and $state.authentication -ceq $expected) {
+      throw 'Authenticated recovery material cannot be quarantined; it remains available for recovery.'
+    }
+  }
+  if (-not ('SsrvpnInstaller.ProgramFile' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'program_file_handles.cs') }
+  $preserved = Join-Path ([IO.Path]::GetDirectoryName($script:recoveryRoot)) ('q-' + [Guid]::NewGuid().ToString('N'))
+  $hasher = [Security.Cryptography.SHA256]::Create()
+  try { $digest = [BitConverter]::ToString($hasher.ComputeHash($script:utf8NoBom.GetBytes($text))).Replace('-', '').ToLowerInvariant() }
+  finally { $hasher.Dispose() }
+  [SsrvpnInstaller.ProgramFile]::PreserveDirectory($script:recoveryRoot, $preserved, $digest)
+  Write-Warning "Unauthenticated recovery material was retained at: $preserved"
+  return 'UNAUTHENTICATED_RECOVERY_PRESERVED'
+}
+
 function Recover-ProgramFilesTransaction {
   Clear-StaleStagingDirectories
   $state = Read-TransactionState
@@ -1513,6 +1539,7 @@ try {
   $status = switch ($Action) {
     'Begin' { Begin-ProgramFilesTransaction }
     'Recover' { Recover-ProgramFilesTransaction }
+    'QuarantineInvalid' { Preserve-UnauthenticatedRecovery }
     'Clear' { Clear-ProgramFilesForInstall }
     'Install' { Install-OwnedProgramFiles }
     'Validate' { Validate-ProgramFilesTransaction }

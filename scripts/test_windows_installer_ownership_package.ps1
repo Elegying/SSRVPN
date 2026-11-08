@@ -288,10 +288,16 @@ try {
   if (Test-Path -LiteralPath $legacyRecoveryFixture) { throw 'Legacy recovery test root already exists.' }
   Write-Text (Join-Path $legacyRecoveryFixture 'state.json') '{unparseable'
   Write-Text (Join-Path $legacyRecoveryFixture 'program\personal.txt') 'legacy-personal-sentinel'
+  $invalidCurrentRecovery = Get-RecoveryRoot $installDir
+  if (Test-Path -LiteralPath $invalidCurrentRecovery) { throw 'Current recovery fixture root already exists.' }
+  Write-Text (Join-Path $invalidCurrentRecovery 'state.json') '{invalid-current-state'
+  Write-Text (Join-Path $invalidCurrentRecovery 'program\personal.txt') 'current-personal-sentinel'
   $legacyArchiveParent = [IO.Path]::GetDirectoryName((Get-RecoveryRoot $installDir))
   $legacyArchivesBefore = @()
+  $currentArchivesBefore = @()
   if (Test-Path -LiteralPath $legacyArchiveParent) {
     $legacyArchivesBefore = @(Get-ChildItem -LiteralPath $legacyArchiveParent -Directory -Force | Where-Object Name -like 'l-*' | ForEach-Object FullName)
+    $currentArchivesBefore = @(Get-ChildItem -LiteralPath $legacyArchiveParent -Directory -Force | Where-Object Name -like 'q-*' | ForEach-Object FullName)
   }
   $unknownLauncher = Join-Path $installDir 'ssrvpn_windows.exe'
   $append = [IO.File]::Open($unknownLauncher, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::None)
@@ -303,6 +309,10 @@ try {
   Assert-Recovered 'unknown-legacy-fault' $before $after
   Assert-UserFiles
   $legacyArchives = @(Get-ChildItem -LiteralPath $legacyArchiveParent -Directory -Force | Where-Object { $_.Name -like 'l-*' -and $legacyArchivesBefore -notcontains $_.FullName })
+  $currentArchives = @(Get-ChildItem -LiteralPath $legacyArchiveParent -Directory -Force | Where-Object { $_.Name -like 'q-*' -and $currentArchivesBefore -notcontains $_.FullName })
+  if ($currentArchives.Count -ne 1 -or [IO.File]::ReadAllText((Join-Path $currentArchives[0].FullName 'program\personal.txt')) -cne 'current-personal-sentinel') {
+    throw 'Unauthenticated current recovery material was not preserved.'
+  }
   if ($legacyArchives.Count -ne 1 -or [IO.File]::ReadAllText((Join-Path $legacyArchives[0].FullName 'program\personal.txt')) -cne 'legacy-personal-sentinel' -or
       [IO.File]::ReadAllText((Join-Path $legacyRecoveryFixture 'program\personal.txt')) -cne 'legacy-personal-sentinel') {
     throw 'Unauthenticated legacy recovery materials were not preserved through rollback.'

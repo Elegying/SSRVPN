@@ -149,6 +149,37 @@ namespace SsrvpnInstaller {
         }
       }
     }
+    public static void PreserveDirectory(string path, string destination, string stateSha256) {
+      var parent = Path.GetDirectoryName(Path.GetFullPath(path));
+      if (!String.Equals(parent, Path.GetDirectoryName(Path.GetFullPath(destination)), StringComparison.OrdinalIgnoreCase))
+        throw new IOException("Preserved recovery directory must remain beside its original.");
+      using (var item = new ProgramFile()) {
+        item.PinParents(path, false);
+        using (var handle = CreateFile(path, 0x10081, 1, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero)) {
+          Check(handle, path, true);
+          var statePath = Path.Combine(path, "state.json");
+          using (var stateHandle = CreateFile(statePath, 0x80000000u, 5, IntPtr.Zero, 3, 0x00200000, IntPtr.Zero)) {
+            Check(stateHandle, statePath, false);
+            using (var input = new FileStream(stateHandle, FileAccess.Read))
+            using (var hash = SHA256.Create()) {
+              var actual = BitConverter.ToString(hash.ComputeHash(input)).Replace("-", "").ToLowerInvariant();
+              if (actual != stateSha256) throw new IOException("Recovery state changed before preservation.");
+              var name = Encoding.Unicode.GetBytes(Path.GetFullPath(destination));
+              int offset = Marshal.OffsetOf(typeof(RenameInfo), "FileName").ToInt32();
+              int size = Math.Max(Marshal.SizeOf(typeof(RenameInfo)), offset + name.Length + 2);
+              var data = Marshal.AllocHGlobal(size);
+              try {
+                Marshal.Copy(new byte[size], 0, data, size);
+                Marshal.WriteInt32(data, Marshal.OffsetOf(typeof(RenameInfo), "FileNameLength").ToInt32(), name.Length);
+                Marshal.Copy(name, 0, IntPtr.Add(data, offset), name.Length);
+                if (!SetFileInformationByHandle(handle, 3, data, (uint)size))
+                  throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot preserve recovery directory.");
+              } finally { Marshal.FreeHGlobal(data); }
+            }
+          }
+        }
+      }
+    }
     public string ReadUtf8Text(long maxBytes) {
       if (stream.Length > maxBytes) throw new IOException("Verified metadata exceeds its size limit.");
       stream.Position = 0;

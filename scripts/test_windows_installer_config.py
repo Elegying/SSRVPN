@@ -868,7 +868,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
 
         self.assertIn(
-            "ValidateSet('Begin', 'Recover', 'Clear', 'Install', 'Validate', "
+            "ValidateSet('Begin', 'Recover', 'QuarantineInvalid', 'Clear', 'Install', 'Validate', "
             "'Seal', 'Commit', 'Discard', 'CheckUninstall', 'Uninstall')",
             helper,
         )
