@@ -172,8 +172,10 @@ namespace SsrvpnInstaller {
                 Marshal.Copy(new byte[size], 0, data, size);
                 Marshal.WriteInt32(data, Marshal.OffsetOf(typeof(RenameInfo), "FileNameLength").ToInt32(), name.Length);
                 Marshal.Copy(name, 0, IntPtr.Add(data, offset), name.Length);
-                if (!SetFileInformationByHandle(handle, 3, data, (uint)size))
-                  throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot preserve recovery directory.");
+                if (!SetFileInformationByHandle(handle, 3, data, (uint)size)) {
+                  int error = Marshal.GetLastWin32Error();
+                  throw new Win32Exception(error, "Cannot preserve recovery directory: Win32 " + error + ": " + new Win32Exception(error).Message);
+                }
               } finally { Marshal.FreeHGlobal(data); }
             }
           }
