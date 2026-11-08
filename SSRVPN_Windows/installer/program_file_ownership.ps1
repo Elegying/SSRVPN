@@ -261,10 +261,32 @@ function Get-OldOwnedInventory {
 function Assert-NoLegacyRecoveryConflict {
   if (-not $LegacyRecoveryRoot -or -not (Test-Path -LiteralPath $LegacyRecoveryRoot)) { return }
   $legacyRoot = Get-SafeDirectoryPath -Path $LegacyRecoveryRoot -Name 'LegacyRecoveryRoot'
-  $state = Read-BoundedJsonDocument -Path (Join-Path $legacyRoot 'state.json') -Name 'Legacy recovery state'
-  if ($state.installDir -isnot [string] -or $state.installDir -ieq $script:installDir) {
-    throw 'An old recovery transaction may belong to this directory. Its original machine registry information cannot be reconstructed. Preserve the old directory and recovery material; select a separate empty installation directory for a clean install.'
+  if ((Test-PathWithin -Candidate $legacyRoot -Parent $script:installDir) -or
+      (Test-PathWithin -Candidate $script:installDir -Parent $legacyRoot) -or
+      (Test-PathWithin -Candidate $legacyRoot -Parent $script:recoveryRoot) -or
+      (Test-PathWithin -Candidate $script:recoveryRoot -Parent $legacyRoot)) {
+    throw 'Legacy recovery must be separate from the installation and current transaction.'
   }
+  $state = $null
+  try { $state = Read-BoundedJsonDocument -Path (Join-Path $legacyRoot 'state.json') -Name 'Legacy recovery state' }
+  catch { Write-Warning 'Legacy recovery metadata could not be interpreted; preserving the entire legacy recovery tree.' }
+  if ($null -ne $state -and $null -ne $state.PSObject.Properties['installDir'] -and
+      $state.installDir -is [string] -and $state.installDir -ine $script:installDir) { return }
+  # Old shared state is not authenticated and may contain the only surviving
+  # user files. Never replay or remove it; make an independently verified copy
+  # before another installation or an old uninstaller can affect that root.
+  $inventory = @(Get-ProgramInventory -Root $legacyRoot)
+  $archiveRoot = Join-Path ([IO.Path]::GetDirectoryName($script:recoveryRoot)) ('l-' + [Guid]::NewGuid().ToString('N'))
+  if (-not ('SsrvpnInstaller.ProgramFile' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'program_file_handles.cs') }
+  $pinnedParent = [SsrvpnInstaller.ProgramFile]::PinParentsFor($archiveRoot)
+  try {
+    New-Item -ItemType Directory -Path $archiveRoot -ErrorAction Stop | Out-Null
+    Copy-OwnedFiles -SourceRoot $legacyRoot -DestinationRoot $archiveRoot -Entries $inventory
+    if (-not (Test-InventoriesEqual -Expected $inventory -Actual @(Get-ProgramInventory -Root $archiveRoot))) {
+      throw 'Legacy recovery preservation failed verification; installation was not started.'
+    }
+  } finally { $pinnedParent.Dispose() }
+  Write-Warning "Legacy recovery materials were preserved at: $archiveRoot"
 }
 
 function Open-OwnedFiles {

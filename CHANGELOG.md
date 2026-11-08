@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - 修复 Windows 覆盖升级时部分旧版本、已修改文件或同路径文件导致安装中止的问题；保留订阅和设置，并将需替换的未知文件另存，失败时恢复原文件。
+- 修复 Windows 旧版共享恢复记录无法识别时阻止覆盖安装的问题；安装前复制并校验旧恢复材料，保留原件和独立副本。
 
 ## [6.0.15] - 2026-11-04
 

@@ -41,7 +41,7 @@ function Get-FixtureEntry([string]$Root, [string]$Relative) {
 function New-Case([string]$Name, [switch]$Fresh) {
   $root = Join-Path $suite $Name
   $case = @{
-    name = $Name; root = $root; install = (Join-Path $root 'installed'); recovery = (Join-Path $root 'recovery')
+    name = $Name; root = $root; install = (Join-Path $root 'installed'); recovery = (Join-Path $root 'recovery'); legacyRecovery = (Join-Path $root 'legacy-recovery')
     payload = (Join-Path $root 'payload'); expected = (Join-Path $root 'expected.sha256'); catalog = (Join-Path $root 'catalog.json')
     desktop = (Join-Path $root 'desktop\SSRVPN.lnk'); menu = (Join-Path $root 'menu\SSRVPN.lnk')
     subkey = ('Software\Microsoft\Windows\CurrentVersion\Uninstall\SSRVPN-Test-' + [Guid]::NewGuid().ToString('N'))
@@ -125,7 +125,8 @@ function Invoke-Case($Case, [string]$Action, [switch]$Failure, [switch]$Legacy, 
     '-ExpectedPayloadManifestPath', ('"' + $Case.expected + '"'))
   if (-not $Legacy) {
     $args += @('-UninstallRegistryRoot', $Scope, '-UninstallRegistryView', $View, '-LegacyCatalogPath', ('"' + $Case.catalog + '"'),
-      '-PayloadSourceRoot', ('"' + $Case.payload + '"'), '-UninstallMetadataRelativePath', $Case.metadata)
+      '-PayloadSourceRoot', ('"' + $Case.payload + '"'), '-UninstallMetadataRelativePath', $Case.metadata,
+      '-LegacyRecoveryRoot', ('"' + $Case.legacyRecovery + '"'))
   }
   $process = Start-Process powershell.exe -WindowStyle Hidden -PassThru -Wait -ArgumentList $args `
     -RedirectStandardOutput "$prefix.out.log" -RedirectStandardError "$prefix.err.log"
@@ -157,6 +158,29 @@ function Pass([string]$Name) { [void]$results.Add([ordered]@{ case = $Name; resu
 
 try {
   . (Join-Path $PSScriptRoot 'test_windows_installer_copy_interruption.ps1')
+
+  foreach ($legacyCase in @('same-directory', 'malformed', 'missing-state')) {
+    $c = New-Case "legacy-preservation-$legacyCase"
+    Write-FixtureFile (Join-Path $c.legacyRecovery 'program\personal.txt') 'legacy-recovery-data'
+    if ($legacyCase -eq 'same-directory') {
+      Write-FixtureFile (Join-Path $c.legacyRecovery 'state.json') (
+        [ordered]@{ schemaVersion = 2; installDir = $c.install } | ConvertTo-Json -Compress)
+    } elseif ($legacyCase -eq 'malformed') {
+      Write-FixtureFile (Join-Path $c.legacyRecovery 'state.json') '{broken'
+    }
+    Invoke-Case $c Begin
+    $archives = @(Get-ChildItem -LiteralPath $c.root -Directory -Force | Where-Object Name -like 'l-*')
+    if ($archives.Count -ne 1) { throw 'Legacy recovery tree was not independently preserved.' }
+    Assert-File (Join-Path $archives[0].FullName 'program\personal.txt') 'legacy-recovery-data'
+    Assert-File (Join-Path $c.legacyRecovery 'program\personal.txt') 'legacy-recovery-data'
+    Invoke-Case $c Clear
+    Invoke-Case $c Install
+    Invoke-Case $c Recover
+    Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
+    Assert-UserFiles $c
+    Assert-File (Join-Path $archives[0].FullName 'program\personal.txt') 'legacy-recovery-data'
+    Pass "Legacy $legacyCase recovery materials preserved through upgrade rollback"
+  }
 
   $c = New-Case 'bootstrap-dependency-failure'
   $brokenHelper = Join-Path $c.root 'isolated\program_files_transaction.ps1'
