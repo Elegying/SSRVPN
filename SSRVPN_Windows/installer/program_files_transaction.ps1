@@ -1191,6 +1191,22 @@ function Begin-ProgramFilesTransaction {
     # trees (including junctions) must not prevent an otherwise valid upgrade.
     $candidatePaths = @{}
     foreach ($path in @($oldPaths.Keys) + @($newPaths.Keys)) { $candidatePaths[$path] = $true }
+    # DLLs beside either executable participate in Windows loader search. An
+    # unrecognised old DLL must be retained, but not left beside the new app.
+    $legacyDllPaths = @{}
+    foreach ($relativeDirectory in @('', 'bin')) {
+      $directory = if ($relativeDirectory) { Join-Path $script:installDir $relativeDirectory } else { $script:installDir }
+      $directoryItem = Get-PathItem -Path $directory
+      if ($null -eq $directoryItem) { continue }
+      if (-not $directoryItem.PSIsContainer -or (Test-ReparsePoint -Item $directoryItem)) {
+        throw 'Executable directory is not a real directory.'
+      }
+      foreach ($item in @(Get-ChildItem -LiteralPath $directory -Filter '*.dll' -File -Force)) {
+        $relative = if ($relativeDirectory) { Join-Path $relativeDirectory $item.Name } else { $item.Name }
+        $candidatePaths[$relative] = $true
+        $legacyDllPaths[$relative] = $true
+      }
+    }
     if (-not ('SsrvpnInstaller.ProgramFile' -as [type])) {
       Add-Type -Path (Join-Path $PSScriptRoot 'program_file_handles.cs')
     }
@@ -1212,8 +1228,8 @@ function Begin-ProgramFilesTransaction {
     foreach ($entry in $existingInventory) {
       $old = $oldPaths[$entry.path]
       $verified = $null -ne $old -and $old.length -eq $entry.length -and $old.sha256 -ceq $entry.sha256
-      if ($verified -or $newPaths.ContainsKey($entry.path)) { $sourceInventory += $entry }
-      if (-not $verified -and $newPaths.ContainsKey($entry.path)) { $unverifiedOverlap += $entry }
+      if ($verified -or $newPaths.ContainsKey($entry.path) -or $legacyDllPaths.ContainsKey($entry.path)) { $sourceInventory += $entry }
+      if (-not $verified -and ($newPaths.ContainsKey($entry.path) -or $legacyDllPaths.ContainsKey($entry.path))) { $unverifiedOverlap += $entry }
     }
     $sourceInventory = @(Get-ExistingOwnedFiles -Entries $sourceInventory)
     Assert-NewTargetConflicts -Old $sourceInventory -New $newInventory

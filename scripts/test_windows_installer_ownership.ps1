@@ -320,6 +320,27 @@ try {
     Pass "Unlisted legacy upgrade $outcome preserves data and unrelated files"
   }
 
+  foreach ($outcome in @('commit', 'recover')) {
+    $c = New-Case "legacy-dll-$outcome"
+    foreach ($relative in @('version.dll', 'bin\version.dll')) {
+      Write-FixtureFile (Join-Path $c.install $relative) ('stale-' + $relative)
+    }
+    Invoke-Case $c Begin
+    Invoke-Case $c Clear
+    Invoke-Case $c Install
+    if ($outcome -eq 'commit') { Seal-Case $c; Invoke-Case $c Commit }
+    else { Invoke-Case $c Recover }
+    $archives = @(Get-ChildItem -LiteralPath $c.root -Directory -Force | Where-Object Name -like 'p-*')
+    if ($archives.Count -ne 1) { throw 'Legacy DLL archive was not retained.' }
+    foreach ($relative in @('version.dll', 'bin\version.dll')) {
+      Assert-File (Join-Path $archives[0].FullName $relative) ('stale-' + $relative)
+      if ($outcome -eq 'commit' -and (Test-Path -LiteralPath (Join-Path $c.install $relative))) { throw 'Unowned legacy DLL remained in an executable directory.' }
+      if ($outcome -eq 'recover') { Assert-File (Join-Path $c.install $relative) ('stale-' + $relative) }
+    }
+    Assert-UserFiles $c
+    Pass "Unverified executable-directory DLLs preserved through $outcome"
+  }
+
   $c = New-Case 'late-file-and-metadata-rollback'
   $registryBefore = Get-CaseRegistry $c
   Invoke-Case $c Begin

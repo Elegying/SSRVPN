@@ -1170,6 +1170,8 @@ try {
     (Join-Path $installDir 'version.dll'),
     (Join-Path $installDir 'bin\version.dll')
   )
+  $preservedParent = [IO.Path]::GetDirectoryName($programRecoveryRoot)
+  $preservedBefore = @(Get-ChildItem -LiteralPath $preservedParent -Directory -Force | Where-Object Name -like 'p-*' | ForEach-Object FullName)
   foreach ($legacyDll in $legacyDllSentinels) {
     if (Test-Path -LiteralPath $legacyDll) { throw "DLL fixture conflicts with payload: $legacyDll" }
     [IO.File]::WriteAllText($legacyDll, 'ssrvpn-invalid-legacy-dll-sentinel')
@@ -1223,9 +1225,13 @@ try {
   }
 
   $runningInstalledApp = Start-InstalledApp
+  $preservedAfter = @(Get-ChildItem -LiteralPath $preservedParent -Directory -Force | Where-Object { $_.Name -like 'p-*' -and $preservedBefore -notcontains $_.FullName })
+  if ($preservedAfter.Count -ne 1) { throw 'Legacy DLL archive was not retained.' }
   foreach ($legacyDll in $legacyDllSentinels) {
-    if (-not (Test-Path -LiteralPath $legacyDll -PathType Leaf) -or
-        [IO.File]::ReadAllText($legacyDll) -cne 'ssrvpn-invalid-legacy-dll-sentinel') {
+    $relative = $legacyDll.Substring($installDir.TrimEnd('\').Length + 1)
+    $preservedDll = Join-Path $preservedAfter[0].FullName $relative
+    if ((Test-Path -LiteralPath $legacyDll) -or -not (Test-Path -LiteralPath $preservedDll -PathType Leaf) -or
+        [IO.File]::ReadAllText($preservedDll) -cne 'ssrvpn-invalid-legacy-dll-sentinel') {
       throw "Legacy DLL fixture was not preserved: $legacyDll"
     }
   }
@@ -1233,7 +1239,7 @@ try {
     $legacyDllSentinels -icontains [string]$_.FileName
   })
   if ($legacyDllModules.Count -ne 0) { throw 'The upgraded process loaded a retained legacy DLL.' }
-  Write-Host 'PASS Upgraded application starts without loading retained invalid legacy version.dll fixtures'
+  Write-Host 'PASS Upgraded application starts after preserving and isolating invalid legacy version.dll fixtures'
   $installedAppProcessId = [int]$runningInstalledApp.Id
   $runningInstalledApp.Dispose()
   New-PendingProgramFileTransaction
