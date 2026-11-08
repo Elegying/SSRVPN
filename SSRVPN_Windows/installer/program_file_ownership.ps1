@@ -253,7 +253,9 @@ function Get-OldOwnedInventory {
     $match = @($files | Where-Object { $_.path -ieq 'ssrvpn_windows.exe' -and $_.sha256 -ceq $actual.sha256 })
     if ($match.Count -eq 1) { return $files }
   }
-  throw 'This launcher is modified or has no verified historical catalog. Existing files were preserved; install into a new empty directory or restore the official old program files before retrying.'
+  # An unrecognised legacy launcher can still be upgraded. The caller snapshots
+  # only existing paths that the new payload must replace, before clearing them.
+  return @()
 }
 
 function Assert-NoLegacyRecoveryConflict {

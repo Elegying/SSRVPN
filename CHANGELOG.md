@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- 修复 Windows 覆盖升级时部分旧版本无法识别而中止安装的问题；升级前备份需要替换的文件，失败时恢复，保留用户数据和其他文件。
+
 ## [6.0.15] - 2026-11-04
 
 - 修复 Windows 安装被遗留代理设置阻断的问题：以管理员权限停止已识别的代理工具和服务，清理当前用户及计算机级系统代理、WinHTTP、代理环境变量和旧恢复记录；安装提示明确说明对其他代理软件的影响。

@@ -284,6 +284,26 @@ try {
   }
   Pass 'MAX_PATH red: exact public 5.0.19 fails preparation with long paths disabled; old installation is intact'
   $candidate = Build-Candidate 'candidate'
+  $unknownLauncher = Join-Path $installDir 'ssrvpn_windows.exe'
+  $append = [IO.File]::Open($unknownLauncher, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::None)
+  try { $append.WriteByte(0x42) } finally { $append.Dispose() }
+  $unknownFault = Build-Candidate 'unknown-legacy-fault' -Fault
+  $before = Snapshot 'unknown-legacy-before'
+  [void](Run-Installer $unknownFault 'unknown-legacy-fault')
+  $after = Snapshot 'unknown-legacy-after'
+  Assert-Recovered 'unknown-legacy-fault' $before $after
+  Assert-UserFiles
+  Pass 'Unlisted legacy launcher survives a real pre-commit failure and recovery'
+  if ((Run-Installer $candidate 'unknown-legacy-upgrade') -ne 0) { throw 'Unlisted legacy migration failed.' }
+  Assert-Committed 'unknown-legacy-upgrade'
+  Assert-UserFiles
+  Pass 'Real installer upgrades an unlisted legacy launcher and preserves user data'
+  # Restore the historical fixture for the separate catalogued migration case.
+  Uninstall-Current 'unknown-legacy-uninstall'
+  if ((Run-Installer $official 'restore-catalogued-baseline') -ne 0) { throw 'Could not restore catalogued baseline.' }
+  foreach ($relative in @('unrelated.txt', 'personal\notes.txt', 'bin\ssrvpn\settings.json', 'bin\ssrvpn\subscriptions.json')) {
+    Write-Text (Join-Path $installDir $relative) ('sentinel-' + $relative)
+  }
   if ((Run-Installer $candidate 'legacy-to-candidate') -ne 0) { throw 'Verified v5.0.18 migration failed.' }
   Assert-Committed 'legacy-to-candidate'
   if (Test-Path -LiteralPath (Get-RecoveryRoot $installDir)) { throw 'Committed upgrade left a recovery root; cleanup must also support default Windows paths.' }

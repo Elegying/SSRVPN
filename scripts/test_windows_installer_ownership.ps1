@@ -217,6 +217,28 @@ try {
   if (Test-Path (Join-Path $c.install 'ssrvpn_windows.exe')) { throw 'Owned program survived uninstall.' }
   Pass 'Upgrade and owned uninstall preserve every unrelated/user file and remove old DLLs'
 
+  foreach ($outcome in @('commit', 'recover')) {
+    $c = New-Case "unknown-legacy-$outcome"
+    Write-FixtureFile (Join-Path $c.install 'ssrvpn_windows.exe') 'unlisted-legacy-launcher'
+    Write-FixtureFile (Join-Path $c.install 'bin\new-plugin.dll') 'existing-overlap'
+    Invoke-Case $c Begin
+    Invoke-Case $c Clear
+    Invoke-Case $c Install
+    if ($outcome -eq 'commit') {
+      Seal-Case $c
+      Invoke-Case $c Commit
+      Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'new-ssrvpn_windows.exe'
+      Assert-File (Join-Path $c.install 'bin\new-plugin.dll') 'new-bin\new-plugin.dll'
+    } else {
+      Invoke-Case $c Recover
+      Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'unlisted-legacy-launcher'
+      Assert-File (Join-Path $c.install 'bin\new-plugin.dll') 'existing-overlap'
+    }
+    Assert-File (Join-Path $c.install 'legacy\obsolete.dll') 'old-legacy\obsolete.dll'
+    Assert-UserFiles $c
+    Pass "Unlisted legacy upgrade $outcome preserves data and unrelated files"
+  }
+
   $c = New-Case 'late-file-and-metadata-rollback'
   $registryBefore = Get-CaseRegistry $c
   Invoke-Case $c Begin

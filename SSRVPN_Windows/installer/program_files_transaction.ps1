@@ -1182,11 +1182,19 @@ function Begin-ProgramFilesTransaction {
   $stageProgramRoot = Join-Path $stageRoot $script:backupProgramDirectoryName
   try {
     New-Item -ItemType Directory -Path $stageProgramRoot -Force | Out-Null
-    # Package catalogs or the protected committed manifest grant ownership.
-    # Scanning an arbitrary installation directory never grants deletion rights.
-    if ($null -ne $installItem) { [void](Get-ProgramInventory -Root $script:installDir -ExcludePreservedData) }
-    $sourceInventory = @(Get-ExistingOwnedFiles -Entries @(Get-OldOwnedInventory))
     $newInventory = @(Get-PlannedPayload)
+    $existingInventory = @()
+    if ($null -ne $installItem) { $existingInventory = @(Get-ProgramInventory -Root $script:installDir -ExcludePreservedData) }
+    $sourceInventory = @(Get-ExistingOwnedFiles -Entries @(Get-OldOwnedInventory))
+    if ($sourceInventory.Count -eq 0 -and $null -eq (Get-OwnershipValue -Name 'Manifest') -and
+        (Test-Path -LiteralPath (Join-Path $script:installDir 'ssrvpn_windows.exe') -PathType Leaf)) {
+      # Unknown legacy installations: back up only paths the verified new
+      # payload needs to replace. Unrelated files and user data stay untouched.
+      $newPaths = @{}
+      foreach ($entry in $newInventory) { $newPaths[$entry.path] = $true }
+      $sourceInventory = @($existingInventory | Where-Object { $newPaths.ContainsKey($_.path) })
+      $sourceInventory = @(Get-ExistingOwnedFiles -Entries $sourceInventory)
+    }
     Assert-NewTargetConflicts -Old $sourceInventory -New $newInventory
     [void](Get-TransactionAuthenticator -Create)
     $transactionId = [Guid]::NewGuid().ToString('N')
