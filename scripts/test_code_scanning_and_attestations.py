@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CI = ROOT / ".github" / "workflows" / "ci.yml"
 RELEASE = ROOT / ".github" / "workflows" / "release.yml"
 
-CODEQL_SHA = "988661ebb5e81487b3fb31b2185d2856c0a10679"
+CODEQL_SHA = "0911ee96d2d6c8def97122c36c5cadd93829a4b4"
 ATTEST_SHA = "1e69f48acb82d1966a394da916b4c1698aa569d6"
 
 
