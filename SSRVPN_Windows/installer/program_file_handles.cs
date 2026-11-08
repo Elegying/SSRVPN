@@ -173,6 +173,11 @@ namespace SsrvpnInstaller {
     static string RecoveryStateHash(string directory) {
       var path = Path.Combine(directory, "state.json");
       using (var handle = CreateFile(path, 0x80000000u, 1, IntPtr.Zero, 3, 0x00200000, IntPtr.Zero)) {
+        if (handle.IsInvalid) {
+          int error = Marshal.GetLastWin32Error();
+          if (error == 2 || error == 3) return "MISSING";
+          throw new Win32Exception(error, "Cannot inspect recovery state.");
+        }
         Check(handle, path, false);
         using (var input = new FileStream(handle, FileAccess.Read))
         using (var hash = SHA256.Create()) {

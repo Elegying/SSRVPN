@@ -166,7 +166,7 @@ try {
   Assert-UserFiles $c
   Pass 'Authenticated pending recovery cannot be quarantined'
 
-  foreach ($scenario in @('malformed:commit', 'malformed:recover', 'bad-hmac:commit', 'bad-hmac:recover')) {
+  foreach ($scenario in @('malformed:commit', 'malformed:recover', 'bad-hmac:commit', 'bad-hmac:recover', 'missing:commit', 'empty:recover')) {
     $damage, $outcome = $scenario.Split(':')
     $c = New-Case "unauthenticated-current-$damage-$outcome"
     if ($damage -eq 'bad-hmac') {
@@ -174,14 +174,17 @@ try {
       $state = [IO.File]::ReadAllText((Join-Path $c.recovery 'state.json')) | ConvertFrom-Json
       $state.authentication = '0' * 64
       $stateText = $state | ConvertTo-Json -Depth 8
-    } else { $stateText = '{broken-state' }
-    Write-FixtureFile (Join-Path $c.recovery 'state.json') $stateText
+    } elseif ($damage -eq 'empty') { $stateText = '' }
+    else { $stateText = '{broken-state' }
+    if ($damage -ne 'missing') { Write-FixtureFile (Join-Path $c.recovery 'state.json') $stateText }
     Write-FixtureFile (Join-Path $c.recovery 'program\personal.txt') 'pending-personal-data'
     Invoke-Case $c Recover -Failure
     Invoke-Case $c QuarantineInvalid
     $archives = @(Get-ChildItem -LiteralPath $c.root -Directory -Force | Where-Object Name -like 'q-*')
     if ($archives.Count -ne 1 -or (Test-Path -LiteralPath $c.recovery)) { throw 'Invalid recovery was not preserved separately.' }
-    Assert-File (Join-Path $archives[0].FullName 'state.json') $stateText
+    if ($damage -eq 'missing') {
+      if (Test-Path -LiteralPath (Join-Path $archives[0].FullName 'state.json')) { throw 'Missing state was fabricated.' }
+    } else { Assert-File (Join-Path $archives[0].FullName 'state.json') $stateText }
     Assert-File (Join-Path $archives[0].FullName 'program\personal.txt') 'pending-personal-data'
     Invoke-Case $c Begin
     Invoke-Case $c Clear

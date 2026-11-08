@@ -1316,7 +1316,15 @@ function Begin-ProgramFilesTransaction {
 function Preserve-UnauthenticatedRecovery {
   if (-not (Test-Path -LiteralPath $script:recoveryRoot -PathType Container)) { return 'NO_TRANSACTION' }
   $statePath = Join-Path $script:recoveryRoot $script:stateFileName
-  $text = Read-BoundedUtf8Text -Path $statePath -MaxBytes $script:maxMetadataDocumentBytes -Name 'Recovery state'
+  $stateItem = Get-PathItem -Path $statePath
+  $missingState = $null -eq $stateItem
+  $text = ''
+  if (-not $missingState) {
+    if ($stateItem.PSIsContainer -or (Test-ReparsePoint -Item $stateItem)) { throw 'Recovery state is unsafe.' }
+    if ($stateItem.Length -gt 0) {
+      $text = Read-BoundedUtf8Text -Path $statePath -MaxBytes $script:maxMetadataDocumentBytes -Name 'Recovery state'
+    }
+  }
   $state = $null
   try { $state = $text | ConvertFrom-Json -ErrorAction Stop } catch { $state = $null }
   if ($null -ne $state -and $null -ne $state.PSObject.Properties['authentication']) {
@@ -1331,9 +1339,12 @@ function Preserve-UnauthenticatedRecovery {
   }
   if (-not ('SsrvpnInstaller.ProgramFile' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'program_file_handles.cs') }
   $preserved = Join-Path ([IO.Path]::GetDirectoryName($script:recoveryRoot)) ('q-' + [Guid]::NewGuid().ToString('N'))
-  $hasher = [Security.Cryptography.SHA256]::Create()
-  try { $digest = [BitConverter]::ToString($hasher.ComputeHash($script:utf8NoBom.GetBytes($text))).Replace('-', '').ToLowerInvariant() }
-  finally { $hasher.Dispose() }
+  $digest = 'MISSING'
+  if (-not $missingState) {
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try { $digest = [BitConverter]::ToString($hasher.ComputeHash($script:utf8NoBom.GetBytes($text))).Replace('-', '').ToLowerInvariant() }
+    finally { $hasher.Dispose() }
+  }
   [SsrvpnInstaller.ProgramFile]::PreserveDirectory($script:recoveryRoot, $preserved, $digest)
   Write-Warning "Unauthenticated recovery material was retained at: $preserved"
   return 'UNAUTHENTICATED_RECOVERY_PRESERVED'
