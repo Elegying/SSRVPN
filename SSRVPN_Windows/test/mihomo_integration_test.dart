@@ -77,6 +77,15 @@ proxies:
       );
       await configFile.writeAsString(generatedConfig, flush: true);
 
+      // Match application startup using the verified bundled database, so this
+      // loopback integration test never depends on a GeoIP download.
+      final compressedGeoip = await File(
+        'assets${Platform.pathSeparator}geoip.metadb.gz',
+      ).readAsBytes();
+      await File(
+        '${tempDir.path}${Platform.pathSeparator}geoip.metadb',
+      ).writeAsBytes(gzip.decode(compressedGeoip), flush: true);
+
       final process = await Process.start(
         coreFile.absolute.path,
         ['-d', tempDir.path, '-f', configFile.path],
