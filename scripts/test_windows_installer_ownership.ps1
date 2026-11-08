@@ -166,6 +166,29 @@ try {
   Assert-UserFiles $c
   Pass 'Authenticated pending recovery cannot be quarantined'
 
+  $c = New-Case 'authenticated-damaged-backup'
+  Invoke-Case $c Begin
+  Write-FixtureFile (Join-Path $c.recovery 'program\ssrvpn_windows.exe') 'damaged-backup'
+  Invoke-Case $c Recover -Failure
+  Invoke-Case $c QuarantineInvalid -Failure
+  Assert-File (Join-Path $c.recovery 'program\ssrvpn_windows.exe') 'damaged-backup'
+  Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
+  Assert-UserFiles $c
+  Pass 'Authenticated recovery with a damaged backup is retained without bypass'
+
+  $c = New-Case 'preservation-state-changed'
+  Write-FixtureFile (Join-Path $c.recovery 'state.json') 'changed-after-check'
+  if (-not ('SsrvpnInstaller.ProgramFile' -as [type])) {
+    Add-Type -Path (Join-Path $repo 'SSRVPN_Windows\installer\program_file_handles.cs')
+  }
+  $destination = Join-Path $c.root 'q-race-test'
+  $rejected = $false
+  try { [SsrvpnInstaller.ProgramFile]::PreserveDirectory($c.recovery, $destination, ('0' * 64)) }
+  catch { $rejected = $true }
+  if (-not $rejected -or (Test-Path -LiteralPath $destination)) { throw 'Changed recovery state was relocated.' }
+  Assert-File (Join-Path $c.recovery 'state.json') 'changed-after-check'
+  Pass 'Changed recovery state stops preservation before directory move'
+
   foreach ($scenario in @('malformed:commit', 'malformed:recover', 'bad-hmac:commit', 'bad-hmac:recover', 'missing:commit', 'empty:recover', 'binary:commit')) {
     $damage, $outcome = $scenario.Split(':')
     $c = New-Case "unauthenticated-current-$damage-$outcome"
