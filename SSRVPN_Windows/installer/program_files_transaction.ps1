@@ -1036,9 +1036,22 @@ function Read-ExpectedPayloadManifest {
 
 function Test-InstalledPayload {
   # Every package member must verify. Files outside that trusted inventory
-  # belong to the user and must neither fail a count check nor be deleted.
-  $opened = Open-OwnedFiles -Root $script:installDir -Entries @(Read-TransactionPayload)
+  # remain untouched; late DLLs beside an executable must also block launch.
+  $payload = @(Read-TransactionPayload)
+  $opened = Open-OwnedFiles -Root $script:installDir -Entries $payload
   foreach ($item in $opened) { $item.handle.Dispose() }
+  $allowed = @{}
+  foreach ($entry in $payload) { $allowed[$entry.path] = $true }
+  foreach ($relativeDirectory in @('', 'bin')) {
+    $directory = if ($relativeDirectory) { Join-Path $script:installDir $relativeDirectory } else { $script:installDir }
+    $directoryItem = Get-PathItem -Path $directory
+    if ($null -eq $directoryItem) { continue }
+    if (-not $directoryItem.PSIsContainer -or (Test-ReparsePoint -Item $directoryItem)) { throw 'Executable directory is unsafe.' }
+    foreach ($item in @(Get-ChildItem -LiteralPath $directory -Filter '*.dll' -File -Force)) {
+      $relative = if ($relativeDirectory) { Join-Path $relativeDirectory $item.Name } else { $item.Name }
+      if (-not $allowed.ContainsKey($relative)) { throw "A new unowned DLL appeared during installation; it was preserved: $relative" }
+    }
+  }
   return $true
 }
 

@@ -461,6 +461,21 @@ try {
   Assert-File (Join-Path $c.install 'bin\new-plugin.dll') 'late-foreign-file'
   Pass 'Exclusive package copy and recovery preserve a late conflicting file'
 
+  foreach ($stage in @('install', 'commit')) {
+    $c = New-Case "late-dll-$stage"
+    Invoke-Case $c Begin
+    Invoke-Case $c Clear
+    if ($stage -eq 'commit') { Invoke-Case $c Install; Seal-Case $c }
+    Write-FixtureFile (Join-Path $c.install 'bin\late.dll') 'late-user-dll'
+    if ($stage -eq 'commit') { Invoke-Case $c Commit -Failure }
+    else { Invoke-Case $c Install -Failure }
+    Invoke-Case $c Recover
+    Assert-File (Join-Path $c.install 'bin\late.dll') 'late-user-dll'
+    Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
+    Assert-UserFiles $c
+    Pass "Late unowned DLL blocks $stage and survives rollback"
+  }
+
   $c = New-Case 'locked-owned-file'
   Invoke-Case $c Begin
   $lock = [IO.File]::Open((Join-Path $c.install 'bin\app.dll'), [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
