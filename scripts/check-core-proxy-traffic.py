@@ -3,7 +3,7 @@
 
 import argparse
 import errno
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 import http.client
 import gzip
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -14,6 +14,7 @@ import select
 import socket
 import socketserver
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -127,6 +128,28 @@ def require_custom_version(api):
         raise AssertionError(f'Expected SSRVPN custom core version, got {version!r}')
 
 
+@contextmanager
+def report_core_failure(path):
+    try:
+        yield
+    except BaseException:
+        # ExitStack stops the core first and removes the temporary folder last.
+        # This isolated fixture contains only synthetic loopback traffic.
+        try:
+            with path.open('rb') as source:
+                source.seek(0, 2)
+                size = source.tell()
+                source.seek(max(0, size - 65536))
+                tail = source.read(65536).decode('utf-8', errors='replace')
+            print('core.log (last 65536 bytes):', file=sys.stderr)
+            for line in tail.splitlines():
+                print('core.log | ' + line, file=sys.stderr)
+        except (OSError, ValueError):
+            # Diagnostics must not replace the original test failure.
+            pass
+        raise
+
+
 def run(core):
     with ExitStack() as stack:
         folder = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix='ssrvpn-traffic-check-')))
@@ -159,6 +182,7 @@ rules:
   - MATCH,DIRECT
 ''')
         log = stack.enter_context((folder / 'core.log').open('w+'))
+        stack.enter_context(report_core_failure(folder / 'core.log'))
         process = subprocess.Popen([str(core), '-d', str(folder), '-f', str(config)], stdout=log, stderr=log)
         def stop():
             process.terminate()
@@ -216,3 +240,4 @@ if __name__ == '__main__':
             run(executable)
     else:
         run(core)
+

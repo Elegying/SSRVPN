@@ -14,6 +14,7 @@ python3 -m unittest \
   scripts/test_optimize_android_apk.py \
   scripts/test_android_core_source.py \
   scripts/test_core_traffic_source.py \
+  scripts/test_core_proxy_traffic_diagnostics.py \
   scripts/test_protocol_udp_diagnostics.py \
   scripts/test_core_contract_runner.py \
   scripts/test_verify_android_core_elf.py \
