@@ -189,6 +189,31 @@ try {
   Assert-File (Join-Path $c.recovery 'state.json') 'changed-after-check'
   Pass 'Changed recovery state stops preservation before directory move'
 
+  $c = New-Case 'damaged-transaction-key'
+  Invoke-Case $c Begin
+  $hasher = [Security.Cryptography.SHA256]::Create()
+  try { $identity = [BitConverter]::ToString($hasher.ComputeHash($utf8.GetBytes($c.install.ToLowerInvariant()))).Replace('-', '').ToLowerInvariant() }
+  finally { $hasher.Dispose() }
+  $key = $registry.OpenSubKey("Software\SSRVPN\InstallerOwnership\$identity", $true)
+  try { $key.SetValue('TransactionKey', [byte[]]@(1, 2, 3), [Microsoft.Win32.RegistryValueKind]::Binary) }
+  finally { $key.Dispose() }
+  Invoke-Case $c Recover -Failure
+  Invoke-Case $c QuarantineInvalid
+  Invoke-Case $c Begin
+  $key = $registry.OpenSubKey("Software\SSRVPN\InstallerOwnership\$identity", $false)
+  try {
+    $history = @($key.GetValueNames() | Where-Object { $_ -like 'InvalidTransactionKey-*' })
+    if ($history.Count -ne 1 -or $key.GetValueKind($history[0]) -ne [Microsoft.Win32.RegistryValueKind]::Binary -or
+        ([BitConverter]::ToString([byte[]]$key.GetValue($history[0]))) -cne '01-02-03' -or
+        ([byte[]]$key.GetValue('TransactionKey')).Length -ne 32) { throw 'Damaged transaction key was not preserved before replacement.' }
+  } finally { $key.Dispose() }
+  Invoke-Case $c Clear
+  Invoke-Case $c Install
+  Invoke-Case $c Recover
+  Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
+  Assert-UserFiles $c
+  Pass 'Damaged transaction key is retained before a new recoverable transaction'
+
   foreach ($scenario in @('malformed:commit', 'malformed:recover', 'bad-hmac:commit', 'bad-hmac:recover', 'missing:commit', 'empty:recover', 'binary:commit')) {
     $damage, $outcome = $scenario.Split(':')
     $c = New-Case "unauthenticated-current-$damage-$outcome"

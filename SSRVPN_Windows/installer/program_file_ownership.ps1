@@ -161,7 +161,30 @@ function Assert-RecoveryRegistrationOwner {
 function Get-TransactionAuthenticator {
   param([switch]$Create)
   $key = Get-OwnershipValue -Name 'TransactionKey'
-  if ($null -eq $key -and $Create) {
+  if ($Create -and ($null -eq $key -or $key -isnot [byte[]] -or $key.Length -ne 32)) {
+    if ($null -ne $key) {
+      # Keep the exact original value and registry type inside the same
+      # protected key before replacing an unusable transaction key.
+      $registryKey = Get-OwnershipRegistryKey -Create
+      try {
+        $kind = $registryKey.GetValueKind('TransactionKey')
+        $original = $registryKey.GetValue('TransactionKey', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        $historyName = 'InvalidTransactionKey-' + [Guid]::NewGuid().ToString('N')
+        if (@($registryKey.GetValueNames()) -contains $historyName) { throw 'Transaction key archive name already exists.' }
+        $registryKey.SetValue($historyName, $original, $kind)
+        $registryKey.Flush()
+        $saved = $registryKey.GetValue($historyName, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        if ($registryKey.GetValueKind($historyName) -ne $kind -or
+            (ConvertTo-Json -InputObject $saved -Compress -Depth 4) -cne (ConvertTo-Json -InputObject $original -Compress -Depth 4)) {
+          throw 'Invalid transaction key could not be preserved.'
+        }
+        $current = $registryKey.GetValue('TransactionKey', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        if ($registryKey.GetValueKind('TransactionKey') -ne $kind -or
+            (ConvertTo-Json -InputObject $current -Compress -Depth 4) -cne (ConvertTo-Json -InputObject $original -Compress -Depth 4)) {
+          throw 'Transaction key changed while it was being preserved.'
+        }
+      } finally { $registryKey.Dispose() }
+    }
     $key = New-Object byte[] 32
     $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
     try { $rng.GetBytes($key) } finally { $rng.Dispose() }
