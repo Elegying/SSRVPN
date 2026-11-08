@@ -41,7 +41,7 @@ function Get-FixtureEntry([string]$Root, [string]$Relative) {
 function New-Case([string]$Name, [switch]$Fresh) {
   $root = Join-Path $suite $Name
   $case = @{
-    name = $Name; root = $root; install = (Join-Path $root 'installed'); recovery = (Join-Path $root 'recovery')
+    name = $Name; root = $root; install = (Join-Path $root 'installed'); recovery = (Join-Path $root 'recovery'); legacyRecovery = (Join-Path $root 'legacy-recovery')
     payload = (Join-Path $root 'payload'); expected = (Join-Path $root 'expected.sha256'); catalog = (Join-Path $root 'catalog.json')
     desktop = (Join-Path $root 'desktop\SSRVPN.lnk'); menu = (Join-Path $root 'menu\SSRVPN.lnk')
     subkey = ('Software\Microsoft\Windows\CurrentVersion\Uninstall\SSRVPN-Test-' + [Guid]::NewGuid().ToString('N'))
@@ -125,7 +125,8 @@ function Invoke-Case($Case, [string]$Action, [switch]$Failure, [switch]$Legacy, 
     '-ExpectedPayloadManifestPath', ('"' + $Case.expected + '"'))
   if (-not $Legacy) {
     $args += @('-UninstallRegistryRoot', $Scope, '-UninstallRegistryView', $View, '-LegacyCatalogPath', ('"' + $Case.catalog + '"'),
-      '-PayloadSourceRoot', ('"' + $Case.payload + '"'), '-UninstallMetadataRelativePath', $Case.metadata)
+      '-PayloadSourceRoot', ('"' + $Case.payload + '"'), '-UninstallMetadataRelativePath', $Case.metadata,
+      '-LegacyRecoveryRoot', ('"' + $Case.legacyRecovery + '"'))
   }
   $process = Start-Process powershell.exe -WindowStyle Hidden -PassThru -Wait -ArgumentList $args `
     -RedirectStandardOutput "$prefix.out.log" -RedirectStandardError "$prefix.err.log"
@@ -157,6 +158,151 @@ function Pass([string]$Name) { [void]$results.Add([ordered]@{ case = $Name; resu
 
 try {
   . (Join-Path $PSScriptRoot 'test_windows_installer_copy_interruption.ps1')
+
+  $c = New-Case 'authenticated-recovery-not-quarantined'
+  Invoke-Case $c Begin
+  Invoke-Case $c QuarantineInvalid -Failure
+  Invoke-Case $c Recover
+  Assert-UserFiles $c
+  Pass 'Authenticated pending recovery cannot be quarantined'
+
+  $c = New-Case 'authenticated-damaged-backup'
+  Invoke-Case $c Begin
+  Write-FixtureFile (Join-Path $c.recovery 'program\ssrvpn_windows.exe') 'damaged-backup'
+  Invoke-Case $c Recover -Failure
+  Invoke-Case $c QuarantineInvalid -Failure
+  Assert-File (Join-Path $c.recovery 'program\ssrvpn_windows.exe') 'damaged-backup'
+  Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
+  Assert-UserFiles $c
+  Pass 'Authenticated recovery with a damaged backup is retained without bypass'
+
+  $c = New-Case 'preservation-state-changed'
+  Write-FixtureFile (Join-Path $c.recovery 'state.json') 'changed-after-check'
+  if (-not ('SsrvpnInstaller.ProgramFile' -as [type])) {
+    Add-Type -Path (Join-Path $repo 'SSRVPN_Windows\installer\program_file_handles.cs')
+  }
+  $destination = Join-Path $c.root 'q-race-test'
+  $rejected = $false
+  try { [SsrvpnInstaller.ProgramFile]::PreserveDirectory($c.recovery, $destination, ('0' * 64)) }
+  catch { $rejected = $true }
+  if (-not $rejected -or (Test-Path -LiteralPath $destination)) { throw 'Changed recovery state was relocated.' }
+  Assert-File (Join-Path $c.recovery 'state.json') 'changed-after-check'
+  Pass 'Changed recovery state stops preservation before directory move'
+
+  $c = New-Case 'damaged-transaction-key'
+  Invoke-Case $c Begin
+  $hasher = [Security.Cryptography.SHA256]::Create()
+  try { $identity = [BitConverter]::ToString($hasher.ComputeHash($utf8.GetBytes($c.install.ToLowerInvariant()))).Replace('-', '').ToLowerInvariant() }
+  finally { $hasher.Dispose() }
+  $key = $registry.OpenSubKey("Software\SSRVPN\InstallerOwnership\$identity", $true)
+  try { $key.SetValue('TransactionKey', [byte[]]@(1, 2, 3), [Microsoft.Win32.RegistryValueKind]::Binary) }
+  finally { $key.Dispose() }
+  Invoke-Case $c Recover -Failure
+  Invoke-Case $c QuarantineInvalid
+  Invoke-Case $c Begin
+  $key = $registry.OpenSubKey("Software\SSRVPN\InstallerOwnership\$identity", $false)
+  try {
+    $history = @($key.GetValueNames() | Where-Object { $_ -like 'InvalidTransactionKey-*' })
+    if ($history.Count -ne 1 -or $key.GetValueKind($history[0]) -ne [Microsoft.Win32.RegistryValueKind]::Binary -or
+        ([BitConverter]::ToString([byte[]]$key.GetValue($history[0]))) -cne '01-02-03' -or
+        ([byte[]]$key.GetValue('TransactionKey')).Length -ne 32) { throw 'Damaged transaction key was not preserved before replacement.' }
+  } finally { $key.Dispose() }
+  Invoke-Case $c Clear
+  Invoke-Case $c Install
+  Invoke-Case $c Recover
+  Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
+  Assert-UserFiles $c
+  Pass 'Damaged transaction key is retained before a new recoverable transaction'
+
+  foreach ($scenario in @('malformed:commit', 'malformed:recover', 'bad-hmac:commit', 'bad-hmac:recover', 'missing:commit', 'empty:recover', 'binary:commit')) {
+    $damage, $outcome = $scenario.Split(':')
+    $c = New-Case "unauthenticated-current-$damage-$outcome"
+    if ($damage -eq 'bad-hmac') {
+      Invoke-Case $c Begin
+      $state = [IO.File]::ReadAllText((Join-Path $c.recovery 'state.json')) | ConvertFrom-Json
+      $state.authentication = '0' * 64
+      $stateText = $state | ConvertTo-Json -Depth 8
+    } elseif ($damage -eq 'empty') { $stateText = '' }
+    else { $stateText = '{broken-state' }
+    if ($damage -eq 'binary') {
+      [void][IO.Directory]::CreateDirectory($c.recovery)
+      [IO.File]::WriteAllBytes((Join-Path $c.recovery 'state.json'), [byte[]]@(255, 254, 128))
+      $binaryHash = (Get-FileHash -LiteralPath (Join-Path $c.recovery 'state.json')).Hash
+    } elseif ($damage -ne 'missing') { Write-FixtureFile (Join-Path $c.recovery 'state.json') $stateText }
+    Write-FixtureFile (Join-Path $c.recovery 'program\personal.txt') 'pending-personal-data'
+    Invoke-Case $c Recover -Failure
+    Invoke-Case $c QuarantineInvalid
+    $archives = @(Get-ChildItem -LiteralPath $c.root -Directory -Force | Where-Object Name -like 'q-*')
+    if ($archives.Count -ne 1 -or (Test-Path -LiteralPath $c.recovery)) { throw 'Invalid recovery was not preserved separately.' }
+    if ($damage -eq 'missing') {
+      if (Test-Path -LiteralPath (Join-Path $archives[0].FullName 'state.json')) { throw 'Missing state was fabricated.' }
+    } elseif ($damage -eq 'binary') {
+      if ((Get-FileHash -LiteralPath (Join-Path $archives[0].FullName 'state.json')).Hash -cne $binaryHash) { throw 'Binary recovery state changed.' }
+    } else { Assert-File (Join-Path $archives[0].FullName 'state.json') $stateText }
+    Assert-File (Join-Path $archives[0].FullName 'program\personal.txt') 'pending-personal-data'
+    Invoke-Case $c Begin
+    Invoke-Case $c Clear
+    Invoke-Case $c Install
+    if ($outcome -eq 'commit') { Seal-Case $c; Invoke-Case $c Commit }
+    else { Invoke-Case $c Recover; Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'old-ssrvpn_windows.exe' }
+    Assert-UserFiles $c
+    Assert-File (Join-Path $archives[0].FullName 'program\personal.txt') 'pending-personal-data'
+    Pass "Unauthenticated $damage recovery retained through upgrade $outcome"
+  }
+
+  foreach ($legacyScenario in @('same-directory:commit', 'same-directory:recover', 'malformed:commit', 'malformed:recover', 'missing-state:commit', 'missing-state:recover', 'empty-path:commit', 'relative-path:recover')) {
+    $legacyCase, $outcome = $legacyScenario.Split(':')
+    $c = New-Case "legacy-preservation-$legacyCase-$outcome"
+    Write-FixtureFile (Join-Path $c.legacyRecovery 'program\personal.txt') 'legacy-recovery-data'
+    if ($legacyCase -eq 'same-directory') {
+      Write-FixtureFile (Join-Path $c.legacyRecovery 'state.json') (
+        [ordered]@{ schemaVersion = 2; installDir = $c.install } | ConvertTo-Json -Compress)
+    } elseif ($legacyCase -eq 'malformed') {
+      Write-FixtureFile (Join-Path $c.legacyRecovery 'state.json') '{broken'
+    } elseif ($legacyCase -eq 'empty-path' -or $legacyCase -eq 'relative-path') {
+      $invalidInstall = if ($legacyCase -eq 'empty-path') { '' } else { 'relative\installation' }
+      Write-FixtureFile (Join-Path $c.legacyRecovery 'state.json') (
+        [ordered]@{ schemaVersion = 2; installDir = $invalidInstall } | ConvertTo-Json -Compress)
+    }
+    Invoke-Case $c Begin
+    $archives = @(Get-ChildItem -LiteralPath $c.root -Directory -Force | Where-Object Name -like 'l-*')
+    if ($archives.Count -ne 1) { throw 'Legacy recovery tree was not independently preserved.' }
+    Assert-File (Join-Path $archives[0].FullName 'program\personal.txt') 'legacy-recovery-data'
+    Assert-File (Join-Path $c.legacyRecovery 'program\personal.txt') 'legacy-recovery-data'
+    Invoke-Case $c Clear
+    Invoke-Case $c Install
+    if ($outcome -eq 'commit') {
+      Seal-Case $c
+      Invoke-Case $c Commit
+      Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'new-ssrvpn_windows.exe'
+    } else {
+      Invoke-Case $c Recover
+      Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
+    }
+    Assert-UserFiles $c
+    Assert-File (Join-Path $archives[0].FullName 'program\personal.txt') 'legacy-recovery-data'
+    if ($legacyCase -eq 'same-directory' -and $outcome -eq 'commit') {
+      $c.metadata = 'installer-state\' + [Guid]::NewGuid().ToString('N')
+      Invoke-Case $c Begin
+      $reused = @(Get-ChildItem -LiteralPath $c.root -Directory -Force | Where-Object Name -like 'l-*')
+      if ($reused.Count -ne 1 -or $reused[0].FullName -cne $archives[0].FullName) { throw 'Identical legacy archive was unnecessarily duplicated.' }
+      Invoke-Case $c Recover
+      Assert-File (Join-Path $archives[0].FullName 'program\personal.txt') 'legacy-recovery-data'
+    }
+    Pass "Legacy $legacyCase recovery materials preserved through upgrade $outcome"
+  }
+
+  $c = New-Case 'legacy-other-installation'
+  Write-FixtureFile (Join-Path $c.legacyRecovery 'state.json') (
+    [ordered]@{ schemaVersion = 2; installDir = (Join-Path $c.root 'another-installation') } | ConvertTo-Json -Compress)
+  Write-FixtureFile (Join-Path $c.legacyRecovery 'program\personal.txt') 'other-installation-data'
+  Invoke-Case $c Begin
+  Invoke-Case $c Clear
+  Invoke-Case $c Install
+  Invoke-Case $c Recover
+  Assert-File (Join-Path $c.legacyRecovery 'program\personal.txt') 'other-installation-data'
+  Assert-UserFiles $c
+  Pass 'Another installation legacy recovery remains untouched'
 
   $c = New-Case 'bootstrap-dependency-failure'
   $brokenHelper = Join-Path $c.root 'isolated\program_files_transaction.ps1'
@@ -217,6 +363,53 @@ try {
   if (Test-Path (Join-Path $c.install 'ssrvpn_windows.exe')) { throw 'Owned program survived uninstall.' }
   Pass 'Upgrade and owned uninstall preserve every unrelated/user file and remove old DLLs'
 
+  foreach ($outcome in @('commit', 'recover')) {
+    $c = New-Case "unknown-legacy-$outcome"
+    Write-FixtureFile (Join-Path $c.install 'ssrvpn_windows.exe') 'unlisted-legacy-launcher'
+    Write-FixtureFile (Join-Path $c.install 'bin\new-plugin.dll') 'existing-overlap'
+    Invoke-Case $c Begin
+    Invoke-Case $c Clear
+    Invoke-Case $c Install
+    if ($outcome -eq 'commit') {
+      Seal-Case $c
+      Invoke-Case $c Commit
+      Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'new-ssrvpn_windows.exe'
+      Assert-File (Join-Path $c.install 'bin\new-plugin.dll') 'new-bin\new-plugin.dll'
+    } else {
+      Invoke-Case $c Recover
+      Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'unlisted-legacy-launcher'
+      Assert-File (Join-Path $c.install 'bin\new-plugin.dll') 'existing-overlap'
+    }
+    Assert-File (Join-Path $c.install 'legacy\obsolete.dll') 'old-legacy\obsolete.dll'
+    $archives = @(Get-ChildItem -LiteralPath $c.root -Directory -Force | Where-Object Name -like 'p-*')
+    if ($archives.Count -ne 1) { throw 'Unverified overlapping files were not retained separately.' }
+    Assert-File (Join-Path $archives[0].FullName 'ssrvpn_windows.exe') 'unlisted-legacy-launcher'
+    Assert-File (Join-Path $archives[0].FullName 'bin\new-plugin.dll') 'existing-overlap'
+    Assert-UserFiles $c
+    Pass "Unlisted legacy upgrade $outcome preserves data and unrelated files"
+  }
+
+  foreach ($outcome in @('commit', 'recover')) {
+    $c = New-Case "legacy-dll-$outcome"
+    foreach ($relative in @('version.dll', 'bin\version.dll')) {
+      Write-FixtureFile (Join-Path $c.install $relative) ('stale-' + $relative)
+    }
+    Invoke-Case $c Begin
+    Invoke-Case $c Clear
+    Invoke-Case $c Install
+    if ($outcome -eq 'commit') { Seal-Case $c; Invoke-Case $c Commit }
+    else { Invoke-Case $c Recover }
+    $archives = @(Get-ChildItem -LiteralPath $c.root -Directory -Force | Where-Object Name -like 'p-*')
+    if ($archives.Count -ne 1) { throw 'Legacy DLL archive was not retained.' }
+    foreach ($relative in @('version.dll', 'bin\version.dll')) {
+      Assert-File (Join-Path $archives[0].FullName $relative) ('stale-' + $relative)
+      if ($outcome -eq 'commit' -and (Test-Path -LiteralPath (Join-Path $c.install $relative))) { throw 'Unowned legacy DLL remained in an executable directory.' }
+      if ($outcome -eq 'recover') { Assert-File (Join-Path $c.install $relative) ('stale-' + $relative) }
+    }
+    Assert-UserFiles $c
+    Pass "Unverified executable-directory DLLs preserved through $outcome"
+  }
+
   $c = New-Case 'late-file-and-metadata-rollback'
   $registryBefore = Get-CaseRegistry $c
   Invoke-Case $c Begin
@@ -272,10 +465,16 @@ try {
 
   $c = New-Case 'new-target-conflict'
   Write-FixtureFile (Join-Path $c.install 'bin\new-plugin.dll') 'third-party'
-  Invoke-Case $c Begin -Failure
-  Assert-File (Join-Path $c.install 'bin\new-plugin.dll') 'third-party'
-  Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
-  Pass 'Unowned target conflict is rejected before clearing old files'
+  Invoke-Case $c Begin
+  Invoke-Case $c Clear
+  Invoke-Case $c Install
+  Seal-Case $c
+  Invoke-Case $c Commit
+  $archives = @(Get-ChildItem -LiteralPath $c.root -Directory -Force | Where-Object Name -like 'p-*')
+  if ($archives.Count -ne 1) { throw 'Conflicting file archive was not retained.' }
+  Assert-File (Join-Path $archives[0].FullName 'bin\new-plugin.dll') 'third-party'
+  Assert-UserFiles $c
+  Pass 'Unowned target is preserved separately during successful upgrade'
 
   $c = New-Case 'old-file-modified-after-begin'
   Invoke-Case $c Begin
@@ -294,6 +493,21 @@ try {
   Invoke-Case $c Recover -Failure
   Assert-File (Join-Path $c.install 'bin\new-plugin.dll') 'late-foreign-file'
   Pass 'Exclusive package copy and recovery preserve a late conflicting file'
+
+  foreach ($stage in @('install', 'commit')) {
+    $c = New-Case "late-dll-$stage"
+    Invoke-Case $c Begin
+    Invoke-Case $c Clear
+    if ($stage -eq 'commit') { Invoke-Case $c Install; Seal-Case $c }
+    Write-FixtureFile (Join-Path $c.install 'bin\late.dll') 'late-user-dll'
+    if ($stage -eq 'commit') { Invoke-Case $c Commit -Failure }
+    else { Invoke-Case $c Install -Failure }
+    Invoke-Case $c Recover
+    Assert-File (Join-Path $c.install 'bin\late.dll') 'late-user-dll'
+    Assert-File (Join-Path $c.install 'ssrvpn_windows.exe') 'old-ssrvpn_windows.exe'
+    Assert-UserFiles $c
+    Pass "Late unowned DLL blocks $stage and survives rollback"
+  }
 
   $c = New-Case 'locked-owned-file'
   Invoke-Case $c Begin
@@ -426,9 +640,14 @@ try {
   $deep = Join-Path $c.install 'deep'
   for ($depth = 0; $depth -lt 65; $depth++) { $deep = Join-Path $deep 'd' }
   Write-FixtureFile (Join-Path $deep 'x') 'bounded'
-  Invoke-Case $c Begin -Failure
+  Invoke-Case $c Begin
+  Invoke-Case $c Clear
+  Invoke-Case $c Install
+  Seal-Case $c
+  Invoke-Case $c Commit
   Assert-UserFiles $c
-  Pass 'Oversized source depth is rejected before any old file is removed'
+  Assert-File (Join-Path $deep 'x') 'bounded'
+  Pass 'Unrelated deep directory does not block installation and remains intact'
 
   $c = New-Case 'oversized-state'
   Invoke-Case $c Begin
@@ -663,10 +882,26 @@ try {
   $foreign = Join-Path $c.root 'foreign'
   Write-FixtureFile (Join-Path $foreign 'keep.txt') 'unrelated-junction-target'
   New-Item -ItemType Junction -Path (Join-Path $c.install 'linked') -Target $foreign | Out-Null
-  Invoke-Case $c Begin -Failure
+  Invoke-Case $c Begin
+  Invoke-Case $c Clear
+  Invoke-Case $c Install
+  Seal-Case $c
+  Invoke-Case $c Commit
   Assert-File (Join-Path $foreign 'keep.txt') 'unrelated-junction-target'
   Assert-UserFiles $c
-  Pass 'Source junctions stop preparation and never touch their external target'
+  Pass 'Unrelated junctions do not block installation or alter their external target'
+
+  $c = New-Case 'target-junction'
+  $foreign = Join-Path $c.root 'foreign'
+  Write-FixtureFile (Join-Path $foreign 'new.dll') 'external-target'
+  New-Item -ItemType Junction -Path (Join-Path $c.install 'linked') -Target $foreign | Out-Null
+  Write-FixtureFile (Join-Path $c.payload 'linked\new.dll') 'new-target'
+  $entry = Get-FixtureEntry $c.payload 'linked\new.dll'
+  [IO.File]::AppendAllText($c.expected, "$($entry.sha256)  linked\new.dll`n", $utf8)
+  Invoke-Case $c Begin -Failure
+  Assert-File (Join-Path $foreign 'new.dll') 'external-target'
+  Assert-UserFiles $c
+  Pass 'A target junction is rejected without touching the external file'
 
   $c = New-Case 'recovery-parent-junction'
   $foreign = Join-Path $c.root 'foreign'

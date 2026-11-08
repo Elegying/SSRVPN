@@ -284,6 +284,55 @@ try {
   }
   Pass 'MAX_PATH red: exact public 5.0.19 fails preparation with long paths disabled; old installation is intact'
   $candidate = Build-Candidate 'candidate'
+  $legacyRecoveryFixture = Join-Path $env:LOCALAPPDATA 'SSRVPN\installer-recovery'
+  if (Test-Path -LiteralPath $legacyRecoveryFixture) { throw 'Legacy recovery test root already exists.' }
+  Write-Text (Join-Path $legacyRecoveryFixture 'state.json') '{unparseable'
+  Write-Text (Join-Path $legacyRecoveryFixture 'program\personal.txt') 'legacy-personal-sentinel'
+  $invalidCurrentRecovery = Get-RecoveryRoot $installDir
+  if (Test-Path -LiteralPath $invalidCurrentRecovery) { throw 'Current recovery fixture root already exists.' }
+  Write-Text (Join-Path $invalidCurrentRecovery 'state.json') '{invalid-current-state'
+  Write-Text (Join-Path $invalidCurrentRecovery 'program\personal.txt') 'current-personal-sentinel'
+  $legacyArchiveParent = [IO.Path]::GetDirectoryName((Get-RecoveryRoot $installDir))
+  $legacyArchivesBefore = @()
+  $currentArchivesBefore = @()
+  if (Test-Path -LiteralPath $legacyArchiveParent) {
+    $legacyArchivesBefore = @(Get-ChildItem -LiteralPath $legacyArchiveParent -Directory -Force | Where-Object Name -like 'l-*' | ForEach-Object FullName)
+    $currentArchivesBefore = @(Get-ChildItem -LiteralPath $legacyArchiveParent -Directory -Force | Where-Object Name -like 'q-*' | ForEach-Object FullName)
+  }
+  $unknownLauncher = Join-Path $installDir 'ssrvpn_windows.exe'
+  $append = [IO.File]::Open($unknownLauncher, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::None)
+  try { $append.WriteByte(0x42) } finally { $append.Dispose() }
+  $unknownFault = Build-Candidate 'unknown-legacy-fault' -Fault
+  $before = Snapshot 'unknown-legacy-before'
+  [void](Run-Installer $unknownFault 'unknown-legacy-fault')
+  $after = Snapshot 'unknown-legacy-after'
+  Assert-Recovered 'unknown-legacy-fault' $before $after
+  Assert-UserFiles
+  $legacyArchives = @(Get-ChildItem -LiteralPath $legacyArchiveParent -Directory -Force | Where-Object { $_.Name -like 'l-*' -and $legacyArchivesBefore -notcontains $_.FullName })
+  $currentArchives = @(Get-ChildItem -LiteralPath $legacyArchiveParent -Directory -Force | Where-Object { $_.Name -like 'q-*' -and $currentArchivesBefore -notcontains $_.FullName })
+  if ($currentArchives.Count -ne 1 -or [IO.File]::ReadAllText((Join-Path $currentArchives[0].FullName 'program\personal.txt')) -cne 'current-personal-sentinel') {
+    throw 'Unauthenticated current recovery material was not preserved.'
+  }
+  if ($legacyArchives.Count -ne 1 -or [IO.File]::ReadAllText((Join-Path $legacyArchives[0].FullName 'program\personal.txt')) -cne 'legacy-personal-sentinel' -or
+      [IO.File]::ReadAllText((Join-Path $legacyRecoveryFixture 'program\personal.txt')) -cne 'legacy-personal-sentinel') {
+    throw 'Unauthenticated legacy recovery materials were not preserved through rollback.'
+  }
+  Pass 'Unlisted legacy launcher survives a real pre-commit failure and recovery'
+  if ((Run-Installer $candidate 'unknown-legacy-upgrade') -ne 0) { throw 'Unlisted legacy migration failed.' }
+  Assert-Committed 'unknown-legacy-upgrade'
+  Assert-UserFiles
+  if ([IO.File]::ReadAllText((Join-Path $legacyRecoveryFixture 'program\personal.txt')) -cne 'legacy-personal-sentinel' -or
+      [IO.File]::ReadAllText((Join-Path $legacyArchives[0].FullName 'program\personal.txt')) -cne 'legacy-personal-sentinel') {
+    throw 'Legacy recovery materials did not survive successful upgrade.'
+  }
+  Pass 'Real installer upgrades an unlisted legacy launcher and preserves user data'
+  Remove-Item -LiteralPath $legacyRecoveryFixture -Recurse -Force
+  # Restore the historical fixture for the separate catalogued migration case.
+  Uninstall-Current 'unknown-legacy-uninstall'
+  if ((Run-Installer $official 'restore-catalogued-baseline') -ne 0) { throw 'Could not restore catalogued baseline.' }
+  foreach ($relative in @('unrelated.txt', 'personal\notes.txt', 'bin\ssrvpn\settings.json', 'bin\ssrvpn\subscriptions.json')) {
+    Write-Text (Join-Path $installDir $relative) ('sentinel-' + $relative)
+  }
   if ((Run-Installer $candidate 'legacy-to-candidate') -ne 0) { throw 'Verified v5.0.18 migration failed.' }
   Assert-Committed 'legacy-to-candidate'
   if (Test-Path -LiteralPath (Get-RecoveryRoot $installDir)) { throw 'Committed upgrade left a recovery root; cleanup must also support default Windows paths.' }
@@ -300,17 +349,19 @@ try {
   Pass 'Normal owned upgrade preserves every user sentinel'
 
   $modifiedPath = Join-Path $installDir 'bin\flutter_windows.dll'
-  $originalBytes = [IO.File]::ReadAllBytes($modifiedPath)
   $append = [IO.File]::Open($modifiedPath, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::None)
   try { $append.WriteByte(0x42) } finally { $append.Dispose() }
-  $before = Snapshot 'third-party-modified-before'
-  if ((Run-Installer $candidate 'third-party-modified-upgrade') -eq 0) { throw 'A modified owned DLL was accepted.' }
-  $after = Snapshot 'third-party-modified-after'
-  foreach ($part in @('files', 'registry', 'shortcuts')) {
-    if (($before[$part] | ConvertTo-Json -Depth 5 -Compress) -cne ($after[$part] | ConvertTo-Json -Depth 5 -Compress)) { throw 'Rejected modification changed installation state.' }
+  $modifiedHash = (Get-FileHash -LiteralPath $modifiedPath).Hash
+  $archiveParent = [IO.Path]::GetDirectoryName((Get-RecoveryRoot $installDir))
+  $archivesBefore = @(Get-ChildItem -LiteralPath $archiveParent -Directory -Force | Where-Object Name -like 'p-*' | ForEach-Object FullName)
+  if ((Run-Installer $candidate 'third-party-modified-upgrade') -ne 0) { throw 'Modified DLL upgrade failed.' }
+  Assert-Committed 'third-party-modified-upgrade'
+  $archives = @(Get-ChildItem -LiteralPath $archiveParent -Directory -Force | Where-Object { $_.Name -like 'p-*' -and $archivesBefore -notcontains $_.FullName })
+  if ($archives.Count -ne 1 -or (Get-FileHash -LiteralPath (Join-Path $archives[0].FullName 'bin\flutter_windows.dll')).Hash -cne $modifiedHash) {
+    throw 'Modified DLL was not retained in the preserved archive.'
   }
-  [IO.File]::WriteAllBytes($modifiedPath, $originalBytes)
-  Pass 'Real installer rejects a third-party modified DLL before any program or metadata changes'
+  Assert-UserFiles
+  Pass 'Real installer preserves a modified DLL separately and completes the upgrade'
 
   foreach ($bootstrapFault in @('dependency', 'parse')) {
     $name = 'bootstrap-' + $bootstrapFault

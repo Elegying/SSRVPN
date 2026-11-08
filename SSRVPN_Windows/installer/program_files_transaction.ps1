@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet('Begin', 'Recover', 'Clear', 'Install', 'Validate', 'Seal', 'Commit', 'Discard', 'CheckUninstall', 'Uninstall')]
+  [ValidateSet('Begin', 'Recover', 'QuarantineInvalid', 'Clear', 'Install', 'Validate', 'Seal', 'Commit', 'Discard', 'CheckUninstall', 'Uninstall')]
   [string]$Action,
   [Parameter(Mandatory = $true)][string]$InstallDir,
   [Parameter(Mandatory = $true)][string]$RecoveryRoot,
@@ -1036,9 +1036,22 @@ function Read-ExpectedPayloadManifest {
 
 function Test-InstalledPayload {
   # Every package member must verify. Files outside that trusted inventory
-  # belong to the user and must neither fail a count check nor be deleted.
-  $opened = Open-OwnedFiles -Root $script:installDir -Entries @(Read-TransactionPayload)
+  # remain untouched; late DLLs beside an executable must also block launch.
+  $payload = @(Read-TransactionPayload)
+  $opened = Open-OwnedFiles -Root $script:installDir -Entries $payload
   foreach ($item in $opened) { $item.handle.Dispose() }
+  $allowed = @{}
+  foreach ($entry in $payload) { $allowed[$entry.path] = $true }
+  foreach ($relativeDirectory in @('', 'bin')) {
+    $directory = if ($relativeDirectory) { Join-Path $script:installDir $relativeDirectory } else { $script:installDir }
+    $directoryItem = Get-PathItem -Path $directory
+    if ($null -eq $directoryItem) { continue }
+    if (-not $directoryItem.PSIsContainer -or (Test-ReparsePoint -Item $directoryItem)) { throw 'Executable directory is unsafe.' }
+    foreach ($item in @(Get-ChildItem -LiteralPath $directory -Filter '*.dll' -File -Force)) {
+      $relative = if ($relativeDirectory) { Join-Path $relativeDirectory $item.Name } else { $item.Name }
+      if (-not $allowed.ContainsKey($relative)) { throw "A new unowned DLL appeared during installation; it was preserved: $relative" }
+    }
+  }
   return $true
 }
 
@@ -1182,11 +1195,56 @@ function Begin-ProgramFilesTransaction {
   $stageProgramRoot = Join-Path $stageRoot $script:backupProgramDirectoryName
   try {
     New-Item -ItemType Directory -Path $stageProgramRoot -Force | Out-Null
-    # Package catalogs or the protected committed manifest grant ownership.
-    # Scanning an arbitrary installation directory never grants deletion rights.
-    if ($null -ne $installItem) { [void](Get-ProgramInventory -Root $script:installDir -ExcludePreservedData) }
-    $sourceInventory = @(Get-ExistingOwnedFiles -Entries @(Get-OldOwnedInventory))
     $newInventory = @(Get-PlannedPayload)
+    $oldPaths = @{}
+    foreach ($entry in @(Get-OldOwnedInventory)) { $oldPaths[$entry.path] = $entry }
+    $newPaths = @{}
+    foreach ($entry in $newInventory) { $newPaths[$entry.path] = $true }
+    # Only inspect paths the transaction could replace or remove. Unrelated
+    # trees (including junctions) must not prevent an otherwise valid upgrade.
+    $candidatePaths = @{}
+    foreach ($path in @($oldPaths.Keys) + @($newPaths.Keys)) { $candidatePaths[$path] = $true }
+    # DLLs beside either executable participate in Windows loader search. An
+    # unrecognised old DLL must be retained, but not left beside the new app.
+    $legacyDllPaths = @{}
+    foreach ($relativeDirectory in @('', 'bin')) {
+      $directory = if ($relativeDirectory) { Join-Path $script:installDir $relativeDirectory } else { $script:installDir }
+      $directoryItem = Get-PathItem -Path $directory
+      if ($null -eq $directoryItem) { continue }
+      if (-not $directoryItem.PSIsContainer -or (Test-ReparsePoint -Item $directoryItem)) {
+        throw 'Executable directory is not a real directory.'
+      }
+      foreach ($item in @(Get-ChildItem -LiteralPath $directory -Filter '*.dll' -File -Force)) {
+        $relative = if ($relativeDirectory) { Join-Path $relativeDirectory $item.Name } else { $item.Name }
+        $candidatePaths[$relative] = $true
+        $legacyDllPaths[$relative] = $true
+      }
+    }
+    if (-not ('SsrvpnInstaller.ProgramFile' -as [type])) {
+      Add-Type -Path (Join-Path $PSScriptRoot 'program_file_handles.cs')
+    }
+    $existingInventory = @(foreach ($relative in @($candidatePaths.Keys | Sort-Object)) {
+      $path = Join-Path $script:installDir $relative
+      $item = Get-PathItem -Path $path
+      if ($null -eq $item) { continue }
+      if ($item.PSIsContainer -or (Test-ReparsePoint -Item $item) -or $item.Length -gt $script:maxProgramFileBytes) {
+        throw "Program target is not a bounded regular file: $relative"
+      }
+      $handle = [SsrvpnInstaller.ProgramFile]::Open($path, $false)
+      try {
+        [pscustomobject][ordered]@{ path = $relative; length = [long]$handle.Length; sha256 = [string]$handle.Sha256 }
+      } finally { $handle.Dispose() }
+    })
+    $existingInventory = @(Read-OwnedFileList -Entries $existingInventory)
+    $sourceInventory = @()
+    $unverifiedOverlap = @()
+    foreach ($entry in $existingInventory) {
+      $old = $oldPaths[$entry.path]
+      $verified = $null -ne $old -and $old.length -eq $entry.length -and $old.sha256 -ceq $entry.sha256
+      if ($verified -or $newPaths.ContainsKey($entry.path) -or $legacyDllPaths.ContainsKey($entry.path)) { $sourceInventory += $entry }
+      if (-not $verified -and ($newPaths.ContainsKey($entry.path) -or $legacyDllPaths.ContainsKey($entry.path))) { $unverifiedOverlap += $entry }
+    }
+    $sourceInventory = @(Get-ExistingOwnedFiles -Entries $sourceInventory)
     Assert-NewTargetConflicts -Old $sourceInventory -New $newInventory
     [void](Get-TransactionAuthenticator -Create)
     $transactionId = [Guid]::NewGuid().ToString('N')
@@ -1214,6 +1272,19 @@ function Begin-ProgramFilesTransaction {
     if (-not (Test-InventoriesEqual -Expected $sourceInventory `
         -Actual $backupInventory)) {
       throw 'Program-file backup verification failed.'
+    }
+    if ($unverifiedOverlap.Count -gt 0) {
+      # Retain a separate copy even after a successful commit removes the
+      # rollback transaction. Never reuse or automatically delete this root.
+      $archiveRoot = Join-Path ([IO.Path]::GetDirectoryName($script:recoveryRoot)) `
+        ('p-' + $transactionId)
+      New-Item -ItemType Directory -Path $archiveRoot -ErrorAction Stop | Out-Null
+      Copy-OwnedFiles -SourceRoot $stageProgramRoot -DestinationRoot $archiveRoot -Entries $unverifiedOverlap
+      $archiveInventory = @(Get-ProgramInventory -Root $archiveRoot)
+      if (-not (Test-InventoriesEqual -Expected $unverifiedOverlap -Actual $archiveInventory)) {
+        throw 'Preserved overlapping files failed verification; installation was not started.'
+      }
+      Write-Warning "Existing files replaced by this upgrade were preserved at: $archiveRoot"
     }
     New-UninstallRegistrySnapshot -StageRoot $stageRoot
     New-ExternalFilesSnapshot -StageRoot $stageRoot
@@ -1253,6 +1324,43 @@ function Begin-ProgramFilesTransaction {
     }
   }
   return 'PREPARED'
+}
+
+function Preserve-UnauthenticatedRecovery {
+  if (-not (Test-Path -LiteralPath $script:recoveryRoot -PathType Container)) { return 'NO_TRANSACTION' }
+  $statePath = Join-Path $script:recoveryRoot $script:stateFileName
+  $stateItem = Get-PathItem -Path $statePath
+  $missingState = $null -eq $stateItem
+  $text = ''
+  $digest = 'MISSING'
+  if (-not $missingState) {
+    if ($stateItem.PSIsContainer -or (Test-ReparsePoint -Item $stateItem) -or $stateItem.Length -gt $script:maxMetadataDocumentBytes) { throw 'Recovery state is unsafe or too large.' }
+    if (-not ('SsrvpnInstaller.ProgramFile' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'program_file_handles.cs') }
+    $stateHandle = [SsrvpnInstaller.ProgramFile]::Open($statePath, $false)
+    try {
+      if ($stateHandle.Length -gt $script:maxMetadataDocumentBytes) { throw 'Recovery state is too large.' }
+      $digest = $stateHandle.Sha256
+      try { $text = $stateHandle.ReadUtf8Text($script:maxMetadataDocumentBytes) }
+      catch { if ($_.Exception.GetBaseException() -isnot [Text.DecoderFallbackException]) { throw } }
+    } finally { $stateHandle.Dispose() }
+  }
+  $state = $null
+  try { $state = $text | ConvertFrom-Json -ErrorAction Stop } catch { $state = $null }
+  if ($null -ne $state -and $null -ne $state.PSObject.Properties['authentication']) {
+    $expected = $null
+    try { $expected = Get-StateAuthentication -State $state }
+    catch {
+      if ($_.Exception.Message -cne 'The protected transaction identity is missing or invalid; recovery material was retained.') { throw }
+    }
+    if ($null -ne $expected -and $state.authentication -is [string] -and $state.authentication -ceq $expected) {
+      throw 'Authenticated recovery material cannot be quarantined; it remains available for recovery.'
+    }
+  }
+  if (-not ('SsrvpnInstaller.ProgramFile' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'program_file_handles.cs') }
+  $preserved = Join-Path ([IO.Path]::GetDirectoryName($script:recoveryRoot)) ('q-' + [Guid]::NewGuid().ToString('N'))
+  [SsrvpnInstaller.ProgramFile]::PreserveDirectory($script:recoveryRoot, $preserved, $digest)
+  Write-Warning "Unauthenticated recovery material was retained at: $preserved"
+  return 'UNAUTHENTICATED_RECOVERY_PRESERVED'
 }
 
 function Recover-ProgramFilesTransaction {
@@ -1471,6 +1579,7 @@ try {
   $status = switch ($Action) {
     'Begin' { Begin-ProgramFilesTransaction }
     'Recover' { Recover-ProgramFilesTransaction }
+    'QuarantineInvalid' { Preserve-UnauthenticatedRecovery }
     'Clear' { Clear-ProgramFilesForInstall }
     'Install' { Install-OwnedProgramFiles }
     'Validate' { Validate-ProgramFilesTransaction }

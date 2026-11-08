@@ -868,7 +868,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
 
         self.assertIn(
-            "ValidateSet('Begin', 'Recover', 'Clear', 'Install', 'Validate', "
+            "ValidateSet('Begin', 'Recover', 'QuarantineInvalid', 'Clear', 'Install', 'Validate', "
             "'Seal', 'Commit', 'Discard', 'CheckUninstall', 'Uninstall')",
             helper,
         )
@@ -1036,7 +1036,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "function Recover-ProgramFilesTransaction", 1
         )[0]
         self.assertLess(
-            begin.index("Get-ProgramInventory"),
+            begin.index("Read-OwnedFileList -Entries $existingInventory"),
             begin.index("Copy-OwnedFiles"),
         )
 
@@ -1085,7 +1085,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("Assert-BoundedProgramRelativePath", expected_manifest)
 
         runtime = (ROOT / "scripts" / "test_windows_installer_ownership.ps1").read_text(encoding="utf-8")
-        self.assertIn("Oversized source depth is rejected", runtime)
+        self.assertIn("Unrelated deep directory does not block installation", runtime)
         self.assertIn("Oversized recovery state fails before mutation", runtime)
         self.assertIn("Invalid $damage fails before mutation", runtime)
 

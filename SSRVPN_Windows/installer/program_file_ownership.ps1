@@ -161,7 +161,30 @@ function Assert-RecoveryRegistrationOwner {
 function Get-TransactionAuthenticator {
   param([switch]$Create)
   $key = Get-OwnershipValue -Name 'TransactionKey'
-  if ($null -eq $key -and $Create) {
+  if ($Create -and ($null -eq $key -or $key -isnot [byte[]] -or $key.Length -ne 32)) {
+    if ($null -ne $key) {
+      # Keep the exact original value and registry type inside the same
+      # protected key before replacing an unusable transaction key.
+      $registryKey = Get-OwnershipRegistryKey -Create
+      try {
+        $kind = $registryKey.GetValueKind('TransactionKey')
+        $original = $registryKey.GetValue('TransactionKey', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        $historyName = 'InvalidTransactionKey-' + [Guid]::NewGuid().ToString('N')
+        if (@($registryKey.GetValueNames()) -contains $historyName) { throw 'Transaction key archive name already exists.' }
+        $registryKey.SetValue($historyName, $original, $kind)
+        $registryKey.Flush()
+        $saved = $registryKey.GetValue($historyName, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        if ($registryKey.GetValueKind($historyName) -ne $kind -or
+            (ConvertTo-Json -InputObject $saved -Compress -Depth 4) -cne (ConvertTo-Json -InputObject $original -Compress -Depth 4)) {
+          throw 'Invalid transaction key could not be preserved.'
+        }
+        $current = $registryKey.GetValue('TransactionKey', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        if ($registryKey.GetValueKind('TransactionKey') -ne $kind -or
+            (ConvertTo-Json -InputObject $current -Compress -Depth 4) -cne (ConvertTo-Json -InputObject $original -Compress -Depth 4)) {
+          throw 'Transaction key changed while it was being preserved.'
+        }
+      } finally { $registryKey.Dispose() }
+    }
     $key = New-Object byte[] 32
     $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
     try { $rng.GetBytes($key) } finally { $rng.Dispose() }
@@ -236,7 +259,7 @@ function Get-OldOwnedInventory {
   $launcher = Join-Path $script:installDir 'ssrvpn_windows.exe'
   if (-not (Test-Path -LiteralPath $launcher)) { return @() }
   if ([string]::IsNullOrWhiteSpace($LegacyCatalogPath)) {
-    throw 'A verified historical package catalog is required to migrate this installation.'
+    return @()
   }
   $catalog = Read-BoundedJsonDocument -Path $LegacyCatalogPath -Name 'Historical package catalog'
   Assert-ExactObjectSchema -Value $catalog -RequiredProperties @('schemaVersion', 'catalogs') -Name 'Historical package catalog'
@@ -253,16 +276,55 @@ function Get-OldOwnedInventory {
     $match = @($files | Where-Object { $_.path -ieq 'ssrvpn_windows.exe' -and $_.sha256 -ceq $actual.sha256 })
     if ($match.Count -eq 1) { return $files }
   }
-  throw 'This launcher is modified or has no verified historical catalog. Existing files were preserved; install into a new empty directory or restore the official old program files before retrying.'
+  # An unrecognised legacy launcher can still be upgraded. The caller snapshots
+  # only existing paths that the new payload must replace, before clearing them.
+  return @()
 }
 
 function Assert-NoLegacyRecoveryConflict {
   if (-not $LegacyRecoveryRoot -or -not (Test-Path -LiteralPath $LegacyRecoveryRoot)) { return }
   $legacyRoot = Get-SafeDirectoryPath -Path $LegacyRecoveryRoot -Name 'LegacyRecoveryRoot'
-  $state = Read-BoundedJsonDocument -Path (Join-Path $legacyRoot 'state.json') -Name 'Legacy recovery state'
-  if ($state.installDir -isnot [string] -or $state.installDir -ieq $script:installDir) {
-    throw 'An old recovery transaction may belong to this directory. Its original machine registry information cannot be reconstructed. Preserve the old directory and recovery material; select a separate empty installation directory for a clean install.'
+  if ((Test-PathWithin -Candidate $legacyRoot -Parent $script:installDir) -or
+      (Test-PathWithin -Candidate $script:installDir -Parent $legacyRoot) -or
+      (Test-PathWithin -Candidate $legacyRoot -Parent $script:recoveryRoot) -or
+      (Test-PathWithin -Candidate $script:recoveryRoot -Parent $legacyRoot)) {
+    throw 'Legacy recovery must be separate from the installation and current transaction.'
   }
+  $state = $null
+  try { $state = Read-BoundedJsonDocument -Path (Join-Path $legacyRoot 'state.json') -Name 'Legacy recovery state' }
+  catch { Write-Warning 'Legacy recovery metadata could not be interpreted; preserving the entire legacy recovery tree.' }
+  if ($null -ne $state -and $null -ne $state.PSObject.Properties['installDir'] -and $state.installDir -is [string]) {
+    try {
+      $recordedInstall = Get-SafeDirectoryPath -Path $state.installDir -Name 'Legacy installation'
+      if ($recordedInstall -ine $script:installDir) { return }
+    } catch { Write-Warning 'Legacy installation identity is invalid; preserving recovery files.' }
+  }
+  # Old shared state is not authenticated and may contain the only surviving
+  # user files. Never replay or remove it; make an independently verified copy
+  # before another installation or an old uninstaller can affect that root.
+  $inventory = @(Get-ProgramInventory -Root $legacyRoot)
+  $inventoryText = ConvertTo-Json -InputObject @($inventory) -Depth 5 -Compress
+  $hasher = [Security.Cryptography.SHA256]::Create()
+  try { $identity = [BitConverter]::ToString($hasher.ComputeHash($script:utf8NoBom.GetBytes($inventoryText))).Replace('-', '').ToLowerInvariant().Substring(0, 32) }
+  finally { $hasher.Dispose() }
+  $archiveRoot = Join-Path ([IO.Path]::GetDirectoryName($script:recoveryRoot)) ('l-' + $identity)
+  if (Test-Path -LiteralPath $archiveRoot) {
+    $archiveMatches = $false
+    try { $archiveMatches = Test-InventoriesEqual -Expected $inventory -Actual @(Get-ProgramInventory -Root $archiveRoot) }
+    catch { Write-Warning 'Existing legacy archive cannot be reused; retaining it and creating another.' }
+    if ($archiveMatches) { return }
+    $archiveRoot = Join-Path ([IO.Path]::GetDirectoryName($script:recoveryRoot)) ('l-' + [Guid]::NewGuid().ToString('N'))
+  }
+  if (-not ('SsrvpnInstaller.ProgramFile' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'program_file_handles.cs') }
+  $pinnedParent = [SsrvpnInstaller.ProgramFile]::PinParentsFor($archiveRoot)
+  try {
+    New-Item -ItemType Directory -Path $archiveRoot -ErrorAction Stop | Out-Null
+    Copy-OwnedFiles -SourceRoot $legacyRoot -DestinationRoot $archiveRoot -Entries $inventory
+    if (-not (Test-InventoriesEqual -Expected $inventory -Actual @(Get-ProgramInventory -Root $archiveRoot))) {
+      throw 'Legacy recovery preservation failed verification; installation was not started.'
+    }
+  } finally { $pinnedParent.Dispose() }
+  Write-Warning "Legacy recovery materials were preserved at: $archiveRoot"
 }
 
 function Open-OwnedFiles {
