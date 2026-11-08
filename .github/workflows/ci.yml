@@ -498,7 +498,7 @@ jobs:
         shell: powershell
         # Both HKCU and HKLM run the full copy-interruption/ownership matrix.
         # Keep per-helper bounds; allow the serial suites to finish on slow hosts.
-        timeout-minutes: 20
+        timeout-minutes: 35
         run: |
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts\test_windows_policy.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

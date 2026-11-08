@@ -535,7 +535,7 @@ jobs:
         shell: powershell
         # Match CI for the same serial HKCU/HKLM interruption/ownership suite.
         # Per-helper bounds and all assertions remain unchanged.
-        timeout-minutes: 20
+        timeout-minutes: 35
         run: |
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts\test_windows_policy.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
