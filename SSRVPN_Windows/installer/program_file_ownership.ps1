@@ -270,8 +270,12 @@ function Assert-NoLegacyRecoveryConflict {
   $state = $null
   try { $state = Read-BoundedJsonDocument -Path (Join-Path $legacyRoot 'state.json') -Name 'Legacy recovery state' }
   catch { Write-Warning 'Legacy recovery metadata could not be interpreted; preserving the entire legacy recovery tree.' }
-  if ($null -ne $state -and $null -ne $state.PSObject.Properties['installDir'] -and
-      $state.installDir -is [string] -and $state.installDir -ine $script:installDir) { return }
+  if ($null -ne $state -and $null -ne $state.PSObject.Properties['installDir'] -and $state.installDir -is [string]) {
+    try {
+      $recordedInstall = Get-SafeDirectoryPath -Path $state.installDir -Name 'Legacy installation'
+      if ($recordedInstall -ine $script:installDir) { return }
+    } catch { Write-Warning 'Legacy installation identity is invalid; preserving recovery files.' }
+  }
   # Old shared state is not authenticated and may contain the only surviving
   # user files. Never replay or remove it; make an independently verified copy
   # before another installation or an old uninstaller can affect that root.

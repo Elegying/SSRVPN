@@ -225,7 +225,7 @@ try {
     Pass "Unauthenticated $damage recovery retained through upgrade $outcome"
   }
 
-  foreach ($legacyScenario in @('same-directory:commit', 'same-directory:recover', 'malformed:commit', 'malformed:recover', 'missing-state:commit', 'missing-state:recover')) {
+  foreach ($legacyScenario in @('same-directory:commit', 'same-directory:recover', 'malformed:commit', 'malformed:recover', 'missing-state:commit', 'missing-state:recover', 'empty-path:commit', 'relative-path:recover')) {
     $legacyCase, $outcome = $legacyScenario.Split(':')
     $c = New-Case "legacy-preservation-$legacyCase-$outcome"
     Write-FixtureFile (Join-Path $c.legacyRecovery 'program\personal.txt') 'legacy-recovery-data'
@@ -234,6 +234,10 @@ try {
         [ordered]@{ schemaVersion = 2; installDir = $c.install } | ConvertTo-Json -Compress)
     } elseif ($legacyCase -eq 'malformed') {
       Write-FixtureFile (Join-Path $c.legacyRecovery 'state.json') '{broken'
+    } elseif ($legacyCase -eq 'empty-path' -or $legacyCase -eq 'relative-path') {
+      $invalidInstall = if ($legacyCase -eq 'empty-path') { '' } else { 'relative\installation' }
+      Write-FixtureFile (Join-Path $c.legacyRecovery 'state.json') (
+        [ordered]@{ schemaVersion = 2; installDir = $invalidInstall } | ConvertTo-Json -Compress)
     }
     Invoke-Case $c Begin
     $archives = @(Get-ChildItem -LiteralPath $c.root -Directory -Force | Where-Object Name -like 'l-*')
