@@ -280,7 +280,18 @@ function Assert-NoLegacyRecoveryConflict {
   # user files. Never replay or remove it; make an independently verified copy
   # before another installation or an old uninstaller can affect that root.
   $inventory = @(Get-ProgramInventory -Root $legacyRoot)
-  $archiveRoot = Join-Path ([IO.Path]::GetDirectoryName($script:recoveryRoot)) ('l-' + [Guid]::NewGuid().ToString('N'))
+  $inventoryText = ConvertTo-Json -InputObject @($inventory) -Depth 5 -Compress
+  $hasher = [Security.Cryptography.SHA256]::Create()
+  try { $identity = [BitConverter]::ToString($hasher.ComputeHash($script:utf8NoBom.GetBytes($inventoryText))).Replace('-', '').ToLowerInvariant().Substring(0, 32) }
+  finally { $hasher.Dispose() }
+  $archiveRoot = Join-Path ([IO.Path]::GetDirectoryName($script:recoveryRoot)) ('l-' + $identity)
+  if (Test-Path -LiteralPath $archiveRoot) {
+    $archiveMatches = $false
+    try { $archiveMatches = Test-InventoriesEqual -Expected $inventory -Actual @(Get-ProgramInventory -Root $archiveRoot) }
+    catch { Write-Warning 'Existing legacy archive cannot be reused; retaining it and creating another.' }
+    if ($archiveMatches) { return }
+    $archiveRoot = Join-Path ([IO.Path]::GetDirectoryName($script:recoveryRoot)) ('l-' + [Guid]::NewGuid().ToString('N'))
+  }
   if (-not ('SsrvpnInstaller.ProgramFile' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'program_file_handles.cs') }
   $pinnedParent = [SsrvpnInstaller.ProgramFile]::PinParentsFor($archiveRoot)
   try {

@@ -256,6 +256,14 @@ try {
     }
     Assert-UserFiles $c
     Assert-File (Join-Path $archives[0].FullName 'program\personal.txt') 'legacy-recovery-data'
+    if ($legacyCase -eq 'same-directory' -and $outcome -eq 'commit') {
+      $c.metadata = 'installer-state\' + [Guid]::NewGuid().ToString('N')
+      Invoke-Case $c Begin
+      $reused = @(Get-ChildItem -LiteralPath $c.root -Directory -Force | Where-Object Name -like 'l-*')
+      if ($reused.Count -ne 1 -or $reused[0].FullName -cne $archives[0].FullName) { throw 'Identical legacy archive was unnecessarily duplicated.' }
+      Invoke-Case $c Recover
+      Assert-File (Join-Path $archives[0].FullName 'program\personal.txt') 'legacy-recovery-data'
+    }
     Pass "Legacy $legacyCase recovery materials preserved through upgrade $outcome"
   }
 
