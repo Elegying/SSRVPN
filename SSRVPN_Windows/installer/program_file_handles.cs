@@ -157,30 +157,44 @@ namespace SsrvpnInstaller {
         item.PinParents(path, false);
         using (var handle = CreateFile(path, 0x10081, 1, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero)) {
           Check(handle, path, true);
-          var statePath = Path.Combine(path, "state.json");
-          using (var stateHandle = CreateFile(statePath, 0x80000000u, 5, IntPtr.Zero, 3, 0x00200000, IntPtr.Zero)) {
-            Check(stateHandle, statePath, false);
-            using (var input = new FileStream(stateHandle, FileAccess.Read))
-            using (var hash = SHA256.Create()) {
-              var actual = BitConverter.ToString(hash.ComputeHash(input)).Replace("-", "").ToLowerInvariant();
-              if (actual != stateSha256) throw new IOException("Recovery state changed before preservation.");
-              var name = Encoding.Unicode.GetBytes(Path.GetFullPath(destination));
-              int offset = Marshal.OffsetOf(typeof(RenameInfo), "FileName").ToInt32();
-              int size = Math.Max(Marshal.SizeOf(typeof(RenameInfo)), offset + name.Length + 2);
-              var data = Marshal.AllocHGlobal(size);
-              try {
-                Marshal.Copy(new byte[size], 0, data, size);
-                Marshal.WriteInt32(data, Marshal.OffsetOf(typeof(RenameInfo), "FileNameLength").ToInt32(), name.Length);
-                Marshal.Copy(name, 0, IntPtr.Add(data, offset), name.Length);
-                if (!SetFileInformationByHandle(handle, 3, data, (uint)size)) {
-                  int error = Marshal.GetLastWin32Error();
-                  throw new Win32Exception(error, "Cannot preserve recovery directory: Win32 " + error + ": " + new Win32Exception(error).Message);
-                }
-              } finally { Marshal.FreeHGlobal(data); }
-            }
+          if (RecoveryStateHash(path) != stateSha256) throw new IOException("Recovery state changed before preservation.");
+          RenameDirectoryHandle(handle, destination);
+          try {
+            Check(handle, destination, true);
+            if (RecoveryStateHash(destination) != stateSha256) throw new IOException("Recovery state changed during preservation.");
+          } catch {
+            // Never leave a different state quarantined and proceed with install.
+            RenameDirectoryHandle(handle, path);
+            throw;
           }
         }
       }
+    }
+    static string RecoveryStateHash(string directory) {
+      var path = Path.Combine(directory, "state.json");
+      using (var handle = CreateFile(path, 0x80000000u, 1, IntPtr.Zero, 3, 0x00200000, IntPtr.Zero)) {
+        Check(handle, path, false);
+        using (var input = new FileStream(handle, FileAccess.Read))
+        using (var hash = SHA256.Create()) {
+          if (input.Length > 8L * 1024 * 1024) throw new IOException("Recovery state exceeds its size limit.");
+          return BitConverter.ToString(hash.ComputeHash(input)).Replace("-", "").ToLowerInvariant();
+        }
+      }
+    }
+    static void RenameDirectoryHandle(SafeFileHandle handle, string destination) {
+      var name = Encoding.Unicode.GetBytes(Path.GetFullPath(destination));
+      int offset = Marshal.OffsetOf(typeof(RenameInfo), "FileName").ToInt32();
+      int size = Math.Max(Marshal.SizeOf(typeof(RenameInfo)), offset + name.Length + 2);
+      var data = Marshal.AllocHGlobal(size);
+      try {
+        Marshal.Copy(new byte[size], 0, data, size);
+        Marshal.WriteInt32(data, Marshal.OffsetOf(typeof(RenameInfo), "FileNameLength").ToInt32(), name.Length);
+        Marshal.Copy(name, 0, IntPtr.Add(data, offset), name.Length);
+        if (!SetFileInformationByHandle(handle, 3, data, (uint)size)) {
+          int error = Marshal.GetLastWin32Error();
+          throw new Win32Exception(error, "Cannot preserve recovery directory: Win32 " + error + ": " + new Win32Exception(error).Message);
+        }
+      } finally { Marshal.FreeHGlobal(data); }
     }
     public string ReadUtf8Text(long maxBytes) {
       if (stream.Length > maxBytes) throw new IOException("Verified metadata exceeds its size limit.");
