@@ -1319,11 +1319,17 @@ function Preserve-UnauthenticatedRecovery {
   $stateItem = Get-PathItem -Path $statePath
   $missingState = $null -eq $stateItem
   $text = ''
+  $digest = 'MISSING'
   if (-not $missingState) {
-    if ($stateItem.PSIsContainer -or (Test-ReparsePoint -Item $stateItem)) { throw 'Recovery state is unsafe.' }
-    if ($stateItem.Length -gt 0) {
-      $text = Read-BoundedUtf8Text -Path $statePath -MaxBytes $script:maxMetadataDocumentBytes -Name 'Recovery state'
-    }
+    if ($stateItem.PSIsContainer -or (Test-ReparsePoint -Item $stateItem) -or $stateItem.Length -gt $script:maxMetadataDocumentBytes) { throw 'Recovery state is unsafe or too large.' }
+    if (-not ('SsrvpnInstaller.ProgramFile' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'program_file_handles.cs') }
+    $stateHandle = [SsrvpnInstaller.ProgramFile]::Open($statePath, $false)
+    try {
+      if ($stateHandle.Length -gt $script:maxMetadataDocumentBytes) { throw 'Recovery state is too large.' }
+      $digest = $stateHandle.Sha256
+      try { $text = $stateHandle.ReadUtf8Text($script:maxMetadataDocumentBytes) }
+      catch { if ($_.Exception.GetBaseException() -isnot [Text.DecoderFallbackException]) { throw } }
+    } finally { $stateHandle.Dispose() }
   }
   $state = $null
   try { $state = $text | ConvertFrom-Json -ErrorAction Stop } catch { $state = $null }
@@ -1339,12 +1345,6 @@ function Preserve-UnauthenticatedRecovery {
   }
   if (-not ('SsrvpnInstaller.ProgramFile' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'program_file_handles.cs') }
   $preserved = Join-Path ([IO.Path]::GetDirectoryName($script:recoveryRoot)) ('q-' + [Guid]::NewGuid().ToString('N'))
-  $digest = 'MISSING'
-  if (-not $missingState) {
-    $hasher = [Security.Cryptography.SHA256]::Create()
-    try { $digest = [BitConverter]::ToString($hasher.ComputeHash($script:utf8NoBom.GetBytes($text))).Replace('-', '').ToLowerInvariant() }
-    finally { $hasher.Dispose() }
-  }
   [SsrvpnInstaller.ProgramFile]::PreserveDirectory($script:recoveryRoot, $preserved, $digest)
   Write-Warning "Unauthenticated recovery material was retained at: $preserved"
   return 'UNAUTHENTICATED_RECOVERY_PRESERVED'

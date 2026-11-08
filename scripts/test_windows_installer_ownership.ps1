@@ -166,7 +166,7 @@ try {
   Assert-UserFiles $c
   Pass 'Authenticated pending recovery cannot be quarantined'
 
-  foreach ($scenario in @('malformed:commit', 'malformed:recover', 'bad-hmac:commit', 'bad-hmac:recover', 'missing:commit', 'empty:recover')) {
+  foreach ($scenario in @('malformed:commit', 'malformed:recover', 'bad-hmac:commit', 'bad-hmac:recover', 'missing:commit', 'empty:recover', 'binary:commit')) {
     $damage, $outcome = $scenario.Split(':')
     $c = New-Case "unauthenticated-current-$damage-$outcome"
     if ($damage -eq 'bad-hmac') {
@@ -176,7 +176,11 @@ try {
       $stateText = $state | ConvertTo-Json -Depth 8
     } elseif ($damage -eq 'empty') { $stateText = '' }
     else { $stateText = '{broken-state' }
-    if ($damage -ne 'missing') { Write-FixtureFile (Join-Path $c.recovery 'state.json') $stateText }
+    if ($damage -eq 'binary') {
+      [void][IO.Directory]::CreateDirectory($c.recovery)
+      [IO.File]::WriteAllBytes((Join-Path $c.recovery 'state.json'), [byte[]]@(255, 254, 128))
+      $binaryHash = (Get-FileHash -LiteralPath (Join-Path $c.recovery 'state.json')).Hash
+    } elseif ($damage -ne 'missing') { Write-FixtureFile (Join-Path $c.recovery 'state.json') $stateText }
     Write-FixtureFile (Join-Path $c.recovery 'program\personal.txt') 'pending-personal-data'
     Invoke-Case $c Recover -Failure
     Invoke-Case $c QuarantineInvalid
@@ -184,6 +188,8 @@ try {
     if ($archives.Count -ne 1 -or (Test-Path -LiteralPath $c.recovery)) { throw 'Invalid recovery was not preserved separately.' }
     if ($damage -eq 'missing') {
       if (Test-Path -LiteralPath (Join-Path $archives[0].FullName 'state.json')) { throw 'Missing state was fabricated.' }
+    } elseif ($damage -eq 'binary') {
+      if ((Get-FileHash -LiteralPath (Join-Path $archives[0].FullName 'state.json')).Hash -cne $binaryHash) { throw 'Binary recovery state changed.' }
     } else { Assert-File (Join-Path $archives[0].FullName 'state.json') $stateText }
     Assert-File (Join-Path $archives[0].FullName 'program\personal.txt') 'pending-personal-data'
     Invoke-Case $c Begin
