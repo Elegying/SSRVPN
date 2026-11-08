@@ -1229,7 +1229,11 @@ try {
       throw "Legacy DLL fixture was not preserved: $legacyDll"
     }
   }
-  Write-Host 'PASS Upgraded application starts with retained invalid legacy version.dll fixtures'
+  $legacyDllModules = @($runningInstalledApp.Modules | Where-Object {
+    $legacyDllSentinels -icontains [string]$_.FileName
+  })
+  if ($legacyDllModules.Count -ne 0) { throw 'The upgraded process loaded a retained legacy DLL.' }
+  Write-Host 'PASS Upgraded application starts without loading retained invalid legacy version.dll fixtures'
   $installedAppProcessId = [int]$runningInstalledApp.Id
   $runningInstalledApp.Dispose()
   New-PendingProgramFileTransaction

@@ -223,6 +223,18 @@ try {
     Pass "Legacy $legacyCase recovery materials preserved through upgrade $outcome"
   }
 
+  $c = New-Case 'legacy-other-installation'
+  Write-FixtureFile (Join-Path $c.legacyRecovery 'state.json') (
+    [ordered]@{ schemaVersion = 2; installDir = (Join-Path $c.root 'another-installation') } | ConvertTo-Json -Compress)
+  Write-FixtureFile (Join-Path $c.legacyRecovery 'program\personal.txt') 'other-installation-data'
+  Invoke-Case $c Begin
+  Invoke-Case $c Clear
+  Invoke-Case $c Install
+  Invoke-Case $c Recover
+  Assert-File (Join-Path $c.legacyRecovery 'program\personal.txt') 'other-installation-data'
+  Assert-UserFiles $c
+  Pass 'Another installation legacy recovery remains untouched'
+
   $c = New-Case 'bootstrap-dependency-failure'
   $brokenHelper = Join-Path $c.root 'isolated\program_files_transaction.ps1'
   Write-FixtureFile $brokenHelper ([IO.File]::ReadAllText($helper))

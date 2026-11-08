@@ -743,15 +743,17 @@ begin
   end;
   if StopResult = 0 then
   begin
-    if (not RecoverPendingProgramFilesTransaction) and
-      (not RunProgramFilesTransaction('QuarantineInvalid', '')) then
+    if not RecoverPendingProgramFilesTransaction then
     begin
-      ReleaseInstallGates;
-      Result := '检测到上次中断的覆盖安装，但无法完成程序文件恢复。' + #13#10 +
-        '为避免覆盖可恢复副本，本次安装已停止。诊断阶段码：' +
-        LastProgramFilesTransactionStatus + '。' + #13#10 +
-        '请重试安装；如果仍然失败，请重启 Windows 后再次安装。';
-      exit;
+      if not RunProgramFilesTransaction('QuarantineInvalid', '') then
+      begin
+        ReleaseInstallGates;
+        Result := '检测到上次中断的覆盖安装，但无法完成程序文件恢复。' + #13#10 +
+          '为避免覆盖可恢复副本，本次安装已停止。诊断阶段码：' +
+          LastProgramFilesTransactionStatus + '。' + #13#10 +
+          '请重试安装；如果仍然失败，请重启 Windows 后再次安装。';
+        exit;
+      end;
     end;
     if not BeginProgramFilesTransaction then
     begin
