@@ -1164,6 +1164,17 @@ try {
     throw 'The installed app exited before the upgrade started.'
   }
 
+  # Simulate stale, non-payload DLLs in both executable directories. Their
+  # invalid contents make an accidental load fail instead of silently passing.
+  $legacyDllSentinels = @(
+    (Join-Path $installDir 'version.dll'),
+    (Join-Path $installDir 'bin\version.dll')
+  )
+  foreach ($legacyDll in $legacyDllSentinels) {
+    if (Test-Path -LiteralPath $legacyDll) { throw "DLL fixture conflicts with payload: $legacyDll" }
+    [IO.File]::WriteAllText($legacyDll, 'ssrvpn-invalid-legacy-dll-sentinel')
+  }
+
   $upgradeExitCode = Invoke-SmokeProcess `
     -FilePath $upgradeInstaller `
     -Phase 'SSRVPN upgrade' `
@@ -1212,6 +1223,13 @@ try {
   }
 
   $runningInstalledApp = Start-InstalledApp
+  foreach ($legacyDll in $legacyDllSentinels) {
+    if (-not (Test-Path -LiteralPath $legacyDll -PathType Leaf) -or
+        [IO.File]::ReadAllText($legacyDll) -cne 'ssrvpn-invalid-legacy-dll-sentinel') {
+      throw "Legacy DLL fixture was not preserved: $legacyDll"
+    }
+  }
+  Write-Host 'PASS Upgraded application starts with retained invalid legacy version.dll fixtures'
   $installedAppProcessId = [int]$runningInstalledApp.Id
   $runningInstalledApp.Dispose()
   New-PendingProgramFileTransaction
