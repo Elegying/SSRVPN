@@ -8,20 +8,20 @@ environment:
   sdk: '>=3.6.0 <4.0.0'
 
 dependencies:
-  camera_platform_interface: ^2.14.0
+  camera_platform_interface: ^2.15.0
   camera_windows: ^0.3.0
-  image: ^4.8.0
-  mobile_scanner: ^7.4.2
+  image: ^4.12.0
+  mobile_scanner: ^7.5.0
   zxing2: ^0.2.4
   characters: ^1.4.0
   country_flags: ^4.0.0
-  crypto: ^3.0.0
+  crypto: ^3.0.8
   cryptography: ^2.7.0
   flutter:
     sdk: flutter
   file_selector: ^1.1.0
   http: ^1.0.0
-  liquid_glass_widgets: 1.4.4
+  liquid_glass_widgets: 1.17.1
   meta: ^1.12.0
   uuid: '>=3.0.6 <5.0.0'
   yaml: ^3.1.4
