@@ -31,7 +31,7 @@
 - [性能基线](PERFORMANCE.md)：关键路径测量方法、比较边界与回归处置。
 - [真机验收矩阵](UAT_MATRIX.md)：三端生命周期、无障碍、性能与电量的统一验收标准。
 - [项目健康状态](PROJECT_HEALTH.md)：最近一次审查基线、证据与已知风险。
-- [路线图](ROADMAP.md)：尚未完成的优先事项。
+- [路线图](ROADMAP.md)：项目目标、已定方案、当前进度与后续优先事项。
 - [根变更日志](../CHANGELOG.md)：正式版本的用户可见变化。
 - [发布检查清单](RELEASE_CHECKLIST.zh-CN.md)：正式发版的唯一逐步检查入口。
 - [OSS 发布运维](OSS_RELEASE_OPERATIONS.zh-CN.md)：发布、密钥轮换、故障恢复和回滚。
